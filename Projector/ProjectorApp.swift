@@ -10,41 +10,44 @@ struct ProjectorApp: App {
             ContentView()
         }
         .commands {
-            CommandGroup(replacing: .newItem) {
-                Button("Open...") {
-                    NotificationCenter.default.post(name: .openFile, object: nil)
-                }
-                .keyboardShortcut("o")
-            }
-
-            CommandGroup(replacing: .saveItem) {
-                Button("Save Project") {
-                    NSApp.sendAction(#selector(AppCommands.saveProject), to: nil, from: nil)
-                }
-                .keyboardShortcut("s")
-
-                Button("Save Project As...") {
-                    NSApp.sendAction(#selector(AppCommands.saveProjectAs), to: nil, from: nil)
-                }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
-            }
+            ProjectCommands()
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
     }
 }
 
-// MARK: - App Commands Protocol
+// MARK: - Project Commands
 
-@objc protocol AppCommands {
-    func saveProject()
-    func saveProjectAs()
+struct ProjectCommands: Commands {
+    var body: some Commands {
+        CommandGroup(replacing: .saveItem) {
+            Button("Save Project") {
+                NSApp.sendAction(
+                    #selector(AppDelegate.saveProject(_:)),
+                    to: AppDelegate.shared,
+                    from: nil
+                )
+            }
+            .keyboardShortcut("s", modifiers: .command)
+
+            Button("Save Project As...") {
+                NSApp.sendAction(
+                    #selector(AppDelegate.saveProjectAs(_:)),
+                    to: AppDelegate.shared,
+                    from: nil
+                )
+            }
+            .keyboardShortcut("s", modifiers: [.command, .shift])
+        }
+    }
 }
-
 
 // MARK: - App Delegate
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    static let shared = AppDelegate()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Setup notification observer for file open
         NotificationCenter.default.addObserver(
@@ -59,6 +62,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
     }
+
+    // MARK: - Save Actions (called via selector from menu commands)
+
+    @objc func saveProject(_ sender: Any?) {
+        NotificationCenter.default.post(name: .saveProject, object: nil)
+    }
+
+    @objc func saveProjectAs(_ sender: Any?) {
+        NotificationCenter.default.post(name: .saveProjectAs, object: nil)
+    }
+
+    // MARK: - Open Action
 
     private func openFile() {
         guard let window = NSApp.mainWindow else { return }
@@ -81,4 +96,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 extension Notification.Name {
     static let openFile = Notification.Name("openFile")
     static let videoFileSelected = Notification.Name("videoFileSelected")
+    static let saveProject = Notification.Name("saveProject")
+    static let saveProjectAs = Notification.Name("saveProjectAs")
 }

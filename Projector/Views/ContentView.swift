@@ -69,43 +69,6 @@ extension NSFont {
     }
 }
 
-// MARK: - Menu Command Responder
-
-class MenuCommandResponder: NSView {
-    var onSaveProject: (() -> Void)?
-    var onSaveProjectAs: (() -> Void)?
-
-    override var acceptsFirstResponder: Bool { true }
-
-    @objc func saveProject() {
-        onSaveProject?()
-    }
-
-    @objc func saveProjectAs() {
-        onSaveProjectAs?()
-    }
-}
-
-struct MenuCommandResponderView: NSViewRepresentable {
-    let onSaveProject: () -> Void
-    let onSaveProjectAs: () -> Void
-
-    func makeNSView(context: Context) -> MenuCommandResponder {
-        let view = MenuCommandResponder()
-        view.onSaveProject = onSaveProject
-        view.onSaveProjectAs = onSaveProjectAs
-        DispatchQueue.main.async {
-            view.window?.makeFirstResponder(view)
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: MenuCommandResponder, context: Context) {
-        nsView.onSaveProject = onSaveProject
-        nsView.onSaveProjectAs = onSaveProjectAs
-    }
-}
-
 /// Main application content view
 struct ContentView: View {
     @StateObject private var playerManager = VideoPlayerManager()
@@ -123,17 +86,9 @@ struct ContentView: View {
     @State private var audioTracks: [AudioTrackInfo] = []
 
     var body: some View {
-        ZStack {
-            // Menu command responder (invisible, handles CMD+S etc)
-            MenuCommandResponderView(
-                onSaveProject: { saveProject() },
-                onSaveProjectAs: { saveProjectAs() }
-            )
-            .frame(width: 0, height: 0)
-
-            VStack(spacing: 0) {
-                // Video content area - takes all available space
-                VideoContentView(
+        VStack(spacing: 0) {
+            // Video content area - takes all available space
+            VideoContentView(
                 playerManager: playerManager,
                 showTimecode: settings.showTimecodeOverlay,
                 overlayPosition: settings.timecodeOverlayPosition,
@@ -238,7 +193,13 @@ struct ContentView: View {
                 projectDocument.timecodeOffset = newOffset
             }
         }
-        } // Close ZStack
+        // Save handlers - selector-backed commands bypass AppKit's Save validation
+        .onReceive(NotificationCenter.default.publisher(for: .saveProject)) { _ in
+            saveProject()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .saveProjectAs)) { _ in
+            saveProjectAs()
+        }
     }
 
     // MARK: - Save Operations
