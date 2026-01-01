@@ -71,14 +71,12 @@ extension NSFont {
 
 /// Main application content view
 struct ContentView: View {
-    @ObservedObject var projectState: ProjectState
     @StateObject private var playerManager = VideoPlayerManager()
     @StateObject private var midiManager = MIDIManager()
     @StateObject private var audioManager = AudioOutputManager()
     @StateObject private var waveformGenerator = WaveformGenerator()
+    @StateObject private var projectDocument = ProjectDocument()
     @ObservedObject private var settings = AppSettings.shared
-
-    private var projectDocument: ProjectDocument { projectState.document }
 
     @State private var showSettings = false
     @State private var isDropTargeted = false
@@ -188,9 +186,6 @@ struct ContentView: View {
             setupMIDICallbacks()
             setupAudioCallback()
             restoreSettings()
-            // Register save actions with projectState for menu commands
-            projectState.saveAction = { [self] in saveProject() }
-            projectState.saveAsAction = { [self] in saveProjectAs() }
         }
         // Track timecode offset changes
         .onReceive(playerManager.$timecodeOffset) { newOffset in
@@ -198,42 +193,8 @@ struct ContentView: View {
                 projectDocument.timecodeOffset = newOffset
             }
         }
-    }
-
-    // MARK: - Save Operations
-
-    private func saveProject() {
-        if projectDocument.fileURL != nil {
-            // Already has a file path, save directly
-            do {
-                try projectDocument.save()
-            } catch {
-                loadError = error.localizedDescription
-                showErrorAlert = true
-            }
-        } else {
-            // No file path yet, show Save As dialog
-            saveProjectAs()
-        }
-    }
-
-    private func saveProjectAs() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "projector")!]
-        panel.nameFieldStringValue = "Untitled.projector"
-        panel.title = "Save Project"
-        panel.message = "Choose a location to save your project"
-
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
-                do {
-                    try projectDocument.save(to: url)
-                } catch {
-                    loadError = error.localizedDescription
-                    showErrorAlert = true
-                }
-            }
-        }
+        // Publish projectDocument for menu commands
+        .focusedSceneValue(\.projectDocument, projectDocument)
     }
 
     // MARK: - Setup
@@ -414,5 +375,5 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView(projectState: ProjectState())
+    ContentView()
 }

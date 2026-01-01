@@ -1,13 +1,13 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 @main
 struct ProjectorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var projectState = ProjectState()
 
     var body: some Scene {
         WindowGroup {
-            ContentView(projectState: projectState)
+            ContentView()
         }
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -17,40 +17,73 @@ struct ProjectorApp: App {
                 .keyboardShortcut("o")
             }
 
-            ProjectCommands(projectState: projectState)
+            ProjectCommands()
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
     }
 }
 
-// MARK: - Project State (shared between App and Views)
-
-@MainActor
-class ProjectState: ObservableObject {
-    @Published var document = ProjectDocument()
-
-    var saveAction: (() -> Void)?
-    var saveAsAction: (() -> Void)?
-}
-
 // MARK: - Project Commands
 
 struct ProjectCommands: Commands {
-    @ObservedObject var projectState: ProjectState
+    @FocusedValue(\.projectDocument) var projectDocument
 
     var body: some Commands {
         CommandGroup(replacing: .saveItem) {
             Button("Save Project") {
-                projectState.saveAction?()
+                saveProject()
             }
             .keyboardShortcut("s")
+            .disabled(projectDocument == nil)
 
             Button("Save Project As...") {
-                projectState.saveAsAction?()
+                saveProjectAs()
             }
             .keyboardShortcut("s", modifiers: [.command, .shift])
+            .disabled(projectDocument == nil)
         }
+    }
+
+    private func saveProject() {
+        guard let document = projectDocument else { return }
+        if document.fileURL != nil {
+            do {
+                try document.save()
+            } catch {
+                print("Save error: \(error)")
+            }
+        } else {
+            saveProjectAs()
+        }
+    }
+
+    private func saveProjectAs() {
+        guard let document = projectDocument else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "projector")!]
+        panel.nameFieldStringValue = "Untitled.projector"
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try document.save(to: url)
+            } catch {
+                print("Save error: \(error)")
+            }
+        }
+    }
+}
+
+// MARK: - Focused Values
+
+struct ProjectDocumentKey: FocusedValueKey {
+    typealias Value = ProjectDocument
+}
+
+extension FocusedValues {
+    var projectDocument: ProjectDocument? {
+        get { self[ProjectDocumentKey.self] }
+        set { self[ProjectDocumentKey.self] = newValue }
     }
 }
 
