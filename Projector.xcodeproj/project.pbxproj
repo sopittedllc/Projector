@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -34,7 +34,42 @@
 		A1000001227D3F00000000C8 /* AudioTrackWaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000088 /* AudioTrackWaveformView.swift */; };
 		A1000001227D3F00000000C9 /* TimecodeOCRManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000090 /* TimecodeOCRManager.swift */; };
 		A1000001227D3F00000000D0 /* ProjectDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000D1 /* ProjectDocument.swift */; };
+		A1000001227D3F00000000E2 /* DocumentIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000E3 /* DocumentIcon.icns */; };
+		B149C5462F0722DA001F9C85 /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B149C5452F0722DA001F9C85 /* Quartz.framework */; };
+		B149C5522F0722DB001F9C85 /* ProjectorQuickLook.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B149C5432F0722DA001F9C85 /* ProjectorQuickLook.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B149C5582F07238C001F9C85 /* DocumentIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000E3 /* DocumentIcon.icns */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		B149C5502F0722DB001F9C85 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1000001227D3F0000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B149C5422F0722DA001F9C85;
+			remoteInfo = ProjectorQuickLook;
+		};
+		B149C5592F07248D001F9C85 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1000001227D3F0000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B149C5422F0722DA001F9C85;
+			remoteInfo = ProjectorQuickLook;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B149C5532F0722DB001F9C85 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				B149C5522F0722DB001F9C85 /* ProjectorQuickLook.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A1000001227D3F0000000010 /* Projector.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Projector.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -44,7 +79,6 @@
 		A1000001227D3F0000000014 /* TransportBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportBarView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000015 /* VideoPlayerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerManager.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		A1000001227D3F00000000E1 /* Credits.rtf */ = {isa = PBXFileReference; lastKnownFileType = text.rtf; path = Credits.rtf; sourceTree = "<group>"; };
 		A1000001227D3F0000000019 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1000001227D3F000000001A /* Projector.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Projector.entitlements; sourceTree = "<group>"; };
 		A1000001227D3F000000001C /* VideoDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDocument.swift; sourceTree = "<group>"; };
@@ -62,7 +96,25 @@
 		A1000001227D3F0000000088 /* AudioTrackWaveformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTrackWaveformView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000090 /* TimecodeOCRManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeOCRManager.swift; sourceTree = "<group>"; };
 		A1000001227D3F00000000D1 /* ProjectDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDocument.swift; sourceTree = "<group>"; };
+		A1000001227D3F00000000E1 /* Credits.rtf */ = {isa = PBXFileReference; lastKnownFileType = text.rtf; path = Credits.rtf; sourceTree = "<group>"; };
+		A1000001227D3F00000000E3 /* DocumentIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = DocumentIcon.icns; sourceTree = "<group>"; };
+		B149C5432F0722DA001F9C85 /* ProjectorQuickLook.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ProjectorQuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B149C5452F0722DA001F9C85 /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		B149C5562F0722DB001F9C85 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = B149C5422F0722DA001F9C85 /* ProjectorQuickLook */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		B149C5472F0722DA001F9C85 /* ProjectorQuickLook */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (B149C5562F0722DB001F9C85 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ProjectorQuickLook; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A1000001227D3F000000000D /* Frameworks */ = {
@@ -77,6 +129,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B149C5402F0722DA001F9C85 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B149C5462F0722DA001F9C85 /* Quartz.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -84,6 +144,8 @@
 			isa = PBXGroup;
 			children = (
 				A1000001227D3F0000000021 /* Projector */,
+				B149C5472F0722DA001F9C85 /* ProjectorQuickLook */,
+				B149C5442F0722DA001F9C85 /* Frameworks */,
 				A1000001227D3F000000002F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -143,6 +205,7 @@
 			children = (
 				A1000001227D3F0000000018 /* Assets.xcassets */,
 				A1000001227D3F00000000E1 /* Credits.rtf */,
+				A1000001227D3F00000000E3 /* DocumentIcon.icns */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -151,6 +214,7 @@
 			isa = PBXGroup;
 			children = (
 				A1000001227D3F0000000010 /* Projector.app */,
+				B149C5432F0722DA001F9C85 /* ProjectorQuickLook.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -167,6 +231,14 @@
 			path = Timeline;
 			sourceTree = "<group>";
 		};
+		B149C5442F0722DA001F9C85 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				B149C5452F0722DA001F9C85 /* Quartz.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -177,10 +249,13 @@
 				A1000001227D3F000000000C /* Sources */,
 				A1000001227D3F000000000D /* Frameworks */,
 				A1000001227D3F000000000E /* Resources */,
+				B149C5532F0722DB001F9C85 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				B149C5512F0722DB001F9C85 /* PBXTargetDependency */,
+				B149C55A2F07248D001F9C85 /* PBXTargetDependency */,
 			);
 			name = Projector;
 			packageProductDependencies = (
@@ -194,6 +269,28 @@
 			productReference = A1000001227D3F0000000010 /* Projector.app */;
 			productType = "com.apple.product-type.application";
 		};
+		B149C5422F0722DA001F9C85 /* ProjectorQuickLook */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B149C5572F0722DB001F9C85 /* Build configuration list for PBXNativeTarget "ProjectorQuickLook" */;
+			buildPhases = (
+				B149C53F2F0722DA001F9C85 /* Sources */,
+				B149C5402F0722DA001F9C85 /* Frameworks */,
+				B149C5412F0722DA001F9C85 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B149C5472F0722DA001F9C85 /* ProjectorQuickLook */,
+			);
+			name = ProjectorQuickLook;
+			packageProductDependencies = (
+			);
+			productName = ProjectorQuickLook;
+			productReference = B149C5432F0722DA001F9C85 /* ProjectorQuickLook.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -201,11 +298,14 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1600;
+				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
 					A1000001227D3F000000000F = {
 						CreatedOnToolsVersion = 16.0;
+					};
+					B149C5422F0722DA001F9C85 = {
+						CreatedOnToolsVersion = 26.2;
 					};
 				};
 			};
@@ -227,6 +327,7 @@
 			projectRoot = "";
 			targets = (
 				A1000001227D3F000000000F /* Projector */,
+				B149C5422F0722DA001F9C85 /* ProjectorQuickLook */,
 			);
 		};
 /* End PBXProject section */
@@ -238,6 +339,15 @@
 			files = (
 				A1000001227D3F00000000B8 /* Assets.xcassets in Resources */,
 				A1000001227D3F00000000B9 /* Credits.rtf in Resources */,
+				A1000001227D3F00000000E2 /* DocumentIcon.icns in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B149C5412F0722DA001F9C85 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B149C5582F07238C001F9C85 /* DocumentIcon.icns in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -271,7 +381,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B149C53F2F0722DA001F9C85 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		B149C5512F0722DB001F9C85 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B149C5422F0722DA001F9C85 /* ProjectorQuickLook */;
+			targetProxy = B149C5502F0722DB001F9C85 /* PBXContainerItemProxy */;
+		};
+		B149C55A2F07248D001F9C85 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B149C5422F0722DA001F9C85 /* ProjectorQuickLook */;
+			targetProxy = B149C5592F07248D001F9C85 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A1000001227D3F0000000050 /* Debug */ = {
@@ -456,6 +586,66 @@
 			};
 			name = Release;
 		};
+		B149C5542F0722DB001F9C85 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ProjectorQuickLook/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ProjectorQuickLook;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.projector.app.ProjectorQuickLook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		B149C5552F0722DB001F9C85 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ProjectorQuickLook/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ProjectorQuickLook;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.projector.app.ProjectorQuickLook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -473,6 +663,15 @@
 			buildConfigurations = (
 				A1000001227D3F0000000052 /* Debug */,
 				A1000001227D3F0000000053 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B149C5572F0722DB001F9C85 /* Build configuration list for PBXNativeTarget "ProjectorQuickLook" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B149C5542F0722DB001F9C85 /* Debug */,
+				B149C5552F0722DB001F9C85 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -44,3 +44,16 @@ ContentView (GeometryReader)
 ```
 
 - `transportHeight = 120` accounts for TransportBarView content + internal padding (12) + external margin (16)
+
+## Current Issue: Document Icon for .projector Files
+
+**Status**: Icon configured but not appearing in Finder after logout/login
+
+**What's Done**:
+- DocumentIcon in asset catalog (Assets.xcassets/DocumentIcon.imageset/) with logo at 1x, 2x, 3x
+- Info.plist has UTTypeIconName = "DocumentIcon" and CFBundleTypeIconFile fallback
+- UTType conforms to public.data only
+- App in /Applications and registered with Launch Services
+- lsregister shows: `flags: active exported trusted`, `icons: UTTypeIconName = DocumentIcon`
+
+**Test Files**: ~/Desktop/fresh-test.projector, ~/Downloads/*.projector

@@ -181,13 +181,26 @@ final class ProjectDocument: ObservableObject {
 
     // MARK: - File Operations
 
-    /// Save project to the specified URL
+    /// The filename for project data inside the package
+    private static let projectDataFilename = "project.json"
+
+    /// Save project to the specified URL (as a package directory)
     func save(to url: URL) throws {
         let data = try encode()
         NSLog(">>> ProjectDocument.save: saving to %@", url.path)
         NSLog(">>> ProjectDocument.save: videoURL = %@", videoURL?.path ?? "nil")
         NSLog(">>> ProjectDocument.save: data = %@", String(data: data, encoding: .utf8) ?? "nil")
-        try data.write(to: url)
+
+        // Create package directory if it doesn't exist
+        let fileManager = FileManager.default
+        if !fileManager.fileExists(atPath: url.path) {
+            try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+
+        // Write project data inside the package
+        let dataURL = url.appendingPathComponent(Self.projectDataFilename)
+        try data.write(to: dataURL)
+
         fileURL = url
         hasUnsavedChanges = false
     }
@@ -200,10 +213,14 @@ final class ProjectDocument: ObservableObject {
         try save(to: url)
     }
 
-    /// Load project from the specified URL
+    /// Load project from the specified URL (package directory)
     func load(from url: URL) throws {
         NSLog(">>> ProjectDocument.load: loading from %@", url.path)
-        let data = try Data(contentsOf: url)
+
+        // Read project data from inside the package
+        let dataURL = url.appendingPathComponent(Self.projectDataFilename)
+        let data = try Data(contentsOf: dataURL)
+
         NSLog(">>> ProjectDocument.load: data = %@", String(data: data, encoding: .utf8) ?? "nil")
         try decode(from: data)
         NSLog(">>> ProjectDocument.load: after decode, videoURL = %@", videoURL?.path ?? "nil")
