@@ -22,42 +22,42 @@ struct WindowAccessor: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         DispatchQueue.main.async {
-            updateWindowTitle(view.window)
+            self.updateWindowTitle(view.window)
         }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async {
-            updateWindowTitle(nsView.window)
+            self.updateWindowTitle(nsView.window)
         }
     }
 
     private func updateWindowTitle(_ window: NSWindow?) {
         guard let window = window else { return }
 
-        // Find the title text field in the titlebar
-        if let titlebarView = window.standardWindowButton(.closeButton)?.superview?.superview {
-            for subview in titlebarView.subviews {
-                if let textField = subview as? NSTextField {
-                    let displayTitle = title + (isEdited ? " *" : "")
+        let displayTitle = title + (isEdited ? " *" : "")
+        window.title = displayTitle
 
-                    if isEdited {
-                        let attributed = NSAttributedString(
-                            string: displayTitle,
-                            attributes: [
-                                .font: NSFont.systemFont(ofSize: 13, weight: .regular).withTraits(.italic),
-                                .foregroundColor: NSColor.labelColor
-                            ]
-                        )
-                        textField.attributedStringValue = attributed
-                    } else {
-                        textField.stringValue = displayTitle
-                        textField.font = NSFont.systemFont(ofSize: 13, weight: .regular)
-                    }
-                    break
+        // Find and style the title text field for italics
+        if let titlebarContainer = window.standardWindowButton(.closeButton)?.superview?.superview {
+            styleTitleTextField(in: titlebarContainer)
+        }
+    }
+
+    private func styleTitleTextField(in view: NSView) {
+        for subview in view.subviews {
+            if let textField = subview as? NSTextField,
+               textField.stringValue.contains(title) {
+                if isEdited {
+                    textField.font = NSFont.systemFont(ofSize: 13, weight: .regular).withTraits(.italic)
+                } else {
+                    textField.font = NSFont.systemFont(ofSize: 13, weight: .regular)
                 }
+                return
             }
+            // Recursively search subviews
+            styleTitleTextField(in: subview)
         }
     }
 }
