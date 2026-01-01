@@ -16,13 +16,13 @@
 		A1000001227D3F0000000072 /* AudioOutputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000071 /* AudioOutputManager.swift */; };
 		A1000001227D3F0000000074 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000073 /* SettingsView.swift */; };
 		A1000001227D3F0000000076 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000075 /* AppSettings.swift */; };
-		A1000001227D3F00000000D0 /* ProjectDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000D1 /* ProjectDocument.swift */; };
 		A1000001227D3F00000000B1 /* ProjectorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000011 /* ProjectorApp.swift */; };
 		A1000001227D3F00000000B2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000012 /* ContentView.swift */; };
 		A1000001227D3F00000000B3 /* VideoPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000013 /* VideoPlayerView.swift */; };
 		A1000001227D3F00000000B4 /* TransportBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000014 /* TransportBarView.swift */; };
 		A1000001227D3F00000000B5 /* VideoPlayerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000015 /* VideoPlayerManager.swift */; };
 		A1000001227D3F00000000B8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000018 /* Assets.xcassets */; };
+		A1000001227D3F00000000B9 /* Credits.rtf in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000E1 /* Credits.rtf */; };
 		A1000001227D3F00000000BA /* VideoDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F000000001C /* VideoDocument.swift */; };
 		A1000001227D3F00000000C1 /* AudioTrackInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000081 /* AudioTrackInfo.swift */; };
 		A1000001227D3F00000000C2 /* WaveformData.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000082 /* WaveformData.swift */; };
@@ -33,6 +33,7 @@
 		A1000001227D3F00000000C7 /* WaveformShape.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000087 /* WaveformShape.swift */; };
 		A1000001227D3F00000000C8 /* AudioTrackWaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000088 /* AudioTrackWaveformView.swift */; };
 		A1000001227D3F00000000C9 /* TimecodeOCRManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000090 /* TimecodeOCRManager.swift */; };
+		A1000001227D3F00000000D0 /* ProjectDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000D1 /* ProjectDocument.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +44,7 @@
 		A1000001227D3F0000000014 /* TransportBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportBarView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000015 /* VideoPlayerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerManager.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A1000001227D3F00000000E1 /* Credits.rtf */ = {isa = PBXFileReference; lastKnownFileType = text.rtf; path = Credits.rtf; sourceTree = "<group>"; };
 		A1000001227D3F0000000019 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1000001227D3F000000001A /* Projector.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Projector.entitlements; sourceTree = "<group>"; };
 		A1000001227D3F000000001C /* VideoDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDocument.swift; sourceTree = "<group>"; };
@@ -50,7 +52,6 @@
 		A1000001227D3F0000000071 /* AudioOutputManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioOutputManager.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000073 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000075 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
-		A1000001227D3F00000000D1 /* ProjectDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDocument.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000081 /* AudioTrackInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTrackInfo.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000082 /* WaveformData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformData.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000083 /* WaveformGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformGenerator.swift; sourceTree = "<group>"; };
@@ -60,6 +61,7 @@
 		A1000001227D3F0000000087 /* WaveformShape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformShape.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000088 /* AudioTrackWaveformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTrackWaveformView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000090 /* TimecodeOCRManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeOCRManager.swift; sourceTree = "<group>"; };
+		A1000001227D3F00000000D1 /* ProjectDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDocument.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -136,22 +138,11 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
-		A1000001227D3F0000000089 /* Timeline */ = {
-			isa = PBXGroup;
-			children = (
-				A1000001227D3F0000000084 /* ScrubberView.swift */,
-				A1000001227D3F0000000085 /* TimelineRulerView.swift */,
-				A1000001227D3F0000000086 /* TimelineView.swift */,
-				A1000001227D3F0000000087 /* WaveformShape.swift */,
-				A1000001227D3F0000000088 /* AudioTrackWaveformView.swift */,
-			);
-			path = Timeline;
-			sourceTree = "<group>";
-		};
 		A1000001227D3F0000000026 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
 				A1000001227D3F0000000018 /* Assets.xcassets */,
+				A1000001227D3F00000000E1 /* Credits.rtf */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -162,6 +153,18 @@
 				A1000001227D3F0000000010 /* Projector.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A1000001227D3F0000000089 /* Timeline */ = {
+			isa = PBXGroup;
+			children = (
+				A1000001227D3F0000000084 /* ScrubberView.swift */,
+				A1000001227D3F0000000085 /* TimelineRulerView.swift */,
+				A1000001227D3F0000000086 /* TimelineView.swift */,
+				A1000001227D3F0000000087 /* WaveformShape.swift */,
+				A1000001227D3F0000000088 /* AudioTrackWaveformView.swift */,
+			);
+			path = Timeline;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -234,6 +237,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000001227D3F00000000B8 /* Assets.xcassets in Resources */,
+				A1000001227D3F00000000B9 /* Credits.rtf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

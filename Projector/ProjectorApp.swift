@@ -1,6 +1,14 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - Custom UTType for .projector files
+
+extension UTType {
+    static var projectorProject: UTType {
+        UTType(exportedAs: "com.keegandewitt.projector.project")
+    }
+}
+
 @main
 struct ProjectorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -11,15 +19,43 @@ struct ProjectorApp: App {
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
+        .handlesExternalEvents(matching: ["projector", "file"])
     }
 }
 
+
 // MARK: - App Delegate
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+    private var hasSetupMenus = false
+
+    /// URL to open when the app finishes launching (for file double-click)
+    static var pendingOpenURL: URL?
+
+    /// Tracks if there are unsaved changes (set by ContentView)
+    static var hasUnsavedChanges = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        setupMenus()
+        NSLog(">>> AppDelegate: applicationDidFinishLaunching")
+
+        // Swizzle NSApplication's sendEvent to intercept CMD+S
+        swizzleSendEvent()
+
+        // Setup menus after a delay to ensure SwiftUI has created them
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            NSLog(">>> AppDelegate: delayed setupMenus call")
+            self?.setupMenus()
+        }
+
+        // Also setup menus when the app becomes active (handles reactivation)
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            NSLog(">>> AppDelegate: didBecomeActive")
+            self?.setupMenus()
+        }
 
         // Setup notification observer for file open
         NotificationCenter.default.addObserver(
@@ -31,25 +67,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func swizzleSendEvent() {
+        let originalSelector = #selector(NSApplication.sendEvent(_:))
+        let swizzledSelector = #selector(NSApplication.projector_sendEvent(_:))
+
+        guard let originalMethod = class_getInstanceMethod(NSApplication.self, originalSelector),
+              let swizzledMethod = class_getInstanceMethod(NSApplication.self, swizzledSelector) else {
+            NSLog(">>> Failed to swizzle sendEvent")
+            return
+        }
+
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+        NSLog(">>> sendEvent swizzled successfully")
+    }
+
     private func setupMenus() {
-        // Find the File menu
-        guard let mainMenu = NSApp.mainMenu,
-              let fileMenuItem = mainMenu.item(withTitle: "File"),
-              let fileMenu = fileMenuItem.submenu else { return }
+        guard !hasSetupMenus else {
+            NSLog(">>> setupMenus: already setup")
+            return
+        }
 
-        // Remove existing Save items if any
-        fileMenu.items.removeAll { $0.title.contains("Save") || $0.title == "Close" }
+        // Find the File menu (usually second after App menu)
+        guard let mainMenu = NSApp.mainMenu else {
+            NSLog(">>> setupMenus: no mainMenu")
+            return
+        }
 
-        // Add Save Project
+        NSLog(">>> setupMenus: mainMenu has %d items: %@", mainMenu.items.count, mainMenu.items.map { $0.title })
+
+        guard mainMenu.items.count > 1 else {
+            NSLog(">>> setupMenus: not enough menu items")
+            return
+        }
+
+        let fileMenuItem = mainMenu.items[1]
+        NSLog(">>> setupMenus: fileMenuItem title: %@", fileMenuItem.title)
+
+        hasSetupMenus = true
+
+        // Create a completely new File menu (prevents SwiftUI from managing it)
+        let newFileMenu = NSMenu(title: "File")
+        newFileMenu.autoenablesItems = false
+
+        // Save Project
         let saveItem = NSMenuItem(
             title: "Save Project",
             action: #selector(saveProject(_:)),
             keyEquivalent: "s"
         )
         saveItem.target = self
-        fileMenu.insertItem(saveItem, at: 0)
+        saveItem.isEnabled = true
+        newFileMenu.addItem(saveItem)
 
-        // Add Save Project As
+        // Save Project As
         let saveAsItem = NSMenuItem(
             title: "Save Project As...",
             action: #selector(saveProjectAs(_:)),
@@ -57,24 +127,155 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         saveAsItem.keyEquivalentModifierMask = [.command, .shift]
         saveAsItem.target = self
-        fileMenu.insertItem(saveAsItem, at: 1)
+        saveAsItem.isEnabled = true
+        newFileMenu.addItem(saveAsItem)
 
-        // Add separator
-        fileMenu.insertItem(NSMenuItem.separator(), at: 2)
+        newFileMenu.addItem(NSMenuItem.separator())
+
+        // Open Project
+        let openItem = NSMenuItem(
+            title: "Open Project...",
+            action: #selector(openProjectMenu(_:)),
+            keyEquivalent: "o"
+        )
+        openItem.target = self
+        openItem.isEnabled = true
+        newFileMenu.addItem(openItem)
+
+        newFileMenu.addItem(NSMenuItem.separator())
+
+        // New Window
+        let newWindowItem = NSMenuItem(
+            title: "New Window",
+            action: #selector(NSApplication.newWindowForTab(_:)),
+            keyEquivalent: "n"
+        )
+        newFileMenu.addItem(newWindowItem)
+
+        newFileMenu.addItem(NSMenuItem.separator())
+
+        // Close All
+        let closeAllItem = NSMenuItem(
+            title: "Close All",
+            action: #selector(NSWindow.close),
+            keyEquivalent: "w"
+        )
+        closeAllItem.keyEquivalentModifierMask = [.command, .option]
+        newFileMenu.addItem(closeAllItem)
+
+        // Replace the submenu entirely
+        fileMenuItem.submenu = newFileMenu
+
+        NSLog(">>> setupMenus: DONE. Replaced File menu with: %@", newFileMenu.items.map { $0.title })
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard AppDelegate.hasUnsavedChanges else {
+            return .terminateNow
+        }
+
+        // Show alert for unsaved changes
+        let alert = NSAlert()
+        alert.messageText = "You have unsaved changes"
+        alert.informativeText = "Do you want to save your changes before quitting?"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Don't Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let response = alert.runModal()
+
+        switch response {
+        case .alertFirstButtonReturn: // Save
+            NotificationCenter.default.post(name: .saveProject, object: nil)
+            // Give a moment for save to complete
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                NSApp.terminate(nil)
+            }
+            return .terminateCancel
+
+        case .alertSecondButtonReturn: // Don't Save
+            return .terminateNow
+
+        case .alertThirdButtonReturn: // Cancel
+            return .terminateCancel
+
+        default:
+            return .terminateCancel
+        }
+    }
+
+    // MARK: - Open File from Finder/Dock
+
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        let url = URL(fileURLWithPath: filename)
+        NSLog(">>> AppDelegate.openFile: called with: %@", filename)
+
+        if url.pathExtension.lowercased() == "projector" {
+            openProjectFile(url: url)
+            return true
+        }
+        return false
+    }
+
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        NSLog(">>> AppDelegate.openFiles: called with %d files", filenames.count)
+        for filename in filenames {
+            _ = application(sender, openFile: filename)
+        }
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        NSLog(">>> AppDelegate.open(urls:): called with %d URLs", urls.count)
+        for url in urls {
+            NSLog(">>> AppDelegate.open(urls:): processing %@", url.path)
+            if url.pathExtension.lowercased() == "projector" {
+                openProjectFile(url: url)
+            }
+        }
+    }
+
+    private func openProjectFile(url: URL) {
+        NSLog(">>> AppDelegate.openProjectFile: %@", url.path)
+
+        // Delay notification to ensure SwiftUI view is ready
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NSLog(">>> AppDelegate.openProjectFile: posting notification")
+            NotificationCenter.default.post(name: .openProjectFile, object: url)
+        }
+    }
+
+    // MARK: - Menu Validation
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        // Always enable our custom Save menu items
+        if menuItem.action == #selector(saveProject(_:)) ||
+           menuItem.action == #selector(saveProjectAs(_:)) {
+            return true
+        }
+        return true
+    }
+
     // MARK: - Save Actions (called via selector from menu commands)
 
     @objc func saveProject(_ sender: Any?) {
+        NSLog(">>> saveProject called, posting notification")
+        NSSound.beep() // Audio feedback
         NotificationCenter.default.post(name: .saveProject, object: nil)
     }
 
     @objc func saveProjectAs(_ sender: Any?) {
+        NSLog(">>> saveProjectAs called, posting notification")
         NotificationCenter.default.post(name: .saveProjectAs, object: nil)
+    }
+
+    @objc func openProjectMenu(_ sender: Any?) {
+        NSLog(">>> openProjectMenu called, posting notification")
+        NotificationCenter.default.post(name: .openProjectFromMenu, object: nil)
     }
 
     // MARK: - Open Action
@@ -99,7 +300,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension Notification.Name {
     static let openFile = Notification.Name("openFile")
+    static let openProjectFile = Notification.Name("openProjectFile")
+    static let openProjectFromMenu = Notification.Name("openProjectFromMenu")
     static let videoFileSelected = Notification.Name("videoFileSelected")
     static let saveProject = Notification.Name("saveProject")
     static let saveProjectAs = Notification.Name("saveProjectAs")
+    static let checkUnsavedChanges = Notification.Name("checkUnsavedChanges")
+}
+
+// MARK: - NSApplication Swizzling for CMD+S
+
+extension NSApplication {
+    @objc func projector_sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if flags.contains(.command),
+               let chars = event.charactersIgnoringModifiers?.lowercased() {
+
+                // CMD+S / CMD+Shift+S - Save
+                if chars == "s" {
+                    if flags.contains(.shift) {
+                        NSLog(">>> Swizzled sendEvent: CMD+Shift+S detected!")
+                        NotificationCenter.default.post(name: .saveProjectAs, object: nil)
+                    } else {
+                        NSLog(">>> Swizzled sendEvent: CMD+S detected!")
+                        NotificationCenter.default.post(name: .saveProject, object: nil)
+                    }
+                    return
+                }
+
+                // CMD+O - Open
+                if chars == "o" && !flags.contains(.shift) {
+                    NSLog(">>> Swizzled sendEvent: CMD+O detected!")
+                    NotificationCenter.default.post(name: .openProjectFromMenu, object: nil)
+                    return
+                }
+            }
+        }
+        // Call original (which is now projector_sendEvent due to swizzle)
+        projector_sendEvent(event)
+    }
 }

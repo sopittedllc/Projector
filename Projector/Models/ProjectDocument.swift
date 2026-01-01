@@ -77,6 +77,7 @@ final class ProjectDocument: ObservableObject {
     /// Project data structure for saving/loading
     struct ProjectData: Codable {
         var videoPath: String?
+        var videoBookmark: Data?  // Security-scoped bookmark for sandbox access
         var timecodeOffsetFrames: Int
         var frameRateIdentifier: String
         var audioRouting: [String: Int]
@@ -85,8 +86,23 @@ final class ProjectDocument: ObservableObject {
 
     /// Encode project to data
     func encode() throws -> Data {
+        // Create security-scoped bookmark for video file (persists sandbox access)
+        var videoBookmark: Data?
+        if let videoURL = videoURL {
+            do {
+                videoBookmark = try videoURL.bookmarkData(
+                    options: .withSecurityScope,
+                    includingResourceValuesForKeys: nil,
+                    relativeTo: nil
+                )
+            } catch {
+                NSLog(">>> ProjectDocument.encode: failed to create bookmark: %@", error.localizedDescription)
+            }
+        }
+
         let data = ProjectData(
             videoPath: videoURL?.path,
+            videoBookmark: videoBookmark,
             timecodeOffsetFrames: timecodeOffset.frameCount.wholeFrames,
             frameRateIdentifier: frameRate.stringValueVerbose,
             audioRouting: audioRouting.reduce(into: [:]) { $0[String($1.key)] = $1.value }
@@ -102,7 +118,40 @@ final class ProjectDocument: ObservableObject {
         let decoder = JSONDecoder()
         let projectData = try decoder.decode(ProjectData.self, from: data)
 
-        if let path = projectData.videoPath {
+        // Try to resolve security-scoped bookmark first (for sandbox access)
+        if let bookmarkData = projectData.videoBookmark {
+            do {
+                var isStale = false
+                let resolvedURL = try URL(
+                    resolvingBookmarkData: bookmarkData,
+                    options: .withSecurityScope,
+                    relativeTo: nil,
+                    bookmarkDataIsStale: &isStale
+                )
+
+                // Start accessing the security-scoped resource
+                if resolvedURL.startAccessingSecurityScopedResource() {
+                    videoURL = resolvedURL
+                    NSLog(">>> ProjectDocument.decode: resolved bookmark to %@", resolvedURL.path)
+                } else {
+                    NSLog(">>> ProjectDocument.decode: failed to start accessing security-scoped resource")
+                    // Fall back to path
+                    if let path = projectData.videoPath {
+                        videoURL = URL(fileURLWithPath: path)
+                    }
+                }
+
+                if isStale {
+                    NSLog(">>> ProjectDocument.decode: bookmark is stale, may need to re-save")
+                }
+            } catch {
+                NSLog(">>> ProjectDocument.decode: failed to resolve bookmark: %@", error.localizedDescription)
+                // Fall back to path
+                if let path = projectData.videoPath {
+                    videoURL = URL(fileURLWithPath: path)
+                }
+            }
+        } else if let path = projectData.videoPath {
             videoURL = URL(fileURLWithPath: path)
         } else {
             videoURL = nil
@@ -135,6 +184,9 @@ final class ProjectDocument: ObservableObject {
     /// Save project to the specified URL
     func save(to url: URL) throws {
         let data = try encode()
+        NSLog(">>> ProjectDocument.save: saving to %@", url.path)
+        NSLog(">>> ProjectDocument.save: videoURL = %@", videoURL?.path ?? "nil")
+        NSLog(">>> ProjectDocument.save: data = %@", String(data: data, encoding: .utf8) ?? "nil")
         try data.write(to: url)
         fileURL = url
         hasUnsavedChanges = false
@@ -150,8 +202,11 @@ final class ProjectDocument: ObservableObject {
 
     /// Load project from the specified URL
     func load(from url: URL) throws {
+        NSLog(">>> ProjectDocument.load: loading from %@", url.path)
         let data = try Data(contentsOf: url)
+        NSLog(">>> ProjectDocument.load: data = %@", String(data: data, encoding: .utf8) ?? "nil")
         try decode(from: data)
+        NSLog(">>> ProjectDocument.load: after decode, videoURL = %@", videoURL?.path ?? "nil")
         fileURL = url
     }
 

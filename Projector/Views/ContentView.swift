@@ -193,12 +193,32 @@ struct ContentView: View {
                 projectDocument.timecodeOffset = newOffset
             }
         }
+        // Sync unsaved changes state with AppDelegate for quit confirmation
+        .onReceive(projectDocument.$hasUnsavedChanges) { hasChanges in
+            AppDelegate.hasUnsavedChanges = hasChanges
+        }
         // Save handlers - selector-backed commands bypass AppKit's Save validation
         .onReceive(NotificationCenter.default.publisher(for: .saveProject)) { _ in
             saveProject()
         }
         .onReceive(NotificationCenter.default.publisher(for: .saveProjectAs)) { _ in
             saveProjectAs()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openProjectFile)) { notification in
+            NSLog(">>> ContentView: received openProjectFile notification")
+            if let url = notification.object as? URL {
+                NSLog(">>> ContentView: opening project from %@", url.path)
+                openProject(from: url)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openProjectFromMenu)) { _ in
+            showOpenProjectPanel()
+        }
+        .onOpenURL { url in
+            NSLog(">>> ContentView.onOpenURL: %@", url.path)
+            if url.pathExtension.lowercased() == "projector" {
+                openProject(from: url)
+            }
         }
     }
 
@@ -219,7 +239,7 @@ struct ContentView: View {
 
     private func saveProjectAs() {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "projector")!]
+        panel.allowedContentTypes = [.projectorProject]
         panel.nameFieldStringValue = "Untitled.projector"
         panel.title = "Save Project"
 
@@ -230,6 +250,49 @@ struct ContentView: View {
                 loadError = error.localizedDescription
                 showErrorAlert = true
             }
+        }
+    }
+
+    private func showOpenProjectPanel() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.projectorProject]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.title = "Open Project"
+
+        if panel.runModal() == .OK, let url = panel.url {
+            openProject(from: url)
+        }
+    }
+
+    private func openProject(from url: URL) {
+        do {
+            // Store the offset before loading (loadVideo resets it)
+            let savedTimecodeOffset = projectDocument.timecodeOffset
+
+            try projectDocument.load(from: url)
+            let restoredOffset = projectDocument.timecodeOffset
+            NSLog(">>> openProject: loaded timecodeOffset = %@", restoredOffset.stringValue())
+
+            // If project has a video URL, load it
+            if let videoURL = projectDocument.videoURL {
+                Task {
+                    await loadVideo(from: videoURL)
+
+                    // Restore timecode offset AFTER video loads (loadVideo resets it)
+                    // Use setTimecodeOffset to also update currentTimecode display
+                    playerManager.setTimecodeOffset(restoredOffset)
+                    projectDocument.timecodeOffset = restoredOffset  // Reset since loadVideo changed it
+                    NSLog(">>> openProject: restored timecodeOffset = %@", restoredOffset.stringValue())
+                }
+            } else {
+                // No video, just restore the offset
+                playerManager.setTimecodeOffset(restoredOffset)
+                NSLog(">>> openProject: restored timecodeOffset (no video) = %@", restoredOffset.stringValue())
+            }
+        } catch {
+            loadError = error.localizedDescription
+            showErrorAlert = true
         }
     }
 
