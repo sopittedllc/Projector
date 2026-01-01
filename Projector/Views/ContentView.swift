@@ -72,7 +72,6 @@ struct ContentView: View {
                         audioTracks: $audioTracks,
                         onTrackMuteChanged: { trackIndex, isMuted in
                             playerManager.setTrackMuted(trackIndex, muted: isMuted)
-                            projectDocument.audioMuteStates[trackIndex] = isMuted
                         }
                     )
                     .fixedSize(horizontal: false, vertical: true)
@@ -108,12 +107,11 @@ struct ContentView: View {
         }
         .frame(minWidth: 640, minHeight: 400)
         .background(Color(nsColor: .windowBackgroundColor))
-        .navigationTitle(projectDocument.displayName)
+        .navigationTitle("")
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text(projectDocument.displayName)
+                Text(projectDocument.displayName + (projectDocument.hasUnsavedChanges ? " *" : ""))
                     .font(.headline)
-                    .italic(projectDocument.hasUnsavedChanges)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .videoFileSelected)) { notification in

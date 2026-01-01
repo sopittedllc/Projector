@@ -43,11 +43,6 @@ final class ProjectDocument: ObservableObject {
         didSet { if oldValue != audioRouting { markDirty() } }
     }
 
-    /// Audio track mute states
-    @Published var audioMuteStates: [Int: Bool] = [:] { // trackIndex -> isMuted
-        didSet { if oldValue != audioMuteStates { markDirty() } }
-    }
-
     // MARK: - Initialization
 
     init() {
@@ -74,7 +69,6 @@ final class ProjectDocument: ObservableObject {
         timecodeOffset = Timecode(.components(h: 0, m: 0, s: 0, f: 0), at: .fps24, by: .clamping)
         frameRate = .fps24
         audioRouting = [:]
-        audioMuteStates = [:]
         hasUnsavedChanges = false
     }
 
@@ -86,7 +80,6 @@ final class ProjectDocument: ObservableObject {
         var timecodeOffsetFrames: Int
         var frameRateIdentifier: String
         var audioRouting: [String: Int]
-        var audioMuteStates: [String: Bool]
         var version: Int = 1
     }
 
@@ -96,8 +89,7 @@ final class ProjectDocument: ObservableObject {
             videoPath: videoURL?.path,
             timecodeOffsetFrames: timecodeOffset.frameCount.wholeFrames,
             frameRateIdentifier: frameRate.stringValueVerbose,
-            audioRouting: audioRouting.reduce(into: [:]) { $0[String($1.key)] = $1.value },
-            audioMuteStates: audioMuteStates.reduce(into: [:]) { $0[String($1.key)] = $1.value }
+            audioRouting: audioRouting.reduce(into: [:]) { $0[String($1.key)] = $1.value }
         )
 
         let encoder = JSONEncoder()
@@ -130,12 +122,6 @@ final class ProjectDocument: ObservableObject {
 
         // Parse audio routing
         audioRouting = projectData.audioRouting.reduce(into: [:]) {
-            if let key = Int($1.key) {
-                $0[key] = $1.value
-            }
-        }
-
-        audioMuteStates = projectData.audioMuteStates.reduce(into: [:]) {
             if let key = Int($1.key) {
                 $0[key] = $1.value
             }
