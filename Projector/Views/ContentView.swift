@@ -9,6 +9,7 @@ struct ContentView: View {
     @StateObject private var midiManager = MIDIManager()
     @StateObject private var audioManager = AudioOutputManager()
     @StateObject private var waveformGenerator = WaveformGenerator()
+    @StateObject private var projectDocument = ProjectDocument()
     @ObservedObject private var settings = AppSettings.shared
 
     @State private var showSettings = false
@@ -71,6 +72,7 @@ struct ContentView: View {
                         audioTracks: $audioTracks,
                         onTrackMuteChanged: { trackIndex, isMuted in
                             playerManager.setTrackMuted(trackIndex, muted: isMuted)
+                            projectDocument.audioMuteStates[trackIndex] = isMuted
                         }
                     )
                     .fixedSize(horizontal: false, vertical: true)
@@ -106,7 +108,14 @@ struct ContentView: View {
         }
         .frame(minWidth: 640, minHeight: 400)
         .background(Color(nsColor: .windowBackgroundColor))
-        .navigationTitle(playerManager.hasVideo ? playerManager.videoTitle : "Projector")
+        .navigationTitle(projectDocument.displayName)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(projectDocument.displayName)
+                    .font(.headline)
+                    .italic(projectDocument.hasUnsavedChanges)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .videoFileSelected)) { notification in
             if let url = notification.object as? URL {
                 Task {
@@ -118,6 +127,12 @@ struct ContentView: View {
             setupMIDICallbacks()
             setupAudioCallback()
             restoreSettings()
+        }
+        // Track timecode offset changes
+        .onReceive(playerManager.$timecodeOffset) { newOffset in
+            if projectDocument.timecodeOffset != newOffset {
+                projectDocument.timecodeOffset = newOffset
+            }
         }
     }
 
@@ -209,6 +224,10 @@ struct ContentView: View {
 
         do {
             try await playerManager.loadVideo(from: url)
+
+            // Update project document
+            projectDocument.videoURL = url
+            projectDocument.frameRate = playerManager.frameRate
 
             // Update MIDI manager with video's frame rate
             midiManager.setLocalFrameRate(playerManager.frameRate)
