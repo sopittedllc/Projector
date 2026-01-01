@@ -1,6 +1,15 @@
 {
-  "originHash" : "b9aab34d8f724232d35406ec581b4444b41706ac40c9d10c32a22fb52e14534d",
+  "originHash" : "3bd054f3d52e9a1cf3a642b8789a21b1e57e86ace891dc6a521f819ce10979ac",
   "pins" : [
+    {
+      "identity" : "iconoir-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/iconoir-icons/iconoir-swift",
+      "state" : {
+        "revision" : "66391f61281c4c203ae2003ebf66627dc849f233",
+        "version" : "7.5.1"
+      }
+    },
     {
       "identity" : "midikit",
       "kind" : "remoteSourceControl",

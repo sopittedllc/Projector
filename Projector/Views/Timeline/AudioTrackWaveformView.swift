@@ -1,4 +1,5 @@
 import SwiftUI
+import Iconoir
 
 /// Individual audio track row with waveform visualization
 struct AudioTrackWaveformView: View {
@@ -47,8 +48,8 @@ struct AudioTrackWaveformView: View {
 
                 // Mute button
                 Button(action: onMuteTap) {
-                    Image(systemName: track.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                        .font(.system(size: 12))
+                    (track.isMuted ? Iconoir.soundOff.asImage : Iconoir.soundHigh.asImage)
+                        .frame(width: 14, height: 14)
                         .foregroundColor(track.isMuted ? .red : .secondary)
                 }
                 .buttonStyle(.plain)
@@ -72,8 +73,8 @@ struct AudioTrackWaveformView: View {
                     HStack(spacing: 4) {
                         Text(outputLabel)
                             .font(.system(size: 9))
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 7))
+                        Iconoir.navArrowDown.asImage
+                            .frame(width: 10, height: 10)
                             .foregroundColor(.secondary)
                     }
                     .padding(.horizontal, 6)
@@ -174,15 +175,6 @@ struct AudioTrackWaveformView: View {
         VStack(alignment: .trailing, spacing: 4) {
             Spacer()
 
-            // Peak level indicator placeholder (future feature)
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(track.isMuted ? Color.red.opacity(0.3) : Color.green.opacity(0.5))
-                    .frame(width: 6, height: 6)
-                Text(track.isMuted ? "Muted" : "Active")
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary)
-            }
 
             Spacer()
         }

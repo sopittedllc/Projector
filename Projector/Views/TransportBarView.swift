@@ -1,5 +1,9 @@
 import SwiftUI
 import SwiftTimecodeCore
+import Iconoir
+
+/// Shared height for transport bar control boxes
+private let controlBoxHeight: CGFloat = 48
 
 /// Bottom transport bar with timecode display and controls
 struct TransportBarView: View {
@@ -10,8 +14,23 @@ struct TransportBarView: View {
     @State private var editingTimecodeText = ""
 
     var body: some View {
-        HStack(spacing: 16) {
-            // Timecode display with label - double-click to set current frame's timecode
+        HStack {
+            // Frame rate display
+            Text(playerManager.hasVideo ? "\(Int(playerManager.frameRate.fps))fps" : "--fps")
+                .font(.system(size: 16, weight: .medium, design: .monospaced))
+                .foregroundColor(.primary)
+                .padding(.horizontal, 10)
+                .frame(height: controlBoxHeight)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                        )
+                )
+
+            // Timecode display
             EditableTimecodeView(
                 timecode: playerManager.currentTimecode,
                 frameRate: playerManager.frameRate,
@@ -19,7 +38,6 @@ struct TransportBarView: View {
                 isEditing: $isEditingTimecode,
                 editingText: $editingTimecodeText,
                 onSetCurrentTimecode: { newTimecode in
-                    // Calculate new offset: newTimecode - currentPositionInFrames = newOffset
                     let currentPositionFrames = Int(playerManager.currentTime * playerManager.frameRate.fps)
                     let newTimecodeFrames = newTimecode.frameCount.wholeFrames
                     let newOffsetFrames = newTimecodeFrames - currentPositionFrames
@@ -29,69 +47,60 @@ struct TransportBarView: View {
                 }
             )
 
-            Spacer()
-
-            // Transport controls
+            // Transport controls in matching box
             HStack(spacing: 8) {
-                // Step backward
                 Button(action: { playerManager.stepBackward() }) {
-                    Image(systemName: "backward.frame.fill")
-                        .font(.title2)
+                    Iconoir.skipPrev.asImage
+                        .frame(width: 16, height: 16)
                 }
                 .buttonStyle(.plain)
                 .disabled(!playerManager.hasVideo)
 
-                // Play/Pause
                 Button(action: { playerManager.togglePlayback() }) {
-                    Image(systemName: playerManager.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.title)
+                    (playerManager.isPlaying ? Iconoir.pauseSolid.asImage : Iconoir.playSolid.asImage)
+                        .frame(width: 18, height: 18)
                 }
                 .buttonStyle(.plain)
                 .disabled(!playerManager.hasVideo)
                 .keyboardShortcut(.space, modifiers: [])
 
-                // Step forward
                 Button(action: { playerManager.stepForward() }) {
-                    Image(systemName: "forward.frame.fill")
-                        .font(.title2)
+                    Iconoir.skipNext.asImage
+                        .frame(width: 16, height: 16)
                 }
                 .buttonStyle(.plain)
                 .disabled(!playerManager.hasVideo)
 
-                // Stop (return to start)
                 Button(action: { playerManager.stop() }) {
-                    Image(systemName: "stop.fill")
-                        .font(.title2)
+                    Iconoir.square.asImage
+                        .frame(width: 16, height: 16)
                 }
                 .buttonStyle(.plain)
                 .disabled(!playerManager.hasVideo)
             }
+            .padding(.horizontal, 10)
+            .frame(height: controlBoxHeight)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                    )
+            )
 
             Spacer()
 
-            // Frame rate indicator
-            if playerManager.hasVideo {
-                Text(playerManager.frameRate.displayName)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.secondary.opacity(0.1))
-                    )
-            }
-
-            // Settings button
+            // Right: Settings
             Button(action: onSettingsPressed) {
-                Image(systemName: "gearshape.fill")
-                    .font(.title2)
+                Iconoir.settings.asImage
+                    .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
         }
-        .padding(12)
+        .padding(8)
         .background(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: 8)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
     }
@@ -110,16 +119,16 @@ struct EditableTimecodeView: View {
 
     var body: some View {
         // Wrap everything in a container with consistent left padding
-        VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 4) {
             // Label
-            Text("PROJECTOR TC:")
+            Text("TC:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
 
             // Timecode display or edit field
             if isEditing {
                 TextField("00:00:00:00", text: $editingText)
-                    .font(.system(size: 28, weight: .medium, design: .monospaced))
+                    .font(.system(size: 16, weight: .medium, design: .monospaced))
                     .textFieldStyle(.plain)
                     .fixedSize()
                     .focused($isTextFieldFocused)
@@ -137,24 +146,16 @@ struct EditableTimecodeView: View {
                     }
             } else {
                 Text(timecode.stringValue())
-                    .font(.system(size: 28, weight: .medium, design: .monospaced))
+                    .font(.system(size: 16, weight: .medium, design: .monospaced))
                     .foregroundColor(.primary)
                     .onTapGesture(count: 2) {
                         startEditing()
                     }
                     .help("Double-click to set this frame's timecode")
             }
-
-            // Hint text (only shown when video is loaded)
-            if hasVideo {
-                Text("Double-click to set timeline")
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary.opacity(0.7))
-                    .fixedSize()
-            }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .frame(height: controlBoxHeight)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(nsColor: .controlBackgroundColor))
