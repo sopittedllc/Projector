@@ -193,9 +193,13 @@ struct ContentView: View {
                 projectDocument.timecodeOffset = newOffset
             }
         }
-        // Publish save actions to menu commands
-        .focusedSceneValue(\.saveProjectAction, saveProject)
-        .focusedSceneValue(\.saveProjectAsAction, saveProjectAs)
+        // Save project handlers
+        .onReceive(NotificationCenter.default.publisher(for: .saveProjectAction)) { _ in
+            saveProject()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .saveProjectAsAction)) { _ in
+            saveProjectAs()
+        }
     }
 
     // MARK: - Save Operations

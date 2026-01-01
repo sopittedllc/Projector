@@ -16,42 +16,23 @@ struct ProjectorApp: App {
                 .keyboardShortcut("o")
             }
 
-            ProjectSaveCommands()
+            CommandGroup(replacing: .saveItem) {
+                Button("Save Project") {
+                    NotificationCenter.default.post(name: .saveProject, object: nil)
+                }
+                .keyboardShortcut("s")
+
+                Button("Save Project As...") {
+                    NotificationCenter.default.post(name: .saveProjectAs, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+            }
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
     }
 }
 
-// MARK: - Save Commands
-
-struct ProjectSaveCommands: Commands {
-    @FocusedValue(\.saveProjectAction) var saveAction
-    @FocusedValue(\.saveProjectAsAction) var saveAsAction
-
-    var body: some Commands {
-        CommandGroup(replacing: .saveItem) {
-            Button("Save Project") {
-                saveAction?()
-            }
-            .keyboardShortcut("s")
-            .disabled(saveAction == nil)
-
-            Button("Save Project As...") {
-                saveAsAction?()
-            }
-            .keyboardShortcut("s", modifiers: [.command, .shift])
-            .disabled(saveAsAction == nil)
-        }
-    }
-}
-
-// MARK: - Focused Values
-
-extension FocusedValues {
-    @Entry var saveProjectAction: (() -> Void)? = nil
-    @Entry var saveProjectAsAction: (() -> Void)? = nil
-}
 
 // MARK: - App Delegate
 
@@ -64,6 +45,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             queue: .main
         ) { _ in
             self.openFile()
+        }
+
+        // Setup notification observers for save
+        NotificationCenter.default.addObserver(
+            forName: .saveProject,
+            object: nil,
+            queue: .main
+        ) { _ in
+            NotificationCenter.default.post(name: .saveProjectAction, object: nil)
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .saveProjectAs,
+            object: nil,
+            queue: .main
+        ) { _ in
+            NotificationCenter.default.post(name: .saveProjectAsAction, object: nil)
         }
     }
 
@@ -92,4 +90,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 extension Notification.Name {
     static let openFile = Notification.Name("openFile")
     static let videoFileSelected = Notification.Name("videoFileSelected")
+    static let saveProject = Notification.Name("saveProject")
+    static let saveProjectAs = Notification.Name("saveProjectAs")
+    static let saveProjectAction = Notification.Name("saveProjectAction")
+    static let saveProjectAsAction = Notification.Name("saveProjectAsAction")
 }
