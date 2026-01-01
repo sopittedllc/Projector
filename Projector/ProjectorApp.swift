@@ -23,20 +23,16 @@ struct ProjectCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .saveItem) {
             Button("Save Project") {
-                NSApp.sendAction(
-                    #selector(AppDelegate.saveProject(_:)),
-                    to: AppDelegate.shared,
-                    from: nil
-                )
+                if let delegate = NSApp.delegate as? AppDelegate {
+                    delegate.saveProject(nil)
+                }
             }
             .keyboardShortcut("s", modifiers: .command)
 
             Button("Save Project As...") {
-                NSApp.sendAction(
-                    #selector(AppDelegate.saveProjectAs(_:)),
-                    to: AppDelegate.shared,
-                    from: nil
-                )
+                if let delegate = NSApp.delegate as? AppDelegate {
+                    delegate.saveProjectAs(nil)
+                }
             }
             .keyboardShortcut("s", modifiers: [.command, .shift])
         }
@@ -46,7 +42,6 @@ struct ProjectCommands: Commands {
 // MARK: - App Delegate
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    static let shared = AppDelegate()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Setup notification observer for file open
