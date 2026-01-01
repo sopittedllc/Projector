@@ -17,74 +17,28 @@ struct ProjectorApp: App {
                 .keyboardShortcut("o")
             }
 
-            ProjectCommands()
+            CommandGroup(replacing: .saveItem) {
+                Button("Save Project") {
+                    NSApp.sendAction(#selector(AppCommands.saveProject), to: nil, from: nil)
+                }
+                .keyboardShortcut("s")
+
+                Button("Save Project As...") {
+                    NSApp.sendAction(#selector(AppCommands.saveProjectAs), to: nil, from: nil)
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+            }
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
     }
 }
 
-// MARK: - Project Commands
+// MARK: - App Commands Protocol
 
-struct ProjectCommands: Commands {
-    @FocusedValue(\.projectDocument) var projectDocument
-
-    var body: some Commands {
-        CommandGroup(replacing: .saveItem) {
-            Button("Save Project") {
-                saveProject()
-            }
-            .keyboardShortcut("s")
-            .disabled(projectDocument == nil)
-
-            Button("Save Project As...") {
-                saveProjectAs()
-            }
-            .keyboardShortcut("s", modifiers: [.command, .shift])
-            .disabled(projectDocument == nil)
-        }
-    }
-
-    private func saveProject() {
-        guard let document = projectDocument else { return }
-        if document.fileURL != nil {
-            do {
-                try document.save()
-            } catch {
-                print("Save error: \(error)")
-            }
-        } else {
-            saveProjectAs()
-        }
-    }
-
-    private func saveProjectAs() {
-        guard let document = projectDocument else { return }
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "projector")!]
-        panel.nameFieldStringValue = "Untitled.projector"
-
-        if panel.runModal() == .OK, let url = panel.url {
-            do {
-                try document.save(to: url)
-            } catch {
-                print("Save error: \(error)")
-            }
-        }
-    }
-}
-
-// MARK: - Focused Values
-
-struct ProjectDocumentKey: FocusedValueKey {
-    typealias Value = ProjectDocument
-}
-
-extension FocusedValues {
-    var projectDocument: ProjectDocument? {
-        get { self[ProjectDocumentKey.self] }
-        set { self[ProjectDocumentKey.self] = newValue }
-    }
+@objc protocol AppCommands {
+    func saveProject()
+    func saveProjectAs()
 }
 
 
