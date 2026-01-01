@@ -50,9 +50,9 @@ struct WindowAccessor: NSViewRepresentable {
             if let textField = subview as? NSTextField,
                textField.stringValue.contains(title) {
                 if isEdited {
-                    textField.font = NSFont.systemFont(ofSize: 13, weight: .regular).withTraits(.italic)
+                    textField.font = NSFont.systemFont(ofSize: 13, weight: .semibold).withTraits(.italic)
                 } else {
-                    textField.font = NSFont.systemFont(ofSize: 13, weight: .regular)
+                    textField.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
                 }
                 return
             }
@@ -191,6 +191,49 @@ struct ContentView: View {
         .onReceive(playerManager.$timecodeOffset) { newOffset in
             if projectDocument.timecodeOffset != newOffset {
                 projectDocument.timecodeOffset = newOffset
+            }
+        }
+        // Save project handlers
+        .onReceive(NotificationCenter.default.publisher(for: .saveProject)) { _ in
+            saveProject()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .saveProjectAs)) { _ in
+            saveProjectAs()
+        }
+    }
+
+    // MARK: - Save Operations
+
+    private func saveProject() {
+        if projectDocument.fileURL != nil {
+            // Already has a file path, save directly
+            do {
+                try projectDocument.save()
+            } catch {
+                loadError = error.localizedDescription
+                showErrorAlert = true
+            }
+        } else {
+            // No file path yet, show Save As dialog
+            saveProjectAs()
+        }
+    }
+
+    private func saveProjectAs() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "projector")!]
+        panel.nameFieldStringValue = "Untitled.projector"
+        panel.title = "Save Project"
+        panel.message = "Choose a location to save your project"
+
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                do {
+                    try projectDocument.save(to: url)
+                } catch {
+                    loadError = error.localizedDescription
+                    showErrorAlert = true
+                }
             }
         }
     }

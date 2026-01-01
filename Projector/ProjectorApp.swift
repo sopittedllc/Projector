@@ -15,6 +15,18 @@ struct ProjectorApp: App {
                 }
                 .keyboardShortcut("o")
             }
+
+            CommandGroup(replacing: .saveItem) {
+                Button("Save Project") {
+                    NotificationCenter.default.post(name: .saveProject, object: nil)
+                }
+                .keyboardShortcut("s")
+
+                Button("Save Project As...") {
+                    NotificationCenter.default.post(name: .saveProjectAs, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+            }
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
@@ -60,4 +72,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 extension Notification.Name {
     static let openFile = Notification.Name("openFile")
     static let videoFileSelected = Notification.Name("videoFileSelected")
+    static let saveProject = Notification.Name("saveProject")
+    static let saveProjectAs = Notification.Name("saveProjectAs")
 }
