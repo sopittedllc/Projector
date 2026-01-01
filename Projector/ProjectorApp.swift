@@ -9,33 +9,8 @@ struct ProjectorApp: App {
         WindowGroup {
             ContentView()
         }
-        .commands {
-            ProjectCommands()
-        }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
-    }
-}
-
-// MARK: - Project Commands
-
-struct ProjectCommands: Commands {
-    var body: some Commands {
-        CommandGroup(replacing: .saveItem) {
-            Button("Save Project") {
-                if let delegate = NSApp.delegate as? AppDelegate {
-                    delegate.saveProject(nil)
-                }
-            }
-            .keyboardShortcut("s", modifiers: .command)
-
-            Button("Save Project As...") {
-                if let delegate = NSApp.delegate as? AppDelegate {
-                    delegate.saveProjectAs(nil)
-                }
-            }
-            .keyboardShortcut("s", modifiers: [.command, .shift])
-        }
     }
 }
 
@@ -44,6 +19,8 @@ struct ProjectCommands: Commands {
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        setupMenus()
+
         // Setup notification observer for file open
         NotificationCenter.default.addObserver(
             forName: .openFile,
@@ -52,6 +29,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { _ in
             self.openFile()
         }
+    }
+
+    private func setupMenus() {
+        // Find the File menu
+        guard let mainMenu = NSApp.mainMenu,
+              let fileMenuItem = mainMenu.item(withTitle: "File"),
+              let fileMenu = fileMenuItem.submenu else { return }
+
+        // Remove existing Save items if any
+        fileMenu.items.removeAll { $0.title.contains("Save") || $0.title == "Close" }
+
+        // Add Save Project
+        let saveItem = NSMenuItem(
+            title: "Save Project",
+            action: #selector(saveProject(_:)),
+            keyEquivalent: "s"
+        )
+        saveItem.target = self
+        fileMenu.insertItem(saveItem, at: 0)
+
+        // Add Save Project As
+        let saveAsItem = NSMenuItem(
+            title: "Save Project As...",
+            action: #selector(saveProjectAs(_:)),
+            keyEquivalent: "S"
+        )
+        saveAsItem.keyEquivalentModifierMask = [.command, .shift]
+        saveAsItem.target = self
+        fileMenu.insertItem(saveAsItem, at: 1)
+
+        // Add separator
+        fileMenu.insertItem(NSMenuItem.separator(), at: 2)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
