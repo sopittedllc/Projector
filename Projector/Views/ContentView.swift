@@ -71,12 +71,14 @@ extension NSFont {
 
 /// Main application content view
 struct ContentView: View {
+    @ObservedObject var projectState: ProjectState
     @StateObject private var playerManager = VideoPlayerManager()
     @StateObject private var midiManager = MIDIManager()
     @StateObject private var audioManager = AudioOutputManager()
     @StateObject private var waveformGenerator = WaveformGenerator()
-    @StateObject private var projectDocument = ProjectDocument()
     @ObservedObject private var settings = AppSettings.shared
+
+    private var projectDocument: ProjectDocument { projectState.document }
 
     @State private var showSettings = false
     @State private var isDropTargeted = false
@@ -186,19 +188,15 @@ struct ContentView: View {
             setupMIDICallbacks()
             setupAudioCallback()
             restoreSettings()
+            // Register save actions with projectState for menu commands
+            projectState.saveAction = { [self] in saveProject() }
+            projectState.saveAsAction = { [self] in saveProjectAs() }
         }
         // Track timecode offset changes
         .onReceive(playerManager.$timecodeOffset) { newOffset in
             if projectDocument.timecodeOffset != newOffset {
                 projectDocument.timecodeOffset = newOffset
             }
-        }
-        // Save project handlers
-        .onReceive(NotificationCenter.default.publisher(for: .saveProjectAction)) { _ in
-            saveProject()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .saveProjectAsAction)) { _ in
-            saveProjectAs()
         }
     }
 
@@ -416,5 +414,5 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(projectState: ProjectState())
 }

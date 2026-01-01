@@ -3,10 +3,11 @@ import SwiftUI
 @main
 struct ProjectorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var projectState = ProjectState()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(projectState: projectState)
         }
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -16,20 +17,40 @@ struct ProjectorApp: App {
                 .keyboardShortcut("o")
             }
 
-            CommandGroup(replacing: .saveItem) {
-                Button("Save Project") {
-                    NotificationCenter.default.post(name: .saveProject, object: nil)
-                }
-                .keyboardShortcut("s")
-
-                Button("Save Project As...") {
-                    NotificationCenter.default.post(name: .saveProjectAs, object: nil)
-                }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
-            }
+            ProjectCommands(projectState: projectState)
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
+    }
+}
+
+// MARK: - Project State (shared between App and Views)
+
+@MainActor
+class ProjectState: ObservableObject {
+    @Published var document = ProjectDocument()
+
+    var saveAction: (() -> Void)?
+    var saveAsAction: (() -> Void)?
+}
+
+// MARK: - Project Commands
+
+struct ProjectCommands: Commands {
+    @ObservedObject var projectState: ProjectState
+
+    var body: some Commands {
+        CommandGroup(replacing: .saveItem) {
+            Button("Save Project") {
+                projectState.saveAction?()
+            }
+            .keyboardShortcut("s")
+
+            Button("Save Project As...") {
+                projectState.saveAsAction?()
+            }
+            .keyboardShortcut("s", modifiers: [.command, .shift])
+        }
     }
 }
 
@@ -45,23 +66,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             queue: .main
         ) { _ in
             self.openFile()
-        }
-
-        // Setup notification observers for save
-        NotificationCenter.default.addObserver(
-            forName: .saveProject,
-            object: nil,
-            queue: .main
-        ) { _ in
-            NotificationCenter.default.post(name: .saveProjectAction, object: nil)
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: .saveProjectAs,
-            object: nil,
-            queue: .main
-        ) { _ in
-            NotificationCenter.default.post(name: .saveProjectAsAction, object: nil)
         }
     }
 
@@ -90,8 +94,4 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 extension Notification.Name {
     static let openFile = Notification.Name("openFile")
     static let videoFileSelected = Notification.Name("videoFileSelected")
-    static let saveProject = Notification.Name("saveProject")
-    static let saveProjectAs = Notification.Name("saveProjectAs")
-    static let saveProjectAction = Notification.Name("saveProjectAction")
-    static let saveProjectAsAction = Notification.Name("saveProjectAsAction")
 }
