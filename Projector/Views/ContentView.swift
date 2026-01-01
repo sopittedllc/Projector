@@ -2,6 +2,72 @@ import SwiftUI
 import UniformTypeIdentifiers
 import AVFoundation
 import SwiftTimecodeCore
+import AppKit
+
+/// Helper to access and customize the NSWindow title
+struct WindowTitleModifier: ViewModifier {
+    let title: String
+    let isEdited: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .background(WindowAccessor(title: title, isEdited: isEdited))
+    }
+}
+
+struct WindowAccessor: NSViewRepresentable {
+    let title: String
+    let isEdited: Bool
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            updateWindowTitle(view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            updateWindowTitle(nsView.window)
+        }
+    }
+
+    private func updateWindowTitle(_ window: NSWindow?) {
+        guard let window = window else { return }
+
+        // Find the title text field in the titlebar
+        if let titlebarView = window.standardWindowButton(.closeButton)?.superview?.superview {
+            for subview in titlebarView.subviews {
+                if let textField = subview as? NSTextField {
+                    let displayTitle = title + (isEdited ? " *" : "")
+
+                    if isEdited {
+                        let attributed = NSAttributedString(
+                            string: displayTitle,
+                            attributes: [
+                                .font: NSFont.systemFont(ofSize: 13, weight: .regular).withTraits(.italic),
+                                .foregroundColor: NSColor.labelColor
+                            ]
+                        )
+                        textField.attributedStringValue = attributed
+                    } else {
+                        textField.stringValue = displayTitle
+                        textField.font = NSFont.systemFont(ofSize: 13, weight: .regular)
+                    }
+                    break
+                }
+            }
+        }
+    }
+}
+
+extension NSFont {
+    func withTraits(_ traits: NSFontDescriptor.SymbolicTraits) -> NSFont {
+        let descriptor = fontDescriptor.withSymbolicTraits(traits)
+        return NSFont(descriptor: descriptor, size: 0) ?? self
+    }
+}
 
 /// Main application content view
 struct ContentView: View {
@@ -107,13 +173,8 @@ struct ContentView: View {
         }
         .frame(minWidth: 640, minHeight: 400)
         .background(Color(nsColor: .windowBackgroundColor))
-        .navigationTitle("")
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text(projectDocument.displayName + (projectDocument.hasUnsavedChanges ? " *" : ""))
-                    .font(.headline)
-            }
-        }
+        .navigationTitle(projectDocument.displayName)
+        .modifier(WindowTitleModifier(title: projectDocument.displayName, isEdited: projectDocument.hasUnsavedChanges))
         .onReceive(NotificationCenter.default.publisher(for: .videoFileSelected)) { notification in
             if let url = notification.object as? URL {
                 Task {
