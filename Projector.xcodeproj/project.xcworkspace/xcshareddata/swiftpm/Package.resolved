@@ -1,0 +1,24 @@
+{
+  "originHash" : "b9aab34d8f724232d35406ec581b4444b41706ac40c9d10c32a22fb52e14534d",
+  "pins" : [
+    {
+      "identity" : "midikit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/orchetect/MIDIKit",
+      "state" : {
+        "revision" : "8af8007269daea0d0cb3788427e63acd04a31a3b",
+        "version" : "0.10.7"
+      }
+    },
+    {
+      "identity" : "swift-timecode",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/orchetect/swift-timecode",
+      "state" : {
+        "revision" : "f9a9e88c8e4c38b1b29d3db8130e1f07112e8b9e",
+        "version" : "3.0.0"
+      }
+    }
+  ],
+  "version" : 3
+}
