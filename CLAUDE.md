@@ -1,59 +1,194 @@
 # Projector - Claude Code Instructions
 
-## UI Change Checklist
+## Pro-Grade macOS Team
 
-Before declaring a UI change complete:
+This project follows **Airtight Standards** with a fully automated agent workflow. All code contributions must comply with these standards.
 
-1. **Check all view states** - Look for `if/else` branches in the view (editing, loading, hasVideo, etc.) and verify each one
-2. **Search for hardcoded sizes** - Look for `.frame(width:)`, `.frame(height:)` and verify they still make sense
-3. **Build, launch, and visually verify** - Don't just build; actually look at the result
-4. **Test interactions** - If the component has tap/click/edit behavior, test those states too
+---
 
-## SwiftUI Layout Rules
+## AUTOMATION CHAIN
 
-### Padding and Margins
-
-1. **Padding is INSIDE the view's allocated space, not outside it**
-   - Adding `.padding()` to a child view does NOT expand its parent container
-   - The padding creates space within the child's already-allocated frame
-   - Content can get clipped if the parent doesn't allocate enough space
-
-2. **GeometryReader with hardcoded heights**
-   - When using `GeometryReader` with calculated heights like `let transportHeight: CGFloat = 120`, any padding added to child views must be accounted for in these calculations
-   - If you add 16px padding around a view, increase the height constant accordingly
-
-3. **To add margin around a component**:
-   - Add `.padding()` to the component in its PARENT view (e.g., ContentView), not inside the component itself
-   - Update any hardcoded height calculations to accommodate the padding
-   - Example: TransportBarView margin is set in ContentView, not in TransportBarView.swift
-
-4. **Background and padding order matters**:
-   - `.padding().background()` - background fills the padded area
-   - `.background().padding()` - background only fills original content, padding is outside
-
-### Current Layout Structure
+**MANDATORY**: Follow this chain for EVERY request:
 
 ```
-ContentView (GeometryReader)
-└── VStack(spacing: 0)
-    ├── VideoContentView (height: calculated)
-    ├── Divider
-    └── HStack (padding: 16) ← margin from window edges
-        └── TransportBarView (padding: 12, rounded background)
-            └── HStack (content)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         PRO-GRADE WORKFLOW                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. PLAN (arch-architect)                                                   │
+│     └─ Technical design, thread-safety strategy, THE CONTRACT               │
+│                              ↓                                               │
+│  2. SCOPE CHECK (scope-guard)                                               │
+│     └─ Strip feature creep, verify request matches plan                     │
+│                              ↓                                               │
+│  3. EXECUTE (backend-logic OR ui-specialist)                                │
+│     └─ Logic: MIDI/Audio/AVFoundation (no SwiftUI)                         │
+│     └─ UI: SwiftUI/AppKit (no CoreMIDI)                                    │
+│                              ↓                                               │
+│  4. AUDIT (qa-auditor)                                                      │
+│     └─ DocC coverage, edge cases, thread safety, standards                  │
+│                              ↓                                               │
+│  5. ROADMAP & PUSH (the-lead)                                              │
+│     └─ Update PROJECT_ROADMAP.md, git commit (after QA approval)           │
+│                              ↓                                               │
+│  6. LEARN (the-librarian)                                                   │
+│     └─ Capture Golden Patterns in KNOWLEDGE_BASE.md                         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- `transportHeight = 120` accounts for TransportBarView content + internal padding (12) + external margin (16)
+---
 
-## Current Issue: Document Icon for .projector Files
+## Multi-Agent System
+
+Agents are located in `.claude/agents/`:
+
+| Agent | Description | Scope |
+|-------|-------------|-------|
+| `the-lead.md` | **PROACTIVE**: Maintains PROJECT_ROADMAP.md. Must update roadmap checkpoints after every successful implementation before session ends | Project-wide |
+| `arch-architect.md` | MUST BE USED to plan technical designs and thread-safety strategies for MTC/MMC logic | Architecture |
+| `backend-logic.md` | MUST BE USED for all MIDI, MTC, MMC, and AVFoundation logic. No SwiftUI imports allowed | `Managers/` |
+| `ui-specialist.md` | MUST BE USED for all SwiftUI/AppKit layouts. Must follow macOS HIG | `Views/` |
+| `scope-guard.md` | MUST BE USED to strip 'feature creep' from plans and code | All files |
+| `qa-auditor.md` | MUST BE USED to audit file changes for DocC, edge-cases, and logic safety before committing | All files |
+| `the-librarian.md` | MUST BE USED after tasks to record 'Golden Patterns' into KNOWLEDGE_BASE.md | Documentation |
+
+---
+
+## The Two-Layer Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        PRESENTATION LAYER                                    │
+│                       (ui-specialist domain)                                │
+│                                                                              │
+│   SwiftUI Views  ──▶  ViewModels (@MainActor)  ──▶  Consumes THE CONTRACT   │
+│                                                                              │
+├──────────────────────────────── THE CONTRACT ───────────────────────────────┤
+│   ╔═══════════════════════════════════════════════════════════════════════╗ │
+│   ║  Protocols + AsyncStreams + Sendable Types                            ║ │
+│   ║  • Defined by: arch-architect (REQUIRED BEFORE ANY CODE)             ║ │
+│   ║  • Implemented by: backend-logic                                      ║ │
+│   ║  • Consumed by: ui-specialist                                         ║ │
+│   ╚═══════════════════════════════════════════════════════════════════════╝ │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                           LOGIC LAYER                                        │
+│                      (backend-logic domain)                                 │
+│                                                                              │
+│   Swift Actors  ◀──  CoreMIDI/CoreAudio  ◀──  Real-time Callbacks          │
+│   (NO SwiftUI imports allowed)                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**THE CONTRACT is MANDATORY**: No cross-layer code is written without `arch-architect` first defining the protocol.
+
+---
+
+## Anti-Hallucination Protocol
+
+**ALL agents and contributors MUST follow this protocol:**
+
+1. **NEVER guess** Apple API signatures, parameters, or behaviors
+2. **ALWAYS verify** using:
+   - `WebSearch` for official Apple documentation
+   - `WebFetch` on developer.apple.com URLs
+   - Ask the user for documentation if uncertain
+3. **When uncertain**, explicitly state: "I need to verify the API for [X]"
+4. **Document assumptions** with `// TODO: Verify API` if time-critical
+
+---
+
+## Airtight Standards
+
+### 1. Swift Concurrency (Actors) for MIDI/Transport
+
+**REQUIRED**: All MIDI and transport logic MUST use Swift Actors for thread safety.
+
+```swift
+// CORRECT: Actor isolation for MIDI state
+actor MIDITransportActor {
+    private var isPlaying = false
+    private var currentTimecode: Timecode?
+
+    func handleMTCQuarterFrame(_ qf: MTC.QuarterFrame) async {
+        // Safe, isolated state mutation
+    }
+}
+
+// INCORRECT: @MainActor blocks UI during MIDI processing
+@MainActor
+class MIDIManager: ObservableObject { // ❌ VIOLATES STANDARDS
+    func processMIDI() { } // Blocks main thread
+}
+```
+
+### 2. Strict Layer Separation
+
+**REQUIRED**: Enforce clear boundaries between UI and business logic.
+
+| Layer | Allowed Imports | Forbidden Imports |
+|-------|-----------------|-------------------|
+| **UI** (Views) | SwiftUI, AppKit, Combine | CoreMIDI, CoreAudio, AVFoundation* |
+| **Logic** (Managers) | Foundation, CoreMIDI, CoreAudio, AVFoundation | SwiftUI |
+
+*AVFoundation allowed in UI only for AVPlayerLayer via NSViewRepresentable
+
+### 3. 100% DocC Documentation
+
+**REQUIRED**: Every public function and type MUST have complete DocC documentation.
+
+```swift
+/// Parses MTC quarter-frame data into a timecode piece.
+///
+/// - Parameter data: Raw MIDI byte from quarter-frame message
+/// - Returns: The decoded MTC piece with type and value
+/// - Note: Thread-safe, can be called from MIDI callback
+public func parse(_ data: UInt8) -> MTCPiece
+```
+
+### 4. No Magic Numbers
+
+**REQUIRED**: Use named constants for all values.
+
+```swift
+// ❌ FORBIDDEN
+let threshold = 3
+
+// ✅ REQUIRED
+enum SyncConstants {
+    static let maxDriftFrames = 3
+}
+```
+
+---
+
+## Performance Rules
+
+1. **NO single-tap gestures in scrollable content** - Causes trackpad scroll delay
+2. **Use `.drawingGroup()`** for complex graphics (waveforms, thumbnails)
+3. **Avoid nested ScrollViews** - Known macOS trackpad issues
+4. **Keep view bodies pure** - No side effects, no heavy computation
+5. **Pre-sort in ViewModels** - Never sort in view body
+
+---
+
+## Project Files
+
+| File | Purpose | Owner |
+|------|---------|-------|
+| `CLAUDE.md` | Standards and workflow | All agents |
+| `PROJECT_ROADMAP.md` | Progress tracking | the-lead |
+| `KNOWLEDGE_BASE.md` | Patterns and lessons | the-librarian |
+
+---
+
+## Known Issues
+
+### Document Icon for .projector Files
 
 **Status**: Icon configured but not appearing in Finder after logout/login
 
 **What's Done**:
-- DocumentIcon in asset catalog (Assets.xcassets/DocumentIcon.imageset/) with logo at 1x, 2x, 3x
-- Info.plist has UTTypeIconName = "DocumentIcon" and CFBundleTypeIconFile fallback
-- UTType conforms to public.data only
+- DocumentIcon in asset catalog with logo at 1x, 2x, 3x
+- Info.plist has UTTypeIconName = "DocumentIcon"
 - App in /Applications and registered with Launch Services
-- lsregister shows: `flags: active exported trusted`, `icons: UTTypeIconName = DocumentIcon`
-
-**Test Files**: ~/Desktop/fresh-test.projector, ~/Downloads/*.projector
