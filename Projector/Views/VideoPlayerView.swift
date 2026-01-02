@@ -32,19 +32,29 @@ struct VideoPlayerView: NSViewRepresentable {
 
 /// A view that displays video content with optional timecode overlay
 struct VideoContentView: View {
-    @ObservedObject var playerManager: VideoPlayerManager
+    @ObservedObject var playbackEngine: PlaybackEngine
     let showTimecode: Bool
     var overlayPosition: TimecodeOverlayPosition = .bottomRight
     var overlayOpacity: Double = 0.8
+    var extraTrailingPadding: CGFloat = 0
 
     var body: some View {
         ZStack {
             // Video layer
-            if playerManager.hasVideo {
-                VideoPlayerView(player: playerManager.player)
-                    .background(Color.black)
+            if playbackEngine.hasContent {
+                if playbackEngine.isInGap {
+                    // Show black during gaps
+                    Rectangle()
+                        .fill(Color.black)
+                } else if let player = playbackEngine.currentPlayer {
+                    VideoPlayerView(player: player)
+                        .background(Color.black)
+                } else {
+                    Rectangle()
+                        .fill(Color.black)
+                }
             } else {
-                // Placeholder when no video is loaded
+                // Placeholder when no content is loaded
                 Rectangle()
                     .fill(Color.black)
                     .overlay {
@@ -52,10 +62,10 @@ struct VideoContentView: View {
                             Iconoir.movie.asImage
                                 .frame(width: 64, height: 64)
                                 .foregroundColor(.gray)
-                            Text("Drop a video file here")
+                            Text("Drop video files here")
                                 .font(.title2)
                                 .foregroundColor(.gray)
-                            Text("or use File → Open")
+                            Text("to create a timeline")
                                 .font(.caption)
                                 .foregroundColor(.gray.opacity(0.7))
                         }
@@ -63,11 +73,12 @@ struct VideoContentView: View {
             }
 
             // Timecode overlay
-            if showTimecode && playerManager.hasVideo {
+            if showTimecode && playbackEngine.hasContent {
                 TimecodeOverlayView(
-                    timecode: playerManager.currentTimecode,
+                    timecode: playbackEngine.currentTimecode,
                     position: overlayPosition,
-                    opacity: overlayOpacity
+                    opacity: overlayOpacity,
+                    extraTrailingPadding: extraTrailingPadding
                 )
             }
         }
@@ -79,6 +90,7 @@ struct TimecodeOverlayView: View {
     let timecode: Timecode
     var position: TimecodeOverlayPosition = .bottomRight
     var opacity: Double = 0.8
+    var extraTrailingPadding: CGFloat = 0
 
     var body: some View {
         VStack {
@@ -101,7 +113,9 @@ struct TimecodeOverlayView: View {
                             .fill(Color.black.opacity(0.6 * opacity))
                     )
                     .opacity(opacity)
-                    .padding(16)
+                    .padding(.leading, 16)
+                    .padding(.trailing, 16 + extraTrailingPadding)
+                    .padding(.vertical, 16)
 
                 if position == .topLeft || position == .bottomLeft {
                     Spacer()
@@ -115,9 +129,12 @@ struct TimecodeOverlayView: View {
     }
 }
 
+// Backward compatibility alias
+typealias VideoContentViewForEngine = VideoContentView
+
 #Preview {
     VideoContentView(
-        playerManager: VideoPlayerManager(),
+        playbackEngine: PlaybackEngine(),
         showTimecode: true
     )
     .frame(width: 640, height: 360)

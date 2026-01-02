@@ -12,7 +12,6 @@
 		A1000001227D3F0000000064 /* SwiftTimecodeCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1000001227D3F0000000063 /* SwiftTimecodeCore */; };
 		A1000001227D3F0000000066 /* SwiftTimecodeAV in Frameworks */ = {isa = PBXBuildFile; productRef = A1000001227D3F0000000065 /* SwiftTimecodeAV */; };
 		A1000001227D3F0000000068 /* SwiftTimecodeUI in Frameworks */ = {isa = PBXBuildFile; productRef = A1000001227D3F0000000067 /* SwiftTimecodeUI */; };
-		B1ICONOIR000000001 /* Iconoir in Frameworks */ = {isa = PBXBuildFile; productRef = B1ICONOIR000000002 /* Iconoir */; };
 		A1000001227D3F0000000070 /* MIDIManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F000000006F /* MIDIManager.swift */; };
 		A1000001227D3F0000000072 /* AudioOutputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000071 /* AudioOutputManager.swift */; };
 		A1000001227D3F0000000074 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000073 /* SettingsView.swift */; };
@@ -21,24 +20,39 @@
 		A1000001227D3F00000000B2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000012 /* ContentView.swift */; };
 		A1000001227D3F00000000B3 /* VideoPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000013 /* VideoPlayerView.swift */; };
 		A1000001227D3F00000000B4 /* TransportBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000014 /* TransportBarView.swift */; };
-		A1000001227D3F00000000B5 /* VideoPlayerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000015 /* VideoPlayerManager.swift */; };
 		A1000001227D3F00000000B8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000018 /* Assets.xcassets */; };
-		A1000001227D3F00000000B9 /* Credits.rtf in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000E1 /* Credits.rtf */; };
-		A1000001227D3F00000000BA /* VideoDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F000000001C /* VideoDocument.swift */; };
-		A1000001227D3F00000000C1 /* AudioTrackInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000081 /* AudioTrackInfo.swift */; };
+		A1000001227D3F00000000B9 /* Credits.rtfd in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000E1 /* Credits.rtfd */; };
 		A1000001227D3F00000000C2 /* WaveformData.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000082 /* WaveformData.swift */; };
 		A1000001227D3F00000000C3 /* WaveformGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000083 /* WaveformGenerator.swift */; };
-		A1000001227D3F00000000C4 /* ScrubberView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000084 /* ScrubberView.swift */; };
 		A1000001227D3F00000000C5 /* TimelineRulerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000085 /* TimelineRulerView.swift */; };
-		A1000001227D3F00000000C6 /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000086 /* TimelineView.swift */; };
 		A1000001227D3F00000000C7 /* WaveformShape.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000087 /* WaveformShape.swift */; };
-		A1000001227D3F00000000C8 /* AudioTrackWaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000088 /* AudioTrackWaveformView.swift */; };
 		A1000001227D3F00000000C9 /* TimecodeOCRManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000090 /* TimecodeOCRManager.swift */; };
 		A1000001227D3F00000000D0 /* ProjectDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000D1 /* ProjectDocument.swift */; };
 		A1000001227D3F00000000E2 /* DocumentIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000E3 /* DocumentIcon.icns */; };
 		B149C5462F0722DA001F9C85 /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B149C5452F0722DA001F9C85 /* Quartz.framework */; };
 		B149C5522F0722DB001F9C85 /* ProjectorQuickLook.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B149C5432F0722DA001F9C85 /* ProjectorQuickLook.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B149C5582F07238C001F9C85 /* DocumentIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000E3 /* DocumentIcon.icns */; };
+		B1ICONOIR000000001 /* Iconoir in Frameworks */ = {isa = PBXBuildFile; productRef = B1ICONOIR000000002 /* Iconoir */; };
+		C1TIMELINE00000012 /* TimelineConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000002 /* TimelineConfig.swift */; };
+		C1TIMELINE00000013 /* VideoReel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000003 /* VideoReel.swift */; };
+		C1TIMELINE00000014 /* AudioClip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000004 /* AudioClip.swift */; };
+		C1TIMELINE00000015 /* AudioLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000005 /* AudioLane.swift */; };
+		C1TIMELINE00000016 /* Timeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000006 /* Timeline.swift */; };
+		C1TIMELINE0000002C /* ThumbnailStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000002B /* ThumbnailStrip.swift */; };
+		C1TIMELINE00000017 /* TimelineManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000007 /* TimelineManager.swift */; };
+		C1TIMELINE00000018 /* MediaItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000008 /* MediaItem.swift */; };
+		C1TIMELINE00000019 /* ProjectMediaLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000009 /* ProjectMediaLibrary.swift */; };
+		C1TIMELINE0000001A /* WaveformCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000A /* WaveformCache.swift */; };
+		C1TIMELINE0000001B /* PlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000B /* PlaybackEngine.swift */; };
+		C1TIMELINE0000001C /* VideoReelClipView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000C /* VideoReelClipView.swift */; };
+		C1TIMELINE0000001D /* VideoTrackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000D /* VideoTrackView.swift */; };
+		C1TIMELINE0000001E /* AudioClipView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000E /* AudioClipView.swift */; };
+		C1TIMELINE0000001F /* AudioLaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000F /* AudioLaneView.swift */; };
+		C1TIMELINE00000020 /* PlayheadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000010 /* PlayheadView.swift */; };
+		C1TIMELINE00000021 /* MultiTrackTimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000011 /* MultiTrackTimelineView.swift */; };
+		C1TIMELINE00000025 /* MediaItemRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000022 /* MediaItemRow.swift */; };
+		C1TIMELINE00000026 /* FileManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000023 /* FileManagerView.swift */; };
+		C1VISUALFX0000001 /* VisualEffectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1VISUALFX0000002 /* VisualEffectView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -78,29 +92,43 @@
 		A1000001227D3F0000000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000013 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000014 /* TransportBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportBarView.swift; sourceTree = "<group>"; };
-		A1000001227D3F0000000015 /* VideoPlayerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerManager.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1000001227D3F0000000019 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1000001227D3F000000001A /* Projector.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Projector.entitlements; sourceTree = "<group>"; };
-		A1000001227D3F000000001C /* VideoDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDocument.swift; sourceTree = "<group>"; };
 		A1000001227D3F000000006F /* MIDIManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDIManager.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000071 /* AudioOutputManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioOutputManager.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000073 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000075 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
-		A1000001227D3F0000000081 /* AudioTrackInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTrackInfo.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000082 /* WaveformData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformData.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000083 /* WaveformGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformGenerator.swift; sourceTree = "<group>"; };
-		A1000001227D3F0000000084 /* ScrubberView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrubberView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000085 /* TimelineRulerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineRulerView.swift; sourceTree = "<group>"; };
-		A1000001227D3F0000000086 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000087 /* WaveformShape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformShape.swift; sourceTree = "<group>"; };
-		A1000001227D3F0000000088 /* AudioTrackWaveformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTrackWaveformView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000090 /* TimecodeOCRManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeOCRManager.swift; sourceTree = "<group>"; };
 		A1000001227D3F00000000D1 /* ProjectDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDocument.swift; sourceTree = "<group>"; };
-		A1000001227D3F00000000E1 /* Credits.rtf */ = {isa = PBXFileReference; lastKnownFileType = text.rtf; path = Credits.rtf; sourceTree = "<group>"; };
+		A1000001227D3F00000000E1 /* Credits.rtfd */ = {isa = PBXFileReference; lastKnownFileType = wrapper.rtfd; path = Credits.rtfd; sourceTree = "<group>"; };
 		A1000001227D3F00000000E3 /* DocumentIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = DocumentIcon.icns; sourceTree = "<group>"; };
 		B149C5432F0722DA001F9C85 /* ProjectorQuickLook.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ProjectorQuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B149C5452F0722DA001F9C85 /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
+		C1TIMELINE00000002 /* TimelineConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineConfig.swift; sourceTree = "<group>"; };
+		C1TIMELINE00000003 /* VideoReel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoReel.swift; sourceTree = "<group>"; };
+		C1TIMELINE00000004 /* AudioClip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClip.swift; sourceTree = "<group>"; };
+		C1TIMELINE00000005 /* AudioLane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLane.swift; sourceTree = "<group>"; };
+		C1TIMELINE00000006 /* Timeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Timeline.swift; sourceTree = "<group>"; };
+		C1TIMELINE0000002B /* ThumbnailStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailStrip.swift; sourceTree = "<group>"; };
+		C1TIMELINE00000007 /* TimelineManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineManager.swift; sourceTree = "<group>"; };
+		C1TIMELINE00000008 /* MediaItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaItem.swift; sourceTree = "<group>"; };
+		C1TIMELINE00000009 /* ProjectMediaLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectMediaLibrary.swift; sourceTree = "<group>"; };
+		C1TIMELINE0000000A /* WaveformCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformCache.swift; sourceTree = "<group>"; };
+		C1TIMELINE0000000B /* PlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEngine.swift; sourceTree = "<group>"; };
+		C1TIMELINE0000000C /* VideoReelClipView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoReelClipView.swift; sourceTree = "<group>"; };
+		C1TIMELINE0000000D /* VideoTrackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoTrackView.swift; sourceTree = "<group>"; };
+		C1TIMELINE0000000E /* AudioClipView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClipView.swift; sourceTree = "<group>"; };
+		C1TIMELINE0000000F /* AudioLaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLaneView.swift; sourceTree = "<group>"; };
+		C1TIMELINE00000010 /* PlayheadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayheadView.swift; sourceTree = "<group>"; };
+		C1TIMELINE00000011 /* MultiTrackTimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiTrackTimelineView.swift; sourceTree = "<group>"; };
+		C1TIMELINE00000022 /* MediaItemRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaItemRow.swift; sourceTree = "<group>"; };
+		C1TIMELINE00000023 /* FileManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileManagerView.swift; sourceTree = "<group>"; };
+		C1VISUALFX0000002 /* VisualEffectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEffectView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -169,11 +197,11 @@
 		A1000001227D3F0000000022 /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				A1000001227D3F000000001C /* VideoDocument.swift */,
+				C1TIMELINE00000001 /* Timeline */,
 				A1000001227D3F0000000075 /* AppSettings.swift */,
 				A1000001227D3F00000000D1 /* ProjectDocument.swift */,
-				A1000001227D3F0000000081 /* AudioTrackInfo.swift */,
 				A1000001227D3F0000000082 /* WaveformData.swift */,
+				C1TIMELINE00000008 /* MediaItem.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -181,11 +209,14 @@
 		A1000001227D3F0000000023 /* Managers */ = {
 			isa = PBXGroup;
 			children = (
-				A1000001227D3F0000000015 /* VideoPlayerManager.swift */,
 				A1000001227D3F000000006F /* MIDIManager.swift */,
 				A1000001227D3F0000000071 /* AudioOutputManager.swift */,
 				A1000001227D3F0000000083 /* WaveformGenerator.swift */,
 				A1000001227D3F0000000090 /* TimecodeOCRManager.swift */,
+				C1TIMELINE00000007 /* TimelineManager.swift */,
+				C1TIMELINE00000009 /* ProjectMediaLibrary.swift */,
+				C1TIMELINE0000000A /* WaveformCache.swift */,
+				C1TIMELINE0000000B /* PlaybackEngine.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -197,16 +228,27 @@
 				A1000001227D3F0000000013 /* VideoPlayerView.swift */,
 				A1000001227D3F0000000014 /* TransportBarView.swift */,
 				A1000001227D3F0000000073 /* SettingsView.swift */,
+				C1VISUALFX0000002 /* VisualEffectView.swift */,
 				A1000001227D3F0000000089 /* Timeline */,
+				C1TIMELINE00000024 /* FileManager */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		C1TIMELINE00000024 /* FileManager */ = {
+			isa = PBXGroup;
+			children = (
+				C1TIMELINE00000022 /* MediaItemRow.swift */,
+				C1TIMELINE00000023 /* FileManagerView.swift */,
+			);
+			path = FileManager;
 			sourceTree = "<group>";
 		};
 		A1000001227D3F0000000026 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
 				A1000001227D3F0000000018 /* Assets.xcassets */,
-				A1000001227D3F00000000E1 /* Credits.rtf */,
+				A1000001227D3F00000000E1 /* Credits.rtfd */,
 				A1000001227D3F00000000E3 /* DocumentIcon.icns */,
 			);
 			path = Resources;
@@ -224,11 +266,14 @@
 		A1000001227D3F0000000089 /* Timeline */ = {
 			isa = PBXGroup;
 			children = (
-				A1000001227D3F0000000084 /* ScrubberView.swift */,
 				A1000001227D3F0000000085 /* TimelineRulerView.swift */,
-				A1000001227D3F0000000086 /* TimelineView.swift */,
 				A1000001227D3F0000000087 /* WaveformShape.swift */,
-				A1000001227D3F0000000088 /* AudioTrackWaveformView.swift */,
+				C1TIMELINE0000000C /* VideoReelClipView.swift */,
+				C1TIMELINE0000000D /* VideoTrackView.swift */,
+				C1TIMELINE0000000E /* AudioClipView.swift */,
+				C1TIMELINE0000000F /* AudioLaneView.swift */,
+				C1TIMELINE00000010 /* PlayheadView.swift */,
+				C1TIMELINE00000011 /* MultiTrackTimelineView.swift */,
 			);
 			path = Timeline;
 			sourceTree = "<group>";
@@ -239,6 +284,19 @@
 				B149C5452F0722DA001F9C85 /* Quartz.framework */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		C1TIMELINE00000001 /* Timeline */ = {
+			isa = PBXGroup;
+			children = (
+				C1TIMELINE00000002 /* TimelineConfig.swift */,
+				C1TIMELINE00000003 /* VideoReel.swift */,
+				C1TIMELINE00000004 /* AudioClip.swift */,
+				C1TIMELINE00000005 /* AudioLane.swift */,
+				C1TIMELINE00000006 /* Timeline.swift */,
+				C1TIMELINE0000002B /* ThumbnailStrip.swift */,
+			);
+			path = Timeline;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -342,7 +400,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000001227D3F00000000B8 /* Assets.xcassets in Resources */,
-				A1000001227D3F00000000B9 /* Credits.rtf in Resources */,
+				A1000001227D3F00000000B9 /* Credits.rtfd in Resources */,
 				A1000001227D3F00000000E2 /* DocumentIcon.icns in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -366,22 +424,36 @@
 				A1000001227D3F00000000B2 /* ContentView.swift in Sources */,
 				A1000001227D3F00000000B3 /* VideoPlayerView.swift in Sources */,
 				A1000001227D3F00000000B4 /* TransportBarView.swift in Sources */,
-				A1000001227D3F00000000B5 /* VideoPlayerManager.swift in Sources */,
-				A1000001227D3F00000000BA /* VideoDocument.swift in Sources */,
 				A1000001227D3F0000000070 /* MIDIManager.swift in Sources */,
 				A1000001227D3F0000000072 /* AudioOutputManager.swift in Sources */,
 				A1000001227D3F0000000074 /* SettingsView.swift in Sources */,
 				A1000001227D3F0000000076 /* AppSettings.swift in Sources */,
 				A1000001227D3F00000000D0 /* ProjectDocument.swift in Sources */,
-				A1000001227D3F00000000C1 /* AudioTrackInfo.swift in Sources */,
 				A1000001227D3F00000000C2 /* WaveformData.swift in Sources */,
 				A1000001227D3F00000000C3 /* WaveformGenerator.swift in Sources */,
-				A1000001227D3F00000000C4 /* ScrubberView.swift in Sources */,
 				A1000001227D3F00000000C5 /* TimelineRulerView.swift in Sources */,
-				A1000001227D3F00000000C6 /* TimelineView.swift in Sources */,
 				A1000001227D3F00000000C7 /* WaveformShape.swift in Sources */,
-				A1000001227D3F00000000C8 /* AudioTrackWaveformView.swift in Sources */,
 				A1000001227D3F00000000C9 /* TimecodeOCRManager.swift in Sources */,
+				C1TIMELINE00000012 /* TimelineConfig.swift in Sources */,
+				C1TIMELINE00000013 /* VideoReel.swift in Sources */,
+				C1TIMELINE00000014 /* AudioClip.swift in Sources */,
+				C1TIMELINE00000015 /* AudioLane.swift in Sources */,
+				C1TIMELINE00000016 /* Timeline.swift in Sources */,
+				C1TIMELINE0000002C /* ThumbnailStrip.swift in Sources */,
+				C1TIMELINE00000017 /* TimelineManager.swift in Sources */,
+				C1TIMELINE00000018 /* MediaItem.swift in Sources */,
+				C1TIMELINE00000019 /* ProjectMediaLibrary.swift in Sources */,
+				C1TIMELINE0000001A /* WaveformCache.swift in Sources */,
+				C1TIMELINE0000001B /* PlaybackEngine.swift in Sources */,
+				C1TIMELINE0000001C /* VideoReelClipView.swift in Sources */,
+				C1TIMELINE0000001D /* VideoTrackView.swift in Sources */,
+				C1TIMELINE0000001E /* AudioClipView.swift in Sources */,
+				C1TIMELINE0000001F /* AudioLaneView.swift in Sources */,
+				C1TIMELINE00000020 /* PlayheadView.swift in Sources */,
+				C1TIMELINE00000021 /* MultiTrackTimelineView.swift in Sources */,
+				C1TIMELINE00000025 /* MediaItemRow.swift in Sources */,
+				C1TIMELINE00000026 /* FileManagerView.swift in Sources */,
+				C1VISUALFX0000001 /* VisualEffectView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

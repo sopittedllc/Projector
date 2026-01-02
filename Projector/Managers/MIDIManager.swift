@@ -49,6 +49,9 @@ final class MIDIManager: ObservableObject {
     private var virtualInputTag: String = "ProjectorVirtualInput"
     private var cancellables = Set<AnyCancellable>()
 
+    /// Name of our virtual MIDI input port
+    static let virtualInputName = "Projector MIDI IN"
+
     // MARK: - MMC Commands
 
     enum MMCCommand: Equatable {
@@ -77,6 +80,8 @@ final class MIDIManager: ObservableObject {
 
     init() {
         self.currentTimecode = Timecode(.components(h: 0, m: 0, s: 0, f: 0), at: .fps24, by: .clamping)
+        // Default to our virtual MIDI input port
+        self.selectedInputName = Self.virtualInputName
         setupMIDI()
         debugLog("MIDIManager initialized")
     }
@@ -165,12 +170,18 @@ final class MIDIManager: ObservableObject {
 
     func refreshAvailableInputs() {
         guard let manager = midiManager else {
-            availableInputs = []
+            availableInputs = [Self.virtualInputName]
             return
         }
 
-        // Get MIDI outputs (sources) - these are where MIDI data comes FROM
-        availableInputs = manager.endpoints.outputs.map { $0.displayName }
+        // Start with our virtual port at the top
+        var inputs = [Self.virtualInputName]
+
+        // Add external MIDI outputs (sources) - these are where MIDI data comes FROM
+        let externalSources = manager.endpoints.outputs.map { $0.displayName }
+        inputs.append(contentsOf: externalSources)
+
+        availableInputs = inputs
     }
 
     private func reconnectInput() {
@@ -182,6 +193,13 @@ final class MIDIManager: ObservableObject {
         }
 
         guard let inputName = selectedInputName else { return }
+
+        // If selecting our virtual port, we don't need to connect to anything
+        // The virtual input is always receiving via setupVirtualInput()
+        if inputName == Self.virtualInputName {
+            debugLog("Using virtual MIDI input: \(inputName)")
+            return
+        }
 
         // Find matching endpoint (outputs are sources that send MIDI data)
         guard let endpoint = manager.endpoints.outputs.first(where: { $0.displayName == inputName }) else {

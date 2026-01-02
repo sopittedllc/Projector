@@ -88,9 +88,39 @@ enum TimecodeOverlayPosition: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-// MARK: - TimecodeFrameRate String Conversion
+// MARK: - TimecodeFrameRate Extensions
 
 extension TimecodeFrameRate {
+    /// Frames per second as a Double value
+    var fps: Double {
+        switch self {
+        case .fps23_976: return 24000.0 / 1001.0  // 23.976...
+        case .fps24: return 24.0
+        case .fps24_98: return 25000.0 / 1001.0  // 24.975...
+        case .fps25: return 25.0
+        case .fps29_97: return 30000.0 / 1001.0  // 29.97...
+        case .fps29_97d: return 30000.0 / 1001.0  // 29.97... (drop frame)
+        case .fps30: return 30.0
+        case .fps30d: return 30.0  // 30 drop frame
+        case .fps47_952: return 48000.0 / 1001.0  // 47.952...
+        case .fps48: return 48.0
+        case .fps50: return 50.0
+        case .fps59_94: return 60000.0 / 1001.0  // 59.94...
+        case .fps59_94d: return 60000.0 / 1001.0  // 59.94... (drop frame)
+        case .fps60: return 60.0
+        case .fps60d: return 60.0  // 60 drop frame
+        case .fps90: return 90.0
+        case .fps95_904: return 96000.0 / 1001.0  // 95.904...
+        case .fps96: return 96.0
+        case .fps100: return 100.0
+        case .fps119_88: return 120000.0 / 1001.0  // 119.88...
+        case .fps119_88d: return 120000.0 / 1001.0  // 119.88... (drop frame)
+        case .fps120: return 120.0
+        case .fps120d: return 120.0  // 120 drop frame
+        @unknown default: return 24.0
+        }
+    }
+
     var stringValue: String {
         switch self {
         case .fps23_976: return "23.976"

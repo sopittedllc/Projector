@@ -13,134 +13,129 @@ struct TimelineRulerView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
-                // Background
-                Rectangle()
-                    .fill(Color(nsColor: .controlBackgroundColor))
-
                 // Tick marks and labels
-                tickMarksView(in: geometry)
-
-                // Current time indicator
-                currentTimeIndicator(in: geometry)
+                Canvas { context, size in
+                    drawTickMarks(context: context, size: size)
+                }
             }
         }
         .frame(height: rulerHeight)
     }
 
-    // MARK: - Tick Marks
+    // MARK: - Drawing
 
-    @ViewBuilder
-    private func tickMarksView(in geometry: GeometryProxy) -> some View {
-        let width = geometry.size.width
-        let interval = calculateTickInterval(for: width)
+    private func drawTickMarks(context: GraphicsContext, size: CGSize) {
+        guard duration > 0 else { return }
 
-        ForEach(tickPositions(interval: interval, width: width), id: \.offset) { tick in
-            VStack(spacing: 0) {
-                // Tick mark
-                Rectangle()
-                    .fill(Color.secondary.opacity(tick.isMajor ? 0.8 : 0.4))
-                    .frame(width: 1, height: tick.isMajor ? 10 : 6)
+        let width = size.width
+        let majorInterval = calculateMajorInterval(for: width)
+        let minorInterval = majorInterval / 4.0
 
-                // Time label (only for major ticks)
-                if tick.isMajor {
-                    Text(formatTime(tick.time))
-                        .font(.system(size: 9, weight: .regular, design: .monospaced))
-                        .foregroundColor(.secondary)
-                        .offset(x: 2)
+        // Draw minor ticks first, then major ticks on top
+        var time = 0.0
+        while time <= duration + 0.001 {
+            let x = CGFloat((time / duration) * Double(width))
+            let isMajor = isNearMultiple(time, of: majorInterval)
+
+            // Draw tick mark
+            let tickHeight: CGFloat = isMajor ? 12 : 6
+            let tickColor = isMajor ? Color.secondary.opacity(0.8) : Color.secondary.opacity(0.3)
+
+            let tickPath = Path { path in
+                path.move(to: CGPoint(x: x, y: 0))
+                path.addLine(to: CGPoint(x: x, y: tickHeight))
+            }
+            context.stroke(tickPath, with: .color(tickColor), lineWidth: 1)
+
+            // Draw label for major ticks
+            if isMajor {
+                let label = formatTime(time)
+                let text = Text(label)
+                    .font(.system(size: 9, weight: .regular, design: .monospaced))
+                    .foregroundColor(.secondary)
+
+                // Position label slightly to the right of the tick
+                let labelX = x + 3
+                if labelX < width - 40 { // Don't draw if too close to edge
+                    context.draw(text, at: CGPoint(x: labelX, y: 16), anchor: .leading)
                 }
             }
-            .offset(x: tick.offset)
+
+            time += minorInterval
         }
     }
 
-    private func currentTimeIndicator(in geometry: GeometryProxy) -> some View {
-        let offset = (currentTime / max(duration, 0.001)) * geometry.size.width
-
-        return Rectangle()
-            .fill(Color.accentColor)
-            .frame(width: 1, height: rulerHeight)
-            .offset(x: CGFloat(offset))
+    private func isNearMultiple(_ value: Double, of interval: Double) -> Bool {
+        let remainder = value.truncatingRemainder(dividingBy: interval)
+        return remainder < 0.01 || abs(remainder - interval) < 0.01
     }
 
     // MARK: - Calculations
 
-    private struct TickMark: Hashable {
-        let time: Double
-        let offset: CGFloat
-        let isMajor: Bool
-    }
+    private func calculateMajorInterval(for width: CGFloat) -> Double {
+        guard duration > 0, width > 0 else { return 60.0 }
 
-    private func calculateTickInterval(for width: CGFloat) -> Double {
-        guard duration > 0, width > 0 else { return 1.0 }
+        // Calculate pixels per second
+        let pixelsPerSecond = width / CGFloat(duration)
 
-        // Target approximately 8-12 major ticks
-        let targetMajorTicks = 10.0
-        let idealInterval = duration / targetMajorTicks
+        // Choose interval based on available space
+        // We want major labels roughly every 80-120 pixels
+        let targetPixelsPerMajor: CGFloat = 100
 
-        // Snap to nice intervals (1s, 2s, 5s, 10s, 30s, 1m, 5m, 10m)
-        let niceIntervals: [Double] = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600]
+        let idealInterval = Double(targetPixelsPerMajor / pixelsPerSecond)
+
+        // Snap to nice intervals: 5s, 10s, 15s, 30s, 1m, 2m, 5m, 10m, 15m, 30m
+        let niceIntervals: [Double] = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600]
 
         for interval in niceIntervals {
-            if interval >= idealInterval {
+            if interval >= idealInterval * 0.8 {
                 return interval
             }
         }
 
-        return max(idealInterval, 1.0)
-    }
-
-    private func tickPositions(interval: Double, width: CGFloat) -> [TickMark] {
-        guard duration > 0 else { return [] }
-
-        var ticks: [TickMark] = []
-        let minorInterval = interval / 4.0
-
-        var time = 0.0
-        while time <= duration {
-            let offset = (time / duration) * Double(width)
-            let isMajor = time.truncatingRemainder(dividingBy: interval) < 0.001 ||
-                          abs(time.truncatingRemainder(dividingBy: interval) - interval) < 0.001
-
-            ticks.append(TickMark(
-                time: time,
-                offset: CGFloat(offset),
-                isMajor: isMajor || time == 0
-            ))
-
-            time += minorInterval
-        }
-
-        return ticks
+        return niceIntervals.last!
     }
 
     private func formatTime(_ seconds: Double) -> String {
-        let hours = Int(seconds) / 3600
-        let minutes = (Int(seconds) % 3600) / 60
-        let secs = Int(seconds) % 60
+        let totalSeconds = Int(seconds.rounded())
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let secs = totalSeconds % 60
 
-        if hours > 0 {
+        if hours > 0 || duration >= 3600 {
             return String(format: "%d:%02d:%02d", hours, minutes, secs)
-        } else if minutes > 0 {
-            return String(format: "%d:%02d", minutes, secs)
         } else {
-            return String(format: "%d", secs)
+            return String(format: "%d:%02d", minutes, secs)
         }
     }
 }
 
 #Preview {
-    VStack {
+    VStack(spacing: 20) {
+        // Short duration
         TimelineRulerView(
             duration: 120,
             frameRate: .fps24,
             currentTime: 45
         )
+        .background(Color(nsColor: .controlBackgroundColor))
 
+        // Medium duration
+        TimelineRulerView(
+            duration: 600,
+            frameRate: .fps24,
+            currentTime: 200
+        )
+        .background(Color(nsColor: .controlBackgroundColor))
+
+        // Long duration (1 hour)
         TimelineRulerView(
             duration: 3600,
             frameRate: .fps24,
             currentTime: 1234
         )
+        .background(Color(nsColor: .controlBackgroundColor))
     }
     .padding()
+    .frame(width: 800)
 }

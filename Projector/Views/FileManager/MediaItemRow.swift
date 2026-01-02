@@ -1,0 +1,194 @@
+import SwiftUI
+import UniformTypeIdentifiers
+import Iconoir
+
+/// A row displaying a media item in the file manager
+struct MediaItemRow: View {
+    let item: MediaItem
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onDoubleClick: () -> Void
+
+    @State private var isDragging = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            // Thumbnail
+            thumbnailView
+                .frame(width: 48, height: 36)
+                .cornerRadius(4)
+
+            // Info
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.displayName)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                HStack(spacing: 8) {
+                    // Type indicator
+                    typeLabel
+
+                    // Duration
+                    Text(item.formattedDuration)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.secondary)
+
+                    // Additional info
+                    additionalInfo
+                }
+            }
+
+            Spacer()
+
+            // Type icon
+            typeIcon
+                .frame(width: 16, height: 16)
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2, perform: onDoubleClick)
+        .onTapGesture(count: 1, perform: onSelect)
+        .opacity(isDragging ? 0.5 : 1.0)
+        .onDrag {
+            isDragging = true
+            return NSItemProvider(object: item.url as NSURL)
+        }
+        .onChange(of: isDragging) { _, newValue in
+            // Reset dragging state after a delay
+            if newValue {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    isDragging = false
+                }
+            }
+        }
+    }
+
+    // MARK: - Thumbnail
+
+    @ViewBuilder
+    private var thumbnailView: some View {
+        if let data = item.thumbnailData, let nsImage = NSImage(data: data) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .clipped()
+        } else {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.2))
+                .overlay(
+                    thumbnailPlaceholderIcon
+                        .frame(width: 20, height: 20)
+                        .foregroundColor(.secondary.opacity(0.5))
+                )
+        }
+    }
+
+    @ViewBuilder
+    private var thumbnailPlaceholderIcon: some View {
+        switch item.type {
+        case .video:
+            Iconoir.videoCamera.asImage
+        case .audio:
+            Iconoir.soundHigh.asImage
+        }
+    }
+
+    // MARK: - Type Label
+
+    private var typeLabel: some View {
+        Text(item.fileExtension.uppercased())
+            .font(.system(size: 8, weight: .bold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(typeLabelColor)
+            .cornerRadius(2)
+    }
+
+    private var typeLabelColor: Color {
+        switch item.type {
+        case .video: return .blue
+        case .audio: return .green
+        }
+    }
+
+    // MARK: - Additional Info
+
+    @ViewBuilder
+    private var additionalInfo: some View {
+        switch item.type {
+        case .video:
+            if let dims = item.dimensionsString {
+                Text(dims)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            if let fps = item.frameRate {
+                Text(String(format: "%.2ffps", fps))
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+        case .audio:
+            if let format = item.audioFormatString {
+                Text(format)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            if let rate = item.sampleRate {
+                Text(String(format: "%.0fkHz", rate / 1000))
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    // MARK: - Type Icon
+
+    @ViewBuilder
+    private var typeIcon: some View {
+        switch item.type {
+        case .video:
+            Iconoir.videoCamera.asImage
+        case .audio:
+            Iconoir.soundHigh.asImage
+        }
+    }
+}
+
+#Preview {
+    VStack(spacing: 0) {
+        MediaItemRow(
+            item: MediaItem(
+                url: URL(fileURLWithPath: "/path/to/video.mov"),
+                type: .video,
+                duration: 125.5,
+                frameRate: 24.0,
+                videoSize: CGSize(width: 1920, height: 1080)
+            ),
+            isSelected: false,
+            onSelect: {},
+            onDoubleClick: {}
+        )
+
+        Divider()
+
+        MediaItemRow(
+            item: MediaItem(
+                url: URL(fileURLWithPath: "/path/to/audio.wav"),
+                type: .audio,
+                duration: 180.0,
+                channelCount: 2,
+                sampleRate: 48000
+            ),
+            isSelected: true,
+            onSelect: {},
+            onDoubleClick: {}
+        )
+    }
+    .frame(width: 300)
+    .background(Color(nsColor: .controlBackgroundColor))
+}

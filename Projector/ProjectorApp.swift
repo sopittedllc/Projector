@@ -26,8 +26,9 @@ struct ProjectorApp: App {
 
 // MARK: - App Delegate
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSWindowDelegate {
     private var hasSetupMenus = false
+    private var hasSetupWindowDelegate = false
 
     /// URL to open when the app finishes launching (for file double-click)
     static var pendingOpenURL: URL?
@@ -55,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         ) { [weak self] _ in
             NSLog(">>> AppDelegate: didBecomeActive")
             self?.setupMenus()
+            self?.setupWindowDelegate()
         }
 
         // Setup notification observer for file open
@@ -206,6 +208,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         default:
             return .terminateCancel
+        }
+    }
+
+    // MARK: - Window Delegate
+
+    private func setupWindowDelegate() {
+        guard !hasSetupWindowDelegate else { return }
+
+        // Set this as the delegate for all windows and configure appearance
+        for window in NSApp.windows {
+            if window.delegate == nil || !(window.delegate is AppDelegate) {
+                window.delegate = self
+                NSLog(">>> setupWindowDelegate: set delegate for window: %@", window.title)
+            }
+
+            // Configure for Liquid Glass appearance
+            configureWindowForLiquidGlass(window)
+        }
+
+        hasSetupWindowDelegate = true
+    }
+
+    /// Configure window for macOS Liquid Glass / vibrancy appearance
+    private func configureWindowForLiquidGlass(_ window: NSWindow) {
+        // Make the title bar transparent and blend with content
+        window.titlebarAppearsTransparent = true
+
+        // Enable full-size content view to extend behind title bar
+        window.styleMask.insert(.fullSizeContentView)
+
+        // Use a vibrant dark appearance for the window
+        window.appearance = NSAppearance(named: .vibrantDark)
+
+        // Make the window background transparent so vibrancy shows through
+        window.backgroundColor = .clear
+
+        // Configure the toolbar if present
+        if let toolbar = window.toolbar {
+            toolbar.displayMode = .iconOnly
+        }
+
+        NSLog(">>> configureWindowForLiquidGlass: configured window for Liquid Glass")
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard AppDelegate.hasUnsavedChanges else {
+            return true
+        }
+
+        // Show alert for unsaved changes
+        let alert = NSAlert()
+        alert.messageText = "You have unsaved changes"
+        alert.informativeText = "Do you want to save your changes before closing?"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Don't Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let response = alert.runModal()
+
+        switch response {
+        case .alertFirstButtonReturn: // Save
+            NotificationCenter.default.post(name: .saveProject, object: nil)
+            // Give a moment for save to complete, then close
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                sender.close()
+            }
+            return false
+
+        case .alertSecondButtonReturn: // Don't Save
+            return true
+
+        case .alertThirdButtonReturn: // Cancel
+            return false
+
+        default:
+            return false
         }
     }
 

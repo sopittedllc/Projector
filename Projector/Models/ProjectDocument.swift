@@ -23,31 +23,20 @@ final class ProjectDocument: ObservableObject {
 
     // MARK: - Project State
 
-    /// URL of the loaded video file
-    @Published var videoURL: URL? {
-        didSet { if oldValue != videoURL { markDirty() } }
+    /// The master timeline with video reels and audio lanes
+    @Published var timeline: Timeline {
+        didSet { markDirty() }
     }
 
-    /// Timecode offset for the project
-    @Published var timecodeOffset: Timecode {
-        didSet { if oldValue != timecodeOffset { markDirty() } }
-    }
-
-    /// Frame rate of the project
-    @Published var frameRate: TimecodeFrameRate {
-        didSet { if oldValue != frameRate { markDirty() } }
-    }
-
-    /// Audio track routing configuration
-    @Published var audioRouting: [Int: Int] = [:] { // trackIndex -> outputChannelOffset
-        didSet { if oldValue != audioRouting { markDirty() } }
+    /// Media library containing all imported media files
+    @Published var mediaLibrary: [MediaItem] = [] {
+        didSet { markDirty() }
     }
 
     // MARK: - Initialization
 
     init() {
-        self.timecodeOffset = Timecode(.components(h: 0, m: 0, s: 0, f: 0), at: .fps24, by: .clamping)
-        self.frameRate = .fps24
+        self.timeline = .empty
     }
 
     // MARK: - Change Tracking
@@ -65,47 +54,26 @@ final class ProjectDocument: ObservableObject {
     /// Reset to a new empty project
     func newProject() {
         fileURL = nil
-        videoURL = nil
-        timecodeOffset = Timecode(.components(h: 0, m: 0, s: 0, f: 0), at: .fps24, by: .clamping)
-        frameRate = .fps24
-        audioRouting = [:]
+        timeline = .empty
+        mediaLibrary = []
         hasUnsavedChanges = false
     }
 
     // MARK: - Serialization
 
-    /// Project data structure for saving/loading
+    /// Project data structure
     struct ProjectData: Codable {
-        var videoPath: String?
-        var videoBookmark: Data?  // Security-scoped bookmark for sandbox access
-        var timecodeOffsetFrames: Int
-        var frameRateIdentifier: String
-        var audioRouting: [String: Int]
-        var version: Int = 1
+        var version: Int = 2
+        var timeline: Timeline
+        var mediaLibrary: [MediaItem]
     }
 
     /// Encode project to data
     func encode() throws -> Data {
-        // Create security-scoped bookmark for video file (persists sandbox access)
-        var videoBookmark: Data?
-        if let videoURL = videoURL {
-            do {
-                videoBookmark = try videoURL.bookmarkData(
-                    options: .withSecurityScope,
-                    includingResourceValuesForKeys: nil,
-                    relativeTo: nil
-                )
-            } catch {
-                NSLog(">>> ProjectDocument.encode: failed to create bookmark: %@", error.localizedDescription)
-            }
-        }
-
         let data = ProjectData(
-            videoPath: videoURL?.path,
-            videoBookmark: videoBookmark,
-            timecodeOffsetFrames: timecodeOffset.frameCount.wholeFrames,
-            frameRateIdentifier: frameRate.stringValueVerbose,
-            audioRouting: audioRouting.reduce(into: [:]) { $0[String($1.key)] = $1.value }
+            version: 2,
+            timeline: timeline,
+            mediaLibrary: mediaLibrary
         )
 
         let encoder = JSONEncoder()
@@ -118,65 +86,84 @@ final class ProjectDocument: ObservableObject {
         let decoder = JSONDecoder()
         let projectData = try decoder.decode(ProjectData.self, from: data)
 
-        // Try to resolve security-scoped bookmark first (for sandbox access)
-        if let bookmarkData = projectData.videoBookmark {
-            do {
+        timeline = projectData.timeline
+        mediaLibrary = projectData.mediaLibrary
+
+        // Resolve bookmarks for timeline video reels
+        resolveTimelineBookmarks()
+
+        // Resolve bookmarks for media library
+        resolveMediaLibraryBookmarks()
+
+        hasUnsavedChanges = false
+    }
+
+    /// Resolve security-scoped bookmarks for timeline video reels
+    private func resolveTimelineBookmarks() {
+        for i in 0..<timeline.videoReels.count {
+            if let bookmark = timeline.videoReels[i].sourceBookmark {
                 var isStale = false
-                let resolvedURL = try URL(
-                    resolvingBookmarkData: bookmarkData,
+                if let url = try? URL(
+                    resolvingBookmarkData: bookmark,
                     options: .withSecurityScope,
                     relativeTo: nil,
                     bookmarkDataIsStale: &isStale
-                )
+                ) {
+                    _ = url.startAccessingSecurityScopedResource()
+                    timeline.videoReels[i].sourceURL = url
+                }
+            }
+        }
 
-                // Start accessing the security-scoped resource
-                if resolvedURL.startAccessingSecurityScopedResource() {
-                    videoURL = resolvedURL
-                    NSLog(">>> ProjectDocument.decode: resolved bookmark to %@", resolvedURL.path)
-                } else {
-                    NSLog(">>> ProjectDocument.decode: failed to start accessing security-scoped resource")
-                    // Fall back to path
-                    if let path = projectData.videoPath {
-                        videoURL = URL(fileURLWithPath: path)
+        for laneIndex in 0..<timeline.audioLanes.count {
+            for clipIndex in 0..<timeline.audioLanes[laneIndex].clips.count {
+                if let bookmark = timeline.audioLanes[laneIndex].clips[clipIndex].sourceBookmark {
+                    var isStale = false
+                    if let url = try? URL(
+                        resolvingBookmarkData: bookmark,
+                        options: .withSecurityScope,
+                        relativeTo: nil,
+                        bookmarkDataIsStale: &isStale
+                    ) {
+                        _ = url.startAccessingSecurityScopedResource()
+                        timeline.audioLanes[laneIndex].clips[clipIndex].sourceURL = url
                     }
                 }
-
-                if isStale {
-                    NSLog(">>> ProjectDocument.decode: bookmark is stale, may need to re-save")
-                }
-            } catch {
-                NSLog(">>> ProjectDocument.decode: failed to resolve bookmark: %@", error.localizedDescription)
-                // Fall back to path
-                if let path = projectData.videoPath {
-                    videoURL = URL(fileURLWithPath: path)
-                }
-            }
-        } else if let path = projectData.videoPath {
-            videoURL = URL(fileURLWithPath: path)
-        } else {
-            videoURL = nil
-        }
-
-        // Parse frame rate
-        frameRate = TimecodeFrameRate.allCases.first {
-            $0.stringValueVerbose == projectData.frameRateIdentifier
-        } ?? .fps24
-
-        // Parse timecode offset
-        timecodeOffset = Timecode(
-            .frames(projectData.timecodeOffsetFrames),
-            at: frameRate,
-            by: .clamping
-        )
-
-        // Parse audio routing
-        audioRouting = projectData.audioRouting.reduce(into: [:]) {
-            if let key = Int($1.key) {
-                $0[key] = $1.value
             }
         }
+    }
 
-        hasUnsavedChanges = false
+    /// Resolve security-scoped bookmarks for media library items
+    private func resolveMediaLibraryBookmarks() {
+        for i in 0..<mediaLibrary.count {
+            if let bookmark = mediaLibrary[i].bookmark {
+                var isStale = false
+                if let url = try? URL(
+                    resolvingBookmarkData: bookmark,
+                    options: .withSecurityScope,
+                    relativeTo: nil,
+                    bookmarkDataIsStale: &isStale
+                ) {
+                    _ = url.startAccessingSecurityScopedResource()
+                    // MediaItem is a struct, need to update the entire item
+                    var item = mediaLibrary[i]
+                    item = MediaItem(
+                        id: item.id,
+                        url: url,
+                        bookmark: item.bookmark,
+                        type: item.type,
+                        duration: item.duration,
+                        frameRate: item.frameRate,
+                        videoSize: item.videoSize,
+                        channelCount: item.channelCount,
+                        sampleRate: item.sampleRate,
+                        importedAt: item.importedAt,
+                        thumbnailData: item.thumbnailData
+                    )
+                    mediaLibrary[i] = item
+                }
+            }
+        }
     }
 
     // MARK: - File Operations
@@ -188,8 +175,6 @@ final class ProjectDocument: ObservableObject {
     func save(to url: URL) throws {
         let data = try encode()
         NSLog(">>> ProjectDocument.save: saving to %@", url.path)
-        NSLog(">>> ProjectDocument.save: videoURL = %@", videoURL?.path ?? "nil")
-        NSLog(">>> ProjectDocument.save: data = %@", String(data: data, encoding: .utf8) ?? "nil")
 
         // Create package directory if it doesn't exist
         let fileManager = FileManager.default
@@ -221,9 +206,7 @@ final class ProjectDocument: ObservableObject {
         let dataURL = url.appendingPathComponent(Self.projectDataFilename)
         let data = try Data(contentsOf: dataURL)
 
-        NSLog(">>> ProjectDocument.load: data = %@", String(data: data, encoding: .utf8) ?? "nil")
         try decode(from: data)
-        NSLog(">>> ProjectDocument.load: after decode, videoURL = %@", videoURL?.path ?? "nil")
         fileURL = url
     }
 
