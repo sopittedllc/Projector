@@ -70,8 +70,10 @@ struct VideoReelClipView: View {
         }
         .frame(width: reelWidth, height: clipHeight)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2, perform: onDoubleClick)
-        .onTapGesture(count: 1, perform: onSelect)
+        .onTapGesture(count: 2) {
+            onSelect()
+            onDoubleClick()
+        }
         .help(reel.sourceURL.lastPathComponent)
     }
 

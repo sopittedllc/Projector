@@ -173,6 +173,10 @@ struct ContentView: View {
     @State private var timelineZoomLevel: CGFloat = 1.0
     @State private var isFullScreen = false
 
+    // Resizable accordion heights
+    @State private var timelineHeight: CGFloat = 180
+    @State private var mediaHeight: CGFloat = 200
+
     // Missing files state
     @State private var showMissingFilesAlert = false
     @State private var missingFiles: [MissingFileInfo] = []
@@ -806,7 +810,8 @@ struct ContentView: View {
     // MARK: - Timeline Accordion
 
     private let timelineCollapsedHeight: CGFloat = 32
-    private let timelineExpandedHeight: CGFloat = 180
+    private let timelineMinHeight: CGFloat = 100
+    private let timelineMaxHeight: CGFloat = 500
 
     private var timelineAccordion: some View {
         VStack(spacing: 0) {
@@ -817,8 +822,17 @@ struct ContentView: View {
             if isTimelineExpanded {
                 timelineContent
             }
+
+            // Resize handle at the bottom (only when expanded)
+            if isTimelineExpanded {
+                AccordionResizeHandle(
+                    height: $timelineHeight,
+                    minHeight: timelineMinHeight,
+                    maxHeight: timelineMaxHeight
+                )
+            }
         }
-        .frame(height: isTimelineExpanded ? timelineExpandedHeight : timelineCollapsedHeight, alignment: .top)
+        .frame(height: isTimelineExpanded ? timelineHeight : timelineCollapsedHeight, alignment: .top)
         .clipped()
         .background(
             VisualEffectView(material: .hudWindow, blendingMode: .behindWindow, alphaValue: 0.8)
@@ -1190,37 +1204,58 @@ struct ContentView: View {
     // MARK: - File Handling
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first else { return false }
+        guard !providers.isEmpty else { return false }
 
-        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
-            guard let data = item as? Data,
-                  let url = URL(dataRepresentation: data, relativeTo: nil) else {
-                return
+        // Collect all URLs first, then process sequentially to avoid race conditions
+        Task { @MainActor in
+            var urls: [URL] = []
+
+            // Load all URLs from providers
+            for provider in providers {
+                if let url = await loadURL(from: provider) {
+                    urls.append(url)
+                }
             }
 
-            Task { @MainActor in
-                // Import to media library and add to timeline
+            // Process each URL sequentially
+            for url in urls {
                 guard ProjectMediaLibrary.isSupported(url: url),
                       let mediaType = ProjectMediaLibrary.mediaType(for: url) else {
-                    return
+                    continue
                 }
 
                 switch mediaType {
                 case .video:
                     await self.addVideoToTimeline(url: url)
                 case .audio:
-                    // Ensure we have at least one audio lane
-                    if self.timelineManager.timeline.audioLanes.isEmpty {
-                        _ = self.timelineManager.addAudioLane()
-                    }
-                    if let lane = self.timelineManager.timeline.audioLanes.first {
-                        await self.addAudioToTimeline(url: url, laneId: lane.id)
-                    }
+                    // Create a new audio lane for each audio file
+                    let laneNumber = self.timelineManager.timeline.audioLanes.count + 1
+                    let newLane = self.timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+                    await self.addAudioToTimeline(url: url, laneId: newLane.id)
                 }
+            }
+
+            // Auto-expand timeline after all files are processed
+            if !urls.isEmpty && !self.isTimelineExpanded {
+                self.isTimelineExpanded = true
             }
         }
 
         return true
+    }
+
+    /// Helper to load URL from NSItemProvider
+    private func loadURL(from provider: NSItemProvider) async -> URL? {
+        await withCheckedContinuation { continuation in
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
+                if let data = item as? Data,
+                   let url = URL(dataRepresentation: data, relativeTo: nil) {
+                    continuation.resume(returning: url)
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
     }
 
     // MARK: - Timeline Media Handling
@@ -1258,18 +1293,19 @@ struct ContentView: View {
     }
 
     /// Handle media item double-clicked to add to audio lane
+    /// Creates a new audio lane and adds the audio there
     private func handleAddToAudioLane(_ item: MediaItem, _ laneIndex: Int) {
         Task {
-            // Ensure we have at least one audio lane
-            if timelineManager.timeline.audioLanes.isEmpty {
-                _ = timelineManager.addAudioLane()
+            // Create a new audio lane for this audio file
+            let laneNumber = timelineManager.timeline.audioLanes.count + 1
+            let newLane = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+
+            await addAudioToTimeline(url: item.url, laneId: newLane.id)
+
+            // Auto-expand timeline so user can see the new lane
+            if !isTimelineExpanded {
+                isTimelineExpanded = true
             }
-
-            // Clamp to valid lane index
-            let validIndex = min(laneIndex, timelineManager.timeline.audioLanes.count - 1)
-            let lane = timelineManager.timeline.audioLanes[validIndex]
-
-            await addAudioToTimeline(url: item.url, laneId: lane.id)
         }
     }
 
@@ -1578,18 +1614,64 @@ struct ContentView: View {
                             case .video:
                                 await self.addVideoToTimeline(url: url)
                             case .audio:
-                                if self.timelineManager.timeline.audioLanes.isEmpty {
-                                    _ = self.timelineManager.addAudioLane()
-                                }
-                                if let lane = self.timelineManager.timeline.audioLanes.first {
-                                    await self.addAudioToTimeline(url: url, laneId: lane.id)
-                                }
+                                // Create a new lane for each audio file
+                                let laneNumber = self.timelineManager.timeline.audioLanes.count + 1
+                                let newLane = self.timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+                                await self.addAudioToTimeline(url: url, laneId: newLane.id)
                             }
                         }
+                    }
+                    // Auto-expand timeline
+                    if !self.isTimelineExpanded {
+                        self.isTimelineExpanded = true
                     }
                 }
             }
         }
+    }
+}
+
+/// Draggable resize handle for accordion panels
+struct AccordionResizeHandle: View {
+    @Binding var height: CGFloat
+    let minHeight: CGFloat
+    let maxHeight: CGFloat
+
+    @State private var isDragging = false
+    @State private var startHeight: CGFloat = 0
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(height: 8)
+            .contentShape(Rectangle())
+            .overlay(alignment: .center) {
+                // Visual indicator - pill shape
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(isDragging ? Color.accentColor : Color.white.opacity(0.3))
+                    .frame(width: 40, height: 4)
+            }
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeUpDown.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if !isDragging {
+                            startHeight = height
+                            isDragging = true
+                        }
+                        let newHeight = startHeight + value.translation.height
+                        height = min(maxHeight, max(minHeight, newHeight))
+                    }
+                    .onEnded { _ in
+                        isDragging = false
+                    }
+            )
     }
 }
 

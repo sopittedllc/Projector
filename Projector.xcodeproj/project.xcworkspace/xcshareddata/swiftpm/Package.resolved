@@ -1,6 +1,15 @@
 {
-  "originHash" : "3bd054f3d52e9a1cf3a642b8789a21b1e57e86ace891dc6a521f819ce10979ac",
+  "originHash" : "7735562229f151b0bef4e6d523ab53dd1d821d3372c68fcf2c9f7cf38c35c399",
   "pins" : [
+    {
+      "identity" : "dswaveformimage",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/dmrschmidt/DSWaveformImage",
+      "state" : {
+        "revision" : "4c56578ee10128ee2b2c04c9c5aa73812de722db",
+        "version" : "14.2.2"
+      }
+    },
     {
       "identity" : "iconoir-swift",
       "kind" : "remoteSourceControl",

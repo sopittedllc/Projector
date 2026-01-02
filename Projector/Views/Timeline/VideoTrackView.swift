@@ -58,20 +58,19 @@ struct VideoTrackView: View {
     // MARK: - Reels Area
 
     private var reelsArea: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                // Background with drop zone
-                dropZoneBackground
+        ZStack(alignment: .leading) {
+            // Background with drop zone
+            dropZoneBackground
 
-                // Reels
-                reelsContent(in: geometry)
+            // Reels
+            reelsContent
 
-                // Drop target overlay
-                if isDropTargeted {
-                    dropTargetOverlay
-                }
+            // Drop target overlay
+            if isDropTargeted {
+                dropTargetOverlay
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity) // Ensure ZStack fills available space
         .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
@@ -108,12 +107,10 @@ struct VideoTrackView: View {
     }
 
     @ViewBuilder
-    private func reelsContent(in geometry: GeometryProxy) -> some View {
+    private var reelsContent: some View {
         let sortedReels = timelineManager.timeline.sortedVideoReels
 
         ForEach(sortedReels) { reel in
-            let xOffset = CGFloat(reel.timelineStartFrame) * pixelsPerFrame - scrollOffset
-
             VideoReelClipView(
                 reel: reel,
                 isActive: playbackEngine.activeReel?.id == reel.id,
@@ -128,7 +125,7 @@ struct VideoTrackView: View {
                     onReelDoubleClick(reel)
                 }
             )
-            .offset(x: xOffset)
+            .offset(x: CGFloat(reel.timelineStartFrame) * pixelsPerFrame - scrollOffset)
         }
     }
 

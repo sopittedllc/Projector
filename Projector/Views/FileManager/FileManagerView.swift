@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import Iconoir
+import AppKit
 
 /// File manager panel for importing and organizing media files
 struct FileManagerView: View {
@@ -14,8 +15,12 @@ struct FileManagerView: View {
     @State private var searchText = ""
     @State private var isExpanded = false
 
+    // Focus state for keyboard commands
+    @FocusState private var isMediaListFocused: Bool
+
     private let collapsedHeight: CGFloat = 32
-    private let expandedHeight: CGFloat = 200
+    /// Fixed expanded height for horizontal scroll layout
+    private let expandedHeight: CGFloat = 125
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,8 +45,16 @@ struct FileManagerView: View {
                 isExpanded = true
             }
         }
+        .focusable()
+        .focused($isMediaListFocused)
         .onDeleteCommand {
             deleteSelectedItem()
+        }
+        // Take focus when an item is selected
+        .onChange(of: selectedItemId) { _, newValue in
+            if newValue != nil {
+                isMediaListFocused = true
+            }
         }
     }
 
@@ -168,23 +181,20 @@ struct FileManagerView: View {
     }
 
     private var itemsList: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
+        ScrollView(.horizontal, showsIndicators: true) {
+            HStack(spacing: 8) {
                 ForEach(filteredItems) { item in
-                    MediaItemRow(
+                    MediaGridCell(
                         item: item,
                         isSelected: selectedItemId == item.id,
                         onSelect: { selectedItemId = item.id },
                         onDoubleClick: { handleDoubleClick(item) }
                     )
-
-                    if item.id != filteredItems.last?.id {
-                        Divider()
-                            .padding(.leading, 68)
-                    }
                 }
             }
+            .padding(8)
         }
+        .scrollIndicators(.visible)
     }
 
     private var dropOverlay: some View {
@@ -277,6 +287,110 @@ struct FileManagerView: View {
             onAddToVideoTrack(item)
         case .audio:
             onAddToAudioLane(item, 0)
+        }
+    }
+}
+
+/// Grid cell for displaying a media item as an icon
+struct MediaGridCell: View {
+    let item: MediaItem
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onDoubleClick: () -> Void
+
+    @State private var lastTapTime: Date?
+    @State private var isDragging = false
+
+    var body: some View {
+        VStack(spacing: 4) {
+            // Thumbnail
+            thumbnailView
+                .frame(width: 64, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                )
+
+            // Filename
+            Text(item.displayName)
+                .font(.system(size: 9))
+                .foregroundColor(.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(width: 80)
+        }
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            let now = Date()
+            if let last = lastTapTime, now.timeIntervalSince(last) < 0.3 {
+                onDoubleClick()
+                lastTapTime = nil
+            } else {
+                onSelect()
+                lastTapTime = now
+            }
+        }
+        .opacity(isDragging ? 0.5 : 1.0)
+        .onDrag {
+            isDragging = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                isDragging = false
+            }
+            return NSItemProvider(object: item.url as NSURL)
+        }
+        .help(item.url.lastPathComponent)
+    }
+
+    @ViewBuilder
+    private var thumbnailView: some View {
+        if let data = item.thumbnailData, let nsImage = NSImage(data: data) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 64, height: 48)
+                .clipped()
+        } else {
+            // Placeholder with icon
+            Rectangle()
+                .fill(Color.secondary.opacity(0.15))
+                .overlay(
+                    VStack(spacing: 2) {
+                        typeIcon
+                            .frame(width: 24, height: 24)
+                            .foregroundColor(.secondary.opacity(0.6))
+                        // Type badge
+                        Text(item.fileExtension.uppercased())
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 1)
+                            .background(typeBadgeColor)
+                            .cornerRadius(2)
+                    }
+                )
+        }
+    }
+
+    @ViewBuilder
+    private var typeIcon: some View {
+        switch item.type {
+        case .video:
+            Iconoir.videoCamera.asImage
+        case .audio:
+            Iconoir.musicDoubleNote.asImage
+        }
+    }
+
+    private var typeBadgeColor: Color {
+        switch item.type {
+        case .video: return .blue
+        case .audio: return .green
         }
     }
 }

@@ -7,6 +7,9 @@ struct WaveformShape: Shape {
     /// Whether to draw mirrored waveform around center line
     var centerLine: Bool = true
 
+    /// Power curve exponent for dynamics enhancement (0.3-0.5 = more dynamics visible, 1.0 = linear)
+    var dynamicsCurve: Float = 0.4
+
     func path(in rect: CGRect) -> Path {
         var path = Path()
 
@@ -15,6 +18,10 @@ struct WaveformShape: Shape {
         let width = rect.width
         let height = rect.height
         let midY = rect.midY
+
+        // Find the peak sample value for normalization
+        let maxSample = samples.max() ?? 1.0
+        let normalizationFactor: Float = maxSample > 0.001 ? 1.0 / maxSample : 1.0
 
         // Calculate how many samples to average per pixel
         let samplesPerPixel = max(1, samples.count / Int(width))
@@ -32,8 +39,15 @@ struct WaveformShape: Shape {
                 peak = max(peak, samples[i])
             }
 
-            // Calculate the height based on the peak
-            let amplitude = CGFloat(peak) * (height / 2) * 0.9 // 90% of half-height
+            // Normalize the peak to 0-1 range
+            let normalizedPeak = min(1.0, peak * normalizationFactor)
+
+            // Apply power curve for dynamics enhancement
+            // sqrt-ish curve makes quiet parts more visible while preserving loud peaks
+            let enhancedPeak = pow(normalizedPeak, dynamicsCurve)
+
+            // Calculate the height based on the enhanced peak
+            let amplitude = CGFloat(enhancedPeak) * (height / 2) * 0.9 // 90% of half-height
 
             if centerLine {
                 // Draw mirrored waveform around center

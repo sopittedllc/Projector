@@ -10,6 +10,7 @@ struct MediaItemRow: View {
     let onDoubleClick: () -> Void
 
     @State private var isDragging = false
+    @State private var lastTapTime: Date?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -50,8 +51,19 @@ struct MediaItemRow: View {
         .padding(.vertical, 6)
         .background(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2, perform: onDoubleClick)
-        .onTapGesture(count: 1, perform: onSelect)
+        // Custom double-click detection that works with onDrag
+        .onTapGesture {
+            let now = Date()
+            if let last = lastTapTime, now.timeIntervalSince(last) < 0.3 {
+                // Double click detected
+                onDoubleClick()
+                lastTapTime = nil
+            } else {
+                // Single click - select and record time
+                onSelect()
+                lastTapTime = now
+            }
+        }
         .opacity(isDragging ? 0.5 : 1.0)
         .onDrag {
             isDragging = true

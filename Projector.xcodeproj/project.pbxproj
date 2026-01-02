@@ -33,6 +33,8 @@
 		B149C5522F0722DB001F9C85 /* ProjectorQuickLook.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B149C5432F0722DA001F9C85 /* ProjectorQuickLook.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B149C5582F07238C001F9C85 /* DocumentIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000E3 /* DocumentIcon.icns */; };
 		B1ICONOIR000000001 /* Iconoir in Frameworks */ = {isa = PBXBuildFile; productRef = B1ICONOIR000000002 /* Iconoir */; };
+		C1WAVEFORM000003 /* DSWaveformImageViews in Frameworks */ = {isa = PBXBuildFile; productRef = C1WAVEFORM000002 /* DSWaveformImageViews */; };
+		C1WAVEFORM000005 /* DSWaveformImage in Frameworks */ = {isa = PBXBuildFile; productRef = C1WAVEFORM000004 /* DSWaveformImage */; };
 		C1TIMELINE00000012 /* TimelineConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000002 /* TimelineConfig.swift */; };
 		C1TIMELINE00000013 /* VideoReel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000003 /* VideoReel.swift */; };
 		C1TIMELINE00000014 /* AudioClip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000004 /* AudioClip.swift */; };
@@ -156,6 +158,8 @@
 				A1000001227D3F0000000066 /* SwiftTimecodeAV in Frameworks */,
 				A1000001227D3F0000000068 /* SwiftTimecodeUI in Frameworks */,
 				B1ICONOIR000000001 /* Iconoir in Frameworks */,
+				C1WAVEFORM000003 /* DSWaveformImageViews in Frameworks */,
+				C1WAVEFORM000005 /* DSWaveformImage in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -325,6 +329,8 @@
 				A1000001227D3F0000000065 /* SwiftTimecodeAV */,
 				A1000001227D3F0000000067 /* SwiftTimecodeUI */,
 				B1ICONOIR000000002 /* Iconoir */,
+				C1WAVEFORM000002 /* DSWaveformImageViews */,
+				C1WAVEFORM000004 /* DSWaveformImage */,
 			);
 			productName = Projector;
 			productReference = A1000001227D3F0000000010 /* Projector.app */;
@@ -383,6 +389,7 @@
 				A1000001227D3F000000005D /* XCRemoteSwiftPackageReference "MIDIKit" */,
 				A1000001227D3F000000005E /* XCRemoteSwiftPackageReference "swift-timecode" */,
 				B1ICONOIR000000003 /* XCRemoteSwiftPackageReference "iconoir-swift" */,
+				C1WAVEFORM000001 /* XCRemoteSwiftPackageReference "DSWaveformImage" */,
 			);
 			productRefGroup = A1000001227D3F000000002F /* Products */;
 			projectDirPath = "";
@@ -779,6 +786,14 @@
 				minimumVersion = 7.0.0;
 			};
 		};
+		C1WAVEFORM000001 /* XCRemoteSwiftPackageReference "DSWaveformImage" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/dmrschmidt/DSWaveformImage";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 14.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -811,6 +826,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = B1ICONOIR000000003 /* XCRemoteSwiftPackageReference "iconoir-swift" */;
 			productName = Iconoir;
+		};
+		C1WAVEFORM000002 /* DSWaveformImageViews */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C1WAVEFORM000001 /* XCRemoteSwiftPackageReference "DSWaveformImage" */;
+			productName = DSWaveformImageViews;
+		};
+		C1WAVEFORM000004 /* DSWaveformImage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C1WAVEFORM000001 /* XCRemoteSwiftPackageReference "DSWaveformImage" */;
+			productName = DSWaveformImage;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -18,10 +18,14 @@ struct AudioLaneView: View {
     let onDropMedia: ([URL]) -> Void
     let onClipSelected: (UUID?) -> Void
     let onClipDoubleClick: (AudioClip) -> Void
+    let onLaneRename: (String) -> Void
 
     @State private var selectedClipId: UUID?
     @State private var isDropTargeted = false
     @State private var isExpanded = true
+    @State private var isEditingName = false
+    @State private var editedName = ""
+    @FocusState private var isNameFieldFocused: Bool
 
     /// Track header width - wider to accommodate output selector
     private let headerWidth: CGFloat = 120
@@ -54,11 +58,29 @@ struct AudioLaneView: View {
             .frame(width: headerWidth, height: trackHeight)
             .overlay(
                 VStack(spacing: 4) {
-                    // Lane name
-                    Text(lane.name)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
+                    // Lane name (editable on double-click)
+                    if isEditingName {
+                        TextField("", text: $editedName)
+                            .font(.system(size: 10, weight: .medium))
+                            .textFieldStyle(.plain)
+                            .multilineTextAlignment(.center)
+                            .focused($isNameFieldFocused)
+                            .onSubmit {
+                                commitNameEdit()
+                            }
+                            .onExitCommand {
+                                cancelNameEdit()
+                            }
+                            .frame(maxWidth: headerWidth - 12)
+                    } else {
+                        Text(lane.name)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .onTapGesture(count: 2) {
+                                startNameEdit()
+                            }
+                    }
 
                     // Output device dropdown (compact)
                     outputDevicePicker
@@ -84,26 +106,71 @@ struct AudioLaneView: View {
             )
     }
 
+    private func startNameEdit() {
+        editedName = lane.name
+        isEditingName = true
+        // Delay focus to ensure TextField is rendered
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            isNameFieldFocused = true
+        }
+    }
+
+    private func commitNameEdit() {
+        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty && trimmed != lane.name {
+            onLaneRename(trimmed)
+        }
+        isEditingName = false
+    }
+
+    private func cancelNameEdit() {
+        isEditingName = false
+    }
+
     private var outputDevicePicker: some View {
         Menu {
-            Button("System Default") {
+            Button {
                 onOutputDeviceChange(nil)
+            } label: {
+                HStack {
+                    Text("System Default")
+                    if lane.outputDeviceUID == nil {
+                        Spacer()
+                        Image(systemName: "checkmark")
+                    }
+                }
             }
             Divider()
             ForEach(availableAudioDevices) { device in
-                Button(device.name) {
+                Button {
                     onOutputDeviceChange(device.uid)
+                } label: {
+                    HStack {
+                        Text(device.name)
+                        if lane.outputDeviceUID == device.uid {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
                 }
             }
         } label: {
-            Text(outputDeviceName)
-                .font(.system(size: 8))
-                .lineLimit(1)
-                .foregroundColor(.secondary)
-                .frame(maxWidth: 100)
+            HStack(spacing: 3) {
+                Text(outputDeviceName)
+                    .font(.system(size: 9))
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 7))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.accentColor.opacity(0.8))
+            )
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
     }
 
     /// Get display name for current output device
@@ -120,20 +187,19 @@ struct AudioLaneView: View {
     // MARK: - Clips Area
 
     private var clipsArea: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                // Background with drop zone
-                dropZoneBackground
+        ZStack(alignment: .leading) {
+            // Background with drop zone
+            dropZoneBackground
 
-                // Clips
-                clipsContent(in: geometry)
+            // Clips
+            clipsContent
 
-                // Drop target overlay
-                if isDropTargeted {
-                    dropTargetOverlay
-                }
+            // Drop target overlay
+            if isDropTargeted {
+                dropTargetOverlay
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity) // Ensure ZStack fills available space
         .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
@@ -170,10 +236,8 @@ struct AudioLaneView: View {
     }
 
     @ViewBuilder
-    private func clipsContent(in geometry: GeometryProxy) -> some View {
+    private var clipsContent: some View {
         ForEach(lane.clips) { clip in
-            let xOffset = CGFloat(clip.timelineStartFrame) * pixelsPerFrame - scrollOffset
-
             AudioClipView(
                 clip: clip,
                 lane: lane,
@@ -181,6 +245,7 @@ struct AudioLaneView: View {
                 pixelsPerFrame: pixelsPerFrame,
                 waveformData: waveformCache.waveform(for: clip),
                 isSelected: selectedClipId == clip.id,
+                isLoadingWaveform: waveformCache.isLoading(for: clip),
                 onSelect: {
                     selectedClipId = clip.id
                     onClipSelected(clip.id)
@@ -189,7 +254,7 @@ struct AudioLaneView: View {
                     onClipDoubleClick(clip)
                 }
             )
-            .offset(x: xOffset)
+            .offset(x: CGFloat(clip.timelineStartFrame) * pixelsPerFrame - scrollOffset)
         }
     }
 
@@ -284,7 +349,8 @@ struct AudioLaneView: View {
                 onOutputDeviceChange: { _ in },
                 onDropMedia: { _ in },
                 onClipSelected: { _ in },
-                onClipDoubleClick: { _ in }
+                onClipDoubleClick: { _ in },
+                onLaneRename: { _ in }
             )
             .frame(width: 800)
             .background(Color(white: 0.15))

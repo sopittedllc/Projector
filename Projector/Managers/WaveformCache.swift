@@ -1,6 +1,6 @@
 import Foundation
 import AVFoundation
-import Accelerate
+import DSWaveformImage
 
 /// Caches and generates waveform data for audio clips and tracks
 @MainActor
@@ -25,12 +25,16 @@ final class WaveformCache: ObservableObject {
     // MARK: - Configuration
 
     /// Samples per second for the waveform (higher = more detail, more memory)
-    var samplesPerSecond: Int = 100
+    /// 200 samples/sec provides good visual detail for typical zoom levels
+    var samplesPerSecond: Int = 200
 
     // MARK: - Private State
 
     /// Generation tasks in progress
     private var generationTasks: [UUID: Task<Void, Never>] = [:]
+
+    /// Shared waveform analyzer instance
+    private let analyzer = WaveformAnalyzer()
 
     // MARK: - Clip-Based Waveform Methods
 
@@ -53,7 +57,6 @@ final class WaveformCache: ObservableObject {
     private func startGeneration(for clip: AudioClip) {
         let clipId = clip.id
         let url = clip.sourceURL
-        let trackIndex = clip.sourceTrackIndex ?? 0
         let sps = samplesPerSecond
 
         pendingCount += 1
@@ -63,7 +66,6 @@ final class WaveformCache: ObservableObject {
                 let waveform = try await Self.generateWaveformForClip(
                     url: url,
                     clipId: clipId,
-                    trackIndex: trackIndex,
                     samplesPerSecond: sps
                 )
 
@@ -87,28 +89,34 @@ final class WaveformCache: ObservableObject {
         updateGeneratingState()
     }
 
-    /// Generate waveform for a specific clip (runs off main thread)
+    /// Generate waveform for a specific clip using DSWaveformImage
     private nonisolated static func generateWaveformForClip(
         url: URL,
         clipId: UUID,
-        trackIndex: Int,
         samplesPerSecond: Int
     ) async throws -> WaveformData {
         let asset = AVAsset(url: url)
-        let tracks = try await asset.load(.tracks)
-        let audioTracks = tracks.filter { $0.mediaType == .audio }
+        let duration = try await asset.load(.duration)
+        let durationSeconds = CMTimeGetSeconds(duration)
 
-        guard trackIndex < audioTracks.count else {
-            throw WaveformCacheError.invalidTrackIndex
-        }
+        // Calculate number of samples based on duration
+        let sampleCount = max(10, Int(durationSeconds * Double(samplesPerSecond)))
 
-        let track = audioTracks[trackIndex]
-        return try await generateWaveform(
-            for: asset,
-            track: track,
-            identifier: clipId.hashValue,
-            samplesPerSecond: samplesPerSecond
+        // Use DSWaveformImage's analyzer to get samples
+        let analyzer = WaveformAnalyzer()
+        let samples = try await analyzer.samples(fromAudioAt: url, count: sampleCount)
+
+        return WaveformData(
+            trackIndex: clipId.hashValue,
+            samples: samples,
+            samplesPerSecond: samplesPerSecond,
+            duration: durationSeconds
         )
+    }
+
+    /// Check if waveform is currently being generated for a clip
+    func isLoading(for clip: AudioClip) -> Bool {
+        generationTasks[clip.id] != nil
     }
 
     /// Cancel generation for a clip
@@ -146,17 +154,21 @@ final class WaveformCache: ObservableObject {
         let trackProgress = 1.0 / Double(audioTracks.count)
         let sps = samplesPerSecond
 
-        for (index, track) in audioTracks.enumerated() {
+        for (index, _) in audioTracks.enumerated() {
             do {
-                let waveform = try await Task.detached(priority: .userInitiated) {
-                    try await Self.generateWaveform(
-                        for: asset,
-                        track: track,
-                        identifier: index,
-                        samplesPerSecond: sps
-                    )
-                }.value
-                trackWaveforms[index] = waveform
+                let duration = try await asset.load(.duration)
+                let durationSeconds = CMTimeGetSeconds(duration)
+                let sampleCount = max(10, Int(durationSeconds * Double(sps)))
+
+                let analyzer = WaveformAnalyzer()
+                let samples = try await analyzer.samples(fromAudioAt: url, count: sampleCount)
+
+                trackWaveforms[index] = WaveformData(
+                    trackIndex: index,
+                    samples: samples,
+                    samplesPerSecond: sps,
+                    duration: durationSeconds
+                )
             } catch {
                 NSLog(">>> WaveformCache: Failed to generate waveform for track \(index): \(error)")
             }
@@ -171,105 +183,6 @@ final class WaveformCache: ObservableObject {
     /// Get waveform for a track by index (legacy mode)
     func waveform(forTrack trackIndex: Int) -> WaveformData? {
         trackWaveforms[trackIndex]
-    }
-
-    // MARK: - Shared Generation Logic
-
-    /// Generate waveform for a specific audio track
-    private nonisolated static func generateWaveform(
-        for asset: AVAsset,
-        track: AVAssetTrack,
-        identifier: Int,
-        samplesPerSecond: Int
-    ) async throws -> WaveformData {
-        let duration = try await asset.load(.duration)
-        let durationSeconds = CMTimeGetSeconds(duration)
-
-        // Create asset reader
-        let reader = try AVAssetReader(asset: asset)
-
-        // Configure output for PCM float samples
-        let outputSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVLinearPCMBitDepthKey: 32,
-            AVLinearPCMIsFloatKey: true,
-            AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsNonInterleaved: false
-        ]
-
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: outputSettings)
-        output.alwaysCopiesSampleData = false
-        reader.add(output)
-
-        guard reader.startReading() else {
-            throw WaveformCacheError.failedToStartReading
-        }
-
-        // Calculate expected sample count
-        let expectedSamples = Int(durationSeconds * Double(samplesPerSecond))
-        var samples: [Float] = []
-        samples.reserveCapacity(expectedSamples)
-
-        // Track sample rate for downsampling
-        var sampleRate: Double = 48000
-        if let formatDesc = try await track.load(.formatDescriptions).first {
-            if let basicDesc = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) {
-                sampleRate = basicDesc.pointee.mSampleRate
-            }
-        }
-
-        // Samples per output sample
-        let samplesPerOutputSample = Int(sampleRate) / samplesPerSecond
-        var sampleBuffer: [Float] = []
-        sampleBuffer.reserveCapacity(samplesPerOutputSample * 2)
-
-        // Read and process samples
-        while let sampleBuffer2 = output.copyNextSampleBuffer() {
-            guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer2) else { continue }
-
-            var length = 0
-            var dataPointer: UnsafeMutablePointer<Int8>?
-            CMBlockBufferGetDataPointer(
-                blockBuffer,
-                atOffset: 0,
-                lengthAtOffsetOut: nil,
-                totalLengthOut: &length,
-                dataPointerOut: &dataPointer
-            )
-
-            guard let data = dataPointer else { continue }
-
-            // Convert to float samples
-            let floatCount = length / MemoryLayout<Float>.size
-            let floatPointer = data.withMemoryRebound(to: Float.self, capacity: floatCount) { $0 }
-
-            // Process samples in chunks
-            for i in 0..<floatCount {
-                sampleBuffer.append(abs(floatPointer[i]))
-
-                if sampleBuffer.count >= samplesPerOutputSample {
-                    // Calculate peak
-                    let peak = sampleBuffer.max() ?? 0
-                    samples.append(min(1.0, peak))
-                    sampleBuffer.removeAll(keepingCapacity: true)
-                }
-            }
-        }
-
-        // Process remaining samples
-        if !sampleBuffer.isEmpty {
-            let peak = sampleBuffer.max() ?? 0
-            samples.append(min(1.0, peak))
-        }
-
-        reader.cancelReading()
-
-        return WaveformData(
-            trackIndex: identifier,
-            samples: samples,
-            samplesPerSecond: samplesPerSecond,
-            duration: durationSeconds
-        )
     }
 
     // MARK: - State Management

@@ -1,5 +1,7 @@
 import SwiftUI
 import Iconoir
+import DSWaveformImageViews
+import DSWaveformImage
 
 /// Visual representation of a single audio clip on an audio lane
 struct AudioClipView: View {
@@ -9,14 +11,17 @@ struct AudioClipView: View {
     let pixelsPerFrame: CGFloat
     let waveformData: WaveformData?
     let isSelected: Bool
+    let isLoadingWaveform: Bool
     let onSelect: () -> Void
     let onDoubleClick: () -> Void
 
     /// Track height for audio clips
     private let trackHeight: CGFloat = 50
+    /// Header height for filename
+    private let headerHeight: CGFloat = 18
 
     var body: some View {
-        ZStack(alignment: .leading) {
+        ZStack(alignment: .topLeading) {
             // Background
             RoundedRectangle(cornerRadius: 4)
                 .fill(backgroundFill)
@@ -25,47 +30,57 @@ struct AudioClipView: View {
                         .stroke(borderColor, lineWidth: isSelected ? 2 : 1)
                 )
 
-            // Waveform layer
-            waveformLayer
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+            VStack(spacing: 0) {
+                // Header with filename
+                HStack(spacing: 4) {
+                    Text(clip.displayName)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
 
-            // Overlay content
-            HStack(spacing: 4) {
-                // Source type indicator
-                sourceTypeIcon
-                    .frame(width: 12, height: 12)
-                    .foregroundColor(.white.opacity(0.7))
+                    Spacer(minLength: 0)
 
-                // Clip name
-                Text(clip.displayName)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
+                    // Muted indicator
+                    if clip.isMuted {
+                        Iconoir.soundOff.asImage
+                            .frame(width: 10, height: 10)
+                            .foregroundColor(.red)
+                    }
 
-                Spacer(minLength: 0)
-
-                // Muted indicator
-                if clip.isMuted {
-                    Iconoir.soundOff.asImage
-                        .frame(width: 10, height: 10)
-                        .foregroundColor(.red.opacity(0.8))
+                    // Volume indicator if not default
+                    if clip.volume != 1.0 && !clip.isMuted {
+                        Text(String(format: "%.0f%%", clip.volume * 100))
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.8))
+                    }
                 }
+                .padding(.horizontal, 6)
+                .frame(height: headerHeight)
+                .background(laneColor.opacity(0.9))
 
-                // Volume indicator if not default
-                if clip.volume != 1.0 && !clip.isMuted {
-                    Text(String(format: "%.0f%%", clip.volume * 100))
-                        .font(.system(size: 8, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.7))
+                // Waveform area - use DSWaveformImage's native view
+                ZStack {
+                    waveformLayer
+                        .clipShape(
+                            UnevenRoundedRectangle(
+                                topLeadingRadius: 0,
+                                bottomLeadingRadius: 4,
+                                bottomTrailingRadius: 4,
+                                topTrailingRadius: 0
+                            )
+                        )
                 }
+                .frame(height: trackHeight - headerHeight)
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
         }
         .frame(width: clipWidth, height: trackHeight)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
         .opacity(clip.isMuted || lane.isMuted ? 0.5 : 1.0)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2, perform: onDoubleClick)
-        .onTapGesture(count: 1, perform: onSelect)
+        .onTapGesture(count: 2) {
+            onSelect()
+            onDoubleClick()
+        }
         .help(clip.sourceURL.lastPathComponent)
     }
 
@@ -114,45 +129,33 @@ struct AudioClipView: View {
         return .white.opacity(0.1)
     }
 
-    private var sourceTypeIcon: some View {
-        Group {
-            switch clip.sourceType {
-            case .videoTrack:
-                Iconoir.videoCamera.asImage
-            case .audioFile:
-                Iconoir.soundHigh.asImage
-            }
-        }
-    }
-
-    // MARK: - Waveform Layer
+    // MARK: - Waveform Layer using DSWaveformImage
 
     @ViewBuilder
     private var waveformLayer: some View {
-        GeometryReader { geometry in
-            if let data = waveformData, !data.samples.isEmpty {
-                // Trim waveform samples to match clip region
-                let trimmedSamples = trimmedWaveformSamples(from: data, width: geometry.size.width)
-
-                WaveformShape(samples: trimmedSamples)
-                    .stroke(Color.white.opacity(0.4), lineWidth: 1)
-                    .frame(height: geometry.size.height * 0.8)
-                    .offset(y: geometry.size.height * 0.1)
-            }
-        }
+        // Use DSWaveformImage's native WaveformView for proper rendering
+        WaveformView(
+            audioURL: clip.sourceURL,
+            configuration: waveformConfiguration
+        )
+        .drawingGroup()
     }
 
-    private func trimmedWaveformSamples(from data: WaveformData, width: CGFloat) -> [Float] {
-        guard !data.samples.isEmpty, data.duration > 0 else { return [] }
-
-        let samplesPerSecond = Double(data.samples.count) / data.duration
-        let startSample = Int(Double(clip.sourceStartFrame) / 24.0 * samplesPerSecond) // Approximate
-        let endSample = startSample + Int(Double(clip.durationFrames) / 24.0 * samplesPerSecond)
-
-        let clampedStart = max(0, min(startSample, data.samples.count - 1))
-        let clampedEnd = max(clampedStart + 1, min(endSample, data.samples.count))
-
-        return Array(data.samples[clampedStart..<clampedEnd])
+    private var waveformConfiguration: Waveform.Configuration {
+        Waveform.Configuration(
+            style: .striped(
+                .init(
+                    color: .white.withAlphaComponent(0.8),
+                    width: 2,
+                    spacing: 1,
+                    lineCap: .round
+                )
+            ),
+            damping: .init(percentage: 0.125, sides: .both),
+            scale: 1.0,
+            verticalScalingFactor: 0.95,
+            shouldAntialias: true
+        )
     }
 }
 
@@ -169,13 +172,9 @@ struct AudioClipView: View {
             lane: AudioLane(name: "Audio 1"),
             isActive: true,
             pixelsPerFrame: 0.5,
-            waveformData: WaveformData(
-                trackIndex: 0,
-                samples: (0..<200).map { _ in Float.random(in: 0...0.8) },
-                samplesPerSecond: 100,
-                duration: 100
-            ),
+            waveformData: nil,
             isSelected: false,
+            isLoadingWaveform: false,
             onSelect: {},
             onDoubleClick: {}
         )
@@ -195,6 +194,7 @@ struct AudioClipView: View {
             pixelsPerFrame: 0.5,
             waveformData: nil,
             isSelected: true,
+            isLoadingWaveform: true,
             onSelect: {},
             onDoubleClick: {}
         )

@@ -49,6 +49,9 @@ struct MultiTrackTimelineView: View {
     @State private var selectedAudioClipId: UUID?
     @State private var selectedAudioLaneId: UUID?
 
+    // Focus state for keyboard commands
+    @FocusState private var isTimelineFocused: Bool
+
     // Timecode entry dialog state
     @State private var showTimecodeEntryDialog = false
     @State private var timecodeEntryText = ""
@@ -56,6 +59,10 @@ struct MultiTrackTimelineView: View {
     @State private var editingReelId: UUID?
     @State private var editingClipId: UUID?
     @State private var editingLaneId: UUID?
+
+    // Cached active audio clip IDs (updated only when currentFrame changes)
+    @State private var cachedActiveAudioClipIds: Set<UUID> = []
+    @State private var lastFrameForActiveClips: Int = -1
 
     // MARK: - Constants
 
@@ -105,8 +112,17 @@ struct MultiTrackTimelineView: View {
         return height
     }
 
+    /// Active audio clip IDs - uses cached value to avoid recalculation on scroll
     private var activeAudioClipIds: Set<UUID> {
-        Set(timeline.activeAudioClips(at: playbackEngine.currentFrame).map { $0.clip.id })
+        cachedActiveAudioClipIds
+    }
+
+    /// Update cached active audio clip IDs when frame changes
+    private func updateActiveAudioClipIds() {
+        let currentFrame = playbackEngine.currentFrame
+        guard currentFrame != lastFrameForActiveClips else { return }
+        lastFrameForActiveClips = currentFrame
+        cachedActiveAudioClipIds = Set(timeline.activeAudioClips(at: currentFrame).map { $0.clip.id })
     }
 
     // MARK: - Body
@@ -130,12 +146,32 @@ struct MultiTrackTimelineView: View {
                 .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .gesture(magnificationGesture)
+        .focusable()
+        .focusEffectDisabled()
+        .focused($isTimelineFocused)
         .onDeleteCommand {
             deleteSelectedItem()
         }
         .sheet(isPresented: $showTimecodeEntryDialog) {
             timecodeEntryDialogContent
+        }
+        // Take focus when a clip is selected
+        .onChange(of: selectedVideoReelId) { _, newValue in
+            if newValue != nil {
+                isTimelineFocused = true
+            }
+        }
+        .onChange(of: selectedAudioClipId) { _, newValue in
+            if newValue != nil {
+                isTimelineFocused = true
+            }
+        }
+        // Update cached active clip IDs when frame changes (throttled)
+        .onChange(of: playbackEngine.currentFrame) { _, _ in
+            updateActiveAudioClipIds()
+        }
+        .onAppear {
+            updateActiveAudioClipIds()
         }
     }
 
@@ -579,28 +615,30 @@ struct MultiTrackTimelineView: View {
     private var tracksSection: some View {
         GeometryReader { geometry in
             let contentAreaWidth = geometry.size.width - headerWidth
-            let totalTrackHeight = rulerHeight + rulerSpacing + tracksHeight
+            let totalContentWidth = timelineContentWidth(for: geometry.size.width)
 
-            ScrollView(.horizontal, showsIndicators: true) {
-                ZStack(alignment: .topLeading) {
-                    // Timeline content
+            VStack(spacing: 0) {
+                // Ruler row (with seek gesture - doesn't scroll)
+                HStack(spacing: 0) {
+                    Color.clear.frame(width: headerWidth)
+                    TimelineRulerView(
+                        duration: playbackEngine.duration,
+                        frameRate: timeline.config.frameRate,
+                        currentTime: playbackEngine.currentTime
+                    )
+                    .contentShape(Rectangle())
+                    .gesture(seekGesture(contentAreaWidth: contentAreaWidth))
+                }
+                .frame(height: rulerHeight)
+                .background(Color(white: 0.18))
+
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor).opacity(0.5))
+                    .frame(height: 1)
+
+                // Scrollable tracks area (horizontal + vertical)
+                ScrollView([.horizontal, .vertical], showsIndicators: true) {
                     VStack(spacing: 0) {
-                        // Ruler - slightly lighter background spanning full width
-                        HStack(spacing: 0) {
-                            Color.clear.frame(width: headerWidth)
-                            TimelineRulerView(
-                                duration: playbackEngine.duration,
-                                frameRate: timeline.config.frameRate,
-                                currentTime: playbackEngine.currentTime
-                            )
-                        }
-                        .frame(height: rulerHeight)
-                        .background(Color(white: 0.18))
-
-                        Rectangle()
-                            .fill(Color(nsColor: .separatorColor).opacity(0.5))
-                            .frame(height: 1)
-
                         Spacer().frame(height: 4)
 
                         // Video track
@@ -623,7 +661,7 @@ struct MultiTrackTimelineView: View {
                                 showTimecodeEntryDialog = true
                             }
                         )
-                        .frame(height: videoTrackHeight)
+                        .frame(width: totalContentWidth, height: videoTrackHeight)
 
                         Divider()
 
@@ -653,9 +691,12 @@ struct MultiTrackTimelineView: View {
                                     let tc = Timecode(.frames(clip.timelineStartFrame + timeline.config.startTimecode.frameCount.wholeFrames), at: timeline.config.frameRate, by: .clamping)
                                     timecodeEntryText = tc.stringValue()
                                     showTimecodeEntryDialog = true
+                                },
+                                onLaneRename: { newName in
+                                    timelineManager.renameAudioLane(id: lane.id, name: newName)
                                 }
                             )
-                            .frame(height: audioLaneHeight)
+                            .frame(width: totalContentWidth, height: audioLaneHeight)
 
                             if index < timeline.audioLanes.count - 1 {
                                 Divider()
@@ -664,42 +705,42 @@ struct MultiTrackTimelineView: View {
 
                         if timeline.audioLanes.isEmpty {
                             emptyAudioLanesPlaceholder
+                                .frame(width: totalContentWidth)
                         }
 
                         // Bottom padding
                         Spacer().frame(height: 8)
                     }
-
-                    // Playhead - positioned inside scroll content
-                    playhead(contentAreaWidth: contentAreaWidth, totalHeight: totalTrackHeight)
                 }
-                .frame(width: headerWidth + contentAreaWidth * zoomLevel, height: totalTrackHeight)
-                .contentShape(Rectangle())
-                .gesture(seekGesture(contentAreaWidth: contentAreaWidth))
+            }
+            // Playhead overlay spanning full height
+            .overlay(alignment: .topLeading) {
+                playhead(contentAreaWidth: contentAreaWidth, totalHeight: geometry.size.height)
+                    .allowsHitTesting(false)
             }
         }
-        .frame(height: rulerHeight + rulerSpacing + tracksHeight)
     }
 
-    // Simple playhead using percentage positioning
+    // Simple playhead using offset positioning (more efficient than .position())
     private func playhead(contentAreaWidth: CGFloat, totalHeight: CGFloat) -> some View {
         let progress = timeline.config.durationFrames > 0
             ? CGFloat(playbackEngine.currentFrame) / CGFloat(timeline.config.durationFrames)
             : 0
-        let xPos = headerWidth + (contentAreaWidth * zoomLevel * progress)
+        let xOffset = headerWidth + (contentAreaWidth * zoomLevel * progress) - 1 // -1 for half width
 
-        return Rectangle()
-            .fill(Color.accentColor)
-            .frame(width: 2, height: totalHeight)
-            .overlay(alignment: .top) {
-                // Triangle at top
-                Triangle()
-                    .fill(Color.accentColor)
-                    .frame(width: 10, height: 8)
-                    .offset(y: -4)
-            }
-            .position(x: xPos, y: totalHeight / 2)
-            .allowsHitTesting(false)
+        return VStack(spacing: 0) {
+            // Triangle at top
+            Triangle()
+                .fill(Color.accentColor)
+                .frame(width: 10, height: 8)
+            // Vertical line
+            Rectangle()
+                .fill(Color.accentColor)
+                .frame(width: 2)
+        }
+        .frame(height: totalHeight)
+        .offset(x: xOffset)
+        .allowsHitTesting(false)
     }
 
     // Simple seek gesture using percentage
@@ -768,22 +809,6 @@ struct MultiTrackTimelineView: View {
     private let minZoom: CGFloat = 1.0
     /// Maximum zoom: 10x for detail work
     private let maxZoom: CGFloat = 10.0
-
-    @State private var lastMagnification: CGFloat = 1.0
-
-    private var magnificationGesture: some Gesture {
-        MagnifyGesture()
-            .onChanged { value in
-                // Calculate delta from last magnification to avoid runaway zoom
-                let delta = value.magnification / lastMagnification
-                lastMagnification = value.magnification
-                let newZoom = zoomLevel * delta
-                zoomLevel = max(minZoom, min(maxZoom, newZoom))
-            }
-            .onEnded { _ in
-                lastMagnification = 1.0
-            }
-    }
 
     private func zoomIn() {
         withAnimation(.easeInOut(duration: 0.2)) {
