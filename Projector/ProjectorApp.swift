@@ -237,6 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
         // Enable full-size content view to extend behind title bar
         window.styleMask.insert(.fullSizeContentView)
+        window.styleMask.insert(.resizable)
 
         // Use a vibrant dark appearance for the window
         window.appearance = NSAppearance(named: .vibrantDark)

@@ -27,9 +27,9 @@ struct MultiTrackTimelineView: View {
     @ObservedObject var playbackEngine: PlaybackEngine
     @ObservedObject var waveformCache: WaveformCache
     @ObservedObject var audioOutputManager: AudioOutputManager
-    let thumbnails: [UUID: ThumbnailStrip]
-    let onDropVideoMedia: ([URL]) -> Void
-    let onDropAudioMedia: (Int, [URL]) -> Void
+    @ObservedObject var thumbnailCache: ThumbnailCache
+    let onDropVideoMedia: ([URL], Int, Bool) -> Void
+    let onDropAudioMedia: (Int, [URL], Int, Bool) -> Void
     let onSeek: (Int) -> Void
     let onSettingsPressed: () -> Void
     var showHeader: Bool = true
@@ -182,6 +182,10 @@ struct MultiTrackTimelineView: View {
             selectedVideoReelId = nil
         } else if let clipId = selectedAudioClipId, let laneId = selectedAudioLaneId {
             timelineManager.removeAudioClip(clipId: clipId, fromLane: laneId)
+            if let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
+               lane.clips.isEmpty {
+                timelineManager.removeAudioLane(id: laneId)
+            }
             selectedAudioClipId = nil
             selectedAudioLaneId = nil
         }
@@ -647,7 +651,7 @@ struct MultiTrackTimelineView: View {
                         VideoTrackView(
                             timelineManager: timelineManager,
                             playbackEngine: playbackEngine,
-                            thumbnails: thumbnails,
+                            thumbnailCache: thumbnailCache,
                             pixelsPerFrame: ppf,
                             scrollOffset: 0,
                             showThumbnails: !debug.disableThumbnails,
@@ -679,6 +683,7 @@ struct MultiTrackTimelineView: View {
                                 pixelsPerFrame: ppf,
                                 frameRate: timeline.config.frameRate,
                                 scrollOffset: 0,
+                                timelineDurationFrames: timeline.config.durationFrames,
                                 showWaveforms: !debug.disableWaveforms,
                                 clipInteractionsEnabled: !debug.disableClipInteractions,
                                 availableAudioDevices: audioOutputManager.availableDevices,
@@ -686,7 +691,7 @@ struct MultiTrackTimelineView: View {
                                 onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
                                 onVolumeChange: { volume in timelineManager.setLaneVolume(at: index, volume: volume) },
                                 onOutputDeviceChange: { deviceUID in timelineManager.setLaneOutputDevice(id: lane.id, deviceUID: deviceUID) },
-                                onDropMedia: { urls in onDropAudioMedia(index, urls) },
+                                onDropMedia: { urls, frame, isInternal in onDropAudioMedia(index, urls, frame, isInternal) },
                                 onClipSelected: { clipId in
                                     selectedAudioClipId = clipId
                                     selectedAudioLaneId = lane.id
@@ -842,6 +847,7 @@ struct MultiTrackTimelineView: View {
         @StateObject var playbackEngine = PlaybackEngine()
         @StateObject var waveformCache = WaveformCache()
         @StateObject var audioOutputManager = AudioOutputManager()
+        @StateObject var thumbnailCache = ThumbnailCache()
         @State var zoomLevel: CGFloat = 0.0
 
         var body: some View {
@@ -850,9 +856,9 @@ struct MultiTrackTimelineView: View {
                 playbackEngine: playbackEngine,
                 waveformCache: waveformCache,
                 audioOutputManager: audioOutputManager,
-                thumbnails: [:],
-                onDropVideoMedia: { _ in },
-                onDropAudioMedia: { _, _ in },
+                thumbnailCache: thumbnailCache,
+                onDropVideoMedia: { _, _, _ in },
+                onDropAudioMedia: { _, _, _, _ in },
                 onSeek: { _ in },
                 onSettingsPressed: { },
                 zoomLevel: $zoomLevel

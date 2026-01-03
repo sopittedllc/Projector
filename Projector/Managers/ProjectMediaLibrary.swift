@@ -92,7 +92,7 @@ final class ProjectMediaLibrary: ObservableObject {
         }
 
         // Check if already imported
-        if let existing = items.first(where: { $0.url == url }) {
+        if let existing = existingItem(for: url) {
             return existing
         }
 
@@ -162,6 +162,14 @@ final class ProjectMediaLibrary: ObservableObject {
         markDirty()
 
         return item
+    }
+
+    /// Find an existing media item by URL (normalized)
+    func existingItem(for url: URL) -> MediaItem? {
+        let normalized = url.standardizedFileURL.resolvingSymlinksInPath()
+        return items.first { item in
+            item.url.standardizedFileURL.resolvingSymlinksInPath() == normalized
+        }
     }
 
     /// Import multiple files

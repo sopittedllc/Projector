@@ -6,7 +6,7 @@ struct VideoReelClipView: View {
     let reel: VideoReel
     let isActive: Bool
     let pixelsPerFrame: CGFloat
-    let thumbnailStrip: ThumbnailStrip?
+    @ObservedObject var thumbnailCache: ThumbnailCache
     let showThumbnails: Bool
     let isSelected: Bool
     let interactionsEnabled: Bool
@@ -107,6 +107,7 @@ struct VideoReelClipView: View {
             HStack(spacing: 0) {
                 let thumbnailCount = max(1, Int(ceil(geometry.size.width / thumbnailWidth)))
                 let clipDuration = Double(reel.durationFrames) / reel.sourceFrameRate.fps
+                let strip = thumbnailCache.strip(for: reel, targetCount: thumbnailCount)
 
                 ForEach(0..<thumbnailCount, id: \.self) { index in
                     // Calculate the source time for this thumbnail cell
@@ -116,7 +117,7 @@ struct VideoReelClipView: View {
                     let sourceTimeOffset = clipDuration * fractionThrough
                     let sourceTime = Double(reel.sourceStartFrame) / reel.sourceFrameRate.fps + sourceTimeOffset
 
-                    thumbnailCell(at: sourceTime)
+                    thumbnailCell(at: sourceTime, strip: strip)
                         .frame(width: thumbnailWidth, height: geometry.size.height)
                 }
             }
@@ -124,8 +125,9 @@ struct VideoReelClipView: View {
     }
 
     @ViewBuilder
-    private func thumbnailCell(at sourceTime: Double) -> some View {
-        if let strip = thumbnailStrip, let data = strip.thumbnail(at: sourceTime), let nsImage = NSImage(data: data) {
+    private func thumbnailCell(at sourceTime: Double, strip: ThumbnailStrip?) -> some View {
+        if let data = strip?.thumbnail(at: sourceTime),
+           let nsImage = NSImage(data: data) {
             Image(nsImage: nsImage)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
@@ -181,7 +183,7 @@ struct VideoReelClipView: View {
             ),
             isActive: true,
             pixelsPerFrame: 0.5,
-            thumbnailStrip: nil,
+            thumbnailCache: ThumbnailCache(),
             showThumbnails: true,
             isSelected: false,
             interactionsEnabled: true,
@@ -199,7 +201,7 @@ struct VideoReelClipView: View {
             ),
             isActive: false,
             pixelsPerFrame: 0.5,
-            thumbnailStrip: nil,
+            thumbnailCache: ThumbnailCache(),
             showThumbnails: true,
             isSelected: true,
             interactionsEnabled: true,

@@ -98,3 +98,33 @@ struct ThumbnailStrip {
         thumbnails.first?.imageData
     }
 }
+
+/// Multi-resolution thumbnail collection keyed by bucket count.
+struct ThumbnailAtlas: Sendable {
+    let duration: Double
+    private(set) var levels: [Int: ThumbnailStrip] = [:]
+
+    init(duration: Double, levels: [Int: ThumbnailStrip] = [:]) {
+        self.duration = duration
+        self.levels = levels
+    }
+
+    mutating func addLevel(_ strip: ThumbnailStrip, bucketCount: Int) {
+        levels[bucketCount] = strip
+    }
+
+    func level(for bucketCount: Int) -> ThumbnailStrip? {
+        levels[bucketCount]
+    }
+
+    func bestLevel(for targetCount: Int) -> ThumbnailStrip? {
+        guard !levels.isEmpty else { return nil }
+        let clampedTarget = max(1, targetCount)
+        let best = levels.min { abs($0.key - clampedTarget) < abs($1.key - clampedTarget) }
+        return best?.value
+    }
+
+    func thumbnail(at sourceTime: Double, targetCount: Int) -> Data? {
+        bestLevel(for: targetCount)?.thumbnail(at: sourceTime)
+    }
+}

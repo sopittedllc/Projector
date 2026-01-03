@@ -109,14 +109,22 @@ final class WaveformCache: ObservableObject {
         let asset = AVAsset(url: url)
         let duration = try await asset.load(.duration)
         let durationSeconds = CMTimeGetSeconds(duration)
+        let maxSampleCount = (bucketCounts.max() ?? 16384) * 8
+        let rawSampleCount = Int(durationSeconds * Double(samplesPerSecond))
+        let sampleCount = max(10, min(rawSampleCount, maxSampleCount))
+        let effectiveSamplesPerSecond = max(
+            1,
+            min(samplesPerSecond, Int(Double(maxSampleCount) / max(durationSeconds, 1)))
+        )
 
         let samples: [Float]
-        switch clip.sourceType {
-        case .audioFile:
-            let sampleCount = max(10, Int(durationSeconds * Double(samplesPerSecond)))
-            let analyzer = WaveformAnalyzer()
+        let analyzer = WaveformAnalyzer()
+        do {
             samples = try await analyzer.samples(fromAudioAt: url, count: sampleCount)
-        case .videoTrack:
+        } catch {
+            guard clip.sourceType == .videoTrack else {
+                throw error
+            }
             let audioTracks = try await asset.loadTracks(withMediaType: .audio)
             guard !audioTracks.isEmpty else {
                 throw WaveformCacheError.noAudioTracks
@@ -128,7 +136,7 @@ final class WaveformCache: ObservableObject {
             samples = try await samplesUsingAssetReader(
                 asset: asset,
                 track: audioTracks[trackIndex],
-                samplesPerSecond: samplesPerSecond,
+                samplesPerSecond: effectiveSamplesPerSecond,
                 durationSeconds: durationSeconds
             )
         }

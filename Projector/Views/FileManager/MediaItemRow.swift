@@ -2,6 +2,23 @@ import SwiftUI
 import UniformTypeIdentifiers
 import Iconoir
 
+enum MediaDragProvider {
+    static func provider(for item: MediaItem) -> NSItemProvider {
+        let provider = NSItemProvider(object: item.url as NSURL)
+        if let data = item.id.uuidString.data(using: .utf8) {
+            provider.registerDataRepresentation(forTypeIdentifier: UTType.projectorMediaItem.identifier, visibility: .all) { completion in
+                completion(data, nil)
+                return nil
+            }
+        }
+        return provider
+    }
+}
+
+extension UTType {
+    static let projectorMediaItem = UTType(exportedAs: "com.projector.media-item")
+}
+
 /// A row displaying a media item in the file manager
 struct MediaItemRow: View {
     let item: MediaItem
@@ -66,7 +83,7 @@ struct MediaItemRow: View {
         .opacity(isDragging ? 0.5 : 1.0)
         .onDrag {
             isDragging = true
-            return NSItemProvider(object: item.url as NSURL)
+            return MediaDragProvider.provider(for: item)
         }
         .onChange(of: isDragging) { _, newValue in
             // Reset dragging state after a delay

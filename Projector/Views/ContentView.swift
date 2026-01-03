@@ -62,7 +62,7 @@ struct ContentView: View {
     @State private var loadError: String?
     @State private var showErrorAlert = false
     @State private var midiCancellables = Set<AnyCancellable>()
-    @State private var videoThumbnails: [UUID: ThumbnailStrip] = [:]
+    @StateObject private var thumbnailCache = ThumbnailCache()
     @State private var showFileManager = true
     @State private var isFullScreen = false
     @State private var didHandleUITestImport = false
@@ -70,6 +70,17 @@ struct ContentView: View {
 
     // Resizable accordion heights (media panel only - timeline handled by TimelineViewModel)
     @State private var mediaHeight: CGFloat = 200
+
+    // Playback window resizing
+    @State private var playbackHeight: CGFloat?
+    @State private var playbackMeasuredHeight: CGFloat = 0
+    @State private var playbackDragStartHeight: CGFloat = 0
+    @State private var playbackDragStartLocationY: CGFloat = 0
+    @State private var isResizingPlayback = false
+    @State private var isHoveringPlaybackResize = false
+    @State private var didPushResizeCursorForDrag = false
+    @State private var normalViewHeight: CGFloat = 0
+    @State private var vitalControlsHeight: CGFloat = 0
 
     // Missing files state
     @State private var showMissingFilesAlert = false
@@ -80,6 +91,17 @@ struct ContentView: View {
     @State private var showFPSConflictAlert = false
     @State private var pendingVideoURL: URL?
     @State private var pendingVideoFPS: TimecodeFrameRate?
+    @State private var pendingVideoInsertFrame: Int?
+    @State private var showVideoInsertSheet = false
+    @State private var videoInsertURL: URL?
+    @State private var videoInsertTimecodeText: String = ""
+    @State private var videoInsertError: String?
+    @State private var showVideoAlreadyInTimelineAlert = false
+    @State private var videoAlreadyInTimelineName: String = ""
+    @State private var showAudioAlreadyInTimelineAlert = false
+    @State private var audioAlreadyInTimelineName: String = ""
+    @State private var showDuplicateMediaAlert = false
+    @State private var duplicateMediaNames: [String] = []
 
     var body: some View {
         Group {
@@ -118,10 +140,28 @@ struct ContentView: View {
                 isPresented: $showSettings
             )
         }
+        .sheet(isPresented: $showVideoInsertSheet) {
+            videoInsertSheet
+        }
         .alert("Error Loading Video", isPresented: $showErrorAlert) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(loadError ?? "Unknown error")
+        }
+        .alert("Already in Timeline", isPresented: $showVideoAlreadyInTimelineAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("\"\(videoAlreadyInTimelineName)\" is already on the timeline.")
+        }
+        .alert("Already in Timeline", isPresented: $showAudioAlreadyInTimelineAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("\"\(audioAlreadyInTimelineName)\" is already on the timeline.")
+        }
+        .alert("Already in Project", isPresented: $showDuplicateMediaAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(duplicateMediaAlertMessage)
         }
         .alert("Missing File", isPresented: $showMissingFilesAlert) {
             Button("Locate...") {
@@ -146,6 +186,7 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) {
                 pendingVideoURL = nil
                 pendingVideoFPS = nil
+                pendingVideoInsertFrame = nil
             }
         } message: {
             if let fps = pendingVideoFPS {
@@ -153,6 +194,7 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 640, minHeight: 400)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(
             VisualEffectView(material: .hudWindow, blendingMode: .behindWindow, alphaValue: 0.95)
         )
@@ -165,7 +207,7 @@ struct ContentView: View {
             // Add dropped video to timeline
             if let url = notification.object as? URL {
                 Task {
-                    await addVideoToTimeline(url: url)
+                    await addVideoToTimeline(url: url, atFrame: nil)
                 }
             }
         }
@@ -229,10 +271,25 @@ struct ContentView: View {
                 playbackEngine: playbackEngine,
                 showTimecode: settings.showTimecodeOverlay,
                 overlayPosition: settings.timecodeOverlayPosition,
-                overlayOpacity: settings.timecodeOverlayOpacity
+                overlayOpacity: settings.timecodeOverlayOpacity,
+                extraTrailingPadding: settings.timecodeOverlayPosition == .bottomRight ? 50 : 0
             )
             .frame(minWidth: 480, minHeight: 200)
+            .frame(height: playbackHeight)
             .transaction { $0.animation = nil }
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear {
+                            playbackMeasuredHeight = proxy.size.height
+                        }
+                        .onChange(of: proxy.size.height) { _, newValue in
+                            if !isResizingPlayback, newValue != playbackMeasuredHeight {
+                                playbackMeasuredHeight = newValue
+                            }
+                        }
+                }
+            )
             .overlay {
                 // Drop target overlay
                 if isDropTargeted {
@@ -264,51 +321,157 @@ struct ContentView: View {
                     }
                 }
             }
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.clear)
+                    .frame(height: 10)
+                    .contentShape(Rectangle())
+                    .overlay {
+                        Rectangle()
+                            .fill(isResizingPlayback ? Color.accentColor : Color.white.opacity(0.25))
+                            .frame(height: 1)
+                    }
+                    .onHover { hovering in
+                        guard !isResizingPlayback else { return }
+                        if hovering, !isHoveringPlaybackResize {
+                            NSCursor.resizeUpDown.push()
+                            isHoveringPlaybackResize = true
+                        } else if !hovering, isHoveringPlaybackResize {
+                            NSCursor.pop()
+                            isHoveringPlaybackResize = false
+                        }
+                    }
+                    .gesture(
+                        DragGesture(coordinateSpace: .global)
+                            .onChanged { value in
+                                if !isResizingPlayback {
+                                    playbackDragStartHeight = playbackHeight ?? playbackMeasuredHeight
+                                    playbackDragStartLocationY = value.startLocation.y
+                                    isResizingPlayback = true
+                                    if !isHoveringPlaybackResize {
+                                        NSCursor.resizeUpDown.push()
+                                        didPushResizeCursorForDrag = true
+                                    } else {
+                                        didPushResizeCursorForDrag = false
+                                    }
+                                }
+                                let delta = value.location.y - playbackDragStartLocationY
+                                let proposedHeight = playbackDragStartHeight + delta
+                                playbackHeight = min(playbackMaxHeight, max(playbackMinHeight, proposedHeight))
+                            }
+                            .onEnded { _ in
+                                isResizingPlayback = false
+                                if didPushResizeCursorForDrag {
+                                    NSCursor.pop()
+                                }
+                                didPushResizeCursorForDrag = false
+                            }
+                    )
+            }
+            .overlay(alignment: .bottomTrailing) {
+                Button(action: { enterFullScreen() }) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(10)
+                        .background(
+                            Circle()
+                                .fill(Color.black.opacity(0.6))
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(20)
+                .opacity(0.7)
+                .help("Enter Full Screen")
+            }
 
             // Vital Controls bar (always visible)
             VitalControlsBar(
                 timelineManager: timelineManager,
                 playbackEngine: playbackEngine,
                 timelineViewModel: timelineViewModel,
-                onSettingsPressed: { showSettings = true },
-                onFullScreenPressed: { enterFullScreen() }
-            )
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-
-            // Timeline accordion
-            TimelineAccordionView(
-                timelineManager: timelineManager,
-                playbackEngine: playbackEngine,
-                waveformCache: waveformCache,
-                audioOutputManager: audioManager,
-                timelineViewModel: timelineViewModel,
-                thumbnails: videoThumbnails,
-                onDropVideoMedia: handleVideoDropOnTimeline,
-                onDropAudioMedia: handleAudioDropOnTimeline,
-                onSeek: { frame in playbackEngine.seekToFrame(frame) },
                 onSettingsPressed: { showSettings = true }
             )
             .padding(.horizontal, 16)
-            .padding(.top, 4)
-            .onChange(of: mediaLibrary.items.count) { _, newCount in
-                // Auto-expand timeline when media is first imported
-                if newCount > 0 && !timelineViewModel.isExpanded {
-                    timelineViewModel.expandIfNeeded()
+            .padding(.top, 8)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear {
+                            vitalControlsHeight = proxy.size.height
+                        }
+                        .onChange(of: proxy.size.height) { _, newValue in
+                            if newValue != vitalControlsHeight {
+                                vitalControlsHeight = newValue
+                                clampPlaybackHeightIfNeeded()
+                            }
+                        }
                 }
-            }
+            )
 
-            // File Manager panel
-            if showFileManager {
-                FileManagerView(
-                    mediaLibrary: mediaLibrary,
-                    onAddToVideoTrack: handleAddToVideoTrack,
-                    onAddToAudioLane: handleAddToAudioLane
-                )
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 16)
+            ScrollView(.vertical) {
+                VStack(spacing: 0) {
+                    // Timeline accordion
+                    TimelineAccordionView(
+                        timelineManager: timelineManager,
+                        playbackEngine: playbackEngine,
+                        waveformCache: waveformCache,
+                        audioOutputManager: audioManager,
+                        timelineViewModel: timelineViewModel,
+                        thumbnailCache: thumbnailCache,
+                        onDropVideoMedia: handleVideoDropOnTimeline,
+                        onDropAudioMedia: handleAudioDropOnTimeline,
+                        onSeek: { frame in playbackEngine.seekToFrame(frame) },
+                        onSettingsPressed: { showSettings = true }
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .onChange(of: mediaLibrary.items.count) { _, newCount in
+                        // Auto-expand timeline when media is first imported
+                        if newCount > 0 && !timelineViewModel.isExpanded {
+                            timelineViewModel.expandIfNeeded()
+                        }
+                    }
+
+                    // File Manager panel
+                    if showFileManager {
+                        FileManagerView(
+                            mediaLibrary: mediaLibrary,
+                            onAddToVideoTrack: handleAddToVideoTrack,
+                            onAddToAudioLane: handleAddToAudioLane,
+                            onDeleteItem: handleDeleteMediaItem
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 16)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .top)
             }
+            .frame(minHeight: lowerPanelsMinHeight)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                dismissTimecodeEditing()
+            }
+        )
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear {
+                        normalViewHeight = proxy.size.height
+                    }
+                    .onChange(of: proxy.size.height) { _, newValue in
+                        if newValue != normalViewHeight {
+                            normalViewHeight = newValue
+                            clampPlaybackHeightIfNeeded()
+                        }
+                    }
+            }
+        )
+        .onChange(of: showFileManager) { _, _ in
+            clampPlaybackHeightIfNeeded()
         }
     }
 
@@ -348,6 +511,44 @@ struct ContentView: View {
                     .opacity(0.7)
                 }
             }
+        }
+    }
+
+    private var playbackMinHeight: CGFloat {
+        200
+    }
+
+    private var lowerPanelsMinHeight: CGFloat {
+        showFileManager ? 200 : 120
+    }
+
+    private func dismissTimecodeEditing() {
+        NSApp.keyWindow?.makeFirstResponder(nil)
+    }
+
+    private var duplicateMediaAlertMessage: String {
+        if duplicateMediaNames.count == 1, let name = duplicateMediaNames.first {
+            return "\"\(name)\" is already in the project."
+        }
+        return "\(duplicateMediaNames.count) files are already in the project."
+    }
+
+    private var playbackMaxHeight: CGFloat {
+        let reservedHeight = vitalControlsHeight + lowerPanelsMinHeight
+        if normalViewHeight > 0 {
+            return max(playbackMinHeight, normalViewHeight - reservedHeight)
+        }
+        if playbackMeasuredHeight > 0 {
+            return max(playbackMinHeight, playbackMeasuredHeight)
+        }
+        return CGFloat.greatestFiniteMagnitude
+    }
+
+    private func clampPlaybackHeightIfNeeded() {
+        guard let height = playbackHeight else { return }
+        let clamped = min(playbackMaxHeight, max(playbackMinHeight, height))
+        if clamped != height {
+            playbackHeight = clamped
         }
     }
 
@@ -440,7 +641,7 @@ struct ContentView: View {
                 do {
                     try await playbackEngine.loadReel(firstReel)
 
-                    // Generate thumbnails for all reels
+                    // Prime thumbnail cache for all reels
                     for reel in timelineManager.timeline.videoReels {
                         await generateThumbnail(for: reel)
                     }
@@ -800,21 +1001,27 @@ struct ContentView: View {
                 }
             }
 
+            let supportedURLs = urls.filter { ProjectMediaLibrary.isSupported(url: $0) }
+            let (newURLs, duplicateNames) = partitionDuplicateMediaURLs(supportedURLs)
+            if !duplicateNames.isEmpty {
+                duplicateMediaNames = duplicateNames
+                showDuplicateMediaAlert = true
+            }
+
             // Process each URL sequentially
-            for url in urls {
-                guard ProjectMediaLibrary.isSupported(url: url),
-                      let mediaType = ProjectMediaLibrary.mediaType(for: url) else {
+            for url in newURLs {
+                guard let mediaType = ProjectMediaLibrary.mediaType(for: url) else {
                     continue
                 }
 
                 switch mediaType {
                 case .video:
-                    await self.addVideoToTimeline(url: url)
+                    await self.addVideoToTimeline(url: url, atFrame: nil)
                 case .audio:
                     // Create a new audio lane for each audio file
                     let laneNumber = self.timelineManager.timeline.audioLanes.count + 1
                     let newLane = self.timelineManager.addAudioLane(name: "Audio \(laneNumber)")
-                    await self.addAudioToTimeline(url: url, laneId: newLane.id)
+                    await self.addAudioToTimeline(url: url, laneId: newLane.id, atFrame: nil)
                 }
             }
 
@@ -841,57 +1048,214 @@ struct ContentView: View {
         }
     }
 
+    private func partitionDuplicateMediaURLs(_ urls: [URL]) -> ([URL], [String]) {
+        let uniqueURLs = Array(Set(urls.map { $0.standardizedFileURL.resolvingSymlinksInPath() }))
+        var duplicateNames: [String] = []
+        var newURLs: [URL] = []
+
+        for url in uniqueURLs {
+            if let existing = mediaLibrary.existingItem(for: url) {
+                duplicateNames.append(existing.displayName)
+            } else {
+                newURLs.append(url)
+            }
+        }
+
+        return (newURLs, duplicateNames)
+    }
+
     // MARK: - Timeline Media Handling
 
     /// Handle video files dropped on the timeline video track
-    private func handleVideoDropOnTimeline(_ urls: [URL]) {
+    private func handleVideoDropOnTimeline(_ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
         Task {
-            for url in urls {
-                await addVideoToTimeline(url: url)
+            let (newURLs, duplicateNames) = isInternalDrag ? (urls, []) : partitionDuplicateMediaURLs(urls)
+            if !duplicateNames.isEmpty {
+                duplicateMediaNames = duplicateNames
+                showDuplicateMediaAlert = true
+            }
+            for url in newURLs {
+                await addVideoToTimeline(url: url, atFrame: atFrame)
             }
         }
     }
 
     /// Handle audio files dropped on a specific audio lane
-    private func handleAudioDropOnTimeline(_ laneIndex: Int, _ urls: [URL]) {
+    private func handleAudioDropOnTimeline(_ laneIndex: Int, _ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
         Task {
+            let (newURLs, duplicateNames) = isInternalDrag ? (urls, []) : partitionDuplicateMediaURLs(urls)
+            if !duplicateNames.isEmpty {
+                duplicateMediaNames = duplicateNames
+                showDuplicateMediaAlert = true
+            }
             // Ensure the lane exists
             while timelineManager.timeline.audioLanes.count <= laneIndex {
                 _ = timelineManager.addAudioLane()
             }
 
             let lane = timelineManager.timeline.audioLanes[laneIndex]
+            var insertFrame = max(0, atFrame)
 
-            for url in urls {
-                await addAudioToTimeline(url: url, laneId: lane.id)
+            for url in newURLs {
+                let clip = await addAudioToTimeline(url: url, laneId: lane.id, atFrame: insertFrame)
+                if let clip = clip {
+                    insertFrame = clip.timelineEndFrame
+                }
             }
         }
     }
 
     /// Handle media item double-clicked to add to video track
     private func handleAddToVideoTrack(_ item: MediaItem) {
-        Task {
-            await addVideoToTimeline(url: item.url)
+        if timelineManager.timeline.videoReels.contains(where: { $0.sourceURL == item.url }) {
+            videoAlreadyInTimelineName = item.displayName
+            showVideoAlreadyInTimelineAlert = true
+            return
         }
+
+        videoInsertURL = item.url
+        videoInsertTimecodeText = timelineManager.timeline.config.startTimecode.stringValue()
+        videoInsertError = nil
+        showVideoInsertSheet = true
     }
 
     /// Handle media item double-clicked to add to audio lane
     /// Creates a new audio lane and adds the audio there
     private func handleAddToAudioLane(_ item: MediaItem, _ laneIndex: Int) {
+        if timelineManager.timeline.audioLanes.contains(where: { lane in
+            lane.clips.contains(where: { $0.sourceURL == item.url })
+        }) {
+            audioAlreadyInTimelineName = item.displayName
+            showAudioAlreadyInTimelineAlert = true
+            return
+        }
+
         Task {
             // Create a new audio lane for this audio file
             let laneNumber = timelineManager.timeline.audioLanes.count + 1
             let newLane = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
 
-            await addAudioToTimeline(url: item.url, laneId: newLane.id)
+            _ = await addAudioToTimeline(url: item.url, laneId: newLane.id, atFrame: 0)
 
             // Auto-expand timeline so user can see the new lane
             timelineViewModel.expandIfNeeded()
         }
     }
 
+    private var videoInsertSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Place Video")
+                .font(.system(size: 14, weight: .semibold))
+
+            Text("Enter the timecode where the video should start.")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+
+            TextField("00:00:00:00", text: $videoInsertTimecodeText)
+                .font(.system(size: 13, design: .monospaced))
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: videoInsertTimecodeText) { _, newValue in
+                    videoInsertTimecodeText = formatTimecodeInput(newValue)
+                }
+
+            if let error = videoInsertError {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    clearVideoInsertPrompt()
+                }
+                Button("Place") {
+                    confirmVideoInsert()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16)
+        .frame(width: 320)
+    }
+
+    private func confirmVideoInsert() {
+        guard let url = videoInsertURL else {
+            clearVideoInsertPrompt()
+            return
+        }
+
+        guard let timecode = parseTimecode(videoInsertTimecodeText, at: timelineManager.timeline.config.frameRate) else {
+            videoInsertError = "Invalid timecode."
+            return
+        }
+
+        let startFrames = timelineManager.timeline.config.startTimecode.frameCount.wholeFrames
+        let targetFrame = max(0, timecode.frameCount.wholeFrames - startFrames)
+        clearVideoInsertPrompt()
+
+        Task {
+            await addVideoToTimeline(url: url, atFrame: targetFrame)
+        }
+    }
+
+    private func clearVideoInsertPrompt() {
+        showVideoInsertSheet = false
+        videoInsertURL = nil
+        videoInsertError = nil
+    }
+
+    private func formatTimecodeInput(_ input: String) -> String {
+        let digits = input.filter { $0.isNumber }
+        let padded = String(repeating: "0", count: max(0, 8 - digits.count)) + digits
+        let trimmed = String(padded.suffix(8))
+        guard trimmed.count == 8 else { return "00:00:00:00" }
+
+        let h = trimmed.prefix(2)
+        let m = trimmed.dropFirst(2).prefix(2)
+        let s = trimmed.dropFirst(4).prefix(2)
+        let f = trimmed.dropFirst(6).prefix(2)
+        return "\(h):\(m):\(s):\(f)"
+    }
+
+    private func parseTimecode(_ string: String, at frameRate: TimecodeFrameRate) -> Timecode? {
+        let digits = string.filter { $0.isNumber }
+        let padded = String(repeating: "0", count: max(0, 8 - digits.count)) + digits
+        let trimmed = String(padded.suffix(8))
+        guard trimmed.count == 8 else { return nil }
+
+        let h = Int(trimmed.prefix(2)) ?? 0
+        let m = Int(trimmed.dropFirst(2).prefix(2)) ?? 0
+        let s = Int(trimmed.dropFirst(4).prefix(2)) ?? 0
+        let f = Int(trimmed.dropFirst(6).prefix(2)) ?? 0
+
+        return Timecode(.components(h: h, m: m, s: s, f: f), at: frameRate, by: .clamping)
+    }
+
+    /// Remove a media item from the project and clean up timeline references.
+    private func handleDeleteMediaItem(_ item: MediaItem) {
+        // Remove any video reels that reference this item.
+        let reelsToRemove = timelineManager.timeline.videoReels.filter { $0.sourceURL == item.url }
+        for reel in reelsToRemove {
+            timelineManager.removeVideoReel(id: reel.id)
+            thumbnailCache.remove(reelId: reel.id)
+        }
+
+        // Remove any audio clips that reference this item.
+        for lane in timelineManager.timeline.audioLanes {
+            let clipsToRemove = lane.clips.filter { $0.sourceURL == item.url }
+            for clip in clipsToRemove {
+                waveformCache.cancelGeneration(for: clip.id)
+                waveformCache.removeCachedWaveform(for: clip.id)
+                timelineManager.removeAudioClip(clipId: clip.id, fromLane: lane.id)
+            }
+        }
+
+        mediaLibrary.removeItem(id: item.id)
+    }
+
     /// Add a video file to the timeline
-    private func addVideoToTimeline(url: URL) async {
+    private func addVideoToTimeline(url: URL, atFrame: Int?) async {
         isLoadingMedia = true
 
         do {
@@ -914,6 +1278,7 @@ struct ContentView: View {
                 isLoadingMedia = false
                 pendingVideoURL = url
                 pendingVideoFPS = videoFPS
+                pendingVideoInsertFrame = atFrame
                 showFPSConflictAlert = true
                 return
             }
@@ -928,7 +1293,8 @@ struct ContentView: View {
             }
 
             // Actually add the video
-            await addVideoToTimelineUnchecked(url: url)
+            let placementFrame = atFrame ?? (timelineManager.timeline.videoReels.map { $0.timelineEndFrame }.max() ?? 0)
+            await addVideoToTimelineUnchecked(url: url, at: placementFrame)
 
         } catch {
             isLoadingMedia = false
@@ -938,16 +1304,13 @@ struct ContentView: View {
     }
 
     /// Add video without FPS checking (internal use after conflict resolution)
-    private func addVideoToTimelineUnchecked(url: URL) async {
+    private func addVideoToTimelineUnchecked(url: URL, at timelineFrame: Int) async {
         do {
             // Import to media library first (if not already there)
             _ = try await mediaLibrary.importFile(from: url)
 
-            // Calculate where to place the new reel (at end of existing content)
-            let placementFrame = timelineManager.timeline.videoReels.map { $0.timelineEndFrame }.max() ?? 0
-
             // Add the video reel
-            let reel = try await timelineManager.addVideoReel(from: url, at: placementFrame)
+            let reel = try await timelineManager.addVideoReel(from: url, at: timelineFrame)
 
             // Generate thumbnail
             await generateThumbnail(for: reel)
@@ -978,7 +1341,7 @@ struct ContentView: View {
         // Remove all existing video reels
         for reel in timelineManager.timeline.videoReels {
             timelineManager.removeVideoReel(id: reel.id)
-            videoThumbnails.removeValue(forKey: reel.id)
+            thumbnailCache.remove(reelId: reel.id)
         }
 
         // Update project FPS
@@ -991,10 +1354,13 @@ struct ContentView: View {
         // Clear pending state
         pendingVideoURL = nil
         pendingVideoFPS = nil
+        let insertFrame = pendingVideoInsertFrame
+        pendingVideoInsertFrame = nil
 
         // Now add the video
         Task {
-            await addVideoToTimelineUnchecked(url: url)
+            let placementFrame = insertFrame ?? 0
+            await addVideoToTimelineUnchecked(url: url, at: placementFrame)
         }
     }
 
@@ -1047,106 +1413,31 @@ struct ContentView: View {
     }
 
     /// Add an audio file to the timeline
-    private func addAudioToTimeline(url: URL, laneId: UUID) async {
+    private func addAudioToTimeline(url: URL, laneId: UUID, atFrame: Int?) async -> AudioClip? {
         do {
             // Import to media library first (if not already there)
             _ = try await mediaLibrary.importFile(from: url)
 
             // Calculate where to place the new clip (at end of existing clips in lane)
             let lane = timelineManager.timeline.audioLanes.first { $0.id == laneId }
-            let placementFrame = lane?.clips.map { $0.timelineEndFrame }.max() ?? 0
+            let placementFrame = atFrame ?? (lane?.clips.map { $0.timelineEndFrame }.max() ?? 0)
 
             // Add the audio clip
-            _ = try await timelineManager.addAudioClip(from: url, toLane: laneId, at: placementFrame)
+            let clip = try await timelineManager.addAudioClip(from: url, toLane: laneId, at: placementFrame)
 
             // Sync timeline to playback engine
             syncTimelineToPlaybackEngine()
+            return clip
         } catch {
             loadError = error.localizedDescription
             showErrorAlert = true
+            return nil
         }
     }
 
-    /// Generate and cache thumbnail strip for a video reel
-    /// Uses batch generation for speed - approximately 1 thumbnail per second
+    /// Prime thumbnail cache for a video reel.
     private func generateThumbnail(for reel: VideoReel) async {
-        let asset = AVAsset(url: reel.sourceURL)
-
-        // Get video duration
-        let duration: CMTime
-        do {
-            duration = try await asset.load(.duration)
-        } catch {
-            NSLog(">>> ContentView: Failed to load asset duration: \(error)")
-            return
-        }
-
-        let durationSeconds = duration.seconds
-        guard durationSeconds > 0 else { return }
-
-        // Generate approximately 1 thumbnail per second for smooth coverage
-        // Cap at 1000 thumbnails max to prevent memory issues
-        let maxThumbnails = 1000
-        let targetInterval = 1.0
-        let actualInterval = max(targetInterval, durationSeconds / Double(maxThumbnails))
-
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: 80, height: 45)  // Small for filmstrip
-        generator.requestedTimeToleranceBefore = CMTime(seconds: 0.5, preferredTimescale: 600)
-        generator.requestedTimeToleranceAfter = CMTime(seconds: 0.5, preferredTimescale: 600)
-
-        // Build times array
-        var times: [NSValue] = []
-        var currentTime: Double = 0.0
-        while currentTime < durationSeconds {
-            times.append(NSValue(time: CMTime(seconds: currentTime, preferredTimescale: 600)))
-            currentTime += actualInterval
-        }
-
-        let startTime = Date()
-        let totalCount = times.count
-        NSLog(">>> generateThumbnail: generating \(totalCount) thumbnails for \(durationSeconds)s video")
-
-        // Use actor to safely collect thumbnails from async callbacks
-        let collector = ThumbnailCollector(sourceDuration: durationSeconds, interval: actualInterval)
-
-        // Use batch generation - much faster than sequential
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            var completedCount = 0
-            let lock = NSLock()
-
-            generator.generateCGImagesAsynchronously(forTimes: times) { requestedTime, cgImage, actualTime, result, error in
-                if let cgImage = cgImage {
-                    // Convert to JPEG (much smaller/faster than TIFF)
-                    let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                    if let tiffData = nsImage.tiffRepresentation,
-                       let bitmap = NSBitmapImageRep(data: tiffData),
-                       let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.7]) {
-                        collector.add(time: requestedTime.seconds, data: jpegData)
-                    }
-                }
-
-                // Track completion
-                lock.lock()
-                completedCount += 1
-                let done = completedCount >= totalCount
-                lock.unlock()
-
-                if done {
-                    Task { @MainActor in
-                        let elapsed = Date().timeIntervalSince(startTime)
-                        let strip = collector.buildStrip()
-                        NSLog(">>> generateThumbnail: completed \(strip.count) thumbnails in \(String(format: "%.2f", elapsed))s")
-
-                        if strip.count > 0 {
-                            self.videoThumbnails[reel.id] = strip
-                        }
-                        continuation.resume()
-                    }
-                }
-            }
-        }
+        thumbnailCache.prewarm(for: reel)
     }
 
     /// Sync the timeline manager's timeline to the playback engine
@@ -1176,16 +1467,22 @@ struct ContentView: View {
         panel.begin { response in
             if response == .OK {
                 Task { @MainActor in
-                    for url in panel.urls {
+                    let urls = panel.urls.filter { ProjectMediaLibrary.isSupported(url: $0) }
+                    let (newURLs, duplicateNames) = self.partitionDuplicateMediaURLs(urls)
+                    if !duplicateNames.isEmpty {
+                        self.duplicateMediaNames = duplicateNames
+                        self.showDuplicateMediaAlert = true
+                    }
+                    for url in newURLs {
                         if let mediaType = ProjectMediaLibrary.mediaType(for: url) {
                             switch mediaType {
                             case .video:
-                                await self.addVideoToTimeline(url: url)
+                                await self.addVideoToTimeline(url: url, atFrame: nil)
                             case .audio:
                                 // Create a new lane for each audio file
                                 let laneNumber = self.timelineManager.timeline.audioLanes.count + 1
                                 let newLane = self.timelineManager.addAudioLane(name: "Audio \(laneNumber)")
-                                await self.addAudioToTimeline(url: url, laneId: newLane.id)
+                                await self.addAudioToTimeline(url: url, laneId: newLane.id, atFrame: nil)
                             }
                         }
                     }

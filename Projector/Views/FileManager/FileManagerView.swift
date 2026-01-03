@@ -8,12 +8,20 @@ struct FileManagerView: View {
     @ObservedObject var mediaLibrary: ProjectMediaLibrary
     let onAddToVideoTrack: (MediaItem) -> Void
     let onAddToAudioLane: (MediaItem, Int) -> Void
+    let onDeleteItem: (MediaItem) -> Void
 
-    @State private var selectedItemId: UUID?
+    @State private var selectedItemIds: Set<UUID> = []
+    @State private var lastSelectedIndex: Int?
     @State private var isDropTargeted = false
     @State private var filterType: MediaType? = nil
     @State private var searchText = ""
     @State private var isExpanded = false
+    @State private var showDeleteAlert = false
+    @State private var pendingDeleteItems: [MediaItem] = []
+    @State private var isDraggingFromLibrary = false
+    @State private var dragEndMonitor: Any?
+    @State private var showDuplicateImportAlert = false
+    @State private var duplicateImportNames: [String] = []
 
     // Focus state for keyboard commands
     @FocusState private var isMediaListFocused: Bool
@@ -48,22 +56,73 @@ struct FileManagerView: View {
         .focusable()
         .focused($isMediaListFocused)
         .onDeleteCommand {
-            deleteSelectedItem()
+            requestDeleteSelectedItems()
+        }
+        .alert("Remove Media Item", isPresented: $showDeleteAlert) {
+            Button("Remove", role: .destructive) {
+                confirmDeleteSelectedItems()
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteItems = []
+            }
+        } message: {
+            if pendingDeleteItems.count == 1, let item = pendingDeleteItems.first {
+                Text("Remove \"\(item.displayName)\" from the project? This will delete it from the Media panel and remove any timeline clips that use it.")
+            } else if pendingDeleteItems.count > 1 {
+                Text("Remove \(pendingDeleteItems.count) items from the project? This will delete them from the Media panel and remove any timeline clips that use them.")
+            }
+        }
+        .alert("Already in Project", isPresented: $showDuplicateImportAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(duplicateImportMessage)
         }
         // Take focus when an item is selected
-        .onChange(of: selectedItemId) { _, newValue in
-            if newValue != nil {
+        .onChange(of: selectedItemIds) { _, newValue in
+            if !newValue.isEmpty {
                 isMediaListFocused = true
+            }
+        }
+        .onAppear {
+            if dragEndMonitor == nil {
+                dragEndMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp]) { event in
+                    isDraggingFromLibrary = false
+                    return event
+                }
+            }
+        }
+        .onDisappear {
+            if let monitor = dragEndMonitor {
+                NSEvent.removeMonitor(monitor)
+                dragEndMonitor = nil
             }
         }
     }
 
+    private var duplicateImportMessage: String {
+        if duplicateImportNames.count == 1, let name = duplicateImportNames.first {
+            return "\"\(name)\" is already in the project."
+        }
+        return "\(duplicateImportNames.count) files are already in the project."
+    }
+
     // MARK: - Delete
 
-    private func deleteSelectedItem() {
-        guard let itemId = selectedItemId else { return }
-        mediaLibrary.removeItem(id: itemId)
-        selectedItemId = nil
+    private func requestDeleteSelectedItems() {
+        let items = mediaLibrary.items.filter { selectedItemIds.contains($0.id) }
+        guard !items.isEmpty else { return }
+        pendingDeleteItems = items
+        showDeleteAlert = true
+    }
+
+    private func confirmDeleteSelectedItems() {
+        let items = pendingDeleteItems
+        guard !items.isEmpty else { return }
+        for item in items {
+            onDeleteItem(item)
+        }
+        pendingDeleteItems = []
+        selectedItemIds = []
     }
 
     // MARK: - Header Bar
@@ -71,34 +130,30 @@ struct FileManagerView: View {
     private var headerBar: some View {
         HStack(spacing: 12) {
             // Expand/collapse area - entire left side is clickable
-            HStack(spacing: 6) {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.secondary)
-                    .frame(width: 12)
+            Button(action: { isExpanded.toggle() }) {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .frame(width: 12)
 
-                Iconoir.folder.asImage
-                    .frame(width: 14, height: 14)
-                    .foregroundColor(.secondary)
+                    Iconoir.folder.asImage
+                        .frame(width: 14, height: 14)
+                        .foregroundColor(.secondary)
 
-                Text("Media")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.primary)
+                    Text("Media")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.primary)
 
-                Text("(\(filteredItems.count))")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
+                    Text("(\(filteredItems.count))")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
 
-                Spacer()
-            }
-            .contentShape(Rectangle())
-            // Use Button instead of onTapGesture to avoid ScrollView latency (GP-003)
-            .overlay {
-                Button(action: { isExpanded.toggle() }) {
-                    Color.clear
+                    Spacer()
                 }
-                .buttonStyle(.plain)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
             if isExpanded {
                 // Filter buttons
@@ -158,7 +213,7 @@ struct FileManagerView: View {
             }
 
             // Drop overlay
-            if isDropTargeted {
+            if isDropTargeted && !isDraggingFromLibrary {
                 dropOverlay
             }
         }
@@ -187,12 +242,19 @@ struct FileManagerView: View {
     private var itemsList: some View {
         ScrollView(.horizontal, showsIndicators: true) {
             HStack(spacing: 8) {
-                ForEach(filteredItems) { item in
+                ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
                     MediaGridCell(
                         item: item,
-                        isSelected: selectedItemId == item.id,
-                        onSelect: { selectedItemId = item.id },
-                        onDoubleClick: { handleDoubleClick(item) }
+                        isSelected: selectedItemIds.contains(item.id),
+                        onSelect: {
+                            handleSelect(item: item, index: index)
+                        },
+                        onDoubleClick: { handleDoubleClick(item) },
+                        onDragStateChange: { isDragging in
+                            if isDragging {
+                                isDraggingFromLibrary = true
+                            }
+                        }
                     )
                 }
             }
@@ -257,7 +319,13 @@ struct FileManagerView: View {
 
         panel.begin { response in
             if response == .OK {
-                for url in panel.urls {
+                let urls = panel.urls
+                let (newURLs, duplicateNames) = partitionDuplicateImports(urls: urls, library: library)
+                if !duplicateNames.isEmpty {
+                    duplicateImportNames = duplicateNames
+                    showDuplicateImportAlert = true
+                }
+                for url in newURLs {
                     Task { @MainActor in
                         try? await library.importFile(from: url)
                     }
@@ -268,21 +336,56 @@ struct FileManagerView: View {
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         let library = mediaLibrary
+        var urls: [URL] = []
+        let lock = NSLock()
+        let group = DispatchGroup()
+
         for provider in providers {
+            group.enter()
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
+                defer { group.leave() }
                 if let data = item as? Data,
                    let url = URL(dataRepresentation: data, relativeTo: nil) {
-                    Task { @MainActor in
-                        try? await library.importFile(from: url)
-                    }
+                    lock.lock()
+                    urls.append(url)
+                    lock.unlock()
                 } else if let url = item as? URL {
-                    Task { @MainActor in
-                        try? await library.importFile(from: url)
-                    }
+                    lock.lock()
+                    urls.append(url)
+                    lock.unlock()
+                }
+            }
+        }
+
+        group.notify(queue: .main) {
+            let (newURLs, duplicateNames) = partitionDuplicateImports(urls: urls, library: library)
+            if !duplicateNames.isEmpty {
+                duplicateImportNames = duplicateNames
+                showDuplicateImportAlert = true
+            }
+            for url in newURLs {
+                Task { @MainActor in
+                    try? await library.importFile(from: url)
                 }
             }
         }
         return true
+    }
+
+    private func partitionDuplicateImports(urls: [URL], library: ProjectMediaLibrary) -> ([URL], [String]) {
+        let uniqueURLs = Array(Set(urls.map { $0.standardizedFileURL.resolvingSymlinksInPath() }))
+        var duplicateNames: [String] = []
+        var newURLs: [URL] = []
+
+        for url in uniqueURLs {
+            if let existing = library.existingItem(for: url) {
+                duplicateNames.append(existing.displayName)
+            } else {
+                newURLs.append(url)
+            }
+        }
+
+        return (newURLs, duplicateNames)
     }
 
     private func handleDoubleClick(_ item: MediaItem) {
@@ -293,6 +396,26 @@ struct FileManagerView: View {
             onAddToAudioLane(item, 0)
         }
     }
+
+    private func handleSelect(item: MediaItem, index: Int) {
+        let modifiers = NSEvent.modifierFlags
+        if modifiers.contains(.shift), let lastIndex = lastSelectedIndex {
+            let lower = min(lastIndex, index)
+            let upper = max(lastIndex, index)
+            let ids = filteredItems[lower...upper].map { $0.id }
+            selectedItemIds = Set(ids)
+        } else if modifiers.contains(.command) {
+            if selectedItemIds.contains(item.id) {
+                selectedItemIds.remove(item.id)
+            } else {
+                selectedItemIds.insert(item.id)
+            }
+            lastSelectedIndex = index
+        } else {
+            selectedItemIds = [item.id]
+            lastSelectedIndex = index
+        }
+    }
 }
 
 /// Grid cell for displaying a media item as an icon
@@ -301,54 +424,52 @@ struct MediaGridCell: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let onDoubleClick: () -> Void
+    let onDragStateChange: (Bool) -> Void
 
     @State private var isDragging = false
 
     var body: some View {
-        VStack(spacing: 4) {
-            // Thumbnail
-            thumbnailView
-                .frame(width: 64, height: 48)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
-                )
+        Button(action: onSelect) {
+            VStack(spacing: 4) {
+                // Thumbnail
+                thumbnailView
+                    .frame(width: 64, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                    )
 
-            // Filename
-            Text(item.displayName)
-                .font(.system(size: 9))
-                .foregroundColor(.primary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .frame(width: 80)
-        }
-        .padding(4)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
-        )
-        .contentShape(Rectangle())
-        // Use Button instead of onTapGesture to avoid ScrollView latency (GP-003)
-        .overlay {
-            Button(action: onSelect) {
-                Color.clear
+                // Filename
+                Text(item.displayName)
+                    .font(.system(size: 9))
+                    .foregroundColor(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 80)
             }
-            .buttonStyle(.plain)
-            .simultaneousGesture(
-                TapGesture(count: 2)
-                    .onEnded { _ in
-                        onDoubleClick()
-                    }
+            .padding(4)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
             )
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .simultaneousGesture(
+            TapGesture(count: 2)
+                .onEnded { _ in
+                    onDoubleClick()
+                }
+        )
         .opacity(isDragging ? 0.5 : 1.0)
         .onDrag {
             isDragging = true
+            onDragStateChange(true)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 isDragging = false
             }
-            return NSItemProvider(object: item.url as NSURL)
+            return MediaDragProvider.provider(for: item)
         }
         .help(item.url.lastPathComponent)
     }
@@ -409,7 +530,8 @@ struct MediaGridCell: View {
             FileManagerView(
                 mediaLibrary: library,
                 onAddToVideoTrack: { _ in },
-                onAddToAudioLane: { _, _ in }
+                onAddToAudioLane: { _, _ in },
+                onDeleteItem: { _ in }
             )
             .padding()
         }

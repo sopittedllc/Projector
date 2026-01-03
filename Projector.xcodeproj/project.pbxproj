@@ -57,6 +57,7 @@
 		C1TIMELINE00000019 /* ProjectMediaLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000009 /* ProjectMediaLibrary.swift */; };
 		C1TIMELINE0000001A /* WaveformCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000A /* WaveformCache.swift */; };
 		C1TIMELINE0000001B /* PlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000B /* PlaybackEngine.swift */; };
+		C1TIMELINE0000003B /* ThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000003A /* ThumbnailCache.swift */; };
 		C1TIMELINE0000001C /* VideoReelClipView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000C /* VideoReelClipView.swift */; };
 		C1TIMELINE0000001D /* VideoTrackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000D /* VideoTrackView.swift */; };
 		C1TIMELINE0000001E /* AudioClipView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000E /* AudioClipView.swift */; };
@@ -163,6 +164,7 @@
 		C1TIMELINE00000008 /* MediaItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaItem.swift; sourceTree = "<group>"; };
 		C1TIMELINE00000009 /* ProjectMediaLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectMediaLibrary.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000A /* WaveformCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformCache.swift; sourceTree = "<group>"; };
+		C1TIMELINE0000003A /* ThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailCache.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000B /* PlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEngine.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000C /* VideoReelClipView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoReelClipView.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000D /* VideoTrackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoTrackView.swift; sourceTree = "<group>"; };
@@ -302,6 +304,7 @@
 				C1TIMELINE00000007 /* TimelineManager.swift */,
 				C1TIMELINE00000009 /* ProjectMediaLibrary.swift */,
 				C1TIMELINE0000000A /* WaveformCache.swift */,
+				C1TIMELINE0000003A /* ThumbnailCache.swift */,
 				C1TIMELINE0000000B /* PlaybackEngine.swift */,
 			);
 			path = Managers;
@@ -651,6 +654,7 @@
 				C1TIMELINE00000018 /* MediaItem.swift in Sources */,
 				C1TIMELINE00000019 /* ProjectMediaLibrary.swift in Sources */,
 				C1TIMELINE0000001A /* WaveformCache.swift in Sources */,
+				C1TIMELINE0000003B /* ThumbnailCache.swift in Sources */,
 				C1TIMELINE0000001B /* PlaybackEngine.swift in Sources */,
 				C1TIMELINE0000001C /* VideoReelClipView.swift in Sources */,
 				B19B58BD2F088AEA00FA33EC /* MIDISyncActor.swift in Sources */,

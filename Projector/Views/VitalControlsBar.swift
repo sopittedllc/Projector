@@ -16,7 +16,7 @@ import Iconoir
 /// - FPS display
 /// - Transport controls (play, pause, step, stop)
 /// - Zoom controls for the timeline
-/// - Full screen and settings buttons
+/// - Settings button
 struct VitalControlsBar: View {
     // MARK: - Dependencies
 
@@ -27,7 +27,6 @@ struct VitalControlsBar: View {
     // MARK: - Callbacks
 
     var onSettingsPressed: () -> Void
-    var onFullScreenPressed: () -> Void
 
     // MARK: - Local State
 
@@ -46,31 +45,23 @@ struct VitalControlsBar: View {
     // MARK: - Body
 
     var body: some View {
-        ZStack {
-            // Left-aligned controls
+        HStack(spacing: 12) {
             HStack(spacing: 12) {
                 startTCControl
                 durationControl
                 fpsControl
-                Spacer()
             }
+            .layoutPriority(1)
 
-            // Center-aligned transport controls
-            HStack {
-                transportControls
-            }
+            Spacer(minLength: 12)
 
-            // Right-aligned controls
+            transportControls
+                .layoutPriority(0)
+
+            Spacer(minLength: 12)
+
             HStack(spacing: 12) {
-                Spacer()
                 zoomControls
-
-                Button(action: onFullScreenPressed) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.plain)
-                .help("Enter Full Screen")
 
                 Button(action: onSettingsPressed) {
                     Iconoir.settings.asImage
@@ -78,6 +69,7 @@ struct VitalControlsBar: View {
                 }
                 .buttonStyle(.plain)
             }
+            .layoutPriority(1)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -103,6 +95,16 @@ struct VitalControlsBar: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .frame(width: 85)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isStartTCFocused ? Color.white.opacity(0.12) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(isStartTCFocused ? Color.accentColor : Color.clear, lineWidth: 1)
+                )
                 .focused($isStartTCFocused)
                 .onChange(of: editingStartTCText) { _, newValue in
                     let formatted = formatTimecodeInput(newValue)
@@ -114,7 +116,7 @@ struct VitalControlsBar: View {
                     applyStartTimecode()
                 }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6)
@@ -122,7 +124,7 @@ struct VitalControlsBar: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(isStartTCFocused ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: 1)
+                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
         )
         .onHover { hovering in
             isHoveringStartTC = hovering
@@ -142,7 +144,7 @@ struct VitalControlsBar: View {
 
     private var startTCBackground: Color {
         if isStartTCFocused {
-            return Color.clear
+            return Color(nsColor: .controlBackgroundColor)
         } else if isHoveringStartTC {
             return Color.white.opacity(0.1)
         } else {
@@ -162,6 +164,16 @@ struct VitalControlsBar: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .frame(width: 85)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isDurationFocused ? Color.white.opacity(0.12) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(isDurationFocused ? Color.accentColor : Color.clear, lineWidth: 1)
+                )
                 .focused($isDurationFocused)
                 .onChange(of: editingDurationText) { _, newValue in
                     let formatted = formatTimecodeInput(newValue)
@@ -181,7 +193,7 @@ struct VitalControlsBar: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(isDurationFocused ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: 1)
+                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
         )
         .onHover { hovering in
             isHoveringDuration = hovering
@@ -198,7 +210,7 @@ struct VitalControlsBar: View {
 
     private var durationBackground: Color {
         if isDurationFocused {
-            return Color.clear
+            return Color(nsColor: .controlBackgroundColor)
         } else if isHoveringDuration {
             return Color.white.opacity(0.1)
         } else {
@@ -236,15 +248,6 @@ struct VitalControlsBar: View {
 
     private var transportControls: some View {
         HStack(spacing: 8) {
-            // Backward (step back one frame)
-            Button(action: { playbackEngine.stepBackward() }) {
-                Iconoir.skipPrev.asImage
-                    .frame(width: 14, height: 14)
-            }
-            .buttonStyle(.plain)
-            .disabled(!playbackEngine.hasContent)
-            .help("Step Backward")
-
             // Play/Pause toggle
             Button(action: { playbackEngine.togglePlayback() }) {
                 (playbackEngine.isPlaying ? Iconoir.pauseSolid.asImage : Iconoir.playSolid.asImage)
@@ -255,23 +258,14 @@ struct VitalControlsBar: View {
             .keyboardShortcut(.space, modifiers: [])
             .help(playbackEngine.isPlaying ? "Pause" : "Play")
 
-            // Stop
+            // Stop (return to start)
             Button(action: { playbackEngine.stop() }) {
-                Iconoir.square.asImage
-                    .frame(width: 14, height: 14)
+                Image(systemName: "backward.end")
+                    .font(.system(size: 13, weight: .medium))
             }
             .buttonStyle(.plain)
             .disabled(!playbackEngine.hasContent)
-            .help("Stop")
-
-            // Forward (step forward one frame)
-            Button(action: { playbackEngine.stepForward() }) {
-                Iconoir.skipNext.asImage
-                    .frame(width: 14, height: 14)
-            }
-            .buttonStyle(.plain)
-            .disabled(!playbackEngine.hasContent)
-            .help("Step Forward")
+            .help("Stop and Return to Start")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -294,12 +288,13 @@ struct VitalControlsBar: View {
                     .font(.system(size: 11))
             }
             .buttonStyle(.plain)
-            .disabled(timelineViewModel.zoomLevel <= timelineViewModel.minZoom)
+            .disabled(!hasTimelineContent || timelineViewModel.zoomLevel <= timelineViewModel.minZoom)
             .accessibilityIdentifier("zoom-out")
 
             Slider(value: $timelineViewModel.zoomLevel, in: timelineViewModel.minZoom...timelineViewModel.maxZoom)
                 .frame(width: 80)
                 .controlSize(.mini)
+                .disabled(!hasTimelineContent)
                 .simultaneousGesture(
                     TapGesture(count: 2)
                         .onEnded { _ in timelineViewModel.resetZoom() }
@@ -311,7 +306,7 @@ struct VitalControlsBar: View {
                     .font(.system(size: 11))
             }
             .buttonStyle(.plain)
-            .disabled(timelineViewModel.zoomLevel >= timelineViewModel.maxZoom)
+            .disabled(!hasTimelineContent || timelineViewModel.zoomLevel >= timelineViewModel.maxZoom)
             .accessibilityIdentifier("zoom-in")
         }
     }
@@ -322,6 +317,10 @@ struct VitalControlsBar: View {
         let config = timelineManager.timeline.config
         let durationTC = Timecode(.frames(config.durationFrames), at: config.frameRate, by: .clamping)
         return durationTC.stringValue()
+    }
+
+    private var hasTimelineContent: Bool {
+        !timelineManager.timeline.videoReels.isEmpty || timelineManager.timeline.audioLanes.contains { !$0.clips.isEmpty }
     }
 
     /// Cancel any active timecode editing and reset to stored values

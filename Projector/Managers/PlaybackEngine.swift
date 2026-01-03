@@ -136,13 +136,26 @@ final class PlaybackEngine: ObservableObject {
     func play() {
         guard hasContent else { return }
 
-        if isInGap {
-            // In a gap - still advance time but show black
+        if let reel = timeline.videoReel(at: currentFrame) {
+            isInGap = false
+            activeReel = reel
             isPlaying = true
-            startGapPlayback()
+
+            if currentPlayer == nil || currentReelId != reel.id {
+                Task {
+                    try? await loadReel(reel)
+                    seekWithinReel(reel, timelineFrame: currentFrame)
+                }
+            } else {
+                currentPlayer?.play()
+            }
         } else {
-            currentPlayer?.play()
+            // No video reel at this frame - advance time in a gap
+            isInGap = true
+            activeReel = nil
             isPlaying = true
+            currentPlayer?.pause()
+            startGapPlayback()
         }
 
         // Start audio clips
@@ -392,6 +405,9 @@ final class PlaybackEngine: ObservableObject {
             }
         }
 
+        // Sync audio clips while advancing without video
+        syncAudioClips()
+
         // Check if we've reached the end
         if currentFrame >= durationFrames {
             pause()
@@ -582,8 +598,12 @@ final class PlaybackEngine: ObservableObject {
     /// Update timeline properties when timeline changes
     private func updateTimelineProperties() {
         durationFrames = timeline.config.durationFrames
-        hasContent = !timeline.videoReels.isEmpty || !timeline.audioLanes.isEmpty
+        hasContent = !timeline.videoReels.isEmpty || timeline.audioLanes.contains { !$0.clips.isEmpty }
         currentTimecode = timeline.config.timecode(at: currentFrame)
+        isInGap = timeline.videoReel(at: currentFrame) == nil
+        if isInGap && timeline.videoReels.isEmpty {
+            activeReel = nil
+        }
     }
 
     // MARK: - Cleanup

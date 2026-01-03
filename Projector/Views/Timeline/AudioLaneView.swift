@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import SwiftTimecodeCore
+import AVFoundation
 import Iconoir
 
 /// Audio lane container showing clips and lane controls
@@ -12,6 +13,7 @@ struct AudioLaneView: View {
     let pixelsPerFrame: CGFloat
     let frameRate: TimecodeFrameRate
     let scrollOffset: CGFloat
+    let timelineDurationFrames: Int
     let showWaveforms: Bool
     let clipInteractionsEnabled: Bool
     let availableAudioDevices: [AudioDevice]
@@ -19,13 +21,16 @@ struct AudioLaneView: View {
     let onSoloToggle: () -> Void
     let onVolumeChange: (Float) -> Void
     let onOutputDeviceChange: (String?) -> Void
-    let onDropMedia: ([URL]) -> Void
+    let onDropMedia: ([URL], Int, Bool) -> Void
     let onClipSelected: (UUID?) -> Void
     let onClipDoubleClick: (AudioClip) -> Void
     let onLaneRename: (String) -> Void
 
     @State private var selectedClipId: UUID?
     @State private var isDropTargeted = false
+    @State private var dropPreviewFrame: Int?
+    @State private var dropPreviewDurationFrames: Int?
+    @State private var isLoadingDropPreview = false
     @State private var isExpanded = true
     @State private var isEditingName = false
     @State private var editedName = ""
@@ -198,21 +203,42 @@ struct AudioLaneView: View {
     // MARK: - Clips Area
 
     private var clipsArea: some View {
-        ZStack(alignment: .leading) {
-            // Background with drop zone
-            dropZoneBackground
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                // Background with drop zone
+                dropZoneBackground
 
-            // Clips
-            clipsContent
+                // Clips
+                clipsContent
 
-            // Drop target overlay
-            if isDropTargeted {
-                dropTargetOverlay
+                if let previewFrame = dropPreviewFrame {
+                    dropPreviewOverlay(frame: previewFrame, height: geometry.size.height, width: geometry.size.width)
+                }
+
+                // Drop target overlay
+                if isDropTargeted {
+                    dropTargetOverlay
+                }
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity) // Ensure ZStack fills available space
-        .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
-            handleDrop(providers: providers)
+            .frame(maxWidth: .infinity, maxHeight: .infinity) // Ensure ZStack fills available space
+            .onDrop(of: [UTType.fileURL], delegate: AudioLaneDropDelegate(
+                isTargeted: $isDropTargeted,
+                pixelsPerFrame: pixelsPerFrame,
+                scrollOffset: scrollOffset,
+                durationFrames: timelineDurationFrames,
+                dropHandler: { providers, location in
+                    handleDrop(providers: providers, at: location)
+                },
+                updateHandler: { location in
+                    updateDropPreview(location: location)
+                },
+                enterHandler: { providers, location in
+                    beginDropPreview(with: providers, at: location)
+                },
+                exitHandler: {
+                    clearDropPreview()
+                }
+            ))
         }
     }
 
@@ -241,9 +267,24 @@ struct AudioLaneView: View {
 
     private var dropTargetOverlay: some View {
         RoundedRectangle(cornerRadius: 4)
-            .stroke(laneColor, style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
-            .background(laneColor.opacity(0.1))
+            .stroke(Color.orange, style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+            .background(Color.orange.opacity(0.1))
             .padding(2)
+    }
+
+    private func dropPreviewOverlay(frame: Int, height: CGFloat, width: CGFloat) -> some View {
+        let durationFrames = dropPreviewDurationFrames ?? Int(frameRate.fps)
+        let rawWidth = CGFloat(durationFrames) * pixelsPerFrame
+        let clampedWidth = min(max(12, rawWidth), width)
+        let xOffset = CGFloat(frame) * pixelsPerFrame - scrollOffset
+
+        return RoundedRectangle(cornerRadius: 4)
+            .stroke(Color.orange, lineWidth: 2)
+            .background(Color.orange.opacity(0.1))
+            .frame(width: clampedWidth, height: max(6, height - 6))
+            .offset(x: xOffset)
+            .padding(.vertical, 3)
+            .allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -285,10 +326,12 @@ struct AudioLaneView: View {
 
     // MARK: - Drop Handling
 
-    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+    private func handleDrop(providers: [NSItemProvider], at location: CGPoint) -> Bool {
         var urls: [URL] = []
 
         let group = DispatchGroup()
+        let targetFrame = dropFrame(for: location)
+        let isInternalDrag = isInternalMediaDrag(providers)
 
         for provider in providers {
             group.enter()
@@ -307,11 +350,78 @@ struct AudioLaneView: View {
         group.notify(queue: .main) {
             let mediaURLs = urls.filter { isMediaFile($0) }
             if !mediaURLs.isEmpty {
-                onDropMedia(mediaURLs)
+                onDropMedia(mediaURLs, targetFrame, isInternalDrag)
             }
         }
+        clearDropPreview()
 
         return true
+    }
+
+    private func isInternalMediaDrag(_ providers: [NSItemProvider]) -> Bool {
+        providers.contains { provider in
+            provider.hasItemConformingToTypeIdentifier(UTType.projectorMediaItem.identifier)
+        }
+    }
+
+    private func dropFrame(for location: CGPoint) -> Int {
+        let x = max(0, location.x + scrollOffset)
+        let rawFrame = Int(x / max(pixelsPerFrame, 0.001))
+        return max(0, min(rawFrame, max(0, timelineDurationFrames - 1)))
+    }
+
+    private func updateDropPreview(location: CGPoint) {
+        dropPreviewFrame = dropFrame(for: location)
+    }
+
+    private func beginDropPreview(with providers: [NSItemProvider], at location: CGPoint) {
+        updateDropPreview(location: location)
+        if dropPreviewDurationFrames != nil || isLoadingDropPreview {
+            return
+        }
+        isLoadingDropPreview = true
+
+        loadFirstURL(from: providers) { url in
+            guard let url = url else {
+                isLoadingDropPreview = false
+                return
+            }
+            Task {
+                let asset = AVAsset(url: url)
+                do {
+                    let duration = try await asset.load(.duration)
+                    let frames = max(1, Int(duration.seconds * frameRate.fps))
+                    dropPreviewDurationFrames = frames
+                } catch {
+                    dropPreviewDurationFrames = nil
+                }
+                isLoadingDropPreview = false
+            }
+        }
+    }
+
+    private func clearDropPreview() {
+        dropPreviewFrame = nil
+        dropPreviewDurationFrames = nil
+        isLoadingDropPreview = false
+    }
+
+    private func loadFirstURL(from providers: [NSItemProvider], completion: @escaping (URL?) -> Void) {
+        guard let provider = providers.first else {
+            completion(nil)
+            return
+        }
+
+        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+            if let data = item as? Data,
+               let url = URL(dataRepresentation: data, relativeTo: nil) {
+                completion(url)
+            } else if let url = item as? URL {
+                completion(url)
+            } else {
+                completion(nil)
+            }
+        }
     }
 
     private func isMediaFile(_ url: URL) -> Bool {
@@ -319,6 +429,44 @@ struct AudioLaneView: View {
         let audioExtensions = ["wav", "aif", "aiff", "mp3", "m4a", "flac", "ogg"]
         let ext = url.pathExtension.lowercased()
         return videoExtensions.contains(ext) || audioExtensions.contains(ext)
+    }
+}
+
+private struct AudioLaneDropDelegate: DropDelegate {
+    @Binding var isTargeted: Bool
+    let pixelsPerFrame: CGFloat
+    let scrollOffset: CGFloat
+    let durationFrames: Int
+    let dropHandler: ([NSItemProvider], CGPoint) -> Bool
+    let updateHandler: (CGPoint) -> Void
+    let enterHandler: ([NSItemProvider], CGPoint) -> Void
+    let exitHandler: () -> Void
+
+    func validateDrop(info: DropInfo) -> Bool {
+        !info.itemProviders(for: [UTType.fileURL]).isEmpty
+    }
+
+    func dropEntered(info: DropInfo) {
+        isTargeted = true
+        let providers = info.itemProviders(for: [UTType.fileURL])
+        enterHandler(providers, info.location)
+    }
+
+    func dropExited(info: DropInfo) {
+        isTargeted = false
+        exitHandler()
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        updateHandler(info.location)
+        return DropProposal(operation: .copy)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        isTargeted = false
+        exitHandler()
+        let providers = info.itemProviders(for: [UTType.fileURL])
+        return dropHandler(providers, info.location)
     }
 }
 
@@ -356,6 +504,7 @@ struct AudioLaneView: View {
                 pixelsPerFrame: 0.5,
                 frameRate: .fps24,
                 scrollOffset: 0,
+                timelineDurationFrames: 10000,
                 showWaveforms: true,
                 clipInteractionsEnabled: true,
                 availableAudioDevices: [],
@@ -363,7 +512,7 @@ struct AudioLaneView: View {
                 onSoloToggle: {},
                 onVolumeChange: { _ in },
                 onOutputDeviceChange: { _ in },
-                onDropMedia: { _ in },
+                onDropMedia: { _, _, _ in },
                 onClipSelected: { _ in },
                 onClipDoubleClick: { _ in },
                 onLaneRename: { _ in }

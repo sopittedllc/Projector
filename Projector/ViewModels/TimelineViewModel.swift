@@ -181,17 +181,13 @@ final class TimelineViewModel: ObservableObject {
 
     /// Toggle timeline expansion
     func toggleExpansion() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            isExpanded.toggle()
-        }
+        isExpanded.toggle()
     }
 
     /// Expand the timeline if not already expanded
     func expandIfNeeded() {
         if !isExpanded {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isExpanded = true
-            }
+            isExpanded = true
         }
     }
 
@@ -286,5 +282,28 @@ final class TimelineViewModel: ObservableObject {
                 self?.expandIfNeeded()
             }
             .store(in: &cancellables)
+
+        manager.$timeline
+            .map { $0.audioLanes.count }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.resizeToFitLanes()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func resizeToFitLanes() {
+        let laneCount = manager.timeline.audioLanes.count
+        let audioHeight = max(50, CGFloat(laneCount) * (TimelineLayout.audioLaneHeight + 1))
+        let totalHeight = TimelineLayout.toolbarHeight
+            + TimelineLayout.rulerHeight
+            + 1
+            + TimelineLayout.videoTrackHeight
+            + 1
+            + audioHeight
+            + 8
+
+        let clamped = min(maxExpandedHeight, max(minExpandedHeight, totalHeight))
+        expandedHeight = clamped
     }
 }

@@ -23,16 +23,16 @@ struct TimelineAccordionView: View {
     @ObservedObject var audioOutputManager: AudioOutputManager
     @ObservedObject var timelineViewModel: TimelineViewModel
 
-    /// Video reel thumbnails indexed by reel ID
-    let thumbnails: [UUID: ThumbnailStrip]
+    /// Video reel thumbnail cache
+    @ObservedObject var thumbnailCache: ThumbnailCache
 
     // MARK: - Callbacks
 
     /// Called when video media is dropped on the timeline
-    var onDropVideoMedia: ([URL]) -> Void
+    var onDropVideoMedia: ([URL], Int, Bool) -> Void
 
     /// Called when audio media is dropped on a lane (lane index, URLs)
-    var onDropAudioMedia: (Int, [URL]) -> Void
+    var onDropAudioMedia: (Int, [URL], Int, Bool) -> Void
 
     /// Called when user seeks to a frame
     var onSeek: (Int) -> Void
@@ -50,15 +50,6 @@ struct TimelineAccordionView: View {
             // Content (only when expanded)
             if timelineViewModel.isExpanded {
                 timelineContent
-            }
-
-            // Resize handle at the bottom (only when expanded)
-            if timelineViewModel.isExpanded {
-                AccordionResizeHandle(
-                    height: $timelineViewModel.expandedHeight,
-                    minHeight: timelineViewModel.minExpandedHeight,
-                    maxHeight: timelineViewModel.maxExpandedHeight
-                )
             }
         }
         .frame(height: timelineViewModel.currentHeight, alignment: .top)
@@ -108,7 +99,7 @@ struct TimelineAccordionView: View {
             playbackEngine: playbackEngine,
             waveformCache: waveformCache,
             audioOutputManager: audioOutputManager,
-            thumbnails: thumbnails,
+            thumbnailCache: thumbnailCache,
             onDropVideoMedia: onDropVideoMedia,
             onDropAudioMedia: onDropAudioMedia,
             onSeek: onSeek,
