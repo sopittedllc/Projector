@@ -26,7 +26,7 @@ struct TimelineConfig: Codable, Equatable {
     static var `default`: TimelineConfig {
         TimelineConfig(
             startTimecode: Timecode(.components(h: 0, m: 0, s: 0, f: 0), at: .fps24, by: .clamping),
-            endTimecode: Timecode(.components(h: 2, m: 0, s: 0, f: 0), at: .fps24, by: .clamping),
+            endTimecode: Timecode(.components(h: 1, m: 0, s: 0, f: 0), at: .fps24, by: .clamping),
             frameRate: .fps24
         )
     }

@@ -166,11 +166,16 @@ struct AudioClipView: View {
                     let targetCount = max(1, Int(clipWidth))
                     if let renderData = waveformCache.renderData(for: clip, targetWidth: targetCount) {
                         let sliced = slice(level: renderData.level, duration: renderData.duration)
-                        WaveformBarsView(level: sliced)
-                            .stroke(Color.white.opacity(0.8), lineWidth: 0.6)
-                            .drawingGroup()
-                            .frame(width: geometry.size.width, height: geometry.size.height)
-                            .accessibilityIdentifier("audio-waveform")
+                        ZStack {
+                            Rectangle()
+                                .fill(Color.white.opacity(0.14))
+                                .frame(height: 1)
+                            WaveformBarsView(level: sliced, mode: .rms)
+                                .stroke(Color.white.opacity(0.85), lineWidth: 0.7)
+                        }
+                        .drawingGroup()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .accessibilityIdentifier("audio-waveform")
                     } else if waveformCache.isLoading(for: clip) {
                         ProgressView()
                             .scaleEffect(0.5)
@@ -201,7 +206,13 @@ struct AudioClipView: View {
 }
 
 private struct WaveformBarsView: Shape {
+    enum Mode {
+        case rms
+        case peak
+    }
+
     let level: WaveformLevel
+    let mode: Mode
     var centerLine: Bool = true
 
     func path(in rect: CGRect) -> Path {
@@ -212,13 +223,33 @@ private struct WaveformBarsView: Shape {
         let height = rect.height
         let midY = rect.midY
         let xStep = width / CGFloat(level.count)
-        let amplitudeScale: CGFloat = 0.55
+        let amplitudeScale: CGFloat = mode == .rms ? 0.62 : 0.72
+        var floor = level.rmsFloor
+        let peak = max(level.rmsPeak, 0.0001)
+        if peak - floor < peak * 0.1 {
+            floor = peak * 0.9
+        }
+        let range = max(peak - floor, 0.0001)
+        let gamma: Double = 0.6
+        let minVisible: Float = 0.005
 
         for index in 0..<level.count {
             let x = CGFloat(index) * xStep
-            let peak = max(level.rms[index], level.max[index])
-            let compressed = pow(peak, 0.9)
-            let amplitude = CGFloat(compressed) * (height / 2) * amplitudeScale
+            let rawValue: Float
+            switch mode {
+            case .rms:
+                rawValue = level.rms[index]
+            case .peak:
+                rawValue = max(level.max[index], level.rms[index])
+            }
+
+            let normalized = max(0, min(1, (rawValue - floor) / range))
+            if normalized < minVisible {
+                continue
+            }
+
+            let scaled = pow(Double(normalized), gamma)
+            let amplitude = CGFloat(scaled) * (height / 2) * amplitudeScale
 
             if centerLine {
                 path.move(to: CGPoint(x: x, y: midY - amplitude))

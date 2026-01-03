@@ -77,6 +77,31 @@ struct WaveformLevel: Sendable {
     let max: [Float]
     /// RMS sample per bucket.
     let rms: [Float]
+    /// RMS noise floor for this level (used to gate silence).
+    let rmsFloor: Float
+    /// RMS peak for this level (used for normalization).
+    let rmsPeak: Float
+
+    init(min: [Float], max: [Float], rms: [Float]) {
+        self.min = min
+        self.max = max
+        self.rms = rms
+
+        guard !rms.isEmpty else {
+            rmsFloor = 0
+            rmsPeak = 0
+            return
+        }
+
+        var sortedValues = rms
+        sortedValues.sort()
+        let floorIndex = Swift.max(
+            0,
+            Swift.min(sortedValues.count - 1, Int(Double(sortedValues.count - 1) * 0.1))
+        )
+        rmsFloor = sortedValues[floorIndex]
+        rmsPeak = sortedValues.last ?? 0
+    }
 
     /// Bucket count for this level.
     var count: Int {
