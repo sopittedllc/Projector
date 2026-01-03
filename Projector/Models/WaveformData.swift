@@ -58,3 +58,34 @@ extension WaveformData {
         )
     }
 }
+
+// MARK: - Waveform Atlas
+
+/// Multi-resolution waveform data for fast rendering.
+struct WaveformAtlas: Sendable {
+    /// Duration of the source audio in seconds.
+    let duration: Double
+    /// Waveform levels keyed by bucket count.
+    let levels: [Int: WaveformLevel]
+}
+
+/// A single resolution level of waveform data.
+struct WaveformLevel: Sendable {
+    /// Minimum sample per bucket.
+    let min: [Float]
+    /// Maximum sample per bucket.
+    let max: [Float]
+    /// RMS sample per bucket.
+    let rms: [Float]
+
+    /// Bucket count for this level.
+    var count: Int {
+        min.count
+    }
+}
+
+/// Render-time waveform payload.
+struct WaveformRenderData: Sendable {
+    let duration: Double
+    let level: WaveformLevel
+}

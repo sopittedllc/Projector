@@ -1,7 +1,6 @@
 import SwiftUI
+import SwiftTimecodeCore
 import Iconoir
-import DSWaveformImageViews
-import DSWaveformImage
 
 /// Visual representation of a single audio clip on an audio lane
 struct AudioClipView: View {
@@ -9,19 +8,21 @@ struct AudioClipView: View {
     let lane: AudioLane
     let isActive: Bool
     let pixelsPerFrame: CGFloat
-    let waveformData: WaveformData?
+    let frameRate: TimecodeFrameRate
     let isSelected: Bool
-    let isLoadingWaveform: Bool
+    let waveformCache: WaveformCache
+    let showWaveform: Bool
+    let interactionsEnabled: Bool
     let onSelect: () -> Void
     let onDoubleClick: () -> Void
 
     /// Track height for audio clips
-    private let trackHeight: CGFloat = 50
+    private let trackHeight: CGFloat = 50  // TODO: Use TimelineLayout.audioClipHeight after adding to Xcode project
     /// Header height for filename
-    private let headerHeight: CGFloat = 18
+    private let headerHeight: CGFloat = 18  // TODO: Use TimelineLayout.audioClipHeaderHeight after adding to Xcode project
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        let clipContent = ZStack(alignment: .topLeading) {
             // Background
             RoundedRectangle(cornerRadius: 4)
                 .fill(backgroundFill)
@@ -58,7 +59,7 @@ struct AudioClipView: View {
                 .frame(height: headerHeight)
                 .background(laneColor.opacity(0.9))
 
-                // Waveform area - use DSWaveformImage's native view
+                // Waveform area
                 ZStack {
                     waveformLayer
                         .clipShape(
@@ -73,21 +74,44 @@ struct AudioClipView: View {
                 .frame(height: trackHeight - headerHeight)
             }
         }
+
+        Group {
+            if interactionsEnabled {
+                Button(action: onSelect) {
+                    clipContent
+                }
+                .buttonStyle(.plain)
+            } else {
+                clipContent
+            }
+        }
         .frame(width: clipWidth, height: trackHeight)
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .opacity(clip.isMuted || lane.isMuted ? 0.5 : 1.0)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            onSelect()
-            onDoubleClick()
-        }
+        .simultaneousGesture(
+            TapGesture(count: 2)
+                .onEnded { _ in
+                    onDoubleClick()
+                }
+        )
         .help(clip.sourceURL.lastPathComponent)
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("audio-clip")
     }
 
     // MARK: - Computed Properties
 
     private var clipWidth: CGFloat {
         max(40, CGFloat(clip.durationFrames) * pixelsPerFrame)
+    }
+
+    private var clipDurationSeconds: Double {
+        Double(clip.durationFrames) / frameRate.fps
+    }
+
+    private var clipStartSeconds: Double {
+        max(0, Double(clip.sourceStartFrame) / frameRate.fps)
     }
 
     private var backgroundFill: some ShapeStyle {
@@ -129,33 +153,82 @@ struct AudioClipView: View {
         return .white.opacity(0.1)
     }
 
-    // MARK: - Waveform Layer using DSWaveformImage
+    // MARK: - Waveform Layer
 
     @ViewBuilder
     private var waveformLayer: some View {
-        // Use DSWaveformImage's native WaveformView for proper rendering
-        WaveformView(
-            audioURL: clip.sourceURL,
-            configuration: waveformConfiguration
-        )
-        .drawingGroup()
+        ZStack {
+            Rectangle()
+                .fill(laneColor.opacity(0.3))
+
+            if showWaveform {
+                GeometryReader { geometry in
+                    let targetCount = max(1, Int(clipWidth))
+                    if let renderData = waveformCache.renderData(for: clip, targetWidth: targetCount) {
+                        let sliced = slice(level: renderData.level, duration: renderData.duration)
+                        WaveformBarsView(level: sliced)
+                            .stroke(Color.white.opacity(0.8), lineWidth: 0.6)
+                            .drawingGroup()
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .accessibilityIdentifier("audio-waveform")
+                    } else if waveformCache.isLoading(for: clip) {
+                        ProgressView()
+                            .scaleEffect(0.5)
+                            .tint(.white.opacity(0.6))
+                            .accessibilityIdentifier("audio-waveform-loading")
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+            }
+        }
     }
 
-    private var waveformConfiguration: Waveform.Configuration {
-        Waveform.Configuration(
-            style: .striped(
-                .init(
-                    color: .white.withAlphaComponent(0.8),
-                    width: 2,
-                    spacing: 1,
-                    lineCap: .round
-                )
-            ),
-            damping: .init(percentage: 0.125, sides: .both),
-            scale: 1.0,
-            verticalScalingFactor: 0.95,
-            shouldAntialias: true
-        )
+    private func slice(level: WaveformLevel, duration: Double) -> WaveformLevel {
+        guard duration > 0, level.count > 0 else { return level }
+        let startRatio = max(0, min(1, clipStartSeconds / duration))
+        let endRatio = max(0, min(1, (clipStartSeconds + clipDurationSeconds) / duration))
+
+        let startIndex = Int(Double(level.count) * startRatio)
+        let endIndex = max(startIndex + 1, Int(Double(level.count) * endRatio))
+        let clampedEnd = min(level.count, endIndex)
+
+        let minSlice = Array(level.min[startIndex..<clampedEnd])
+        let maxSlice = Array(level.max[startIndex..<clampedEnd])
+        let rmsSlice = Array(level.rms[startIndex..<clampedEnd])
+        return WaveformLevel(min: minSlice, max: maxSlice, rms: rmsSlice)
+    }
+}
+
+private struct WaveformBarsView: Shape {
+    let level: WaveformLevel
+    var centerLine: Bool = true
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard level.count > 0 else { return path }
+
+        let width = rect.width
+        let height = rect.height
+        let midY = rect.midY
+        let xStep = width / CGFloat(level.count)
+        let amplitudeScale: CGFloat = 0.55
+
+        for index in 0..<level.count {
+            let x = CGFloat(index) * xStep
+            let peak = max(level.rms[index], level.max[index])
+            let compressed = pow(peak, 0.9)
+            let amplitude = CGFloat(compressed) * (height / 2) * amplitudeScale
+
+            if centerLine {
+                path.move(to: CGPoint(x: x, y: midY - amplitude))
+                path.addLine(to: CGPoint(x: x, y: midY + amplitude))
+            } else {
+                path.move(to: CGPoint(x: x, y: height))
+                path.addLine(to: CGPoint(x: x, y: height - amplitude * 2))
+            }
+        }
+        return path
     }
 }
 
@@ -172,9 +245,11 @@ struct AudioClipView: View {
             lane: AudioLane(name: "Audio 1"),
             isActive: true,
             pixelsPerFrame: 0.5,
-            waveformData: nil,
+            frameRate: .fps24,
             isSelected: false,
-            isLoadingWaveform: false,
+            waveformCache: WaveformCache(),
+            showWaveform: true,
+            interactionsEnabled: true,
             onSelect: {},
             onDoubleClick: {}
         )
@@ -192,9 +267,11 @@ struct AudioClipView: View {
             lane: AudioLane(name: "Audio 2"),
             isActive: false,
             pixelsPerFrame: 0.5,
-            waveformData: nil,
+            frameRate: .fps24,
             isSelected: true,
-            isLoadingWaveform: true,
+            waveformCache: WaveformCache(),
+            showWaveform: true,
+            interactionsEnabled: true,
             onSelect: {},
             onDoubleClick: {}
         )

@@ -65,6 +65,7 @@ struct MultiTrackTimelineView: View {
     @State private var lastFrameForActiveClips: Int = -1
 
     // MARK: - Constants
+    // TODO: Use LayoutConstants after adding to Xcode project
 
     /// Track header width (for lane labels/controls)
     private let headerWidth: CGFloat = 120
@@ -83,22 +84,20 @@ struct MultiTrackTimelineView: View {
 
     // MARK: - Computed Properties
 
-    /// Calculate pixels per frame based on available width so 100% fits the entire timeline
+    /// Maximum zoom multiplier relative to fit-to-view.
+    private let maxZoomMultiplier: CGFloat = 10.0
+
     private func pixelsPerFrame(for availableWidth: CGFloat) -> CGFloat {
-        let contentWidth = availableWidth - headerWidth // Space for timeline content
-        guard timeline.config.durationFrames > 0 else { return 1.0 }
-
-        // At 100% zoom (zoomLevel = 1.0), entire timeline fits in view
-        let basePixelsPerFrame = contentWidth / CGFloat(timeline.config.durationFrames)
-
-        // Apply zoom - higher zoom = more pixels per frame = more detail
-        return basePixelsPerFrame * zoomLevel
+        let contentWidth = max(1, availableWidth - headerWidth)
+        let durationFrames = max(1, timeline.config.durationFrames)
+        let fitPixelsPerFrame = contentWidth / CGFloat(durationFrames)
+        let clampedZoom = min(max(zoomLevel, minZoom), maxZoom)
+        let zoomMultiplier = 1 + (clampedZoom * (maxZoomMultiplier - 1))
+        return fitPixelsPerFrame * zoomMultiplier
     }
 
-    /// Calculate content width based on zoom level
     private func timelineContentWidth(for availableWidth: CGFloat) -> CGFloat {
-        let ppf = pixelsPerFrame(for: availableWidth)
-        return CGFloat(timeline.config.durationFrames) * ppf + headerWidth
+        CGFloat(timeline.config.durationFrames) * pixelsPerFrame(for: availableWidth) + headerWidth
     }
 
     private var timeline: Timeline {
@@ -374,7 +373,11 @@ struct MultiTrackTimelineView: View {
             Slider(value: $zoomLevel, in: minZoom...maxZoom)
                 .frame(width: 80)
                 .controlSize(.mini)
-                .onTapGesture(count: 2) { resetZoom() }
+                // Use simultaneousGesture instead of onTapGesture for consistency (GP-003)
+                .simultaneousGesture(
+                    TapGesture(count: 2)
+                        .onEnded { _ in resetZoom() }
+                )
 
             Button(action: { zoomIn() }) {
                 Image(systemName: "plus.magnifyingglass")
@@ -493,12 +496,12 @@ struct MultiTrackTimelineView: View {
 
             Menu {
                 ForEach(availableFrameRates, id: \.self) { rate in
-                    Button(frameRateDisplayName(rate)) {
+                    Button(rate.displayName) {
                         changeFrameRate(to: rate)
                     }
                 }
             } label: {
-                Text(frameRateDisplayName(timeline.config.frameRate))
+                Text(timeline.config.frameRate.displayName)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .frame(minWidth: 50)
             }
@@ -519,18 +522,6 @@ struct MultiTrackTimelineView: View {
 
     private var availableFrameRates: [TimecodeFrameRate] {
         [.fps23_976, .fps24, .fps25, .fps29_97, .fps29_97d, .fps30]
-    }
-
-    private func frameRateDisplayName(_ rate: TimecodeFrameRate) -> String {
-        switch rate {
-        case .fps23_976: return "23.976"
-        case .fps24: return "24"
-        case .fps25: return "25"
-        case .fps29_97: return "29.97"
-        case .fps29_97d: return "29.97 DF"
-        case .fps30: return "30"
-        default: return "\(rate.fps)"
-        }
     }
 
     private func changeFrameRate(to newRate: TimecodeFrameRate) {
@@ -614,20 +605,31 @@ struct MultiTrackTimelineView: View {
 
     private var tracksSection: some View {
         GeometryReader { geometry in
+            let debug = TimelineDebugFlags.current
             let contentAreaWidth = geometry.size.width - headerWidth
             let totalContentWidth = timelineContentWidth(for: geometry.size.width)
+            let ppf = pixelsPerFrame(for: geometry.size.width)
 
             VStack(spacing: 0) {
                 // Ruler row (with seek gesture - doesn't scroll)
                 HStack(spacing: 0) {
                     Color.clear.frame(width: headerWidth)
-                    TimelineRulerView(
-                        duration: playbackEngine.duration,
-                        frameRate: timeline.config.frameRate,
-                        currentTime: playbackEngine.currentTime
-                    )
-                    .contentShape(Rectangle())
-                    .gesture(seekGesture(contentAreaWidth: contentAreaWidth))
+                    if debug.disableRulerGesture {
+                        TimelineRulerView(
+                            duration: playbackEngine.duration,
+                            frameRate: timeline.config.frameRate,
+                            currentTime: playbackEngine.currentTime
+                        )
+                        .contentShape(Rectangle())
+                    } else {
+                        TimelineRulerView(
+                            duration: playbackEngine.duration,
+                            frameRate: timeline.config.frameRate,
+                            currentTime: playbackEngine.currentTime
+                        )
+                        .contentShape(Rectangle())
+                        .gesture(seekGesture(contentAreaWidth: contentAreaWidth))
+                    }
                 }
                 .frame(height: rulerHeight)
                 .background(Color(white: 0.18))
@@ -646,8 +648,10 @@ struct MultiTrackTimelineView: View {
                             timelineManager: timelineManager,
                             playbackEngine: playbackEngine,
                             thumbnails: thumbnails,
-                            pixelsPerFrame: pixelsPerFrame(for: geometry.size.width),
+                            pixelsPerFrame: ppf,
                             scrollOffset: 0,
+                            showThumbnails: !debug.disableThumbnails,
+                            clipInteractionsEnabled: !debug.disableClipInteractions,
                             onDropMedia: onDropVideoMedia,
                             onReelSelected: { reelId in
                                 selectedVideoReelId = reelId
@@ -672,8 +676,11 @@ struct MultiTrackTimelineView: View {
                                 laneIndex: index,
                                 activeClipIds: activeAudioClipIds,
                                 waveformCache: waveformCache,
-                                pixelsPerFrame: pixelsPerFrame(for: geometry.size.width),
+                                pixelsPerFrame: ppf,
+                                frameRate: timeline.config.frameRate,
                                 scrollOffset: 0,
+                                showWaveforms: !debug.disableWaveforms,
+                                clipInteractionsEnabled: !debug.disableClipInteractions,
                                 availableAudioDevices: audioOutputManager.availableDevices,
                                 onMuteToggle: { timelineManager.toggleLaneMute(at: index) },
                                 onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
@@ -715,18 +722,15 @@ struct MultiTrackTimelineView: View {
             }
             // Playhead overlay spanning full height
             .overlay(alignment: .topLeading) {
-                playhead(contentAreaWidth: contentAreaWidth, totalHeight: geometry.size.height)
+                playhead(pixelsPerFrame: ppf, totalHeight: geometry.size.height)
                     .allowsHitTesting(false)
             }
         }
     }
 
     // Simple playhead using offset positioning (more efficient than .position())
-    private func playhead(contentAreaWidth: CGFloat, totalHeight: CGFloat) -> some View {
-        let progress = timeline.config.durationFrames > 0
-            ? CGFloat(playbackEngine.currentFrame) / CGFloat(timeline.config.durationFrames)
-            : 0
-        let xOffset = headerWidth + (contentAreaWidth * zoomLevel * progress) - 1 // -1 for half width
+    private func playhead(pixelsPerFrame: CGFloat, totalHeight: CGFloat) -> some View {
+        let xOffset = headerWidth + (CGFloat(playbackEngine.currentFrame) * pixelsPerFrame) - 1 // -1 for half width
 
         return VStack(spacing: 0) {
             // Triangle at top
@@ -747,8 +751,8 @@ struct MultiTrackTimelineView: View {
     private func seekGesture(contentAreaWidth: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                let x = value.location.x - headerWidth
-                let totalWidth = contentAreaWidth * zoomLevel
+                let x = value.location.x
+                let totalWidth = max(1, contentAreaWidth * (1 + (zoomLevel * (maxZoomMultiplier - 1))))
                 guard totalWidth > 0 else { return }
                 let ratio = max(0, min(1, x / totalWidth))
                 let frame = Int(ratio * CGFloat(timeline.config.durationFrames))
@@ -805,26 +809,28 @@ struct MultiTrackTimelineView: View {
 
     // MARK: - Zoom
 
-    /// Minimum zoom: 100% = fit entire timeline
-    private let minZoom: CGFloat = 1.0
-    /// Maximum zoom: 10x for detail work
-    private let maxZoom: CGFloat = 10.0
+    /// Minimum zoom: 0% = fit entire timeline
+    private let minZoom: CGFloat = 0.0
+    /// Maximum zoom: 100% = max detail
+    private let maxZoom: CGFloat = 1.0
+    /// Zoom step for UI controls
+    private let zoomStep: CGFloat = 0.1
 
     private func zoomIn() {
         withAnimation(.easeInOut(duration: 0.2)) {
-            zoomLevel = min(maxZoom, zoomLevel * 1.5)
+            zoomLevel = min(maxZoom, zoomLevel + zoomStep)
         }
     }
 
     private func zoomOut() {
         withAnimation(.easeInOut(duration: 0.2)) {
-            zoomLevel = max(minZoom, zoomLevel / 1.5)
+            zoomLevel = max(minZoom, zoomLevel - zoomStep)
         }
     }
 
     private func resetZoom() {
         withAnimation(.easeInOut(duration: 0.2)) {
-            zoomLevel = 1.0
+            zoomLevel = minZoom
         }
     }
 }
@@ -836,7 +842,7 @@ struct MultiTrackTimelineView: View {
         @StateObject var playbackEngine = PlaybackEngine()
         @StateObject var waveformCache = WaveformCache()
         @StateObject var audioOutputManager = AudioOutputManager()
-        @State var zoomLevel: CGFloat = 1.0
+        @State var zoomLevel: CGFloat = 0.0
 
         var body: some View {
             MultiTrackTimelineView(
@@ -856,4 +862,21 @@ struct MultiTrackTimelineView: View {
     }
 
     return PreviewWrapper()
+}
+
+private struct TimelineDebugFlags {
+    let disableWaveforms: Bool
+    let disableThumbnails: Bool
+    let disableRulerGesture: Bool
+    let disableClipInteractions: Bool
+
+    static var current: TimelineDebugFlags {
+        let arguments = ProcessInfo.processInfo.arguments
+        return TimelineDebugFlags(
+            disableWaveforms: arguments.contains("-debug-disable-waveforms"),
+            disableThumbnails: arguments.contains("-debug-disable-thumbnails"),
+            disableRulerGesture: arguments.contains("-debug-disable-ruler-gesture"),
+            disableClipInteractions: arguments.contains("-debug-disable-clip-interactions")
+        )
+    }
 }

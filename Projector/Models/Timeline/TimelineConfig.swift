@@ -22,10 +22,10 @@ struct TimelineConfig: Codable, Equatable {
         Double(durationFrames) / frameRate.fps
     }
 
-    /// Default timeline configuration (1 hour at 24fps)
+    /// Default timeline configuration (2 hours at 24fps, starting at 00:00:00:00)
     static var `default`: TimelineConfig {
         TimelineConfig(
-            startTimecode: Timecode(.components(h: 1, m: 0, s: 0, f: 0), at: .fps24, by: .clamping),
+            startTimecode: Timecode(.components(h: 0, m: 0, s: 0, f: 0), at: .fps24, by: .clamping),
             endTimecode: Timecode(.components(h: 2, m: 0, s: 0, f: 0), at: .fps24, by: .clamping),
             frameRate: .fps24
         )

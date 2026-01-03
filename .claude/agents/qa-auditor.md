@@ -110,6 +110,8 @@ public func parse(_ data: UInt8) -> MTCPiece
 | View body pure | ✅/❌ | [details] |
 | No scroll conflicts | ✅/❌ | [details] |
 | drawingGroup used | ✅/❌ | [details] |
+| Accordion headers clickable in ScrollView | ✅/❌ | [details] |
+| GeometryReader bindings valid | ✅/❌ | [details] |
 
 ### Issues Found
 1. [Issue description]
@@ -174,6 +176,81 @@ Use `mcp__firecrawl__firecrawl_search` and `mcp__firecrawl__firecrawl_scrape` fo
 
 ---
 
+## Missed Bug Root Cause Analysis Protocol
+
+**REQUIRED**: When a bug is discovered that should have been caught, perform this analysis:
+
+### Step 1: Categorize the Bug
+| Category | Description | Example |
+|----------|-------------|---------|
+| **Static Code** | Visible in code review | Missing nil check |
+| **Runtime Behavior** | Only visible when running | State change doesn't update UI |
+| **3rd-Party Integration** | External library misuse | SwiftUI view doesn't re-render |
+| **Edge Case** | Specific conditions | Works at zoom 1x, breaks at 0.5x |
+
+### Step 2: Agent Gap Analysis
+For each agent in the chain, answer:
+1. **What check would have caught this?**
+2. **Why wasn't that check in the agent's scope?**
+3. **Should it be added?**
+
+### Step 3: Update Agents
+Add the missing check to the appropriate agent with:
+- Clear description of what to check
+- Example of the bug pattern
+- Example of the correct pattern
+
+### Step 4: Document in PROJECT_ROADMAP.md
+Add to "Lessons Learned" section:
+```markdown
+### [Date]: [Bug Name]
+- **Root Cause**: [Technical cause]
+- **Why Missed**: [Agent gap]
+- **Fix Applied**: [Code fix]
+- **Agent Updated**: [Which agent, what check added]
+```
+
+### Example: Waveform Zoom Bug (2026-01-02)
+```markdown
+- **Root Cause**: WaveformView inputs (audioURL, config) don't change on zoom
+- **Why Missed**: No SwiftUI view identity audit for 3rd-party components
+- **Fix Applied**: Added .id(clipWidth) to force re-render
+- **Agent Updated**: ui-specialist.md - Added SwiftUI Lifecycle Audit section
+```
+
+---
+
+## SwiftUI State Propagation Audit
+
+**NEW REQUIREMENT**: For every view that depends on external state, verify:
+
+### 1. View Identity Check
+```swift
+// ❌ BUG: Parent size changes but view doesn't re-render
+WaveformView(audioURL: url, configuration: config)
+    .frame(width: dynamicWidth)  // Width changes, but view doesn't know
+
+// ✅ CORRECT: Force re-render when size changes
+WaveformView(audioURL: url, configuration: config)
+    .id(dynamicWidth)  // New identity = new render
+    .frame(width: dynamicWidth)
+```
+
+### 2. State Change Propagation Matrix
+| State That Changes | Views That Should Update | Mechanism |
+|-------------------|-------------------------|-----------|
+| `pixelsPerFrame` (zoom) | WaveformView, ClipView | `.id()` or binding |
+| `isPlaying` | TransportBar, Timeline | `@Published` |
+| `currentFrame` | Playhead, Timecode | `@Published` |
+
+### 3. Third-Party View Audit
+For every 3rd-party SwiftUI view, document:
+- What inputs does it watch for changes?
+- Does it respond to frame size changes?
+- Do we need `.id()` to force re-renders?
+
+---
+
 ## Anti-Hallucination Protocol
 
 When auditing:
@@ -183,3 +260,55 @@ When auditing:
 4. **TRACE** data flow for thread safety
 5. **TEST** edge cases mentally or with examples
 6. **USE** `Firecrawl` to verify UI patterns against industry standards
+7. **ASK** "What happens when [state] changes?" for each dynamic value
+8. **VERIFY** 3rd-party views respond to all relevant state changes
+
+### MANDATORY: Third-Party Library Audit Question
+
+**For EVERY file using external libraries, ask:**
+> "Which 3rd-party libraries are used, and where is the documentation evidence that they're used correctly?"
+
+If no documentation citation exists in the code comments, **REJECT** the audit.
+
+| Library | Required Evidence |
+|---------|------------------|
+| DSWaveformImage | Link to README showing `.frame()` requirement |
+| MIDIKit | Link to docs showing callback thread behavior |
+| Any other | Link to relevant docs section |
+
+---
+
+## CRITICAL: Visual Verification Protocol
+
+**BUILD SUCCESS ≠ FEATURE WORKS**
+
+For ANY UI-related change, you MUST:
+
+### Before Declaring Complete
+1. **ASK USER TO RUN** - Request they launch the app and verify visually
+2. **SPECIFY WHAT TO CHECK** - "Please verify waveforms appear in audio clips"
+3. **WAIT FOR CONFIRMATION** - Don't move on until user confirms it works
+
+### For 3rd-Party UI Components
+1. **READ LIBRARY DOCS FIRST** - Use Context7 or web search before making changes
+2. **CHECK REQUIRED PARAMETERS** - Does the component need explicit `.frame()`? Size? Configuration?
+3. **NEVER ASSUME** - General SwiftUI knowledge may not apply to library-specific views
+
+### Failure Examples (2026-01-02)
+
+| What I Did | Why It Failed |
+|------------|---------------|
+| Added `.id(clipWidth)` to WaveformView | Didn't read DSWaveformImage docs - view actually needed explicit `.frame()` |
+| Set `minZoom = 0.1` | Never tested what 0.1 zoom actually looks like |
+| Declared "fixed" after build succeeded | Build success proves syntax, not functionality |
+| Wrote documentation for the "fix" | Documented broken code, wasted effort |
+
+### Correct Process
+```
+1. Research library docs (Context7, WebSearch)
+2. Implement fix based on VERIFIED knowledge
+3. Build
+4. ASK USER: "Please run and verify [specific thing] works"
+5. User confirms → Document and move on
+6. User reports issue → Go back to step 1
+```

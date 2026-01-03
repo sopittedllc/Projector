@@ -104,6 +104,7 @@ actor TransportActor: TransportServiceProtocol {
 - Seek operations with tolerance
 - Audio session configuration
 - Multi-track audio routing
+- Audio-from-video extraction must honor track index and security-scoped access
 
 ### CoreAudio
 - Audio device enumeration
@@ -125,6 +126,14 @@ protocol [Name]: Sendable { ... }
 - [ ] All state in actors
 - [ ] Real-time safe callbacks
 - [ ] Sendable types only cross boundaries
+
+### Third-Party Library Compliance (MANDATORY)
+Before using ANY external library (MIDIKit, DSWaveformImage, etc.):
+- [ ] Read library README/documentation via Context7 or WebSearch
+- [ ] Check: Thread-safety guarantees?
+- [ ] Check: Callback thread expectations?
+- [ ] Copy example code from docs first, then adapt
+- [ ] Cite documentation URL in code comment
 
 ### Thread-Safety Analysis
 - MIDI callback thread: [safe/unsafe, why]

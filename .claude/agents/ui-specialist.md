@@ -108,6 +108,11 @@ WaveformView(samples: data)
     .drawingGroup()
 ```
 
+### Hit-Testing Rule (Accordions)
+Avoid overlay-only buttons for header click targets in scrollable sections.
+Use a real `Button` with the header as its label and a `contentShape` to ensure
+hit-testing works reliably.
+
 ## Implementation Format
 
 ```markdown
@@ -123,6 +128,14 @@ protocol [Name]: Sendable { ... }
 - [ ] Data via ViewModel only
 - [ ] Actions delegate to ViewModel
 - [ ] macOS HIG compliance
+
+### Third-Party Library Compliance (MANDATORY)
+Before using ANY external SwiftUI view:
+- [ ] Read library README/documentation via Context7 or WebSearch
+- [ ] Check: Does component need explicit `.frame()`?
+- [ ] Check: Does component load data asynchronously?
+- [ ] Copy example code from docs first, then adapt
+- [ ] Cite documentation URL in code comment
 
 ### Performance Analysis
 - View body complexity: [Low/Medium/High]
@@ -214,6 +227,55 @@ Use `mcp__firecrawl__firecrawl_search` and `mcp__firecrawl__firecrawl_scrape` fo
 
 ---
 
+## SwiftUI Lifecycle & View Identity
+
+**CRITICAL**: SwiftUI views only re-render when their *identity* or *inputs* change. This is a common source of bugs, especially with 3rd-party components.
+
+### View Identity Rules
+```swift
+// SwiftUI uses STRUCTURAL IDENTITY by default
+// A view re-renders when:
+// 1. Its @State/@Binding/@ObservedObject changes
+// 2. Its init parameters change (Equatable check)
+// 3. Its explicit .id() changes
+
+// ❌ BUG: 3rd-party view won't re-render when frame changes
+ExternalLibraryView(data: staticData)
+    .frame(width: dynamicWidth)  // Frame changes, view doesn't care
+
+// ✅ FIX: Force new identity when size matters
+ExternalLibraryView(data: staticData)
+    .id(dynamicWidth)  // Width change = new view instance = re-render
+```
+
+### When to Use .id() Modifier
+| Scenario | Use .id()? | Example |
+|----------|-----------|---------|
+| 3rd-party view needs to respond to parent size | ✅ Yes | `.id(containerWidth)` |
+| View should reset when data source changes | ✅ Yes | `.id(fileURL)` |
+| View caches internal state that should clear | ✅ Yes | `.id(selectedItem.id)` |
+| View already observes all relevant state | ❌ No | Native SwiftUI with bindings |
+
+### Third-Party SwiftUI View Checklist
+Before using any external SwiftUI view:
+- [ ] Does it accept size as an init parameter?
+- [ ] Does it use GeometryReader internally?
+- [ ] Does it respond to frame changes?
+- [ ] Do we need `.id()` to force re-renders on zoom/resize?
+
+### Example: DSWaveformImage Integration
+```swift
+// DSWaveformImage's WaveformView caches rendered waveform
+// It does NOT automatically re-render when its frame changes
+// We MUST use .id() to force re-render on zoom
+
+WaveformView(audioURL: clip.sourceURL, configuration: config)
+    .id(clipWidth)  // REQUIRED: Force re-render when zoom changes
+    .drawingGroup()
+```
+
+---
+
 ## Anti-Hallucination Protocol
 
 1. **VERIFY** SwiftUI modifier availability for macOS 14.0+
@@ -221,3 +283,5 @@ Use `mcp__firecrawl__firecrawl_search` and `mcp__firecrawl__firecrawl_scrape` fo
 3. **USE** `WebSearch` for macOS-specific patterns
 4. **USE** `Firecrawl` for pro audio app UI research
 5. **ASK** if uncertain about HIG compliance
+6. **TEST** "What happens when [state] changes?" for each dynamic value
+7. **AUDIT** 3rd-party views for size/state responsiveness

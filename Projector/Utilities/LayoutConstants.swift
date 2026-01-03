@@ -1,0 +1,142 @@
+import SwiftUI
+import SwiftTimecodeCore
+
+// MARK: - Layout Constants
+// Centralized layout constants to eliminate magic numbers (AP-004)
+// All view files should import these instead of defining local constants
+
+/// Timeline layout constants
+enum TimelineLayout {
+    /// Width of track/lane headers (video track, audio lanes)
+    static let headerWidth: CGFloat = 120
+
+    /// Width of playhead/ruler header (narrower than track headers)
+    static let playheadHeaderWidth: CGFloat = 80
+
+    /// Height of the video track
+    static let videoTrackHeight: CGFloat = 60
+
+    /// Height of each audio lane
+    static let audioLaneHeight: CGFloat = 60
+
+    /// Height of the ruler/timecode display
+    static let rulerHeight: CGFloat = 24
+
+    /// Height of the toolbar area
+    static let toolbarHeight: CGFloat = 40
+
+    /// Height of video reel clips
+    static let videoClipHeight: CGFloat = 42
+
+    /// Height of audio clips
+    static let audioClipHeight: CGFloat = 50
+
+    /// Height of audio clip headers (filename bar)
+    static let audioClipHeaderHeight: CGFloat = 18
+
+    /// Width of thumbnails in video reels
+    static let thumbnailWidth: CGFloat = 48
+
+    /// Spacing between ruler markings
+    static let rulerSpacing: CGFloat = 5
+
+    /// Target pixels per major ruler marking
+    static let targetPixelsPerMajor: CGFloat = 100
+
+    /// Playhead triangle width
+    static let playheadTriangleWidth: CGFloat = 10
+
+    /// Playhead triangle height
+    static let playheadTriangleHeight: CGFloat = 8
+}
+
+/// Zoom control constants
+enum ZoomConstants {
+    /// Minimum zoom level
+    static let minZoom: CGFloat = 1.0
+
+    /// Maximum zoom level
+    static let maxZoom: CGFloat = 10.0
+
+    /// Default zoom level
+    static let defaultZoom: CGFloat = 1.0
+}
+
+/// File manager panel constants
+enum FileManagerLayout {
+    /// Height when collapsed (header only)
+    static let collapsedHeight: CGFloat = 32
+
+    /// Height when expanded
+    static let expandedHeight: CGFloat = 125
+
+    /// Grid cell thumbnail size
+    static let gridThumbnailWidth: CGFloat = 64
+
+    /// Grid cell thumbnail height
+    static let gridThumbnailHeight: CGFloat = 48
+
+    /// Grid cell label width
+    static let gridLabelWidth: CGFloat = 80
+}
+
+/// Timeline section constants (in ContentView)
+enum TimelineSectionLayout {
+    /// Height when collapsed
+    static let collapsedHeight: CGFloat = 32
+
+    /// Minimum height when expanded
+    static let minHeight: CGFloat = 100
+
+    /// Maximum height when expanded
+    static let maxHeight: CGFloat = 500
+
+    /// Default height
+    static let defaultHeight: CGFloat = 180
+}
+
+/// Media panel constants
+enum MediaPanelLayout {
+    /// Default height
+    static let defaultHeight: CGFloat = 200
+}
+
+/// Transport bar constants
+enum TransportLayout {
+    /// Height of control boxes
+    static let controlBoxHeight: CGFloat = 48
+}
+
+/// Common spacing and padding
+enum Spacing {
+    /// Standard content padding
+    static let contentPadding: CGFloat = 12
+
+    /// Small spacing between controls
+    static let controlSpacing: CGFloat = 4
+
+    /// Medium spacing
+    static let medium: CGFloat = 8
+
+    /// Large spacing
+    static let large: CGFloat = 16
+}
+
+// MARK: - TimecodeFrameRate Extension
+
+extension TimecodeFrameRate {
+    /// Human-readable display name for the frame rate.
+    ///
+    /// Returns a formatted string like "23.976", "24", "29.97 DF", etc.
+    var displayName: String {
+        switch self {
+        case .fps23_976: return "23.976"
+        case .fps24: return "24"
+        case .fps25: return "25"
+        case .fps29_97: return "29.97"
+        case .fps29_97d: return "29.97 DF"
+        case .fps30: return "30"
+        default: return "\(fps)"
+        }
+    }
+}

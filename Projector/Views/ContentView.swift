@@ -4,136 +4,7 @@ import AVFoundation
 import SwiftTimecodeCore
 import AppKit
 import Iconoir
-
-/// Configures the window title with a logo
-struct WindowTitleConfigurator: NSViewRepresentable {
-    let title: String
-    let isEdited: Bool
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            configureWindowTitle(view.window)
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            configureWindowTitle(nsView.window)
-        }
-    }
-
-    private func configureWindowTitle(_ window: NSWindow?) {
-        guard let window = window else { return }
-
-        // Hide the system title - we'll show our own
-        window.titleVisibility = .hidden
-
-        // Update the window title (for Window menu, etc.)
-        let displayTitle = "PROJECTOR: " + title + (isEdited ? " *" : "")
-        window.title = displayTitle
-
-        // Find the titlebar container and add our custom title with logo
-        guard let titlebarContainer = window.standardWindowButton(.closeButton)?.superview?.superview else { return }
-
-        // Look for an existing custom title view or create one
-        configureTitleWithLogo(in: titlebarContainer, window: window)
-    }
-
-    private func configureTitleWithLogo(in container: NSView, window: NSWindow) {
-        // Check if we already added our custom view (identified by accessibilityIdentifier)
-        let customViewID = "ProjectorTitleView"
-        if let existingView = findViewWithIdentifier(customViewID, in: container) as? NSStackView {
-            // Update existing view
-            if let textField = existingView.arrangedSubviews.last as? NSTextField {
-                let displayTitle = "PROJECTOR: " + title + (isEdited ? " *" : "")
-                textField.stringValue = displayTitle
-                if isEdited {
-                    textField.font = NSFont.systemFont(ofSize: 13, weight: .semibold).italic()
-                } else {
-                    textField.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-                }
-            }
-            return
-        }
-
-        // Find the original title text field
-        guard let originalTitle = findTitleTextField(in: container, title: title) else { return }
-
-        // Hide the original title
-        originalTitle.isHidden = true
-
-        // Create our custom title view with logo
-        let stackView = NSStackView()
-        stackView.setAccessibilityIdentifier(customViewID)
-        stackView.orientation = .horizontal
-        stackView.spacing = 6
-        stackView.alignment = .centerY
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-
-        // Add logo
-        let logoView = NSImageView()
-        logoView.image = NSImage(named: "TitlebarLogo")
-        logoView.imageScaling = .scaleProportionallyUpOrDown
-        logoView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            logoView.widthAnchor.constraint(equalToConstant: 16),
-            logoView.heightAnchor.constraint(equalToConstant: 16)
-        ])
-        stackView.addArrangedSubview(logoView)
-
-        // Add title text
-        let titleField = NSTextField(labelWithString: "PROJECTOR: " + title + (isEdited ? " *" : ""))
-        titleField.font = isEdited ? NSFont.systemFont(ofSize: 13, weight: .semibold).italic() : NSFont.systemFont(ofSize: 13, weight: .semibold)
-        titleField.textColor = .labelColor
-        titleField.alignment = .center
-        stackView.addArrangedSubview(titleField)
-
-        // Add to the same superview as the original title
-        if let superview = originalTitle.superview {
-            superview.addSubview(stackView)
-
-            // Center the stack view where the original title was
-            NSLayoutConstraint.activate([
-                stackView.centerXAnchor.constraint(equalTo: superview.centerXAnchor),
-                stackView.centerYAnchor.constraint(equalTo: originalTitle.centerYAnchor)
-            ])
-        }
-    }
-
-    private func findViewWithIdentifier(_ identifier: String, in view: NSView) -> NSView? {
-        if view.accessibilityIdentifier() == identifier {
-            return view
-        }
-        for subview in view.subviews {
-            if let found = findViewWithIdentifier(identifier, in: subview) {
-                return found
-            }
-        }
-        return nil
-    }
-
-    private func findTitleTextField(in view: NSView, title: String) -> NSTextField? {
-        for subview in view.subviews {
-            if let textField = subview as? NSTextField,
-               textField.stringValue.contains(title) || textField.stringValue == "Untitled Projector Project" {
-                return textField
-            }
-            if let found = findTitleTextField(in: subview, title: title) {
-                return found
-            }
-        }
-        return nil
-    }
-}
-
-extension NSFont {
-    func italic() -> NSFont {
-        let descriptor = fontDescriptor.withSymbolicTraits(.italic)
-        return NSFont(descriptor: descriptor, size: 0) ?? self
-    }
-}
+import Combine
 
 /// Info about a missing file that needs to be located
 struct MissingFileInfo: Identifiable {
@@ -156,10 +27,33 @@ struct ContentView: View {
     @StateObject private var timelineManager = TimelineManager()
     @StateObject private var mediaLibrary = ProjectMediaLibrary()
     @StateObject private var waveformCache = WaveformCache()
-    @StateObject private var midiManager = MIDIManager()
     @StateObject private var audioManager = AudioOutputManager()
     @StateObject private var projectDocument = ProjectDocument()
     @ObservedObject private var settings = AppSettings.shared
+
+    // MARK: - MIDI Sync (Actor-based for thread safety)
+    /// The MIDI sync actor (logic layer) - handles MTC/MMC on dedicated context
+    private let midiSyncActor: MIDISyncActor
+    /// ViewModel bridging actor state to UI
+    @StateObject private var midiSyncViewModel: MIDISyncViewModel
+
+    // MARK: - Timeline ViewModel
+    /// ViewModel for timeline UI state and interactions
+    @StateObject private var timelineViewModel: TimelineViewModel
+
+    // MARK: - Initialization
+
+    init() {
+        // Initialize MIDI sync actor and view model
+        let actor = MIDISyncActor()
+        self.midiSyncActor = actor
+        self._midiSyncViewModel = StateObject(wrappedValue: MIDISyncViewModel(service: actor))
+
+        // Initialize timeline manager and view model
+        let manager = TimelineManager()
+        self._timelineManager = StateObject(wrappedValue: manager)
+        self._timelineViewModel = StateObject(wrappedValue: TimelineViewModel(manager: manager))
+    }
 
     // MARK: - UI State
     @State private var showSettings = false
@@ -167,14 +61,14 @@ struct ContentView: View {
     @State private var isLoadingMedia = false
     @State private var loadError: String?
     @State private var showErrorAlert = false
+    @State private var midiCancellables = Set<AnyCancellable>()
     @State private var videoThumbnails: [UUID: ThumbnailStrip] = [:]
     @State private var showFileManager = true
-    @State private var isTimelineExpanded = false
-    @State private var timelineZoomLevel: CGFloat = 1.0
     @State private var isFullScreen = false
+    @State private var didHandleUITestImport = false
+    @State private var uiTestImportState: String? = "boot"
 
-    // Resizable accordion heights
-    @State private var timelineHeight: CGFloat = 180
+    // Resizable accordion heights (media panel only - timeline handled by TimelineViewModel)
     @State private var mediaHeight: CGFloat = 200
 
     // Missing files state
@@ -195,12 +89,30 @@ struct ContentView: View {
                 normalView
             }
         }
+        .overlay(alignment: .topLeading) {
+            if isUITesting {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(uiTestImportState ?? "boot")
+                        .accessibilityIdentifier("ui-test-status")
+                        .accessibilityLabel(uiTestImportState ?? "boot")
+                        .accessibilityValue(uiTestImportState ?? "boot")
+
+                    Text(String(uiTestClipCount))
+                        .accessibilityIdentifier("ui-test-clip-count")
+                        .accessibilityLabel(String(uiTestClipCount))
+                        .accessibilityValue(String(uiTestClipCount))
+                }
+                .font(.system(size: 1))
+                .opacity(0.01)
+                .allowsHitTesting(false)
+            }
+        }
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
         .sheet(isPresented: $showSettings) {
             SettingsView(
-                midiManager: midiManager,
+                midiSync: midiSyncViewModel,
                 audioManager: audioManager,
                 timelineManager: timelineManager,
                 isPresented: $showSettings
@@ -237,22 +149,13 @@ struct ContentView: View {
             }
         } message: {
             if let fps = pendingVideoFPS {
-                Text("This video is \(frameRateDisplayName(fps)) but the project is \(frameRateDisplayName(timelineManager.timeline.config.frameRate)).\n\nChanging the project FPS will remove all existing video reels.")
+                Text("This video is \(fps.displayName) but the project is \(timelineManager.timeline.config.frameRate.displayName).\n\nChanging the project FPS will remove all existing video reels.")
             }
         }
         .frame(minWidth: 640, minHeight: 400)
         .background(
             VisualEffectView(material: .hudWindow, blendingMode: .behindWindow, alphaValue: 0.95)
         )
-        .overlay {
-            // Invisible overlay to cancel timecode editing when clicking outside
-            if isStartTCFocused || isDurationFocused {
-                Color.black.opacity(0.001)
-                    .onTapGesture {
-                        cancelTimecodeEditing()
-                    }
-            }
-        }
         .navigationTitle("")
         .background(WindowTitleConfigurator(
             title: projectDocument.displayName,
@@ -271,6 +174,7 @@ struct ContentView: View {
             setupAudioCallback()
             setupTimelineCallbacks()
             restoreSettings()
+            handleUITestImportIfNeeded()
         }
         // Sync unsaved changes state with AppDelegate for quit confirmation
         .onReceive(projectDocument.$hasUnsavedChanges) { hasChanges in
@@ -362,20 +266,37 @@ struct ContentView: View {
             }
 
             // Vital Controls bar (always visible)
-            vitalControlsBar
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+            VitalControlsBar(
+                timelineManager: timelineManager,
+                playbackEngine: playbackEngine,
+                timelineViewModel: timelineViewModel,
+                onSettingsPressed: { showSettings = true },
+                onFullScreenPressed: { enterFullScreen() }
+            )
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
 
             // Timeline accordion
-            timelineAccordion
-                .padding(.horizontal, 16)
-                .padding(.top, 4)
-                .onChange(of: mediaLibrary.items.count) { _, newCount in
-                    // Auto-expand timeline when media is first imported
-                    if newCount > 0 && !isTimelineExpanded {
-                        isTimelineExpanded = true
-                    }
+            TimelineAccordionView(
+                timelineManager: timelineManager,
+                playbackEngine: playbackEngine,
+                waveformCache: waveformCache,
+                audioOutputManager: audioManager,
+                timelineViewModel: timelineViewModel,
+                thumbnails: videoThumbnails,
+                onDropVideoMedia: handleVideoDropOnTimeline,
+                onDropAudioMedia: handleAudioDropOnTimeline,
+                onSeek: { frame in playbackEngine.seekToFrame(frame) },
+                onSettingsPressed: { showSettings = true }
+            )
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
+            .onChange(of: mediaLibrary.items.count) { _, newCount in
+                // Auto-expand timeline when media is first imported
+                if newCount > 0 && !timelineViewModel.isExpanded {
+                    timelineViewModel.expandIfNeeded()
                 }
+            }
 
             // File Manager panel
             if showFileManager {
@@ -442,449 +363,6 @@ struct ContentView: View {
         if window.styleMask.contains(.fullScreen) {
             window.toggleFullScreen(nil)
         }
-    }
-
-    // MARK: - Vital Controls Bar
-
-    private var vitalControlsBar: some View {
-        ZStack {
-            // Left-aligned controls
-            HStack(spacing: 12) {
-                // Start TC
-                startTCControl
-
-                // Duration
-                durationControl
-
-                // FPS
-                fpsControl
-
-                Spacer()
-            }
-
-            // Center-aligned transport controls
-            HStack {
-                transportControls
-            }
-
-            // Right-aligned controls
-            HStack(spacing: 12) {
-                Spacer()
-
-                // Zoom controls
-                zoomControls
-
-                // Full screen button
-                Button(action: { enterFullScreen() }) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.plain)
-                .help("Enter Full Screen")
-
-                // Settings button
-                Button(action: { showSettings = true }) {
-                    Iconoir.settings.asImage
-                        .frame(width: 18, height: 18)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow, alphaValue: 0.8)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-        )
-    }
-
-    @State private var editingStartTCText = ""
-    @State private var editingDurationText = ""
-    @State private var isHoveringStartTC = false
-    @State private var isHoveringDuration = false
-    @FocusState private var isStartTCFocused: Bool
-    @FocusState private var isDurationFocused: Bool
-
-    private var startTCControl: some View {
-        HStack(spacing: 4) {
-            Text("Start TC:")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.secondary)
-
-            TextField("00:00:00:00", text: $editingStartTCText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .frame(width: 85)
-                .focused($isStartTCFocused)
-                .onChange(of: editingStartTCText) { _, newValue in
-                    let formatted = formatTimecodeInput(newValue)
-                    if formatted != newValue {
-                        editingStartTCText = formatted
-                    }
-                }
-                .onSubmit {
-                    applyStartTimecode()
-                }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(startTCBackground)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(isStartTCFocused ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: 1)
-        )
-        .onHover { hovering in
-            isHoveringStartTC = hovering
-        }
-        .onChange(of: isStartTCFocused) { wasFocused, isFocused in
-            // Reset to stored value when focus is lost without pressing Enter
-            if wasFocused && !isFocused {
-                editingStartTCText = timelineManager.timeline.config.startTimecode.stringValue()
-            }
-        }
-        .onAppear {
-            editingStartTCText = timelineManager.timeline.config.startTimecode.stringValue()
-            // Ensure field is not focused on appear
-            DispatchQueue.main.async {
-                isStartTCFocused = false
-            }
-        }
-    }
-
-    private var startTCBackground: Color {
-        if isStartTCFocused {
-            return Color.clear
-        } else if isHoveringStartTC {
-            return Color.white.opacity(0.1)
-        } else {
-            return Color(nsColor: .controlBackgroundColor)
-        }
-    }
-
-    private var durationControl: some View {
-        HStack(spacing: 4) {
-            Text("Duration:")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.secondary)
-
-            TextField("00:00:00:00", text: $editingDurationText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .frame(width: 85)
-                .focused($isDurationFocused)
-                .onChange(of: editingDurationText) { _, newValue in
-                    let formatted = formatTimecodeInput(newValue)
-                    if formatted != newValue {
-                        editingDurationText = formatted
-                    }
-                }
-                .onSubmit {
-                    applyDuration()
-                }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(durationBackground)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(isDurationFocused ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: 1)
-        )
-        .onHover { hovering in
-            isHoveringDuration = hovering
-        }
-        .onChange(of: isDurationFocused) { wasFocused, isFocused in
-            // Reset to stored value when focus is lost without pressing Enter
-            if wasFocused && !isFocused {
-                editingDurationText = durationTimecodeString
-            }
-        }
-        .onAppear {
-            editingDurationText = durationTimecodeString
-        }
-    }
-
-    private var durationBackground: Color {
-        if isDurationFocused {
-            return Color.clear
-        } else if isHoveringDuration {
-            return Color.white.opacity(0.1)
-        } else {
-            return Color(nsColor: .controlBackgroundColor)
-        }
-    }
-
-    private var fpsControl: some View {
-        HStack(spacing: 4) {
-            Text("FPS:")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.secondary)
-
-            Text(frameRateDisplayName(timelineManager.timeline.config.frameRate))
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .frame(minWidth: 45)
-                .foregroundColor(.primary)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-        )
-        .help("Frame rate is set by the video file")
-    }
-
-    private var durationTimecodeString: String {
-        let durationTC = Timecode(.frames(timelineManager.timeline.config.durationFrames), at: timelineManager.timeline.config.frameRate, by: .clamping)
-        return durationTC.stringValue()
-    }
-
-    private var transportControls: some View {
-        HStack(spacing: 8) {
-            Button(action: { playbackEngine.stepBackward() }) {
-                Iconoir.skipPrev.asImage
-                    .frame(width: 14, height: 14)
-            }
-            .buttonStyle(.plain)
-            .disabled(!playbackEngine.hasContent)
-
-            Button(action: { playbackEngine.togglePlayback() }) {
-                (playbackEngine.isPlaying ? Iconoir.pauseSolid.asImage : Iconoir.playSolid.asImage)
-                    .frame(width: 16, height: 16)
-            }
-            .buttonStyle(.plain)
-            .disabled(!playbackEngine.hasContent)
-            .keyboardShortcut(.space, modifiers: [])
-
-            Button(action: { playbackEngine.stepForward() }) {
-                Iconoir.skipNext.asImage
-                    .frame(width: 14, height: 14)
-            }
-            .buttonStyle(.plain)
-            .disabled(!playbackEngine.hasContent)
-
-            Button(action: { playbackEngine.stop() }) {
-                Iconoir.square.asImage
-                    .frame(width: 14, height: 14)
-            }
-            .buttonStyle(.plain)
-            .disabled(!playbackEngine.hasContent)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(.thinMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.white.opacity(0.15), lineWidth: 1)
-        )
-    }
-
-    private let minZoom: CGFloat = 1.0
-    private let maxZoom: CGFloat = 10.0
-
-    private var zoomControls: some View {
-        HStack(spacing: 4) {
-            Button(action: { zoomOut() }) {
-                Image(systemName: "minus.magnifyingglass")
-                    .font(.system(size: 11))
-            }
-            .buttonStyle(.plain)
-            .disabled(timelineZoomLevel <= minZoom)
-
-            Slider(value: $timelineZoomLevel, in: minZoom...maxZoom)
-                .frame(width: 80)
-                .controlSize(.mini)
-                .onTapGesture(count: 2) { resetZoom() }
-
-            Button(action: { zoomIn() }) {
-                Image(systemName: "plus.magnifyingglass")
-                    .font(.system(size: 11))
-            }
-            .buttonStyle(.plain)
-            .disabled(timelineZoomLevel >= maxZoom)
-        }
-    }
-
-    private func zoomIn() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            timelineZoomLevel = min(maxZoom, timelineZoomLevel * 1.5)
-        }
-    }
-
-    private func zoomOut() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            timelineZoomLevel = max(minZoom, timelineZoomLevel / 1.5)
-        }
-    }
-
-    private func resetZoom() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            timelineZoomLevel = 1.0
-        }
-    }
-
-    private func cancelTimecodeEditing() {
-        // Reset values and unfocus
-        if isStartTCFocused {
-            editingStartTCText = timelineManager.timeline.config.startTimecode.stringValue()
-            isStartTCFocused = false
-        }
-        if isDurationFocused {
-            editingDurationText = durationTimecodeString
-            isDurationFocused = false
-        }
-    }
-
-    private func formatTimecodeInput(_ input: String) -> String {
-        let digits = input.filter { $0.isNumber }
-        let limited = String(digits.prefix(8))
-        var result = ""
-        for (index, char) in limited.enumerated() {
-            if index > 0 && index % 2 == 0 {
-                result += ":"
-            }
-            result.append(char)
-        }
-        return result
-    }
-
-    private func applyStartTimecode() {
-        // Apply the new value BEFORE unfocusing (so onChange reset uses updated value)
-        if let newTC = parseTimecode(editingStartTCText) {
-            timelineManager.setTimelineBounds(start: newTC, end: timelineManager.timeline.config.endTimecode)
-            editingStartTCText = newTC.stringValue()
-        } else {
-            editingStartTCText = timelineManager.timeline.config.startTimecode.stringValue()
-        }
-        isStartTCFocused = false
-    }
-
-    private func applyDuration() {
-        // Apply the new value BEFORE unfocusing (so onChange reset uses updated value)
-        if let durationTC = parseTimecode(editingDurationText) {
-            let durationFrames = durationTC.frameCount.wholeFrames
-            let newEndFrames = timelineManager.timeline.config.startTimecode.frameCount.wholeFrames + durationFrames
-            let newEnd = Timecode(.frames(newEndFrames), at: timelineManager.timeline.config.frameRate, by: .clamping)
-            timelineManager.setTimelineBounds(start: timelineManager.timeline.config.startTimecode, end: newEnd)
-            editingDurationText = durationTimecodeString
-        } else {
-            editingDurationText = durationTimecodeString
-        }
-        isDurationFocused = false
-    }
-
-    private func parseTimecode(_ string: String) -> Timecode? {
-        let digits = string.filter { $0.isNumber }
-        let padded = String(repeating: "0", count: max(0, 8 - digits.count)) + digits
-        let trimmed = String(padded.suffix(8))
-        guard trimmed.count == 8 else { return nil }
-
-        let h = Int(trimmed.prefix(2)) ?? 0
-        let m = Int(trimmed.dropFirst(2).prefix(2)) ?? 0
-        let s = Int(trimmed.dropFirst(4).prefix(2)) ?? 0
-        let f = Int(trimmed.dropFirst(6).prefix(2)) ?? 0
-
-        return Timecode(
-            .components(h: h, m: m, s: s, f: f),
-            at: timelineManager.timeline.config.frameRate,
-            by: .clamping
-        )
-    }
-
-    // MARK: - Timeline Accordion
-
-    private let timelineCollapsedHeight: CGFloat = 32
-    private let timelineMinHeight: CGFloat = 100
-    private let timelineMaxHeight: CGFloat = 500
-
-    private var timelineAccordion: some View {
-        VStack(spacing: 0) {
-            // Header bar
-            timelineAccordionHeader
-
-            // Content (only when expanded)
-            if isTimelineExpanded {
-                timelineContent
-            }
-
-            // Resize handle at the bottom (only when expanded)
-            if isTimelineExpanded {
-                AccordionResizeHandle(
-                    height: $timelineHeight,
-                    minHeight: timelineMinHeight,
-                    maxHeight: timelineMaxHeight
-                )
-            }
-        }
-        .frame(height: isTimelineExpanded ? timelineHeight : timelineCollapsedHeight, alignment: .top)
-        .clipped()
-        .background(
-            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow, alphaValue: 0.8)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-        )
-    }
-
-    private var timelineAccordionHeader: some View {
-        HStack(spacing: 6) {
-            Image(systemName: isTimelineExpanded ? "chevron.down" : "chevron.right")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(.secondary)
-                .frame(width: 12)
-
-            Iconoir.videoCamera.asImage
-                .frame(width: 14, height: 14)
-                .foregroundColor(.secondary)
-
-            Text("Timeline")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.primary)
-
-            Spacer()
-        }
-        .frame(height: 32)
-        .padding(.horizontal, 12)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            isTimelineExpanded.toggle()
-        }
-    }
-
-    private var timelineContent: some View {
-        MultiTrackTimelineView(
-            timelineManager: timelineManager,
-            playbackEngine: playbackEngine,
-            waveformCache: waveformCache,
-            audioOutputManager: audioManager,
-            thumbnails: videoThumbnails,
-            onDropVideoMedia: handleVideoDropOnTimeline,
-            onDropAudioMedia: handleAudioDropOnTimeline,
-            onSeek: { frame in
-                playbackEngine.seekToFrame(frame)
-            },
-            onSettingsPressed: { showSettings = true },
-            showHeader: false,
-            zoomLevel: $timelineZoomLevel
-        )
     }
 
     // MARK: - Save Operations
@@ -1108,11 +586,27 @@ struct ContentView: View {
     // MARK: - Setup
 
     private func setupMIDICallbacks() {
-        let engine = playbackEngine
+        // Start the MIDI sync actor
+        Task {
+            do {
+                try await midiSyncActor.start()
 
-        // Handle MTC timecode changes for video sync
-        midiManager.onTimecodeChanged = { timecode in
-            Task { @MainActor in
+                // Restore MIDI input selection
+                if !settings.selectedMIDIInput.isEmpty {
+                    await midiSyncViewModel.selectInput(settings.selectedMIDIInput)
+                }
+            } catch {
+                print("Failed to start MIDI sync: \(error)")
+            }
+        }
+
+        // Observe MTC timecode changes for video sync
+        // Uses Combine to react to ViewModel's published properties
+        midiSyncViewModel.$mtcTimecode
+            .compactMap { $0 }
+            .sink { [weak playbackEngine] timecode in
+                guard let engine = playbackEngine else { return }
+
                 // Calculate drift from current position
                 let currentSeconds = engine.currentTime
                 let mtcSeconds = Double(timecode.frameCount.wholeFrames) / engine.frameRate.fps
@@ -1124,12 +618,15 @@ struct ContentView: View {
                     engine.seekToMTC(timecode)
                 }
             }
-        }
+            .store(in: &midiCancellables)
 
-        // Handle MMC transport commands
-        midiManager.onMMCCommand = { command in
-            guard AppSettings.shared.respondToMMC else { return }
-            Task { @MainActor in
+        // Observe MMC transport commands
+        midiSyncViewModel.$lastMMCCommand
+            .compactMap { $0 }
+            .sink { [weak playbackEngine] command in
+                guard AppSettings.shared.respondToMMC else { return }
+                guard let engine = playbackEngine else { return }
+
                 switch command {
                 case .stop:
                     engine.stop()
@@ -1143,12 +640,7 @@ struct ContentView: View {
                     break
                 }
             }
-        }
-
-        // Restore MIDI input selection
-        if !settings.selectedMIDIInput.isEmpty {
-            midiManager.selectedInputName = settings.selectedMIDIInput
-        }
+            .store(in: &midiCancellables)
     }
 
     private func setupAudioCallback() {
@@ -1188,6 +680,97 @@ struct ContentView: View {
         // Apply audio device
         if !settings.selectedAudioOutput.isEmpty {
             playbackEngine.setAudioOutputDevice(settings.selectedAudioOutput)
+        }
+    }
+
+    private func handleUITestImportIfNeeded() {
+        guard !didHandleUITestImport else { return }
+
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("-ui-testing") else { return }
+        guard let url = uiTestAudioURL(from: arguments) else { return }
+
+        didHandleUITestImport = true
+        uiTestImportState = "starting"
+        timelineViewModel.isExpanded = true
+
+        Task { @MainActor in
+            // Ensure at least one audio lane exists.
+            let lane: AudioLane
+            if let existingLane = timelineManager.timeline.audioLanes.first {
+                lane = existingLane
+            } else {
+                lane = timelineManager.addAudioLane(name: "Audio 1")
+            }
+
+            do {
+                let placementFrame = lane.clips.map { $0.timelineEndFrame }.max() ?? 0
+                _ = try await timelineManager.addAudioClipForTesting(from: url, toLane: lane.id, at: placementFrame)
+                syncTimelineToPlaybackEngine()
+                uiTestImportState = "clip-added:\(uiTestClipCount)"
+            } catch {
+                NSLog(">>> UI test import failed: \(error)")
+                uiTestImportState = "clip-error:\(String(describing: error))"
+            }
+            timelineViewModel.expandIfNeeded()
+        }
+    }
+
+    private var isUITesting: Bool {
+        ProcessInfo.processInfo.arguments.contains("-ui-testing")
+    }
+
+    private var uiTestClipCount: Int {
+        timelineManager.timeline.audioLanes.reduce(0) { $0 + $1.clips.count }
+    }
+
+    private func uiTestAudioURL(from arguments: [String]) -> URL? {
+        guard let index = arguments.firstIndex(of: "-test-audio-url"),
+              arguments.indices.contains(index + 1) else {
+            return createUITestAudioFile()
+        }
+        let url = URL(fileURLWithPath: arguments[index + 1])
+        if FileManager.default.isReadableFile(atPath: url.path) {
+            if (try? AVAudioFile(forReading: url)) != nil {
+                return url
+            }
+        }
+        return createUITestAudioFile()
+    }
+
+    private func createUITestAudioFile() -> URL? {
+        let sampleRate: Double = 44_100
+        let duration: Double = 1.0
+        let frequency: Double = 440
+
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else {
+            return nil
+        }
+
+        let frameCount = AVAudioFrameCount(duration * sampleRate)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+            return nil
+        }
+        buffer.frameLength = frameCount
+
+        let theta = 2.0 * Double.pi * frequency / sampleRate
+        if let channel = buffer.floatChannelData?[0] {
+            for frame in 0..<Int(frameCount) {
+                channel[frame] = Float(sin(theta * Double(frame)))
+            }
+        }
+
+        guard let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let url = cachesURL.appendingPathComponent("ProjectorUITest-\(UUID().uuidString).wav")
+
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: format.settings)
+            try file.write(from: buffer)
+            return url
+        } catch {
+            return nil
         }
     }
 
@@ -1236,8 +819,8 @@ struct ContentView: View {
             }
 
             // Auto-expand timeline after all files are processed
-            if !urls.isEmpty && !self.isTimelineExpanded {
-                self.isTimelineExpanded = true
+            if !urls.isEmpty {
+                self.timelineViewModel.expandIfNeeded()
             }
         }
 
@@ -1303,9 +886,7 @@ struct ContentView: View {
             await addAudioToTimeline(url: item.url, laneId: newLane.id)
 
             // Auto-expand timeline so user can see the new lane
-            if !isTimelineExpanded {
-                isTimelineExpanded = true
-            }
+            timelineViewModel.expandIfNeeded()
         }
     }
 
@@ -1440,19 +1021,6 @@ struct ContentView: View {
         }
 
         return closest
-    }
-
-    /// Display name for a frame rate
-    private func frameRateDisplayName(_ rate: TimecodeFrameRate) -> String {
-        switch rate {
-        case .fps23_976: return "23.976"
-        case .fps24: return "24"
-        case .fps25: return "25"
-        case .fps29_97: return "29.97"
-        case .fps29_97d: return "29.97 DF"
-        case .fps30: return "30"
-        default: return "\(rate.fps)"
-        }
     }
 
     /// Extract audio track from video reel and add to audio lane
@@ -1622,56 +1190,10 @@ struct ContentView: View {
                         }
                     }
                     // Auto-expand timeline
-                    if !self.isTimelineExpanded {
-                        self.isTimelineExpanded = true
-                    }
+                    self.timelineViewModel.expandIfNeeded()
                 }
             }
         }
-    }
-}
-
-/// Draggable resize handle for accordion panels
-struct AccordionResizeHandle: View {
-    @Binding var height: CGFloat
-    let minHeight: CGFloat
-    let maxHeight: CGFloat
-
-    @State private var isDragging = false
-    @State private var startHeight: CGFloat = 0
-
-    var body: some View {
-        Rectangle()
-            .fill(Color.clear)
-            .frame(height: 8)
-            .contentShape(Rectangle())
-            .overlay(alignment: .center) {
-                // Visual indicator - pill shape
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(isDragging ? Color.accentColor : Color.white.opacity(0.3))
-                    .frame(width: 40, height: 4)
-            }
-            .onHover { hovering in
-                if hovering {
-                    NSCursor.resizeUpDown.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        if !isDragging {
-                            startHeight = height
-                            isDragging = true
-                        }
-                        let newHeight = startHeight + value.translation.height
-                        height = min(maxHeight, max(minHeight, newHeight))
-                    }
-                    .onEnded { _ in
-                        isDragging = false
-                    }
-            )
     }
 }
 

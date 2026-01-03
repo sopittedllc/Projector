@@ -7,20 +7,29 @@ struct VideoReelClipView: View {
     let isActive: Bool
     let pixelsPerFrame: CGFloat
     let thumbnailStrip: ThumbnailStrip?
+    let showThumbnails: Bool
     let isSelected: Bool
+    let interactionsEnabled: Bool
     let onSelect: () -> Void
     let onDoubleClick: () -> Void
 
     /// Clip height (fits within 50px track with padding)
-    private let clipHeight: CGFloat = 42
+    private let clipHeight: CGFloat = 42  // TODO: Use TimelineLayout.videoClipHeight after adding to Xcode project
     /// Width of each thumbnail in the filmstrip
-    private let thumbnailWidth: CGFloat = 48
+    private let thumbnailWidth: CGFloat = 48  // TODO: Use TimelineLayout.thumbnailWidth after adding to Xcode project
 
     var body: some View {
-        ZStack(alignment: .leading) {
+        let clipContent = ZStack(alignment: .leading) {
             // Thumbnail filmstrip background
-            thumbnailFilmstrip
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+            Group {
+                if showThumbnails {
+                    thumbnailFilmstrip
+                } else {
+                    Rectangle()
+                        .fill(Color(white: 0.15))
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 4))
 
             // Gradient overlay for text readability
             RoundedRectangle(cornerRadius: 4)
@@ -68,12 +77,25 @@ struct VideoReelClipView: View {
                     .stroke(Color.accentColor, lineWidth: 2)
             }
         }
+
+        Group {
+            if interactionsEnabled {
+                Button(action: onSelect) {
+                    clipContent
+                }
+                .buttonStyle(.plain)
+            } else {
+                clipContent
+            }
+        }
         .frame(width: reelWidth, height: clipHeight)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            onSelect()
-            onDoubleClick()
-        }
+        .simultaneousGesture(
+            TapGesture(count: 2)
+                .onEnded { _ in
+                    onDoubleClick()
+                }
+        )
         .help(reel.sourceURL.lastPathComponent)
     }
 
@@ -160,7 +182,9 @@ struct VideoReelClipView: View {
             isActive: true,
             pixelsPerFrame: 0.5,
             thumbnailStrip: nil,
+            showThumbnails: true,
             isSelected: false,
+            interactionsEnabled: true,
             onSelect: {},
             onDoubleClick: {}
         )
@@ -176,7 +200,9 @@ struct VideoReelClipView: View {
             isActive: false,
             pixelsPerFrame: 0.5,
             thumbnailStrip: nil,
+            showThumbnails: true,
             isSelected: true,
+            interactionsEnabled: true,
             onSelect: {},
             onDoubleClick: {}
         )

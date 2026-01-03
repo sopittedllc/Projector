@@ -3,7 +3,73 @@ import SwiftTimecodeCore
 import Combine
 import AVFoundation
 
-/// Manages timeline state and CRUD operations for video reels and audio clips
+/// Manages timeline state and CRUD operations for video reels and audio clips.
+///
+/// This manager is the central authority for timeline data, handling all modifications
+/// to video reels, audio clips, and timeline configuration. It provides change tracking
+/// for document save state and callbacks for syncing with other components.
+///
+/// ## Overview
+///
+/// Use `TimelineManager` to:
+/// - Add, remove, and reorder video reels
+/// - Add, remove, and reorder audio clips
+/// - Configure timeline bounds and frame rate
+/// - Track unsaved changes for document management
+///
+/// ## Architecture
+///
+/// ```
+/// ┌─────────────────────────────────────────────────────────────────────────┐
+/// │                         SwiftUI Views                                    │
+/// │  ContentView, MultiTrackTimelineView                                    │
+/// │  - Use @ObservedObject var timelineManager: TimelineManager             │
+/// └─────────────────────────────────────────────────────────────────────────┘
+///                               │
+///                               ▼
+/// ┌─────────────────────────────────────────────────────────────────────────┐
+/// │                    TimelineManager (this file)                           │
+/// │  - @MainActor for UI thread safety                                       │
+/// │  - @Published timeline, currentFrame, hasChanges                         │
+/// │  - CRUD operations for reels and clips                                   │
+/// │  - Change tracking and callbacks                                         │
+/// └─────────────────────────────────────────────────────────────────────────┘
+///                               │
+///                               ▼
+/// ┌─────────────────────────────────────────────────────────────────────────┐
+/// │                      Timeline Model                                      │
+/// │  - Timeline, VideoReel, AudioLane, AudioClip                            │
+/// │  - TimelineConfig with frame rate and bounds                            │
+/// └─────────────────────────────────────────────────────────────────────────┘
+/// ```
+///
+/// ## Thread Safety
+///
+/// This class is confined to the main thread via `@MainActor`. All timeline
+/// modifications happen on the main thread for SwiftUI compatibility.
+///
+/// ## Change Tracking
+///
+/// The manager tracks whether the timeline has unsaved changes via `hasChanges`.
+/// Call `markClean()` after saving to reset this flag.
+///
+/// ## Example
+///
+/// ```swift
+/// // Add a video reel
+/// let reel = try await timelineManager.addVideoReel(from: videoURL, at: 0)
+///
+/// // Add an audio lane
+/// let lane = timelineManager.addAudioLane(name: "Audio 1")
+///
+/// // Add an audio clip to the lane
+/// let clip = try await timelineManager.addAudioClip(from: audioURL, toLane: lane.id, at: 0)
+///
+/// // Check for unsaved changes
+/// if timelineManager.hasChanges {
+///     // Prompt user to save
+/// }
+/// ```
 @MainActor
 final class TimelineManager: ObservableObject {
     // MARK: - Published Properties
@@ -271,6 +337,47 @@ final class TimelineManager: ObservableObject {
         let clip = AudioClip(
             sourceURL: url,
             sourceBookmark: bookmark,
+            timelineStartFrame: timelineFrame,
+            durationFrames: durationFrames,
+            sourceStartFrame: 0,
+            sourceType: .audioFile,
+            channelCount: channelCount,
+            sampleRate: sampleRate
+        )
+
+        timeline.addClip(clip, toLane: laneId)
+        return clip
+    }
+
+    /// Add an audio clip without creating security-scoped bookmarks (UI testing only).
+    func addAudioClipForTesting(from url: URL, toLane laneId: UUID, at timelineFrame: Int) async throws -> AudioClip? {
+        guard timeline.audioLanes.contains(where: { $0.id == laneId }) else {
+            return nil
+        }
+
+        let asset = AVURLAsset(url: url)
+        let duration = try await asset.load(.duration)
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+
+        guard let audioTrack = audioTracks.first else {
+            throw TimelineError.noAudioTrack
+        }
+
+        let formatDescriptions = try await audioTrack.load(.formatDescriptions)
+        var channelCount = 2
+        var sampleRate: Double = 48000
+
+        if let formatDesc = formatDescriptions.first,
+           let format = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)?.pointee {
+            channelCount = Int(format.mChannelsPerFrame)
+            sampleRate = format.mSampleRate
+        }
+
+        let durationFrames = Int(duration.seconds * timeline.config.frameRate.fps)
+
+        let clip = AudioClip(
+            sourceURL: url,
+            sourceBookmark: nil,
             timelineStartFrame: timelineFrame,
             durationFrames: durationFrames,
             sourceStartFrame: 0,

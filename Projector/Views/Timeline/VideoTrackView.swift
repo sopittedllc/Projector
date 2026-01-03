@@ -9,6 +9,8 @@ struct VideoTrackView: View {
     let thumbnails: [UUID: ThumbnailStrip]
     let pixelsPerFrame: CGFloat
     let scrollOffset: CGFloat
+    let showThumbnails: Bool
+    let clipInteractionsEnabled: Bool
     let onDropMedia: ([URL]) -> Void
     let onReelSelected: (UUID?) -> Void
     let onReelDoubleClick: (VideoReel) -> Void
@@ -116,7 +118,9 @@ struct VideoTrackView: View {
                 isActive: playbackEngine.activeReel?.id == reel.id,
                 pixelsPerFrame: pixelsPerFrame,
                 thumbnailStrip: thumbnails[reel.id],
+                showThumbnails: showThumbnails,
                 isSelected: selectedReelId == reel.id,
+                interactionsEnabled: clipInteractionsEnabled,
                 onSelect: {
                     selectedReelId = reel.id
                     onReelSelected(reel.id)
@@ -178,6 +182,8 @@ struct VideoTrackView: View {
                 thumbnails: [:],
                 pixelsPerFrame: 0.5,
                 scrollOffset: 0,
+                showThumbnails: true,
+                clipInteractionsEnabled: true,
                 onDropMedia: { urls in
                     print("Dropped: \(urls)")
                 },

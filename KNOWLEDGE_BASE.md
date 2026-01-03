@@ -214,6 +214,176 @@ Any external library callback that needs to update actor state (MIDI, audio, net
 
 ---
 
+### GP-007: DSWaveformImage Component Selection
+**Added**: 2026-01-02
+**Updated**: 2026-01-02 (corrected after WaveformLiveCanvas failure)
+**Source**: https://github.com/dmrschmidt/DSWaveformImage README
+**Category**: Third-Party Integration
+
+#### Problem
+DSWaveformImage offers multiple components. Using the wrong one causes rendering failures.
+
+#### Component Selection Guide
+| Component | Use Case | Input |
+|-----------|----------|-------|
+| `WaveformView` | Static waveform from audio FILE | Audio URL |
+| `WaveformLiveCanvas` | **LIVE RECORDING ONLY** (VU meter) | Live samples |
+| `WaveformImageDrawer` | Generate cacheable NSImage | Audio URL + size |
+| `WaveformAnalyzer` | Extract raw samples | Audio URL |
+
+#### Solution
+```swift
+// For static audio files - extract samples with WaveformAnalyzer
+let analyzer = WaveformAnalyzer()
+let samples = try await analyzer.samples(fromAudioAt: url, count: sampleCount)
+
+// Render using a custom view (e.g., WaveformShape)
+WaveformShape(samples: samples)
+    .stroke(Color.white.opacity(0.8), lineWidth: 1)
+```
+
+#### CRITICAL: WaveformLiveCanvas is NOT for Static Files
+```swift
+// ❌ WRONG - WaveformLiveCanvas is for live recording, not file playback
+WaveformLiveCanvas(samples: analyzedSamples, ...)
+
+// ✅ CORRECT - WaveformView handles file analysis internally
+WaveformView(audioURL: fileURL, ...)
+```
+
+#### Documentation Evidence
+- README: "WaveformLiveCanvas - renders a live waveform from (0...1) normalized samples"
+- README: "WaveformView - renders a one-off waveform from an audio file"
+- Sample formats differ: Analyzer (0=loud) vs LiveCanvas expects (0=quiet)
+
+#### Related Files
+- `Projector/Managers/WaveformCache.swift`
+
+---
+
+### GP-008: WaveformShape Rendering for Zoom-Stable Clips
+**Added**: 2026-01-02
+**Source**: `Projector/Views/Timeline/AudioClipView.swift`
+**Category**: UI Performance
+
+#### Problem
+Waveform images rendered at a fixed size do not scale when the clip width changes,
+causing centered waveforms and stale placeholders after zoom changes.
+
+#### Solution
+```swift
+ZStack {
+    Rectangle()
+        .fill(laneColor.opacity(0.3))
+
+    if let waveformData, !waveformData.samples.isEmpty {
+        GeometryReader { geometry in
+            WaveformShape(samples: waveformData.samples)
+                .stroke(Color.white.opacity(0.8), lineWidth: 1)
+                .drawingGroup()
+                .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+    } else if isLoadingWaveform {
+        ProgressView()
+            .scaleEffect(0.5)
+            .tint(.white.opacity(0.6))
+    }
+}
+```
+
+#### Why It Works
+The waveform is drawn from cached samples and re-renders for the current clip
+width, so zoom changes update the waveform without reprocessing audio.
+
+#### When to Use
+Timeline clip rendering that needs stable visuals across zoom levels.
+
+---
+
+### GP-009: UI Test Import Hook via Launch Arguments
+**Added**: 2026-01-02
+**Source**: `Projector/Views/ContentView.swift`
+**Category**: Testing
+
+#### Problem
+UI tests need a reliable way to load media without manual drag-and-drop.
+
+#### Solution
+```swift
+let arguments = ProcessInfo.processInfo.arguments
+guard arguments.contains("-ui-testing") else { return }
+guard let index = arguments.firstIndex(of: "-test-audio-url"),
+      arguments.indices.contains(index + 1) else { return }
+
+let url = URL(fileURLWithPath: arguments[index + 1])
+Task { await addAudioToTimeline(url: url, laneId: lane.id) }
+```
+
+#### Why It Works
+Launch arguments let UI tests inject deterministic inputs without changing
+interactive user flows in production.
+
+If the provided path is unreadable under sandbox restrictions, the app
+generates a short audio file inside its own caches directory for tests.
+
+#### When to Use
+Automated UI tests that must load media or projects without user interaction.
+
+---
+
+### GP-010: Skip UI Tests When Accessibility Is Unavailable
+**Added**: 2026-01-02
+**Source**: `ProjectorUITests/ProjectorUITests.swift`
+**Category**: Testing
+
+#### Problem
+macOS UI tests fail when Accessibility permissions are not granted to the
+test runner, making local CLI runs brittle.
+
+#### Solution
+```swift
+let window = app.windows.firstMatch
+guard window.waitForExistence(timeout: 10) else {
+    throw XCTSkip("UI automation window not found. Enable Accessibility permissions.")
+}
+```
+
+#### Why It Works
+Tests report a clear skip reason instead of hard failures when the OS blocks
+UI automation, while still exercising the UI when permissions are enabled.
+
+#### When to Use
+Local or CI environments where Accessibility permissions may not be configured.
+
+---
+
+### GP-011: Accordion Headers as Buttons (Reliable Hit-Testing)
+**Added**: 2026-01-02
+**Source**: `Projector/Views/SettingsView.swift`
+**Category**: UI
+
+#### Problem
+Accordion headers implemented via overlay-only buttons can lose hit-testing
+inside ScrollViews, preventing collapse/expand actions.
+
+#### Solution
+```swift
+Button(action: { isExpanded.toggle() }) {
+    HStack { /* header content */ }
+        .contentShape(Rectangle())
+}
+.buttonStyle(.plain)
+```
+
+#### Why It Works
+The header itself becomes the button label, so SwiftUI assigns a concrete
+hit-test frame without relying on overlay sizing behavior.
+
+#### When to Use
+Any collapsible header inside scrollable containers.
+
+---
+
 ## Prohibited Anti-Patterns
 
 ### AP-001: @MainActor for MIDI Processing
@@ -339,6 +509,105 @@ enum FrameRate {
     static let ntscDropFrame: Double = 29.97
 }
 ```
+
+---
+
+### AP-005: Using .id() on Async-Loading Views
+**Added**: 2026-01-02
+**Discovered**: Waveform Rendering Failure (Coroner Report)
+**Severity**: Critical
+
+#### The Mistake
+```swift
+// ❌ PROHIBITED - Destroys async-loading view on every change
+WaveformView(audioURL: url, configuration: config)
+    .id(clipWidth)  // Each zoom change destroys and recreates the view
+```
+
+#### Why It's Wrong
+1. `.id()` is SwiftUI's "nuclear option" - it destroys and recreates the view entirely
+2. `WaveformView` loads audio asynchronously - starts loading, then renders when complete
+3. Each `.id()` change destroys the view mid-load, creating a new one
+4. The new view starts loading from scratch
+5. Result: View is in perpetual "loading" state, never renders
+
+#### The Fix
+```swift
+// ✅ CORRECT - Use explicit .frame() instead
+WaveformView(audioURL: url, configuration: config) {
+    Color.clear  // placeholder
+}
+.frame(width: clipWidth, height: waveformHeight)
+```
+
+#### When .id() IS Appropriate
+- Resetting scroll position in ScrollView
+- Forcing complete state reset when data source changes
+- Navigation destination identity
+
+---
+
+### AP-006: Overlay-Only Buttons for Accordion Headers
+**Added**: 2026-01-02
+**Discovered**: Accordion collapse regression
+**Severity**: Medium
+
+#### The Mistake
+```swift
+HStack { /* header */ }
+    .overlay {
+        Button(action: { toggle() }) { Color.clear }
+    }
+```
+
+#### Why It's Wrong
+Overlay-only buttons can lose hit-testing inside ScrollViews, making header
+clicks unreliable and blocking expected interactions.
+
+#### The Fix
+```swift
+Button(action: { toggle() }) {
+    HStack { /* header */ }
+        .contentShape(Rectangle())
+}
+.buttonStyle(.plain)
+```
+
+#### Incident
+Settings accordion headers stopped collapsing after overlay-only buttons were used.
+
+---
+
+### AP-007: GeometryReader Placeholder With Geometry Usage
+**Added**: 2026-01-03
+**Discovered**: Build failure in `AudioClipView`
+**Severity**: Low
+
+#### The Mistake
+```swift
+GeometryReader { _ in
+    // ...
+    .frame(width: geometry.size.width, height: geometry.size.height) // geometry not in scope
+}
+```
+
+#### Why It's Wrong
+Using `_` discards the `GeometryProxy`, so any reference to `geometry` fails at compile time.
+
+#### The Fix
+```swift
+GeometryReader { geometry in
+    // use geometry.size
+}
+```
+
+#### Incident
+Build failed after a GeometryReader closure used `_` but still referenced `geometry`.
+
+#### When .id() IS DANGEROUS
+- Any view with async loading (network, file I/O)
+- Views from 3rd-party libraries
+- Views with complex internal state
 
 ---
 

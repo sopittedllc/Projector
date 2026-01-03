@@ -3,7 +3,7 @@ import SwiftTimecodeCore
 
 /// Settings window for MIDI, audio, and display configuration
 struct SettingsView: View {
-    @ObservedObject var midiManager: MIDIManager
+    @ObservedObject var midiSync: MIDISyncViewModel
     @ObservedObject var audioManager: AudioOutputManager
     @ObservedObject var timelineManager: TimelineManager
     @ObservedObject var settings = AppSettings.shared
@@ -112,24 +112,24 @@ struct SettingsView: View {
     ) -> some View {
         VStack(spacing: 0) {
             // Header - entire area is clickable
-            HStack(spacing: 8) {
-                Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.secondary)
-                    .frame(width: 12)
+            Button(action: { isExpanded.wrappedValue.toggle() }) {
+                HStack(spacing: 8) {
+                    Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .frame(width: 12)
 
-                Label(title, systemImage: icon)
-                    .font(.headline)
-                    .foregroundColor(.primary)
+                    Label(title, systemImage: icon)
+                        .font(.headline)
+                        .foregroundColor(.primary)
 
-                Spacer()
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                isExpanded.wrappedValue.toggle()
-            }
+            .buttonStyle(.plain)
 
             // Content
             if isExpanded.wrappedValue {
@@ -374,9 +374,18 @@ struct SettingsView: View {
                     .foregroundColor(.secondary)
 
                 HStack {
-                    Picker("MIDI Input", selection: $midiManager.selectedInputName) {
+                    Picker("MIDI Input", selection: Binding(
+                        get: { midiSync.selectedInputName },
+                        set: { newValue in
+                            Task {
+                                await midiSync.selectInput(newValue)
+                                // Save to settings when user changes selection
+                                settings.selectedMIDIInput = newValue ?? ""
+                            }
+                        }
+                    )) {
                         Text("None").tag(nil as String?)
-                        ForEach(midiManager.availableInputs, id: \.self) { input in
+                        ForEach(midiSync.availableInputs, id: \.self) { input in
                             Text(input).tag(input as String?)
                         }
                     }
@@ -386,7 +395,9 @@ struct SettingsView: View {
                 }
 
                 Button("Refresh") {
-                    midiManager.refreshAvailableInputs()
+                    Task {
+                        await midiSync.refreshInputs()
+                    }
                 }
                 .buttonStyle(.plain)
                 .font(.caption)
@@ -396,16 +407,16 @@ struct SettingsView: View {
             // MTC Status
             HStack {
                 Circle()
-                    .fill(midiManager.isReceivingMTC ? Color.green : Color.gray)
+                    .fill(midiSync.isReceivingMTC ? Color.green : Color.gray)
                     .frame(width: 8, height: 8)
-                Text(midiManager.isReceivingMTC ? "Receiving MTC" : "No MTC Signal")
+                Text(midiSync.syncStatusText)
                     .font(.caption)
                     .foregroundColor(.secondary)
 
                 Spacer()
 
-                if midiManager.isReceivingMTC {
-                    Text(midiManager.currentTimecode.stringValue())
+                if midiSync.isReceivingMTC {
+                    Text(midiSync.timecodeString)
                         .font(.caption.monospaced())
                         .foregroundColor(.secondary)
                 }
@@ -490,10 +501,23 @@ struct SettingsView: View {
 }
 
 #Preview {
-    SettingsView(
-        midiManager: MIDIManager(),
-        audioManager: AudioOutputManager(),
-        timelineManager: TimelineManager(),
-        isPresented: .constant(true)
-    )
+    struct PreviewWrapper: View {
+        @StateObject var midiSync: MIDISyncViewModel
+
+        init() {
+            let actor = MIDISyncActor()
+            self._midiSync = StateObject(wrappedValue: MIDISyncViewModel(service: actor))
+        }
+
+        var body: some View {
+            SettingsView(
+                midiSync: midiSync,
+                audioManager: AudioOutputManager(),
+                timelineManager: TimelineManager(),
+                isPresented: .constant(true)
+            )
+        }
+    }
+
+    return PreviewWrapper()
 }

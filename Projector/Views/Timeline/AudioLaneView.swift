@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import SwiftTimecodeCore
 import Iconoir
 
 /// Audio lane container showing clips and lane controls
@@ -9,7 +10,10 @@ struct AudioLaneView: View {
     let activeClipIds: Set<UUID>
     let waveformCache: WaveformCache
     let pixelsPerFrame: CGFloat
+    let frameRate: TimecodeFrameRate
     let scrollOffset: CGFloat
+    let showWaveforms: Bool
+    let clipInteractionsEnabled: Bool
     let availableAudioDevices: [AudioDevice]
     let onMuteToggle: () -> Void
     let onSoloToggle: () -> Void
@@ -28,9 +32,9 @@ struct AudioLaneView: View {
     @FocusState private var isNameFieldFocused: Bool
 
     /// Track header width - wider to accommodate output selector
-    private let headerWidth: CGFloat = 120
+    private let headerWidth: CGFloat = 120  // TODO: Use TimelineLayout.headerWidth after adding to Xcode project
     /// Track height for audio clips
-    private let trackHeight: CGFloat = 60
+    private let trackHeight: CGFloat = 60  // TODO: Use TimelineLayout.audioLaneHeight after adding to Xcode project
 
     var body: some View {
         HStack(spacing: 0) {
@@ -73,13 +77,20 @@ struct AudioLaneView: View {
                             }
                             .frame(maxWidth: headerWidth - 12)
                     } else {
-                        Text(lane.name)
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-                            .onTapGesture(count: 2) {
-                                startNameEdit()
-                            }
+                        // Use Button instead of onTapGesture to avoid ScrollView latency (GP-003)
+                        Button(action: {}) {
+                            Text(lane.name)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                        .simultaneousGesture(
+                            TapGesture(count: 2)
+                                .onEnded { _ in
+                                    startNameEdit()
+                                }
+                        )
                     }
 
                     // Output device dropdown (compact)
@@ -243,9 +254,11 @@ struct AudioLaneView: View {
                 lane: lane,
                 isActive: activeClipIds.contains(clip.id),
                 pixelsPerFrame: pixelsPerFrame,
-                waveformData: waveformCache.waveform(for: clip),
+                frameRate: frameRate,
                 isSelected: selectedClipId == clip.id,
-                isLoadingWaveform: waveformCache.isLoading(for: clip),
+                waveformCache: waveformCache,
+                showWaveform: showWaveforms,
+                interactionsEnabled: clipInteractionsEnabled,
                 onSelect: {
                     selectedClipId = clip.id
                     onClipSelected(clip.id)
@@ -341,7 +354,10 @@ struct AudioLaneView: View {
                 activeClipIds: Set([lane.clips.first!.id]),
                 waveformCache: waveformCache,
                 pixelsPerFrame: 0.5,
+                frameRate: .fps24,
                 scrollOffset: 0,
+                showWaveforms: true,
+                clipInteractionsEnabled: true,
                 availableAudioDevices: [],
                 onMuteToggle: {},
                 onSoloToggle: {},

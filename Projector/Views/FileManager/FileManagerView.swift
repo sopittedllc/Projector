@@ -92,8 +92,12 @@ struct FileManagerView: View {
                 Spacer()
             }
             .contentShape(Rectangle())
-            .onTapGesture {
-                isExpanded.toggle()
+            // Use Button instead of onTapGesture to avoid ScrollView latency (GP-003)
+            .overlay {
+                Button(action: { isExpanded.toggle() }) {
+                    Color.clear
+                }
+                .buttonStyle(.plain)
             }
 
             if isExpanded {
@@ -298,7 +302,6 @@ struct MediaGridCell: View {
     let onSelect: () -> Void
     let onDoubleClick: () -> Void
 
-    @State private var lastTapTime: Date?
     @State private var isDragging = false
 
     var body: some View {
@@ -326,15 +329,18 @@ struct MediaGridCell: View {
                 .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
         )
         .contentShape(Rectangle())
-        .onTapGesture {
-            let now = Date()
-            if let last = lastTapTime, now.timeIntervalSince(last) < 0.3 {
-                onDoubleClick()
-                lastTapTime = nil
-            } else {
-                onSelect()
-                lastTapTime = now
+        // Use Button instead of onTapGesture to avoid ScrollView latency (GP-003)
+        .overlay {
+            Button(action: onSelect) {
+                Color.clear
             }
+            .buttonStyle(.plain)
+            .simultaneousGesture(
+                TapGesture(count: 2)
+                    .onEnded { _ in
+                        onDoubleClick()
+                    }
+            )
         }
         .opacity(isDragging ? 0.5 : 1.0)
         .onDrag {

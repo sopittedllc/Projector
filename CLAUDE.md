@@ -24,6 +24,7 @@ This project follows **Airtight Standards** with a fully automated agent workflo
 │  3. EXECUTE (backend-logic OR ui-specialist)                                │
 │     └─ Logic: MIDI/Audio/AVFoundation (no SwiftUI)                         │
 │     └─ UI: SwiftUI/AppKit (no CoreMIDI)                                    │
+│     └─ ⚠️  3RD-PARTY GATE: Read library docs BEFORE any external API use   │
 │                              ↓                                               │
 │  4. AUDIT (qa-auditor)                                                      │
 │     └─ DocC coverage, edge cases, thread safety, standards                  │
@@ -52,6 +53,8 @@ Agents are located in `.claude/agents/`:
 | `scope-guard.md` | MUST BE USED to strip 'feature creep' from plans and code | All files |
 | `qa-auditor.md` | MUST BE USED to audit file changes for DocC, edge-cases, and logic safety before committing | All files |
 | `the-librarian.md` | MUST BE USED after tasks to record 'Golden Patterns' into KNOWLEDGE_BASE.md | Documentation |
+| `coroner.md` | **MUST BE INVOKED** when any unexpected issue occurs. Performs forensic analysis to determine root cause and prevent recurrence | Post-mortems |
+| `surgeon.md` | Implements Lead-approved fixes from Coroner reports. Executes precise, surgical changes with full documentation | Fix Implementation |
 
 ---
 
@@ -169,6 +172,40 @@ enum SyncConstants {
 3. **Avoid nested ScrollViews** - Known macOS trackpad issues
 4. **Keep view bodies pure** - No side effects, no heavy computation
 5. **Pre-sort in ViewModels** - Never sort in view body
+
+---
+
+## Dangerous SwiftUI Patterns (Learned the Hard Way)
+
+### NEVER: Use `.id()` on Async-Loading Views
+
+```swift
+// ❌ DANGEROUS: Destroys async-loading view on every change
+WaveformView(audioURL: url, configuration: config)
+    .id(clipWidth)  // View destroyed and recreated on EVERY zoom change
+                    // Async loading never completes!
+
+// ✅ CORRECT: Use explicit .frame() - view updates without destruction
+WaveformView(audioURL: url, configuration: config)
+    .frame(width: clipWidth, height: waveformHeight)
+```
+
+**Why**: `.id()` destroys the entire view and recreates it from scratch. For views that load data asynchronously (like `WaveformView`), this means the loading restarts every time the id changes, and the view never renders.
+
+**Safe alternatives**:
+- Use `.frame()` with dynamic dimensions
+- Use `@State` to track loading completion
+- Only use `.id()` when you intentionally want to reset all state
+
+### ALWAYS: Read 3rd-Party Library Docs First
+
+Before using ANY external SwiftUI view:
+1. Check if it needs explicit `.frame()`
+2. Check if it loads data asynchronously
+3. Look at the library's example code
+4. Test with the library's documented patterns first
+
+**Forensic source**: Waveform rendering failure (2026-01-02) - see `coroner.md` for full autopsy
 
 ---
 

@@ -1,8 +1,8 @@
 # Projector - Project Roadmap
 
-> **Last Updated**: 2026-01-02
+> **Last Updated**: 2026-01-02 (Phase 3 DocC + QA Audit Complete)
 > **Owner**: the-lead agent
-> **Overall Progress**: 78%
+> **Overall Progress**: 90% (DocC coverage improved, QA audit passed)
 
 ---
 
@@ -16,18 +16,18 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         PROJECT COMPLETION: 78%                              │
+│                         PROJECT COMPLETION: 90%                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  ██████████████████████████████████████████████████████░░░░░░░░░░░░░░ 78%   │
+│  ████████████████████████████████████████████████████████████████████░ 90%   │
 │                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Core Playback      ████████████████████████████████████████████████  95%   │
-│  Timeline UI        ████████████████████████████████████████████████  90%   │
-│  MTC/MMC Sync       ██████████████████████████████████████████░░░░░░  85%   │
+│  Timeline UI        ██████████████████████████████████████████░░░░░░  85%   │
+│  MTC/MMC Sync       ████████████████████████████████████████████████  95%   │
 │  Audio Routing      ████████████████████████████░░░░░░░░░░░░░░░░░░░░  60%   │
-│  Architecture       ██████████████████████████████░░░░░░░░░░░░░░░░░░  55%   │
-│  Documentation      ██████████████████████████░░░░░░░░░░░░░░░░░░░░░░  50%   │
+│  Architecture       ██████████████████████████████████████████████████  90%   │
+│  Documentation      ██████████████████████████████████░░░░░░░░░░░░░░  70%   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -46,7 +46,7 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | Timecode overlay | ✅ Complete | Configurable position |
 | **Remaining** | 🔄 In Progress | Audio track extraction optimization |
 
-### 2. Timeline UI (90%)
+### 2. Timeline UI (80%)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -55,6 +55,9 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | Thumbnail strips | ✅ Complete | Async generation |
 | Zoom controls | ✅ Complete | 1x-10x range |
 | Drag-and-drop | ✅ Complete | Reordering clips |
+| Tap gesture fixes | ✅ Complete | All 11 violations fixed (GP-003 pattern) |
+| LayoutConstants.swift | ✅ Created | Needs Xcode project addition |
+| **Remaining** | 🔄 Pending | Magic numbers integration (after Xcode setup) |
 | **Remaining** | 🔄 In Progress | Performance optimization for large projects |
 
 ### 3. MTC/MMC Sync (85%)
@@ -78,7 +81,7 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | **Remaining** | ❌ Not Started | Multi-channel output |
 | **Remaining** | ❌ Not Started | Audio metering |
 
-### 5. Architecture Compliance (55%)
+### 5. Architecture Compliance (90%)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -87,20 +90,29 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | MIDISyncServiceProtocol | ✅ Complete | First CONTRACT defined |
 | MIDISyncActor | ✅ Complete | Thread-safe MIDI handling |
 | MIDISyncViewModel | ✅ Complete | Clean layer separation |
-| **Remaining** | ❌ Critical | Layer separation (ContentView) |
+| TimelineViewModel | ✅ Complete | Timeline UI state management |
+| VitalControlsBar | ✅ Complete | Transport/timecode/zoom extracted |
+| TimelineAccordionView | ✅ Complete | Accordion panel extracted |
+| WindowTitleConfigurator | ✅ Complete | Window title utility extracted |
+| AccordionResizeHandle | ✅ Complete | Resize handle utility extracted |
+| ContentView decomposition | ✅ Complete | 1696 → 1103 lines (35% reduction) |
 | **Remaining** | ❌ High | TransportServiceProtocol |
 | **Remaining** | ❌ Medium | Magic number extraction |
 
-### 6. Documentation (50%)
+### 6. Documentation (70%)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | CLAUDE.md | ✅ Complete | Standards documented |
 | Agent definitions | ✅ Complete | 7 agents defined |
 | Contracts/ DocC | ✅ Complete | Full documentation |
-| MIDISyncActor DocC | ✅ Complete | 100% coverage |
-| MIDISyncViewModel DocC | ✅ Complete | 100% coverage |
-| **Remaining** | ❌ Medium | DocC for other Managers/ |
+| MIDISyncActor DocC | ✅ Complete | 257 doc comments |
+| MIDISyncViewModel DocC | ✅ Complete | Full coverage |
+| AudioOutputManager DocC | ✅ Complete | 90 doc comments |
+| TimelineManager DocC | ✅ Complete | 105 doc comments |
+| WaveformGenerator DocC | ✅ Complete | 43 doc comments |
+| PlaybackEngine DocC | ✅ Partial | 54 doc comments (basic coverage) |
+| **Remaining** | 🔶 Low | WaveformCache, ProjectMediaLibrary |
 | **Remaining** | ❌ Low | User documentation |
 
 ---
@@ -120,6 +132,50 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 
 **Note**: Scope was refined by scope-guard. TransportServiceProtocol (playback control) deferred to Phase 2.
 
+### Phase 1.5: UI Performance Fixes (Priority P0) - ✅ TAP GESTURES COMPLETE
+
+**Goal**: Fix trackpad scroll latency and UI performance issues
+
+**Completed** (2026-01-02):
+
+#### ✅ RESOLVED: onTapGesture Inside ScrollView (11 violations)
+All tap gestures replaced with Button + simultaneousGesture pattern (GP-003):
+
+| File | Status | Pattern Applied |
+|------|--------|-----------------|
+| `AudioLaneView.swift` | ✅ Fixed | Button + TapGesture(count: 2) |
+| `AudioClipView.swift` | ✅ Fixed | Button + TapGesture(count: 2) |
+| `VideoReelClipView.swift` | ✅ Fixed | Button + TapGesture(count: 2) |
+| `MultiTrackTimelineView.swift` | ✅ Fixed | simultaneousGesture |
+| `ContentView.swift` | ✅ Fixed | Button + simultaneousGesture |
+| `FileManagerView.swift` | ✅ Fixed | Button + TapGesture(count: 2) |
+| `MediaItemRow.swift` | ✅ Fixed | Button + TapGesture(count: 2) |
+| `SettingsView.swift` | ✅ Fixed | Button overlay |
+
+#### 🔄 PENDING: Magic Numbers (needs Xcode project setup)
+
+`LayoutConstants.swift` has been created at `Projector/Utilities/LayoutConstants.swift` with:
+- `TimelineLayout` - header/track heights, clip dimensions
+- `ZoomConstants` - min/max/default zoom levels
+- `FileManagerLayout` - grid item sizes
+- `TransportLayout` - control sizes
+- `Spacing` - consistent spacing values
+
+**BLOCKER**: File needs to be added to Xcode project before constants can be used.
+
+| Task | Owner | Status | Est. Effort |
+|------|-------|--------|-------------|
+| Fix AudioClipView tap gesture | ui-specialist | ✅ Complete | 30m |
+| Fix VideoReelClipView tap gesture | ui-specialist | ✅ Complete | 30m |
+| Fix AudioLaneView tap gesture | ui-specialist | ✅ Complete | 30m |
+| Fix MultiTrackTimelineView tap gesture | ui-specialist | ✅ Complete | 30m |
+| Fix FileManagerView tap gestures | ui-specialist | ✅ Complete | 30m |
+| Fix ContentView tap gestures | ui-specialist | ✅ Complete | 1h |
+| Create `LayoutConstants.swift` | ui-specialist | ✅ Complete | 1h |
+| **Add files to Xcode project** | **USER ACTION** | **🚫 BLOCKED** | 5m |
+| Replace magic numbers | ui-specialist | 🔄 Pending | 2h |
+| QA audit | qa-auditor | 🔄 Pending | 1h |
+
 ### Phase 2: Architecture (Priority P1)
 
 **Goal**: Decompose ContentView, establish layer contracts
@@ -128,7 +184,7 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 |------|-------|--------|-------------|
 | Define `TimelineServiceProtocol` | arch-architect | Not Started | 2h |
 | Extract `MediaImportService` | backend-logic | Not Started | 3h |
-| Extract `TimelineViewModel` | ui-specialist | Not Started | 4h |
+| Extract `TimelineViewModel` | ui-specialist | ✅ Complete | 4h |
 | Decompose ContentView | ui-specialist | Not Started | 6h |
 | QA audit | qa-auditor | Not Started | 3h |
 
@@ -146,6 +202,117 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 ---
 
 ## Recent Changes
+
+### 2026-01-02 - Accordion Hit-Testing + Waveform Access Fixes
+
+**Changes**:
+- Restored accordion header click behavior with explicit header buttons
+- Added security-scoped access and video-track sampling for waveform generation
+
+**Files Modified**:
+- `Projector/Views/SettingsView.swift` - Accordion header uses button label
+- `Projector/Views/TimelineAccordionView.swift` - Accordion header uses button label
+- `Projector/Managers/WaveformCache.swift` - Video track sampling + scoped access
+
+**Progress Impact**:
+- Timeline UI: 85% → 85% (stability fix)
+
+### 2026-01-02 - Phase 3 DocC Documentation + QA Audit
+
+**Changes**:
+- Added comprehensive DocC documentation to key Managers
+- Consolidated duplicate `frameRateDisplayName` into shared extension
+- QA audit passed all checks
+
+**DocC Coverage Improvements**:
+| File | Before | After |
+|------|--------|-------|
+| AudioOutputManager | 6 | 90 (+84) |
+| TimelineManager | 39 | 105 (+66) |
+| WaveformGenerator | 8 | 43 (+35) |
+
+**QA Audit Results**:
+- ✅ Build: No errors, only pre-existing warnings
+- ✅ Duplicate code: Fixed `frameRateDisplayName` (was in 3 files)
+- ✅ GP-003: Zero `.onTapGesture` violations
+- ✅ Architecture: Proper layer separation verified
+- ✅ Imports: No unnecessary SwiftUI in Managers
+
+**Progress Impact**:
+- Documentation: 50% → 70%
+- **Overall: 88% → 90%**
+
+---
+
+### 2026-01-02 - ContentView Decomposition (Complete)
+
+**Changes**:
+- Extracted `VitalControlsBar.swift` (394 lines) - transport, timecode, zoom, settings
+- Extracted `TimelineAccordionView.swift` (118 lines) - collapsible timeline panel
+- Extracted `WindowTitleConfigurator.swift` (136 lines) - custom window title with logo
+- Extracted `AccordionResizeHandle.swift` (54 lines) - draggable resize handle
+- Created `TimelineViewModel.swift` (293 lines) - timeline UI state management
+- ContentView reduced: **1696 → 1103 lines** (593 lines removed, 35% reduction)
+
+**Files Created**:
+- `Views/VitalControlsBar.swift` - Transport controls, timecode editing, zoom controls
+- `Views/TimelineAccordionView.swift` - Collapsible timeline accordion panel
+- `Views/WindowTitleConfigurator.swift` - Custom window title with logo
+- `Views/AccordionResizeHandle.swift` - Draggable resize handle for accordions
+- `ViewModels/TimelineViewModel.swift` - Timeline UI state (expansion, zoom, selection)
+
+**Architecture Achievement**:
+- Clean component boundaries: each View handles its own state
+- ViewModel pattern for timeline state management
+- ContentView now delegates to specialized components
+- All files added to Xcode project and builds successfully
+
+**Progress Impact**:
+- Timeline UI: 80% → 85%
+- Architecture: 80% → 90%
+- **Overall: 84% → 88%**
+
+---
+
+### 2026-01-02 - Phase 2 MIDI Integration (Complete)
+
+**Changes**:
+- Integrated `MIDISyncActor` with `ContentView` (replaces `MIDIManager`)
+- Updated `SettingsView` to use `MIDISyncViewModel`
+- MIDI processing now runs on dedicated actor (off main thread)
+- MTC/MMC sync uses Combine publishers for reactive state updates
+- Fixed duplicate type definitions in `TransportServiceProtocol.swift`
+
+**Architecture Achievement**:
+- ContentView now uses actor-based MIDI handling (thread-safe)
+- Clean separation: MIDISyncActor (logic) → MIDISyncViewModel (bridge) → Views (UI)
+- All MIDI callbacks processed off main thread
+
+**Progress Impact**:
+- MTC/MMC Sync: 85% → 95%
+- Architecture: 55% → 70%
+- **Overall: 76% → 80%**
+
+---
+
+### 2026-01-02 - Phase 1.5 Tap Gesture Fixes (Complete)
+
+**Changes**:
+- Fixed all 11 `.onTapGesture` violations that caused trackpad scroll latency
+- Applied GP-003 pattern: Button + simultaneousGesture(TapGesture(count: 2))
+- Created `LayoutConstants.swift` with centralized layout values
+- Files modified: AudioClipView, VideoReelClipView, AudioLaneView, MultiTrackTimelineView, ContentView, FileManagerView, MediaItemRow, SettingsView
+
+**Files Added to Xcode**:
+- `Projector/Utilities/LayoutConstants.swift`
+- `Projector/Contracts/MIDISyncServiceProtocol.swift`
+- `Projector/Managers/MIDISyncActor.swift`
+- `Projector/ViewModels/MIDISyncViewModel.swift`
+
+**Progress Impact**:
+- Timeline UI: 70% → 80%
+
+---
 
 ### 2026-01-02 - MIDI Sync Refactor (Phase 1 Complete)
 
@@ -190,6 +357,162 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 
 ---
 
+## Lessons Learned
+
+This section documents bugs that escaped our audit process, their root causes, and the agent updates made to prevent recurrence.
+
+### 2026-01-02: Accordion Header Hit-Testing Regression
+
+**Bug**: Accordion headers stopped collapsing and scroll interactions felt blocked.
+
+**Root Cause**:
+- Header click area was implemented via `.overlay` with a `Button` using `Color.clear`
+- The overlay button's hit-testing became unreliable in ScrollView containers
+
+**Why Missed**:
+| Agent | Check Performed | Gap |
+|-------|-----------------|-----|
+| qa-auditor | "No tap gestures in scroll content" ✅ | No verification of header hit-testing |
+| ui-specialist | "Button used instead of onTapGesture" ✅ | No audit of overlay hit areas |
+
+**Fix Applied**:
+```swift
+Button(action: { isExpanded.toggle() }) {
+    HStack { /* header content */ }
+        .contentShape(Rectangle())
+}
+.buttonStyle(.plain)
+```
+
+**Agent Updates**:
+1. **ui-specialist.md**: Add "Avoid overlay-only buttons for click targets in scroll headers"
+2. **qa-auditor.md**: Add "Verify accordion headers are clickable in ScrollView"
+
+### 2026-01-02: Waveform Access + Track Sampling Failure
+
+**Bug**: Waveforms failed to render for some clips (notably video-derived tracks).
+
+**Root Cause**:
+- Waveform generation did not request security-scoped access for bookmarked URLs
+- Video clips did not select the correct audio track index during waveform sampling
+
+**Why Missed**:
+| Agent | Check Performed | Gap |
+|-------|-----------------|-----|
+| backend-logic | "Uses WaveformAnalyzer for sample extraction" ✅ | No track selection for video audio |
+| qa-auditor | "Waveform tests exist" ✅ | Tests only covered audio files |
+
+**Fix Applied**:
+```swift
+let accessGranted = url.startAccessingSecurityScopedResource()
+defer { if accessGranted { url.stopAccessingSecurityScopedResource() } }
+```
+```swift
+let trackIndex = clip.sourceTrackIndex ?? 0
+guard audioTracks.indices.contains(trackIndex) else { throw WaveformCacheError.invalidTrackIndex }
+```
+
+**Agent Updates**:
+1. **backend-logic.md**: Add "Audio-from-video must honor trackIndex"
+2. **qa-auditor.md**: Add "Waveform coverage for video-track clips"
+
+### 2026-01-03: GeometryReader Scope Compile Error
+
+**Bug**: Build failed after GeometryReader used `_` while referencing `geometry`.
+
+**Root Cause**:
+- `GeometryReader` closure discarded the `GeometryProxy`, but code referenced `geometry.size` later.
+
+**Why Missed**:
+| Agent | Check Performed | Gap |
+|-------|-----------------|-----|
+| qa-auditor | UI performance audit ✅ | No compile-scope check for GeometryReader |
+
+**Fix Applied**:
+```swift
+GeometryReader { geometry in
+    // use geometry.size safely
+}
+```
+
+**Agent Updates**:
+1. **qa-auditor.md**: Add "GeometryReader bindings valid"
+
+### 2026-01-02: Waveform Zoom Resize Bug
+
+**Bug**: When zoom level changes, waveforms in audio clips don't resize/re-render.
+
+**Root Cause**:
+- `WaveformView` from DSWaveformImage receives `audioURL` and `configuration` as inputs
+- Neither input changes when zoom changes - only the parent frame size changes
+- SwiftUI doesn't re-render views when only their frame changes (by design)
+- The view caches its rendered waveform and doesn't know to regenerate
+
+**Why Missed**:
+| Agent | Check Performed | Gap |
+|-------|-----------------|-----|
+| qa-auditor | "Is `.drawingGroup()` used?" ✅ | No check for "Does view respond to size changes?" |
+| ui-specialist | "Data via ViewModel?" ✅ | No SwiftUI lifecycle/identity audit for 3rd-party views |
+
+**Fix Applied**:
+```swift
+// Before (bug)
+WaveformView(audioURL: clip.sourceURL, configuration: config)
+    .drawingGroup()
+
+// After (fixed)
+WaveformView(audioURL: clip.sourceURL, configuration: config)
+    .id(clipWidth)  // Force re-render when zoom changes
+    .drawingGroup()
+```
+
+**Agent Updates**:
+1. **qa-auditor.md**: Added "Missed Bug Root Cause Analysis Protocol" + "SwiftUI State Propagation Audit"
+2. **ui-specialist.md**: Added "SwiftUI Lifecycle & View Identity" section with 3rd-party checklist
+
+**Lesson**: Static code audits aren't enough. We must ask "What happens when [state] changes?" for every dynamic value, especially with 3rd-party components.
+
+### 2026-01-02: Waveform Not Rendering + Bad Zoom Minimum
+
+**Bugs**:
+1. Waveforms stopped rendering after "fix" was applied
+2. Minimum zoom (0.1) made clips microscopic and unusable
+
+**Root Causes**:
+1. `WaveformView` from DSWaveformImage requires explicit `.frame(width:height:)` directly on it - not on a parent container
+2. Added `.id(clipWidth)` based on general SwiftUI knowledge without reading library docs
+3. `minZoom = 0.1` was never visually tested (0.1 * 0.5 = 0.05 pixels/frame = unusable)
+
+**Why Safeguards Failed**:
+| Failure | Problem |
+|---------|---------|
+| Build succeeded | Treated compilation as "it works" |
+| Wrote documentation | Documented broken fix, wasted effort |
+| No visual testing | Never ran app to verify changes |
+| Assumed knowledge | Didn't read DSWaveformImage docs first |
+
+**Fixes Applied**:
+```swift
+// AudioClipView.swift - WaveformView needs explicit frame
+WaveformView(audioURL: clip.sourceURL, configuration: config) {
+    Color.clear  // placeholder
+}
+.frame(width: clipWidth, height: waveformHeight)  // REQUIRED
+.drawingGroup()
+
+// TimelineViewModel.swift - Usable zoom range
+let minZoom: CGFloat = 1.0  // was 0.1 (unusable)
+```
+
+**Agent Update**: Added "Visual Verification Protocol" to qa-auditor.md
+- BUILD SUCCESS ≠ FEATURE WORKS
+- MUST ask user to visually verify UI changes
+- MUST read 3rd-party library docs before making changes
+
+**Lesson**: Never declare a UI fix complete without visual verification. Build success proves syntax, not functionality.
+
+---
+
 ## Milestones
 
 | Milestone | Target | Status |
@@ -198,7 +521,8 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | Timeline with waveforms | ✅ Done | Achieved |
 | MTC sync functional | ✅ Done | Achieved |
 | Pro-grade infrastructure | ✅ Done | Achieved |
-| Thread-safe MTC | ✅ Done | **Today** |
+| Thread-safe MTC | ✅ Done | Achieved |
+| **UI Performance Fixes** | 🔥 P0 | **Phase 1.5 - NEXT** |
 | Architecture compliant | 🔄 Next | P1 |
 | 100% DocC coverage | 🔄 Planned | P2 |
 | v1.0 Release | 📅 TBD | Pending refactor |
@@ -210,8 +534,72 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | Blocker | Impact | Owner | Resolution |
 |---------|--------|-------|------------|
 | ~~MIDIManager on @MainActor~~ | ~~UI jitter during MTC sync~~ | ~~backend-logic~~ | ✅ **RESOLVED** - MIDISyncActor created |
-| ContentView 1680 lines | Hard to maintain | ui-specialist | Decompose (Phase 2) |
-| Missing contracts | Layer coupling | arch-architect | In progress - MIDISyncServiceProtocol done |
+| ~~onTapGesture in ScrollView~~ | ~~150ms+ trackpad latency~~ | ~~ui-specialist~~ | ✅ **RESOLVED** - All 11 violations fixed |
+| ~~Files not in Xcode project~~ | ~~Can't use new code~~ | ~~USER ACTION~~ | ✅ **RESOLVED** - All files added to Xcode |
+| ~~ContentView 1680 lines~~ | ~~Hard to maintain~~ | ~~ui-specialist~~ | ✅ **RESOLVED** - Decomposed to 1103 lines (35% reduction) |
+| Magic numbers (37+) | Inconsistent layout | ui-specialist | LayoutConstants.swift created, integration pending |
+| Missing contracts | Layer coupling | arch-architect | MIDISyncServiceProtocol done, TransportServiceProtocol pending |
+
+### ✅ Files Added to Xcode Project (Programmatically)
+
+All new files have been added to the Xcode project via automated script:
+
+**Phase 1 - MIDI Sync**:
+- `Utilities/LayoutConstants.swift` - Layout constants for consistent sizing
+- `Contracts/MIDISyncServiceProtocol.swift` - MIDI sync service contract
+- `Managers/MIDISyncActor.swift` - Thread-safe MIDI handling actor
+- `ViewModels/MIDISyncViewModel.swift` - MIDI sync UI bridge
+
+**Phase 2 - ContentView Decomposition**:
+- `ViewModels/TimelineViewModel.swift` - Timeline UI state management
+- `Views/VitalControlsBar.swift` - Transport, timecode, zoom controls
+- `Views/TimelineAccordionView.swift` - Collapsible timeline panel
+- `Views/WindowTitleConfigurator.swift` - Custom window title with logo
+- `Views/AccordionResizeHandle.swift` - Draggable resize handle
+
+---
+
+## 2026-01-02 - Audio Waveform Rendering Stabilized
+
+### Changes
+- Replaced audio clip waveform rendering to use cached samples and scale with zoom
+- Added explicit loading state display for waveform generation
+
+### Files Modified
+- `Projector/Views/Timeline/AudioClipView.swift` - Draw waveform from cached samples with loading placeholder
+
+### Progress Impact
+- Timeline UI: 85% → 85% (quality fix, no scope change)
+
+### Next Steps
+- Verify audio waveform rendering under rapid zoom changes
+
+---
+
+## 2026-01-02 - Test Harness (Unit + UI)
+
+### Changes
+- Added unit test target with waveform generation coverage
+- Added UI test target with zoom-stability smoke test
+- Added UI testing hook for auto-importing audio files
+- Added UI test audio fallback generator for sandbox-safe imports
+- Added UI test skip when accessibility permissions are not granted
+
+### Files Modified
+- `Projector.xcodeproj/project.pbxproj` - Added test targets and build settings
+- `ProjectorTests/WaveformCacheTests.swift` - Unit test for waveform generation
+- `ProjectorTests/TestAudioFileFactory.swift` - Test audio generator
+- `ProjectorUITests/ProjectorUITests.swift` - UI smoke test for zoom stability
+- `ProjectorUITests/UITestAudioFileFactory.swift` - UI test audio generator
+- `Projector/Views/ContentView.swift` - UI test import hook
+- `Projector/Views/Timeline/AudioClipView.swift` - Waveform accessibility identifiers
+- `Projector/Views/VitalControlsBar.swift` - Zoom control accessibility identifiers
+
+### Progress Impact
+- Documentation: 70% → 75% (test coverage infrastructure documented)
+
+### Next Steps
+- Run unit + UI tests locally and confirm CI viability
 
 ---
 
@@ -220,6 +608,45 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 - Gap analysis completed: See previous conversation for full violation list
 - All agents have been briefed on new standards
 - Workflow chain must be followed for all changes
+
+---
+
+## Appendix: Initial Audit Findings (2026-01-02)
+
+When the pro-grade audit began, the following issues were identified:
+
+### Critical (P0) - Thread Safety & Performance
+
+| Issue | Impact | Resolution |
+|-------|--------|------------|
+| `MIDIManager` on `@MainActor` | UI jitter during MTC sync; MIDI callbacks blocked main thread | Created `MIDISyncActor` (dedicated actor) |
+| `onTapGesture` inside `ScrollView` (11 violations) | 150ms+ trackpad scroll latency | Replaced with Button + simultaneousGesture pattern (GP-003) |
+
+### High (P1) - Architecture
+
+| Issue | Impact | Resolution |
+|-------|--------|------------|
+| ContentView: 1680+ lines | Unmaintainable monolith; mixed concerns | Partial: TimelineViewModel extracted; full decomposition pending |
+| No layer contracts | Tight coupling between UI and logic | `MIDISyncServiceProtocol` created; more needed |
+| Timeline state scattered in ContentView | Duplicated logic; hard to test | Created `TimelineViewModel` |
+| Duplicate type definitions | `MIDISyncState`/`MTCSyncState` in two files | Consolidated in `MIDISyncServiceProtocol.swift` |
+
+### Medium (P2) - Code Quality
+
+| Issue | Impact | Resolution |
+|-------|--------|------------|
+| Magic numbers (37+ instances) | Inconsistent layout; hard to maintain | `LayoutConstants.swift` created; integration pending |
+| Missing DocC documentation | Poor API discoverability | Phase 3 planned |
+| No ViewModel pattern for timeline | UI logic in Views | `TimelineViewModel` created |
+
+### Summary
+
+The codebase had functional features but lacked professional architecture patterns. Main problems:
+1. **Thread safety**: MIDI processing on main thread caused UI performance issues
+2. **Separation of concerns**: Business logic mixed with UI code in large View files
+3. **Consistency**: No centralized constants, inconsistent patterns across files
+
+**Progress**: 7 of 12 critical/high issues resolved. Remaining work focuses on ContentView decomposition and documentation.
 
 ---
 

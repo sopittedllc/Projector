@@ -3,16 +3,95 @@ import CoreAudio
 import AVFoundation
 import Combine
 
-/// Represents an audio output device
+// MARK: - AudioDevice
+
+/// Represents an audio output device available on the system.
+///
+/// This struct encapsulates the CoreAudio device information needed for
+/// device selection and display in the UI.
+///
+/// ## Example
+/// ```swift
+/// let devices = audioManager.availableDevices
+/// for device in devices {
+///     print("\(device.name) - \(device.isSystemDefault ? "Default" : "")")
+/// }
+/// ```
 struct AudioDevice: Identifiable, Hashable {
+    /// The CoreAudio device ID
     let id: AudioDeviceID
+
+    /// The unique identifier string for this device
     let uid: String
+
+    /// The human-readable device name
     let name: String
 
+    /// Whether this device is the current system default output
     var isSystemDefault: Bool = false
 }
 
-/// Manages audio output device enumeration and selection
+// MARK: - AudioOutputManager
+
+/// Manages audio output device enumeration and selection for the application.
+///
+/// This manager provides a SwiftUI-compatible interface for discovering and selecting
+/// audio output devices. It monitors the system for device changes and automatically
+/// updates the available devices list.
+///
+/// ## Overview
+///
+/// Use `AudioOutputManager` to:
+/// - Get a list of available audio output devices
+/// - Select a specific output device for playback
+/// - Respond to device connection/disconnection events
+///
+/// ## Architecture
+///
+/// ```
+/// ┌─────────────────────────────────────────────────────────────────────────┐
+/// │                         SwiftUI Views                                    │
+/// │  SettingsView, AudioRoutingView                                         │
+/// │  - Use @ObservedObject var audioManager: AudioOutputManager             │
+/// └─────────────────────────────────────────────────────────────────────────┘
+///                               │
+///                               ▼
+/// ┌─────────────────────────────────────────────────────────────────────────┐
+/// │                    AudioOutputManager (this file)                        │
+/// │  - @MainActor for UI thread safety                                       │
+/// │  - @Published availableDevices, selectedDeviceUID                        │
+/// │  - CoreAudio device enumeration                                          │
+/// │  - Device change listener                                                │
+/// └─────────────────────────────────────────────────────────────────────────┘
+///                               │
+///                               ▼
+/// ┌─────────────────────────────────────────────────────────────────────────┐
+///│                      CoreAudio Framework                                 │
+/// │  - AudioObjectGetPropertyData                                            │
+/// │  - AudioObjectAddPropertyListenerBlock                                   │
+/// └─────────────────────────────────────────────────────────────────────────┘
+/// ```
+///
+/// ## Thread Safety
+///
+/// This class is confined to the main thread via `@MainActor`. The device change
+/// listener runs on a private dispatch queue but dispatches updates back to the
+/// main thread.
+///
+/// ## Example
+///
+/// ```swift
+/// @StateObject private var audioManager = AudioOutputManager()
+///
+/// var body: some View {
+///     Picker("Output Device", selection: $audioManager.selectedDeviceUID) {
+///         Text("System Default").tag(nil as String?)
+///         ForEach(audioManager.availableDevices) { device in
+///             Text(device.name).tag(device.uid as String?)
+///         }
+///     }
+/// }
+/// ```
 @MainActor
 final class AudioOutputManager: ObservableObject {
     // MARK: - Published Properties
@@ -76,6 +155,17 @@ final class AudioOutputManager: ObservableObject {
 
     // MARK: - Device Enumeration
 
+    /// Refreshes the list of available audio output devices.
+    ///
+    /// This method queries CoreAudio for all audio devices with output channels
+    /// and updates the `availableDevices` array. The devices are sorted with
+    /// the system default device first, followed by alphabetical order.
+    ///
+    /// This method is called automatically:
+    /// - On initialization
+    /// - When the system notifies of device changes (connection/disconnection)
+    ///
+    /// You may also call this manually if needed, though it's rarely necessary.
     func refreshDevices() {
         var devices: [AudioDevice] = []
 

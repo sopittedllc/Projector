@@ -2,7 +2,42 @@ import Foundation
 import AVFoundation
 import Accelerate
 
-/// Generates waveform data from audio tracks for visualization
+/// Generates waveform data from audio tracks for visualization.
+///
+/// This generator processes audio assets to extract amplitude samples suitable
+/// for rendering visual waveforms in the timeline UI. It uses the Accelerate
+/// framework for efficient DSP operations.
+///
+/// ## Overview
+///
+/// Use `WaveformGenerator` to:
+/// - Generate waveform data from audio files or video soundtracks
+/// - Track generation progress for UI feedback
+/// - Access generated waveforms by track index
+///
+/// ## Thread Safety
+///
+/// The generator is marked `@MainActor` for published property updates, but
+/// heavy audio processing runs on background threads via `Task.detached`.
+///
+/// ## Performance
+///
+/// - Uses Accelerate framework for vectorized audio processing
+/// - Configurable `samplesPerSecond` trades detail for memory usage
+/// - Default: 100 samples/second (suitable for most timeline views)
+///
+/// ## Example
+///
+/// ```swift
+/// let generator = WaveformGenerator()
+/// generator.samplesPerSecond = 50 // Lower detail for faster generation
+///
+/// try await generator.generateWaveforms(from: audioURL)
+///
+/// if let waveform = generator.waveforms[0] {
+///     // Use waveform.samples for rendering
+/// }
+/// ```
 @MainActor
 final class WaveformGenerator: ObservableObject {
     // MARK: - Published Properties

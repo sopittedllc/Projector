@@ -198,7 +198,7 @@ public final class MIDISyncViewModel: ObservableObject {
         case .idle:
             return "No MTC"
         case .incompatibleFrameRate:
-            return "Frame Rate Mismatch (expecting \(String(format: "%.2f", localFrameRate.frameRate)))"
+            return "Frame Rate Mismatch (expecting \(String(format: "%.2f", localFrameRate.fps)))"
         default:
             return mtcState.displayName
         }
