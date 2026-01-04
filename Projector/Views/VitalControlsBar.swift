@@ -203,6 +203,11 @@ struct VitalControlsBar: View {
                 editingDurationText = durationTimecodeString
             }
         }
+        .onChange(of: timelineManager.timeline.config.durationFrames) { _, _ in
+            if !isDurationFocused {
+                editingDurationText = durationTimecodeString
+            }
+        }
         .onAppear {
             editingDurationText = durationTimecodeString
         }

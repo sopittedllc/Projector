@@ -29,6 +29,9 @@ struct AudioDevice: Identifiable, Hashable {
 
     /// Whether this device is the current system default output
     var isSystemDefault: Bool = false
+
+    /// Number of output channels for this device
+    var outputChannelCount: Int = 0
 }
 
 // MARK: - AudioOutputManager
@@ -103,8 +106,17 @@ final class AudioOutputManager: ObservableObject {
     @Published var selectedDeviceUID: String? {
         didSet {
             onDeviceChanged?(selectedDeviceUID)
+            settings.selectedAudioOutput = selectedDeviceUID ?? ""
+            loadMappedOutputs()
+            updateSelectedDeviceChannelCount()
         }
     }
+
+    /// Mapped outputs for the selected device
+    @Published private(set) var mappedOutputs: [MappedAudioOutput] = []
+
+    /// Output channel count for the selected device
+    @Published private(set) var selectedDeviceChannelCount: Int = 0
 
     /// Currently selected device name for display
     var selectedDeviceName: String {
@@ -124,12 +136,15 @@ final class AudioOutputManager: ObservableObject {
 
     private nonisolated(unsafe) var deviceListenerBlock: AudioObjectPropertyListenerBlock?
     private nonisolated(unsafe) var listenerQueue = DispatchQueue(label: "com.projector.audiodevicelistener")
+    private let settings = AppSettings.shared
 
     // MARK: - Initialization
 
     init() {
         refreshDevices()
         setupDeviceChangeListener()
+        loadMappedOutputs()
+        updateSelectedDeviceChannelCount()
     }
 
     deinit {
@@ -227,6 +242,7 @@ final class AudioOutputManager: ObservableObject {
 
             var device = AudioDevice(id: deviceID, uid: uid, name: name)
             device.isSystemDefault = (deviceID == defaultDeviceID)
+            device.outputChannelCount = outputChannelCount(deviceID: deviceID)
             devices.append(device)
         }
 
@@ -239,9 +255,14 @@ final class AudioOutputManager: ObservableObject {
         }
 
         self.availableDevices = devices
+        updateSelectedDeviceChannelCount()
     }
 
     private func hasOutputChannels(deviceID: AudioDeviceID) -> Bool {
+        outputChannelCount(deviceID: deviceID) > 0
+    }
+
+    private func outputChannelCount(deviceID: AudioDeviceID) -> Int {
         var propertyAddress = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyStreamConfiguration,
             mScope: kAudioDevicePropertyScopeOutput,
@@ -251,21 +272,43 @@ final class AudioOutputManager: ObservableObject {
         var propertySize: UInt32 = 0
         let status = AudioObjectGetPropertyDataSize(deviceID, &propertyAddress, 0, nil, &propertySize)
 
-        guard status == noErr, propertySize > 0 else { return false }
+        guard status == noErr, propertySize > 0 else { return 0 }
 
-        let bufferListPointer = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: Int(propertySize))
+        let bufferListPointer = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(propertySize),
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        )
         defer { bufferListPointer.deallocate() }
 
         let result = AudioObjectGetPropertyData(deviceID, &propertyAddress, 0, nil, &propertySize, bufferListPointer)
-        guard result == noErr else { return false }
+        guard result == noErr else { return 0 }
 
-        let bufferList = UnsafeMutableAudioBufferListPointer(bufferListPointer)
-        var channelCount: UInt32 = 0
-        for buffer in bufferList {
-            channelCount += buffer.mNumberChannels
+        let audioBufferList = bufferListPointer.assumingMemoryBound(to: AudioBufferList.self)
+        let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+        return buffers.reduce(0) { $0 + Int($1.mNumberChannels) }
+    }
+
+    private func loadMappedOutputs() {
+        mappedOutputs = settings.mappedOutputs(for: selectedDeviceUID)
+    }
+
+    private func updateSelectedDeviceChannelCount() {
+        selectedDeviceChannelCount = selectedDevice?.outputChannelCount ?? 0
+    }
+
+    var selectedDevice: AudioDevice? {
+        if let uid = selectedDeviceUID,
+           let device = availableDevices.first(where: { $0.uid == uid }) {
+            return device
         }
+        return availableDevices.first(where: { $0.isSystemDefault })
+    }
 
-        return channelCount > 0
+    func saveMappedOutputs(_ outputs: [MappedAudioOutput], for deviceUID: String?) {
+        settings.setMappedOutputs(outputs, for: deviceUID)
+        if deviceUID == selectedDeviceUID || (deviceUID == nil && selectedDeviceUID == nil) {
+            mappedOutputs = outputs
+        }
     }
 
     private func getDeviceName(deviceID: AudioDeviceID) -> String? {

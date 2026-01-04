@@ -15,12 +15,20 @@ struct VideoTrackView: View {
     let onDropMedia: ([URL], Int, Bool) -> Void
     let onReelSelected: (UUID?) -> Void
     let onReelDoubleClick: (VideoReel) -> Void
+    let onReelMove: (UUID, Int) -> Void
+    let linkedDragPreview: LinkedDragPreview?
+    let onReelDragPreview: (VideoReel, Int?) -> Void
 
     @State private var selectedReelId: UUID?
     @State private var isDropTargeted = false
     @State private var dropPreviewFrame: Int?
     @State private var dropPreviewDurationFrames: Int?
     @State private var isLoadingDropPreview = false
+    @State private var isDropAllowed = false
+    @State private var latestDropLocation: CGPoint?
+    @State private var draggingReelId: UUID?
+    @State private var dragStartFrame: Int = 0
+    @State private var dragOffsetFrames: Int = 0
 
     /// Track header width - must match MultiTrackTimelineView
     private let headerWidth: CGFloat = 120
@@ -72,21 +80,19 @@ struct VideoTrackView: View {
                 // Reels
                 reelsContent
 
-                if let previewFrame = dropPreviewFrame {
+                if (isDropAllowed || isLoadingDropPreview), let previewFrame = dropPreviewFrame {
                     dropPreviewOverlay(frame: previewFrame, height: geometry.size.height, width: geometry.size.width)
                 }
 
-                // Drop target overlay
-                if isDropTargeted {
-                    dropTargetOverlay
-                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity) // Ensure ZStack fills available space
-            .onDrop(of: [UTType.fileURL], delegate: VideoTrackDropDelegate(
+            .onDrop(of: [UTType.fileURL, UTType.url, UTType.projectorMediaItem], delegate: VideoTrackDropDelegate(
                 isTargeted: $isDropTargeted,
                 pixelsPerFrame: pixelsPerFrame,
                 scrollOffset: scrollOffset,
                 durationFrames: timelineManager.timeline.config.durationFrames,
+                isDropAllowed: { isDropAllowed },
+                dropOperation: { (isDropAllowed || isLoadingDropPreview) ? .copy : .cancel },
                 dropHandler: { providers, location in
                     handleDrop(providers: providers, at: location)
                 },
@@ -124,13 +130,7 @@ struct VideoTrackView: View {
                 .font(.system(size: 10))
                 .foregroundColor(.secondary.opacity(0.6))
         }
-    }
-
-    private var dropTargetOverlay: some View {
-        RoundedRectangle(cornerRadius: 4)
-            .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
-            .background(Color.accentColor.opacity(0.1))
-            .padding(4)
+        .offset(x: -headerWidth / 2)
     }
 
     private func dropPreviewOverlay(frame: Int, height: CGFloat, width: CGFloat) -> some View {
@@ -169,8 +169,55 @@ struct VideoTrackView: View {
                     onReelDoubleClick(reel)
                 }
             )
-            .offset(x: CGFloat(reel.timelineStartFrame) * pixelsPerFrame - scrollOffset)
+            .offset(x: reelOffset(for: reel))
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 4)
+                    .onChanged { value in
+                        guard clipInteractionsEnabled else { return }
+                        if draggingReelId != reel.id {
+                            draggingReelId = reel.id
+                            dragStartFrame = reel.timelineStartFrame
+                            dragOffsetFrames = 0
+                            selectedReelId = reel.id
+                            onReelSelected(reel.id)
+                        }
+                        let deltaFrames = Int(round(value.translation.width / max(pixelsPerFrame, 0.001)))
+                        dragOffsetFrames = deltaFrames
+                        let desired = dragStartFrame + dragOffsetFrames
+                        let maxStart = max(0, timelineManager.timeline.config.durationFrames - reel.durationFrames)
+                        let previewFrame = min(max(0, desired), maxStart)
+                        onReelDragPreview(reel, previewFrame)
+                    }
+                    .onEnded { _ in
+                        guard draggingReelId == reel.id else { return }
+                        let unclamped = dragStartFrame + dragOffsetFrames
+                        let maxStart = max(0, timelineManager.timeline.config.durationFrames - reel.durationFrames)
+                        let newFrame = min(max(0, unclamped), maxStart)
+                        draggingReelId = nil
+                        dragOffsetFrames = 0
+                        onReelMove(reel.id, newFrame)
+                        onReelDragPreview(reel, nil)
+                    }
+            )
         }
+    }
+
+    private func reelOffset(for reel: VideoReel) -> CGFloat {
+        let base = CGFloat(reel.timelineStartFrame) * pixelsPerFrame - scrollOffset
+        if draggingReelId == reel.id {
+            let desired = dragStartFrame + dragOffsetFrames
+            let maxStart = max(0, timelineManager.timeline.config.durationFrames - reel.durationFrames)
+            let clamped = min(max(0, desired), maxStart)
+            return base + (CGFloat(clamped - reel.timelineStartFrame) * pixelsPerFrame)
+        }
+
+        if let preview = linkedDragPreview,
+           isLinkedPreview(reel, preview: preview) {
+            let delta = preview.toFrame - preview.fromFrame
+            return base + (CGFloat(delta) * pixelsPerFrame)
+        }
+
+        return base
     }
 
     // MARK: - Drop Handling
@@ -184,13 +231,9 @@ struct VideoTrackView: View {
 
         for provider in providers {
             group.enter()
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
+            loadURL(from: provider) { url in
                 defer { group.leave() }
-
-                if let data = item as? Data,
-                   let url = URL(dataRepresentation: data, relativeTo: nil) {
-                    urls.append(url)
-                } else if let url = item as? URL {
+                if let url = url {
                     urls.append(url)
                 }
             }
@@ -221,6 +264,7 @@ struct VideoTrackView: View {
     }
 
     private func updateDropPreview(location: CGPoint) {
+        latestDropLocation = location
         dropPreviewFrame = dropFrame(for: location)
     }
 
@@ -230,12 +274,29 @@ struct VideoTrackView: View {
             return
         }
         isLoadingDropPreview = true
+        isDropAllowed = false
+
+        if let quickType = quickMediaType(from: providers) {
+            guard quickType == .video else {
+                isLoadingDropPreview = false
+                clearDropPreview()
+                return
+            }
+            isDropAllowed = true
+        }
 
         loadFirstURL(from: providers) { url in
             guard let url = url else {
                 isLoadingDropPreview = false
                 return
             }
+            guard isVideoFile(url) else {
+                isLoadingDropPreview = false
+                clearDropPreview()
+                return
+            }
+            isDropAllowed = true
+            updateDropPreview(location: latestDropLocation ?? location)
             Task {
                 let asset = AVAsset(url: url)
                 do {
@@ -254,6 +315,7 @@ struct VideoTrackView: View {
         dropPreviewFrame = nil
         dropPreviewDurationFrames = nil
         isLoadingDropPreview = false
+        isDropAllowed = false
     }
 
     private func loadFirstURL(from providers: [NSItemProvider], completion: @escaping (URL?) -> Void) {
@@ -262,21 +324,63 @@ struct VideoTrackView: View {
             return
         }
 
+        loadURL(from: provider, completion: completion)
+    }
+
+    private func isVideoFile(_ url: URL) -> Bool {
+        ProjectMediaLibrary.mediaType(for: url) == .video
+    }
+
+    private func quickMediaType(from providers: [NSItemProvider]) -> MediaType? {
+        for provider in providers {
+            if let name = provider.suggestedName {
+                let url = URL(fileURLWithPath: name)
+                if let type = ProjectMediaLibrary.mediaType(for: url) {
+                    return type
+                }
+            }
+            for typeId in provider.registeredTypeIdentifiers {
+                guard let utType = UTType(typeId) else { continue }
+                if utType.conforms(to: .movie) { return .video }
+                if utType.conforms(to: .audio) { return .audio }
+            }
+        }
+        return nil
+    }
+
+    private func isLinkedPreview(_ reel: VideoReel, preview: LinkedDragPreview) -> Bool {
+        reel.sourceURL == preview.sourceURL &&
+        reel.sourceStartFrame == preview.sourceStartFrame &&
+        reel.durationFrames == preview.durationFrames &&
+        reel.timelineStartFrame == preview.fromFrame
+    }
+
+    private func loadURL(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {
         provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-            if let data = item as? Data,
-               let url = URL(dataRepresentation: data, relativeTo: nil) {
+            if let url = extractURL(from: item) {
                 completion(url)
-            } else if let url = item as? URL {
-                completion(url)
-            } else {
-                completion(nil)
+                return
+            }
+            provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
+                completion(extractURL(from: item))
             }
         }
     }
 
-    private func isVideoFile(_ url: URL) -> Bool {
-        let videoExtensions = ["mov", "mp4", "m4v", "avi", "mkv", "mxf", "prores"]
-        return videoExtensions.contains(url.pathExtension.lowercased())
+    private func extractURL(from item: Any?) -> URL? {
+        if let data = item as? Data {
+            return URL(dataRepresentation: data, relativeTo: nil)
+        }
+        if let url = item as? URL {
+            return url
+        }
+        if let url = item as? NSURL {
+            return url as URL
+        }
+        if let string = item as? String {
+            return URL(string: string)
+        }
+        return nil
     }
 }
 
@@ -285,18 +389,21 @@ private struct VideoTrackDropDelegate: DropDelegate {
     let pixelsPerFrame: CGFloat
     let scrollOffset: CGFloat
     let durationFrames: Int
+    let isDropAllowed: () -> Bool
+    let dropOperation: () -> DropOperation
     let dropHandler: ([NSItemProvider], CGPoint) -> Bool
     let updateHandler: (CGPoint) -> Void
     let enterHandler: ([NSItemProvider], CGPoint) -> Void
     let exitHandler: () -> Void
+    private let supportedTypes: [UTType] = [.fileURL, .url, .projectorMediaItem]
 
     func validateDrop(info: DropInfo) -> Bool {
-        !info.itemProviders(for: [UTType.fileURL]).isEmpty
+        !info.itemProviders(for: supportedTypes).isEmpty
     }
 
     func dropEntered(info: DropInfo) {
         isTargeted = true
-        let providers = info.itemProviders(for: [UTType.fileURL])
+        let providers = info.itemProviders(for: supportedTypes)
         enterHandler(providers, info.location)
     }
 
@@ -307,13 +414,13 @@ private struct VideoTrackDropDelegate: DropDelegate {
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         updateHandler(info.location)
-        return DropProposal(operation: .copy)
+        return DropProposal(operation: dropOperation())
     }
 
     func performDrop(info: DropInfo) -> Bool {
         isTargeted = false
         exitHandler()
-        let providers = info.itemProviders(for: [UTType.fileURL])
+        let providers = info.itemProviders(for: supportedTypes)
         return dropHandler(providers, info.location)
     }
 }
@@ -341,7 +448,10 @@ private struct VideoTrackDropDelegate: DropDelegate {
                 },
                 onReelDoubleClick: { reel in
                     print("Double-clicked: \(reel.displayName)")
-                }
+                },
+                onReelMove: { _, _ in },
+                linkedDragPreview: nil,
+                onReelDragPreview: { _, _ in }
             )
             .frame(width: 800)
             .background(Color(white: 0.15))

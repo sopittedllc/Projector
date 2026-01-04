@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftTimecodeCore
 import Iconoir
+import UniformTypeIdentifiers
 
 /// Simple triangle shape for playhead
 private struct Triangle: Shape {
@@ -28,6 +29,7 @@ struct MultiTrackTimelineView: View {
     @ObservedObject var waveformCache: WaveformCache
     @ObservedObject var audioOutputManager: AudioOutputManager
     @ObservedObject var thumbnailCache: ThumbnailCache
+    @Environment(\.undoManager) private var undoManager
     let onDropVideoMedia: ([URL], Int, Bool) -> Void
     let onDropAudioMedia: (Int, [URL], Int, Bool) -> Void
     let onSeek: (Int) -> Void
@@ -43,6 +45,8 @@ struct MultiTrackTimelineView: View {
     @State private var editingDurationText = ""
     @FocusState private var isStartTCFocused: Bool
     @FocusState private var isDurationFocused: Bool
+    @State private var isEmptyAudioDropAllowed = false
+    @State private var isEmptyAudioDropLoading = false
 
     // Selection state
     @State private var selectedVideoReelId: UUID?
@@ -63,6 +67,7 @@ struct MultiTrackTimelineView: View {
     // Cached active audio clip IDs (updated only when currentFrame changes)
     @State private var cachedActiveAudioClipIds: Set<UUID> = []
     @State private var lastFrameForActiveClips: Int = -1
+    @State private var linkedDragPreview: LinkedDragPreview?
 
     // MARK: - Constants
     // TODO: Use LayoutConstants after adding to Xcode project
@@ -177,17 +182,71 @@ struct MultiTrackTimelineView: View {
     // MARK: - Delete Selected Item
 
     private func deleteSelectedItem() {
-        if let reelId = selectedVideoReelId {
+        if let reelId = selectedVideoReelId,
+           let reel = timelineManager.timeline.videoReels.first(where: { $0.id == reelId }) {
+            registerTimelineUndo(actionName: "Delete Video Reel")
+            removeLinkedAudio(for: reel)
             timelineManager.removeVideoReel(id: reelId)
             selectedVideoReelId = nil
-        } else if let clipId = selectedAudioClipId, let laneId = selectedAudioLaneId {
-            timelineManager.removeAudioClip(clipId: clipId, fromLane: laneId)
-            if let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
-               lane.clips.isEmpty {
-                timelineManager.removeAudioLane(id: laneId)
-            }
             selectedAudioClipId = nil
             selectedAudioLaneId = nil
+            return
+        }
+
+        if let clipId = selectedAudioClipId,
+           let laneId = selectedAudioLaneId,
+           let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
+           let clip = lane.clips.first(where: { $0.id == clipId }) {
+            registerTimelineUndo(actionName: "Delete Audio Clip")
+            if clip.sourceType == .videoTrack, let reel = linkedReel(for: clip) {
+                removeLinkedAudio(for: reel)
+                timelineManager.removeVideoReel(id: reel.id)
+                selectedVideoReelId = nil
+            } else {
+                timelineManager.removeAudioClip(clipId: clipId, fromLane: laneId)
+            }
+            removeEmptyAudioLanes()
+            selectedAudioClipId = nil
+            selectedAudioLaneId = nil
+        }
+    }
+
+    private func linkedReel(for clip: AudioClip) -> VideoReel? {
+        timelineManager.timeline.videoReels.first { reel in
+            reel.sourceURL == clip.sourceURL &&
+            reel.sourceStartFrame == clip.sourceStartFrame &&
+            reel.durationFrames == clip.durationFrames &&
+            reel.timelineStartFrame == clip.timelineStartFrame
+        }
+    }
+
+    private func removeLinkedAudio(for reel: VideoReel) {
+        let removals: [(laneId: UUID, clipId: UUID)] = timelineManager.timeline.audioLanes.flatMap { lane in
+            lane.clips.compactMap { clip in
+                guard clip.sourceType == .videoTrack,
+                      clip.sourceURL == reel.sourceURL,
+                      clip.sourceStartFrame == reel.sourceStartFrame,
+                      clip.durationFrames == reel.durationFrames,
+                      clip.timelineStartFrame == reel.timelineStartFrame else {
+                    return nil
+                }
+                return (lane.id, clip.id)
+            }
+        }
+
+        for removal in removals {
+            timelineManager.removeAudioClip(clipId: removal.clipId, fromLane: removal.laneId)
+        }
+
+        removeEmptyAudioLanes()
+    }
+
+    private func removeEmptyAudioLanes() {
+        let emptyLaneIds = timelineManager.timeline.audioLanes
+            .filter { $0.clips.isEmpty }
+            .map { $0.id }
+        for laneId in emptyLaneIds {
+            timelineManager.removeAudioLane(id: laneId)
         }
     }
 
@@ -267,8 +326,17 @@ struct MultiTrackTimelineView: View {
 
         // Apply the move
         if let reelId = editingReelId {
+            if let oldFrame = timeline.videoReels.first(where: { $0.id == reelId })?.timelineStartFrame,
+               oldFrame != newFrame {
+                registerVideoReelMoveUndo(reelId: reelId, from: oldFrame)
+            }
             timelineManager.moveVideoReel(id: reelId, to: newFrame)
         } else if let clipId = editingClipId, let laneId = editingLaneId {
+            if let lane = timeline.audioLanes.first(where: { $0.id == laneId }),
+               let clip = lane.clips.first(where: { $0.id == clipId }),
+               clip.timelineStartFrame != newFrame {
+                registerAudioClipMoveUndo(clipId: clipId, laneId: laneId, from: clip.timelineStartFrame)
+            }
             timelineManager.moveAudioClip(clipId: clipId, inLane: laneId, to: newFrame)
         }
 
@@ -477,6 +545,11 @@ struct MultiTrackTimelineView: View {
         .onHover { hovering in
             isHoveringDuration = hovering
         }
+        .onChange(of: timeline.config.durationFrames) { _, _ in
+            if !isDurationFocused {
+                editingDurationText = durationTimecodeString
+            }
+        }
         .onAppear {
             editingDurationText = durationTimecodeString
         }
@@ -661,15 +734,39 @@ struct MultiTrackTimelineView: View {
                                 selectedVideoReelId = reelId
                                 selectedAudioClipId = nil
                                 selectedAudioLaneId = nil
+                                isTimelineFocused = true
                             },
                             onReelDoubleClick: { reel in
                                 editingReelId = reel.id
                                 let tc = Timecode(.frames(reel.timelineStartFrame + timeline.config.startTimecode.frameCount.wholeFrames), at: timeline.config.frameRate, by: .clamping)
                                 timecodeEntryText = tc.stringValue()
                                 showTimecodeEntryDialog = true
+                            },
+                            onReelMove: { reelId, newFrame in
+                                guard let reel = timelineManager.timeline.videoReels.first(where: { $0.id == reelId }),
+                                      reel.timelineStartFrame != newFrame else { return }
+                                registerVideoReelMoveUndo(reelId: reelId, from: reel.timelineStartFrame)
+                                timelineManager.moveVideoReel(id: reelId, to: newFrame)
+                            },
+                            linkedDragPreview: linkedDragPreview,
+                            onReelDragPreview: { reel, previewFrame in
+                                if let previewFrame {
+                                    linkedDragPreview = LinkedDragPreview(
+                                        sourceURL: reel.sourceURL,
+                                        sourceStartFrame: reel.sourceStartFrame,
+                                        durationFrames: reel.durationFrames,
+                                        fromFrame: reel.timelineStartFrame,
+                                        toFrame: previewFrame
+                                    )
+                                } else {
+                                    linkedDragPreview = nil
+                                }
                             }
                         )
                         .frame(width: totalContentWidth, height: videoTrackHeight)
+                        .overlay(alignment: .top) {
+                            laneBorder
+                        }
 
                         Divider()
 
@@ -686,16 +783,18 @@ struct MultiTrackTimelineView: View {
                                 timelineDurationFrames: timeline.config.durationFrames,
                                 showWaveforms: !debug.disableWaveforms,
                                 clipInteractionsEnabled: !debug.disableClipInteractions,
-                                availableAudioDevices: audioOutputManager.availableDevices,
+                                availableAudioOutputs: audioOutputManager.mappedOutputs,
+                                linkedDragPreview: linkedDragPreview,
                                 onMuteToggle: { timelineManager.toggleLaneMute(at: index) },
                                 onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
                                 onVolumeChange: { volume in timelineManager.setLaneVolume(at: index, volume: volume) },
-                                onOutputDeviceChange: { deviceUID in timelineManager.setLaneOutputDevice(id: lane.id, deviceUID: deviceUID) },
+                                onOutputMappingChange: { output in timelineManager.setLaneOutputMapping(id: lane.id, mapping: output) },
                                 onDropMedia: { urls, frame, isInternal in onDropAudioMedia(index, urls, frame, isInternal) },
                                 onClipSelected: { clipId in
                                     selectedAudioClipId = clipId
                                     selectedAudioLaneId = lane.id
                                     selectedVideoReelId = nil
+                                    isTimelineFocused = true
                                 },
                                 onClipDoubleClick: { clip in
                                     editingClipId = clip.id
@@ -704,11 +803,42 @@ struct MultiTrackTimelineView: View {
                                     timecodeEntryText = tc.stringValue()
                                     showTimecodeEntryDialog = true
                                 },
+                                onClipMove: { clipId, newFrame in
+                                    guard let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == lane.id }),
+                                          let clip = lane.clips.first(where: { $0.id == clipId }),
+                                          clip.timelineStartFrame != newFrame else { return }
+                                    registerAudioClipMoveUndo(clipId: clipId, laneId: lane.id, from: clip.timelineStartFrame)
+                                    timelineManager.moveAudioClip(clipId: clipId, inLane: lane.id, to: newFrame)
+                                },
+                                onClipDragPreview: { clip, previewFrame in
+                                    guard clip.sourceType == .videoTrack else {
+                                        if linkedDragPreview != nil {
+                                            linkedDragPreview = nil
+                                        }
+                                        return
+                                    }
+                                    if let previewFrame {
+                                        linkedDragPreview = LinkedDragPreview(
+                                            sourceURL: clip.sourceURL,
+                                            sourceStartFrame: clip.sourceStartFrame,
+                                            durationFrames: clip.durationFrames,
+                                            fromFrame: clip.timelineStartFrame,
+                                            toFrame: previewFrame
+                                        )
+                                    } else {
+                                        linkedDragPreview = nil
+                                    }
+                                },
                                 onLaneRename: { newName in
                                     timelineManager.renameAudioLane(id: lane.id, name: newName)
                                 }
                             )
                             .frame(width: totalContentWidth, height: audioLaneHeight)
+                            .overlay(alignment: .bottom) {
+                                if index == timeline.audioLanes.count - 1 {
+                                    laneBorder
+                                }
+                            }
 
                             if index < timeline.audioLanes.count - 1 {
                                 Divider()
@@ -716,8 +846,11 @@ struct MultiTrackTimelineView: View {
                         }
 
                         if timeline.audioLanes.isEmpty {
-                            emptyAudioLanesPlaceholder
+                            emptyAudioLanesPlaceholder(pixelsPerFrame: ppf)
                                 .frame(width: totalContentWidth)
+                                .overlay(alignment: .bottom) {
+                                    laneBorder
+                                }
                         }
 
                         // Bottom padding
@@ -768,12 +901,18 @@ struct MultiTrackTimelineView: View {
     /// Spacing between ruler and tracks (separator + spacer)
     private let rulerSpacing: CGFloat = 5
 
+    private var laneBorder: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor).opacity(0.5))
+            .frame(height: 1)
+    }
+
     private var tracksHeight: CGFloat {
         let audioHeight = max(50, CGFloat(timeline.audioLanes.count) * (audioLaneHeight + 1))
         return videoTrackHeight + 1 + audioHeight + 8 // +8 for bottom padding
     }
 
-    private var emptyAudioLanesPlaceholder: some View {
+    private func emptyAudioLanesPlaceholder(pixelsPerFrame: CGFloat) -> some View {
         HStack(spacing: 0) {
             // Header area - overlay centers content
             Color.clear
@@ -807,9 +946,109 @@ struct MultiTrackTimelineView: View {
                             .font(.system(size: 10))
                             .foregroundColor(.secondary.opacity(0.6))
                     }
+                    .offset(x: -headerWidth / 2)
                 )
+                .onDrop(of: [UTType.fileURL, UTType.url, UTType.projectorMediaItem], delegate: EmptyAudioLaneDropDelegate(
+                    isDropAllowed: $isEmptyAudioDropAllowed,
+                    enterHandler: { providers, location in
+                        beginEmptyAudioDrop(with: providers)
+                    },
+                    exitHandler: {
+                        clearEmptyAudioDrop()
+                    },
+                    dropHandler: { providers, location in
+                        handleEmptyAudioDrop(providers: providers, at: location, pixelsPerFrame: pixelsPerFrame)
+                    },
+                    isLoading: { isEmptyAudioDropLoading }
+                ))
         }
         .frame(height: audioLaneHeight)
+    }
+
+    private func beginEmptyAudioDrop(with providers: [NSItemProvider]) {
+        isEmptyAudioDropAllowed = false
+        isEmptyAudioDropLoading = true
+        loadFirstURL(from: providers) { url in
+            guard let url, ProjectMediaLibrary.mediaType(for: url) == .audio else {
+                isEmptyAudioDropLoading = false
+                return
+            }
+            isEmptyAudioDropAllowed = true
+            isEmptyAudioDropLoading = false
+        }
+    }
+
+    private func clearEmptyAudioDrop() {
+        isEmptyAudioDropAllowed = false
+        isEmptyAudioDropLoading = false
+    }
+
+    private func handleEmptyAudioDrop(
+        providers: [NSItemProvider],
+        at location: CGPoint,
+        pixelsPerFrame: CGFloat
+    ) -> Bool {
+        var urls: [URL] = []
+        let group = DispatchGroup()
+        let isInternalDrag = providers.contains { provider in
+            provider.hasItemConformingToTypeIdentifier(UTType.projectorMediaItem.identifier)
+        }
+
+        for provider in providers {
+            group.enter()
+            loadURL(from: provider) { url in
+                defer { group.leave() }
+                if let url = url {
+                    urls.append(url)
+                }
+            }
+        }
+
+        group.notify(queue: .main) {
+            let audioURLs = urls.filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
+            guard !audioURLs.isEmpty else { return }
+            let targetFrame = max(0, Int(location.x / max(pixelsPerFrame, 0.001)))
+            onDropAudioMedia(0, audioURLs, targetFrame, isInternalDrag)
+        }
+
+        clearEmptyAudioDrop()
+        return true
+    }
+
+    private func loadFirstURL(from providers: [NSItemProvider], completion: @escaping (URL?) -> Void) {
+        guard let provider = providers.first else {
+            completion(nil)
+            return
+        }
+        loadURL(from: provider, completion: completion)
+    }
+
+    private func loadURL(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {
+        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+            if let url = extractURL(from: item) {
+                completion(url)
+                return
+            }
+            provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
+                completion(extractURL(from: item))
+            }
+        }
+    }
+
+    private func extractURL(from item: Any?) -> URL? {
+        if let data = item as? Data {
+            return URL(dataRepresentation: data, relativeTo: nil)
+        }
+        if let url = item as? URL {
+            return url
+        }
+        if let url = item as? NSURL {
+            return url as URL
+        }
+        if let string = item as? String {
+            return URL(string: string)
+        }
+        return nil
     }
 
     // MARK: - Zoom
@@ -838,8 +1077,61 @@ struct MultiTrackTimelineView: View {
             zoomLevel = minZoom
         }
     }
+
+    private func registerTimelineUndo(actionName: String) {
+        let previousTimeline = timelineManager.timeline
+        undoManager?.registerUndo(withTarget: timelineManager) { _ in
+            timelineManager.timeline = previousTimeline
+        }
+        undoManager?.setActionName(actionName)
+    }
+
+    private func registerAudioClipMoveUndo(clipId: UUID, laneId: UUID, from oldFrame: Int) {
+        undoManager?.registerUndo(withTarget: timelineManager) { _ in
+            timelineManager.moveAudioClip(clipId: clipId, inLane: laneId, to: oldFrame)
+        }
+        undoManager?.setActionName("Move Audio Clip")
+    }
+
+    private func registerVideoReelMoveUndo(reelId: UUID, from oldFrame: Int) {
+        undoManager?.registerUndo(withTarget: timelineManager) { _ in
+            timelineManager.moveVideoReel(id: reelId, to: oldFrame)
+        }
+        undoManager?.setActionName("Move Video Reel")
+    }
 }
 
+private struct EmptyAudioLaneDropDelegate: DropDelegate {
+    @Binding var isDropAllowed: Bool
+    let enterHandler: ([NSItemProvider], CGPoint) -> Void
+    let exitHandler: () -> Void
+    let dropHandler: ([NSItemProvider], CGPoint) -> Bool
+    private let supportedTypes: [UTType] = [.fileURL, .url, .projectorMediaItem]
+    let isLoading: () -> Bool
+
+    func validateDrop(info: DropInfo) -> Bool {
+        !info.itemProviders(for: supportedTypes).isEmpty
+    }
+
+    func dropEntered(info: DropInfo) {
+        let providers = info.itemProviders(for: supportedTypes)
+        enterHandler(providers, info.location)
+    }
+
+    func dropExited(info: DropInfo) {
+        exitHandler()
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: isLoading() || isDropAllowed ? .copy : .cancel)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        exitHandler()
+        let providers = info.itemProviders(for: supportedTypes)
+        return dropHandler(providers, info.location)
+    }
+}
 
 #Preview {
     struct PreviewWrapper: View {

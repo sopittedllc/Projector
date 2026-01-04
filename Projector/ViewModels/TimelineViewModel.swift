@@ -57,13 +57,13 @@ final class TimelineViewModel: ObservableObject {
     // MARK: - UI State
 
     /// Whether the timeline accordion is expanded
-    @Published var isExpanded: Bool = false
+    @Published var isExpanded: Bool = true
 
     /// Current zoom level (0.0 = fit, 1.0 = max zoom)
     @Published var zoomLevel: CGFloat = 0.0
 
     /// Height of the expanded timeline section
-    @Published var expandedHeight: CGFloat = 180
+    @Published var expandedHeight: CGFloat = TimelineViewModel.defaultExpandedHeight
 
     /// Currently selected video reel ID, if any
     @Published var selectedReelId: UUID?
@@ -102,6 +102,15 @@ final class TimelineViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Initialization
+
+    private static let defaultExpandedHeight: CGFloat = TimelineLayout.toolbarHeight
+        + TimelineLayout.rulerHeight
+        + 1
+        + TimelineLayout.videoTrackHeight
+        + 1
+        + (TimelineLayout.audioLaneHeight + 1)
+        + 8
+        + 20
 
     /// Creates a new timeline view model.
     ///
@@ -189,6 +198,12 @@ final class TimelineViewModel: ObservableObject {
         if !isExpanded {
             isExpanded = true
         }
+    }
+
+    /// Update the expanded height (clamped to min/max).
+    func setExpandedHeight(_ height: CGFloat) {
+        let clamped = min(maxExpandedHeight, max(minExpandedHeight, height))
+        expandedHeight = clamped
     }
 
     /// Reset zoom to default level
@@ -282,14 +297,6 @@ final class TimelineViewModel: ObservableObject {
                 self?.expandIfNeeded()
             }
             .store(in: &cancellables)
-
-        manager.$timeline
-            .map { $0.audioLanes.count }
-            .removeDuplicates()
-            .sink { [weak self] _ in
-                self?.resizeToFitLanes()
-            }
-            .store(in: &cancellables)
     }
 
     private func resizeToFitLanes() {
@@ -304,6 +311,8 @@ final class TimelineViewModel: ObservableObject {
             + 8
 
         let clamped = min(maxExpandedHeight, max(minExpandedHeight, totalHeight))
-        expandedHeight = clamped
+        if clamped > expandedHeight {
+            expandedHeight = clamped
+        }
     }
 }

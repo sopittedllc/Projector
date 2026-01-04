@@ -4,7 +4,8 @@ import Iconoir
 
 enum MediaDragProvider {
     static func provider(for item: MediaItem) -> NSItemProvider {
-        let provider = NSItemProvider(object: item.url as NSURL)
+        let provider = NSItemProvider(item: item.url as NSURL, typeIdentifier: UTType.fileURL.identifier)
+        provider.suggestedName = item.url.lastPathComponent
         if let data = item.id.uuidString.data(using: .utf8) {
             provider.registerDataRepresentation(forTypeIdentifier: UTType.projectorMediaItem.identifier, visibility: .all) { completion in
                 completion(data, nil)

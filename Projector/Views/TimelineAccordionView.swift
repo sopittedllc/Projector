@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Iconoir
+import AppKit
 
 /// A collapsible accordion panel containing the multi-track timeline.
 ///
@@ -40,6 +41,12 @@ struct TimelineAccordionView: View {
     /// Called when settings button is pressed
     var onSettingsPressed: () -> Void
 
+    @State private var isResizingTimeline = false
+    @State private var isHoveringTimelineResize = false
+    @State private var timelineDragStartHeight: CGFloat = 0
+    @State private var timelineDragStartLocationY: CGFloat = 0
+    @State private var didPushResizeCursorForDrag = false
+
     // MARK: - Body
 
     var body: some View {
@@ -62,6 +69,11 @@ struct TimelineAccordionView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.white.opacity(0.2), lineWidth: 1)
         )
+        .overlay(alignment: .bottom) {
+            if timelineViewModel.isExpanded {
+                timelineResizeHandle
+            }
+        }
     }
 
     // MARK: - Accordion Header
@@ -107,5 +119,52 @@ struct TimelineAccordionView: View {
             showHeader: false,
             zoomLevel: $timelineViewModel.zoomLevel
         )
+    }
+
+    private var timelineResizeHandle: some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(height: 10)
+            .contentShape(Rectangle())
+            .overlay {
+                Rectangle()
+                    .fill(isResizingTimeline ? Color.accentColor : Color.white.opacity(0.25))
+                    .frame(height: 1)
+            }
+            .onHover { hovering in
+                guard !isResizingTimeline else { return }
+                if hovering, !isHoveringTimelineResize {
+                    NSCursor.resizeUpDown.push()
+                    isHoveringTimelineResize = true
+                } else if !hovering, isHoveringTimelineResize {
+                    NSCursor.pop()
+                    isHoveringTimelineResize = false
+                }
+            }
+            .gesture(
+                DragGesture(coordinateSpace: .global)
+                    .onChanged { value in
+                        if !isResizingTimeline {
+                            timelineDragStartHeight = timelineViewModel.expandedHeight
+                            timelineDragStartLocationY = value.startLocation.y
+                            isResizingTimeline = true
+                            if !isHoveringTimelineResize {
+                                NSCursor.resizeUpDown.push()
+                                didPushResizeCursorForDrag = true
+                            } else {
+                                didPushResizeCursorForDrag = false
+                            }
+                        }
+                        let delta = value.location.y - timelineDragStartLocationY
+                        timelineViewModel.setExpandedHeight(timelineDragStartHeight + delta)
+                    }
+                    .onEnded { _ in
+                        isResizingTimeline = false
+                        if didPushResizeCursorForDrag {
+                            NSCursor.pop()
+                        }
+                        didPushResizeCursorForDrag = false
+                    }
+            )
     }
 }

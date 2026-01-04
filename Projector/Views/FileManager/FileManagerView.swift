@@ -8,14 +8,14 @@ struct FileManagerView: View {
     @ObservedObject var mediaLibrary: ProjectMediaLibrary
     let onAddToVideoTrack: (MediaItem) -> Void
     let onAddToAudioLane: (MediaItem, Int) -> Void
-    let onDeleteItem: (MediaItem) -> Void
+    let onDeleteItems: ([MediaItem]) -> Void
 
     @State private var selectedItemIds: Set<UUID> = []
     @State private var lastSelectedIndex: Int?
     @State private var isDropTargeted = false
     @State private var filterType: MediaType? = nil
     @State private var searchText = ""
-    @State private var isExpanded = false
+    @State private var isExpanded = true
     @State private var showDeleteAlert = false
     @State private var pendingDeleteItems: [MediaItem] = []
     @State private var isDraggingFromLibrary = false
@@ -62,9 +62,11 @@ struct FileManagerView: View {
             Button("Remove", role: .destructive) {
                 confirmDeleteSelectedItems()
             }
+            .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) {
                 pendingDeleteItems = []
             }
+            .keyboardShortcut(.cancelAction)
         } message: {
             if pendingDeleteItems.count == 1, let item = pendingDeleteItems.first {
                 Text("Remove \"\(item.displayName)\" from the project? This will delete it from the Media panel and remove any timeline clips that use it.")
@@ -118,9 +120,7 @@ struct FileManagerView: View {
     private func confirmDeleteSelectedItems() {
         let items = pendingDeleteItems
         guard !items.isEmpty else { return }
-        for item in items {
-            onDeleteItem(item)
-        }
+        onDeleteItems(items)
         pendingDeleteItems = []
         selectedItemIds = []
     }
@@ -531,7 +531,7 @@ struct MediaGridCell: View {
                 mediaLibrary: library,
                 onAddToVideoTrack: { _ in },
                 onAddToAudioLane: { _, _ in },
-                onDeleteItem: { _ in }
+                onDeleteItems: { _ in }
             )
             .padding()
         }

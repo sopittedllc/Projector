@@ -1,24 +1,20 @@
 import SwiftUI
-import SwiftTimecodeCore
+import AppKit
 
 /// Settings window for MIDI, audio, and display configuration
 struct SettingsView: View {
     @ObservedObject var midiSync: MIDISyncViewModel
     @ObservedObject var audioManager: AudioOutputManager
-    @ObservedObject var timelineManager: TimelineManager
     @ObservedObject var settings = AppSettings.shared
 
     @Binding var isPresented: Bool
 
-    // Timeline editing state
-    @State private var startTimecodeText: String = ""
-    @State private var endTimecodeText: String = ""
-
     // Accordion section states
-    @State private var timelineExpanded = false
     @State private var midiExpanded = false
     @State private var audioExpanded = false
     @State private var displayExpanded = false
+
+    @State private var showInterfaceMapping = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,14 +35,6 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     accordionSection(
-                        title: "Timeline",
-                        icon: "timeline.selection",
-                        isExpanded: $timelineExpanded
-                    ) {
-                        timelineSectionContent
-                    }
-
-                    accordionSection(
                         title: "MIDI",
                         icon: "pianokeys",
                         isExpanded: $midiExpanded
@@ -55,7 +43,7 @@ struct SettingsView: View {
                     }
 
                     accordionSection(
-                        title: "Audio Output",
+                        title: "Audio",
                         icon: "speaker.wave.2",
                         isExpanded: $audioExpanded
                     ) {
@@ -71,11 +59,6 @@ struct SettingsView: View {
                     }
                 }
                 .padding()
-            }
-            .onAppear {
-                // Initialize text fields with current values
-                startTimecodeText = formatTimecode(timelineManager.timeline.config.startTimecode)
-                endTimecodeText = formatTimecode(timelineManager.timeline.config.endTimecode)
             }
 
             Divider()
@@ -99,6 +82,12 @@ struct SettingsView: View {
             .padding()
         }
         .frame(width: 450, height: 650)
+        .sheet(isPresented: $showInterfaceMapping) {
+            AudioOutputMappingView(
+                audioManager: audioManager,
+                isPresented: $showInterfaceMapping
+            )
+        }
     }
 
     // MARK: - Accordion Helper
@@ -150,220 +139,6 @@ struct SettingsView: View {
         )
     }
 
-    // MARK: - Timeline Section
-
-    private var timelineSectionContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-
-            // Frame Rate
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Frame Rate")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-
-                Picker("Frame Rate", selection: Binding(
-                    get: { timelineManager.timeline.config.frameRate },
-                    set: { newRate in
-                        var config = timelineManager.timeline.config
-                        // Convert timecodes to new frame rate
-                        let startFrames = config.startTimecode.frameCount.wholeFrames
-                        let endFrames = config.endTimecode.frameCount.wholeFrames
-                        config.frameRate = newRate
-                        config.startTimecode = Timecode(.frames(startFrames), at: newRate, by: .clamping)
-                        config.endTimecode = Timecode(.frames(endFrames), at: newRate, by: .clamping)
-                        timelineManager.updateConfig(config)
-                        // Update text fields
-                        startTimecodeText = formatTimecode(config.startTimecode)
-                        endTimecodeText = formatTimecode(config.endTimecode)
-                    }
-                )) {
-                    Text("23.976").tag(TimecodeFrameRate.fps23_976)
-                    Text("24").tag(TimecodeFrameRate.fps24)
-                    Text("25").tag(TimecodeFrameRate.fps25)
-                    Text("29.97").tag(TimecodeFrameRate.fps29_97)
-                    Text("29.97 DF").tag(TimecodeFrameRate.fps29_97d)
-                    Text("30").tag(TimecodeFrameRate.fps30)
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-            }
-
-            // Start Timecode
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Start Timecode")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-
-                HStack(spacing: 8) {
-                    HStack(spacing: 4) {
-                        Text("TC:")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.secondary)
-
-                        TextField("00:00:00:00", text: $startTimecodeText)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 14, weight: .medium, design: .monospaced))
-                            .frame(width: 100)
-                            .onChange(of: startTimecodeText) { _, newValue in
-                                let formatted = formatTimecodeInput(newValue)
-                                if formatted != newValue {
-                                    startTimecodeText = formatted
-                                }
-                            }
-                            .onSubmit {
-                                applyStartTimecode()
-                            }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                            )
-                    )
-
-                    Button("Apply") {
-                        applyStartTimecode()
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-
-            // End Timecode
-            VStack(alignment: .leading, spacing: 8) {
-                Text("End Timecode")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-
-                HStack(spacing: 8) {
-                    HStack(spacing: 4) {
-                        Text("TC:")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.secondary)
-
-                        TextField("00:00:00:00", text: $endTimecodeText)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 14, weight: .medium, design: .monospaced))
-                            .frame(width: 100)
-                            .onChange(of: endTimecodeText) { _, newValue in
-                                let formatted = formatTimecodeInput(newValue)
-                                if formatted != newValue {
-                                    endTimecodeText = formatted
-                                }
-                            }
-                            .onSubmit {
-                                applyEndTimecode()
-                            }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                            )
-                    )
-
-                    Button("Apply") {
-                        applyEndTimecode()
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-
-            // Duration display
-            Text("Duration: \(formatDuration(timelineManager.timeline.config.durationFrames, at: timelineManager.timeline.config.frameRate))")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-    }
-
-    private func applyStartTimecode() {
-        let frameRate = timelineManager.timeline.config.frameRate
-        if let tc = parseTimecode(startTimecodeText, at: frameRate) {
-            var config = timelineManager.timeline.config
-            config.startTimecode = tc
-            timelineManager.updateConfig(config)
-            startTimecodeText = formatTimecode(tc)
-        } else {
-            // Reset to current value if invalid
-            startTimecodeText = formatTimecode(timelineManager.timeline.config.startTimecode)
-        }
-    }
-
-    private func applyEndTimecode() {
-        let frameRate = timelineManager.timeline.config.frameRate
-        if let tc = parseTimecode(endTimecodeText, at: frameRate) {
-            var config = timelineManager.timeline.config
-            config.endTimecode = tc
-            timelineManager.updateConfig(config)
-            endTimecodeText = formatTimecode(tc)
-        } else {
-            // Reset to current value if invalid
-            endTimecodeText = formatTimecode(timelineManager.timeline.config.endTimecode)
-        }
-    }
-
-    private func parseTimecode(_ string: String, at frameRate: TimecodeFrameRate) -> Timecode? {
-        // Strip non-numeric characters and get just digits
-        let digits = string.filter { $0.isNumber }
-
-        // Pad with leading zeros to get 8 digits (HHMMSSFF)
-        let padded = String(repeating: "0", count: max(0, 8 - digits.count)) + digits
-        let trimmed = String(padded.suffix(8))
-
-        guard trimmed.count == 8 else { return nil }
-
-        let h = Int(trimmed.prefix(2)) ?? 0
-        let m = Int(trimmed.dropFirst(2).prefix(2)) ?? 0
-        let s = Int(trimmed.dropFirst(4).prefix(2)) ?? 0
-        let f = Int(trimmed.dropFirst(6).prefix(2)) ?? 0
-
-        return Timecode(
-            .components(h: h, m: m, s: s, f: f),
-            at: frameRate,
-            by: .clamping
-        )
-    }
-
-    private func formatTimecode(_ tc: Timecode) -> String {
-        // stringValue() returns format like "01:00:00:00"
-        return tc.stringValue()
-    }
-
-    /// Format timecode input as the user types, inserting colons every 2 digits
-    private func formatTimecodeInput(_ input: String) -> String {
-        // Extract only digits
-        let digits = input.filter { $0.isNumber }
-
-        // Limit to 8 digits
-        let limited = String(digits.prefix(8))
-
-        // Insert colons every 2 digits
-        var result = ""
-        for (index, char) in limited.enumerated() {
-            if index > 0 && index % 2 == 0 {
-                result += ":"
-            }
-            result.append(char)
-        }
-
-        return result
-    }
-
-    private func formatDuration(_ frames: Int, at frameRate: TimecodeFrameRate) -> String {
-        let totalSeconds = Double(frames) / frameRate.fps
-        let hours = Int(totalSeconds) / 3600
-        let minutes = (Int(totalSeconds) % 3600) / 60
-        let seconds = Int(totalSeconds) % 60
-        return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
-    }
-
     // MARK: - MIDI Section
 
     private var midiSectionContent: some View {
@@ -373,7 +148,7 @@ struct SettingsView: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
 
-                HStack {
+                HStack(spacing: 8) {
                     Picker("MIDI Input", selection: Binding(
                         get: { midiSync.selectedInputName },
                         set: { newValue in
@@ -391,17 +166,14 @@ struct SettingsView: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+
+                    RefreshIconButton(helpText: "Refresh Inputs") {
+                        Task {
+                            await midiSync.refreshInputs()
+                        }
+                    }
                     Spacer()
                 }
-
-                Button("Refresh") {
-                    Task {
-                        await midiSync.refreshInputs()
-                    }
-                }
-                .buttonStyle(.plain)
-                .font(.caption)
-                .foregroundColor(.accentColor)
             }
 
             // MTC Status
@@ -436,7 +208,7 @@ struct SettingsView: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
 
-                HStack {
+                HStack(spacing: 8) {
                     Picker("Audio Output", selection: $audioManager.selectedDeviceUID) {
                         Text("System Default").tag(nil as String?)
                         ForEach(audioManager.availableDevices) { device in
@@ -452,17 +224,60 @@ struct SettingsView: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+
+                    RefreshIconButton(helpText: "Refresh Devices") {
+                        audioManager.refreshDevices()
+                    }
+
                     Spacer()
+
+                    Button("Map Interface") {
+                        showInterfaceMapping = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.accentColor)
+                    .disabled(audioManager.selectedDeviceChannelCount == 0)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                if audioManager.selectedDeviceChannelCount == 0 {
+                    Text("No output channels detected for this device.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
 
-                Button("Refresh") {
-                    audioManager.refreshDevices()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Mapped Outputs")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    if audioManager.mappedOutputs.isEmpty {
+                        Text("No mapped outputs yet.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(audioManager.mappedOutputs) { output in
+                            HStack(spacing: 6) {
+                                Text(output.name)
+                                    .font(.system(size: 11, weight: .medium))
+                                Text(outputChannelLabel(output))
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
-                .font(.caption)
-                .foregroundColor(.accentColor)
             }
         }
+    }
+
+    private func outputChannelLabel(_ output: MappedAudioOutput) -> String {
+        if output.channelCount <= 1 {
+            return "Out \(output.channelStart)"
+        }
+        let end = output.channelStart + output.channelCount - 1
+        return "Out \(output.channelStart)-\(end)"
     }
 
     // MARK: - Display Section
@@ -500,6 +315,402 @@ struct SettingsView: View {
 
 }
 
+private struct RefreshIconButton: View {
+    let helpText: String
+    let action: () -> Void
+
+    @State private var isHovering = false
+    @State private var rotation: Double = 0
+
+    var body: some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.6)) {
+                rotation += 360
+            }
+            action()
+        }) {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 12, weight: .semibold))
+                .rotationEffect(.degrees(rotation))
+                .animation(.easeInOut(duration: 0.6), value: rotation)
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .help(helpText)
+        .onHover { hovering in
+            if hovering, !isHovering {
+                NSCursor.pointingHand.push()
+                isHovering = true
+            } else if !hovering, isHovering {
+                NSCursor.pop()
+                isHovering = false
+            }
+        }
+    }
+}
+
+private struct AudioOutputMappingView: View {
+    @ObservedObject var audioManager: AudioOutputManager
+    @Binding var isPresented: Bool
+
+    @State private var rows: [OutputChannelRow] = []
+
+    private enum Layout {
+        static let activeWidth: CGFloat = 50
+        static let outputWidth: CGFloat = 110
+        static let modeWidth: CGFloat = 84
+        static let displayWidth: CGFloat = 200
+        static let columnSpacing: CGFloat = 12
+        static let rowHeight: CGFloat = 28
+        static let rowSpacing: CGFloat = 6
+        static let headerHeight: CGFloat = 16
+        static let horizontalPadding: CGFloat = 16
+        static let verticalPadding: CGFloat = 12
+        static let listMaxHeight: CGFloat = 320
+        static let listMinHeight: CGFloat = 120
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Map Interface")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+
+                    Text(mappingSubtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: Layout.rowSpacing) {
+                    if rows.isEmpty {
+                        Text("No outputs available on this device.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.top, 8)
+                    } else {
+                        mappingHeaderRow
+                        ForEach(rows.indices, id: \.self) { index in
+                            outputRow(for: index)
+                        }
+                    }
+                }
+                .padding(.horizontal, Layout.horizontalPadding)
+                .padding(.vertical, Layout.verticalPadding)
+            }
+            .frame(height: mappingListHeight)
+
+            Divider()
+
+            HStack {
+                Button("Cancel") {
+                    isPresented = false
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Button("Save") {
+                    saveMappings()
+                    isPresented = false
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(rows.isEmpty)
+            }
+            .padding()
+        }
+        .frame(width: mappingWindowWidth, height: mappingWindowHeight)
+        .onAppear {
+            buildRows()
+        }
+        .onChange(of: audioManager.selectedDeviceUID) { _, _ in
+            buildRows()
+        }
+    }
+
+    private var mappingSubtitle: String {
+        let deviceName = audioManager.selectedDevice?.name ?? "System Default"
+        return "\(deviceName) - \(audioManager.selectedDeviceChannelCount) outputs"
+    }
+
+    private func buildRows() {
+        let channelCount = audioManager.selectedDeviceChannelCount
+        guard channelCount > 0 else {
+            rows = []
+            return
+        }
+
+        rows = (0..<channelCount).map { index in
+            OutputChannelRow(channelIndex: index + 1)
+        }
+
+        let mappedOutputs = audioManager.mappedOutputs
+        for output in mappedOutputs {
+            let startIndex = output.channelStart - 1
+            guard startIndex >= 0, startIndex < rows.count else { continue }
+            rows[startIndex].isIncluded = true
+            rows[startIndex].name = output.name
+            rows[startIndex].isStereo = output.channelCount == 2
+        }
+    }
+
+    private func outputRow(for index: Int) -> some View {
+        let row = rows[index]
+        let isLocked = isChannelLocked(index)
+
+        return HStack(spacing: Layout.columnSpacing) {
+            if isLocked {
+                Color.clear
+                    .frame(width: Layout.activeWidth, height: 1)
+
+                Text("Output \(row.channelIndex)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .frame(width: Layout.outputWidth, alignment: .leading)
+
+                Text("Paired")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .frame(width: Layout.modeWidth, alignment: .leading)
+
+                Text("with Output \(row.channelIndex - 1)")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .frame(width: Layout.displayWidth, alignment: .leading)
+            } else {
+                Toggle("", isOn: bindingForRow(index).isIncluded)
+                    .toggleStyle(.checkbox)
+                    .labelsHidden()
+                    .frame(width: Layout.activeWidth, alignment: .leading)
+                    .controlSize(.small)
+
+                Text("Output \(row.channelIndex)")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: Layout.outputWidth, alignment: .leading)
+
+                modeSelector(for: index)
+                    .frame(width: Layout.modeWidth, alignment: .leading)
+
+                TextField("Name", text: bindingForRow(index).name)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: Layout.displayWidth)
+                    .disabled(!rows[index].isIncluded)
+                    .controlSize(.small)
+            }
+        }
+        .frame(height: Layout.rowHeight)
+        .frame(width: mappingContentWidth, alignment: .leading)
+        .onChange(of: rows[index].isIncluded) { _, _ in
+            enforceRowRules(at: index)
+        }
+        .onChange(of: rows[index].isStereo) { _, _ in
+            enforceRowRules(at: index)
+        }
+    }
+
+    private func isChannelLocked(_ index: Int) -> Bool {
+        guard index > 0 else { return false }
+        let previous = rows[index - 1]
+        return previous.isIncluded && previous.isStereo
+    }
+
+    private func enforceRowRules(at index: Int) {
+        guard index >= 0 && index < rows.count else { return }
+
+        if !rows[index].isIncluded {
+            rows[index].isStereo = false
+            rows[index].name = ""
+            return
+        }
+
+        if rows[index].name.isEmpty {
+            rows[index].name = defaultName(for: index)
+        }
+
+        if rows[index].isStereo {
+            if index == rows.count - 1 {
+                rows[index].isStereo = false
+                return
+            }
+            rows[index + 1].isIncluded = false
+            rows[index + 1].isStereo = false
+            rows[index + 1].name = ""
+        }
+    }
+
+    private func defaultName(for index: Int) -> String {
+        let channel = index + 1
+        if rows[index].isStereo && index + 1 < rows.count {
+            return "Output \(channel)-\(channel + 1)"
+        }
+        return "Output \(channel)"
+    }
+
+    private var mappingHeaderRow: some View {
+        HStack(spacing: Layout.columnSpacing) {
+            Text("Active")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(width: Layout.activeWidth, alignment: .leading)
+
+            Text("Output Name")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(width: Layout.outputWidth, alignment: .leading)
+
+            Color.clear
+                .frame(width: Layout.modeWidth, height: 1)
+
+            Text("Display Name")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(width: Layout.displayWidth, alignment: .leading)
+        }
+        .padding(.bottom, 2)
+        .frame(width: mappingContentWidth, alignment: .leading)
+    }
+
+    private var mappingListHeight: CGFloat {
+        let rowCount = max(rows.count, 1)
+        let headerHeight: CGFloat = rows.isEmpty ? 0 : Layout.headerHeight
+        let spacing: CGFloat = rows.isEmpty ? 0 : Layout.rowSpacing
+        let contentHeight = headerHeight + (CGFloat(rowCount) * Layout.rowHeight) + (CGFloat(max(rowCount - 1, 0)) * spacing)
+        let paddedHeight = contentHeight + (Layout.verticalPadding * 2)
+        return min(Layout.listMaxHeight, max(Layout.listMinHeight, paddedHeight))
+    }
+
+    private var mappingContentWidth: CGFloat {
+        Layout.activeWidth
+            + Layout.outputWidth
+            + Layout.modeWidth
+            + Layout.displayWidth
+            + (Layout.columnSpacing * 3)
+    }
+
+    private var mappingWindowWidth: CGFloat {
+        mappingContentWidth + (Layout.horizontalPadding * 2)
+    }
+
+    private var mappingWindowHeight: CGFloat {
+        let headerHeight: CGFloat = 72
+        let footerHeight: CGFloat = 64
+        return headerHeight + mappingListHeight + footerHeight
+    }
+
+    private func saveMappings() {
+        var outputs: [MappedAudioOutput] = []
+        var index = 0
+
+        while index < rows.count {
+            let row = rows[index]
+            if row.isIncluded {
+                let name = row.name.isEmpty ? defaultName(for: index) : row.name
+                if row.isStereo && index + 1 < rows.count {
+                    outputs.append(MappedAudioOutput(name: name, channelStart: index + 1, channelCount: 2))
+                    index += 2
+                    continue
+                }
+                outputs.append(MappedAudioOutput(name: name, channelStart: index + 1, channelCount: 1))
+            }
+            index += 1
+        }
+
+        audioManager.saveMappedOutputs(outputs, for: audioManager.selectedDeviceUID)
+    }
+
+    private func modeSelector(for index: Int) -> some View {
+        let canEdit = rows[index].isIncluded && index < rows.count - 1
+        let isStereo = bindingForRow(index).isStereo
+
+        return HStack(spacing: 6) {
+            modeButton(
+                iconName: "MonoIcon",
+                isSelected: !isStereo.wrappedValue,
+                isEnabled: canEdit
+            ) {
+                isStereo.wrappedValue = false
+            }
+
+            modeButton(
+                iconName: "StereoIcon",
+                isSelected: isStereo.wrappedValue,
+                isEnabled: canEdit
+            ) {
+                isStereo.wrappedValue = true
+            }
+        }
+    }
+
+    private func modeButton(
+        iconName: String,
+        isSelected: Bool,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(iconName)
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 14, height: 14)
+                .foregroundColor(isSelected ? .accentColor : .secondary)
+                .padding(4)
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.4)
+    }
+}
+
+private struct OutputChannelRow: Identifiable, Hashable {
+    let id = UUID()
+    let channelIndex: Int
+    var isIncluded: Bool = false
+    var isStereo: Bool = false
+    var name: String = ""
+}
+
+private extension Binding where Value == OutputChannelRow {
+    var isIncluded: Binding<Bool> {
+        Binding<Bool>(
+            get: { wrappedValue.isIncluded },
+            set: { wrappedValue.isIncluded = $0 }
+        )
+    }
+
+    var isStereo: Binding<Bool> {
+        Binding<Bool>(
+            get: { wrappedValue.isStereo },
+            set: { wrappedValue.isStereo = $0 }
+        )
+    }
+
+    var name: Binding<String> {
+        Binding<String>(
+            get: { wrappedValue.name },
+            set: { wrappedValue.name = $0 }
+        )
+    }
+}
+
+private extension AudioOutputMappingView {
+    func bindingForRow(_ index: Int) -> Binding<OutputChannelRow> {
+        Binding(
+            get: { rows[index] },
+            set: { rows[index] = $0 }
+        )
+    }
+}
+
 #Preview {
     struct PreviewWrapper: View {
         @StateObject var midiSync: MIDISyncViewModel
@@ -513,7 +724,6 @@ struct SettingsView: View {
             SettingsView(
                 midiSync: midiSync,
                 audioManager: AudioOutputManager(),
-                timelineManager: TimelineManager(),
                 isPresented: .constant(true)
             )
         }

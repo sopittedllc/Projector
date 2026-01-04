@@ -21,6 +21,9 @@ final class AppSettings: ObservableObject {
     /// Selected audio output device UID (empty = system default)
     @AppStorage("selectedAudioOutput") var selectedAudioOutput: String = ""
 
+    /// Stored audio output mappings (JSON)
+    @AppStorage("audioOutputMappings") private var audioOutputMappingsJSON: String = ""
+
     // MARK: - Display Settings
 
     /// Whether to show the timecode overlay on video
@@ -61,11 +64,55 @@ final class AppSettings: ObservableObject {
 
     private init() {}
 
+    // MARK: - Audio Output Mappings
+
+    func mappedOutputs(for deviceUID: String?) -> [MappedAudioOutput] {
+        let key = Self.mappingKey(for: deviceUID)
+        let mappings = loadAudioOutputMappings()
+        return mappings[key] ?? []
+    }
+
+    func setMappedOutputs(_ outputs: [MappedAudioOutput], for deviceUID: String?) {
+        let key = Self.mappingKey(for: deviceUID)
+        var mappings = loadAudioOutputMappings()
+        mappings[key] = outputs
+        saveAudioOutputMappings(mappings)
+    }
+
+    private func loadAudioOutputMappings() -> [String: [MappedAudioOutput]] {
+        guard !audioOutputMappingsJSON.isEmpty,
+              let data = audioOutputMappingsJSON.data(using: .utf8) else {
+            return [:]
+        }
+
+        do {
+            return try JSONDecoder().decode([String: [MappedAudioOutput]].self, from: data)
+        } catch {
+            return [:]
+        }
+    }
+
+    private func saveAudioOutputMappings(_ mappings: [String: [MappedAudioOutput]]) {
+        guard let data = try? JSONEncoder().encode(mappings),
+              let json = String(data: data, encoding: .utf8) else {
+            return
+        }
+        audioOutputMappingsJSON = json
+    }
+
+    private static func mappingKey(for deviceUID: String?) -> String {
+        if let uid = deviceUID, !uid.isEmpty {
+            return uid
+        }
+        return "system_default"
+    }
+
     // MARK: - Reset
 
     func resetToDefaults() {
         selectedMIDIInput = ""
         selectedAudioOutput = ""
+        audioOutputMappingsJSON = ""
         showTimecodeOverlay = true
         timecodeOverlayPosition = .bottomRight
         timecodeOverlayOpacity = 0.8
@@ -74,6 +121,20 @@ final class AppSettings: ObservableObject {
         autoPauseOnMTCStop = true
         respondToMMC = true
         defaultFrameRateRaw = TimecodeFrameRate.fps24.stringValue
+    }
+}
+
+struct MappedAudioOutput: Identifiable, Codable, Hashable {
+    let id: UUID
+    var name: String
+    var channelStart: Int
+    var channelCount: Int
+
+    init(id: UUID = UUID(), name: String, channelStart: Int, channelCount: Int) {
+        self.id = id
+        self.name = name
+        self.channelStart = channelStart
+        self.channelCount = channelCount
     }
 }
 

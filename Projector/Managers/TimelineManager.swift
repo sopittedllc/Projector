@@ -129,6 +129,16 @@ final class TimelineManager: ObservableObject {
         timeline.config = config
     }
 
+    private func extendTimelineIfNeeded(toEndFrame endFrame: Int) {
+        let clampedEndFrame = max(0, endFrame)
+        var config = timeline.config
+        let desiredEndFrames = config.startTimecode.frameCount.wholeFrames + clampedEndFrame
+        if desiredEndFrames > config.endTimecode.frameCount.wholeFrames {
+            config.endTimecode = Timecode(.frames(desiredEndFrames), at: config.frameRate, by: .clamping)
+            timeline.config = config
+        }
+    }
+
     // MARK: - Video Reel Operations
 
     /// Add a video reel from a file URL
@@ -168,6 +178,7 @@ final class TimelineManager: ObservableObject {
         )
 
         timeline.addVideoReel(reel)
+        extendTimelineIfNeeded(toEndFrame: reel.timelineEndFrame)
         return reel
     }
 
@@ -178,9 +189,19 @@ final class TimelineManager: ObservableObject {
 
     /// Move a video reel to a new timeline position
     func moveVideoReel(id: UUID, to newFrame: Int) {
-        if var reel = timeline.videoReels.first(where: { $0.id == id }) {
-            reel.timelineStartFrame = newFrame
-            timeline.updateVideoReel(reel)
+        moveVideoReel(id: id, to: newFrame, moveLinkedAudio: true)
+    }
+
+    private func moveVideoReel(id: UUID, to newFrame: Int, moveLinkedAudio: Bool) {
+        guard var reel = timeline.videoReels.first(where: { $0.id == id }) else { return }
+        let oldFrame = reel.timelineStartFrame
+        guard oldFrame != newFrame else { return }
+
+        reel.timelineStartFrame = newFrame
+        timeline.updateVideoReel(reel)
+
+        if moveLinkedAudio {
+            moveLinkedAudioClips(for: reel, oldFrame: oldFrame, newFrame: newFrame, excludingClipId: nil)
         }
     }
 
@@ -213,6 +234,17 @@ final class TimelineManager: ObservableObject {
             colorIndex: laneNumber % 8
         )
         timeline.addAudioLane(lane)
+        return lane
+    }
+
+    /// Add a new audio lane at the top (index 0)
+    func addAudioLaneAtTop(name: String? = nil) -> AudioLane {
+        let laneNumber = timeline.audioLanes.count + 1
+        let lane = AudioLane(
+            name: name ?? "Audio \(laneNumber)",
+            colorIndex: laneNumber % 8
+        )
+        timeline.addAudioLaneAtTop(lane)
         return lane
     }
 
@@ -265,6 +297,17 @@ final class TimelineManager: ObservableObject {
     func setLaneOutputDevice(id: UUID, deviceUID: String?) {
         if var lane = timeline.audioLanes.first(where: { $0.id == id }) {
             lane.outputDeviceUID = deviceUID
+            timeline.updateAudioLane(lane)
+        }
+    }
+
+    /// Set lane output mapping (nil = default)
+    func setLaneOutputMapping(id: UUID, mapping: MappedAudioOutput?) {
+        if var lane = timeline.audioLanes.first(where: { $0.id == id }) {
+            lane.outputMappingId = mapping?.id
+            if let mapping = mapping {
+                lane.outputChannelOffset = max(0, mapping.channelStart - 1)
+            }
             timeline.updateAudioLane(lane)
         }
     }
@@ -346,6 +389,7 @@ final class TimelineManager: ObservableObject {
         )
 
         timeline.addClip(clip, toLane: laneId)
+        extendTimelineIfNeeded(toEndFrame: clip.timelineEndFrame)
         return clip
     }
 
@@ -387,6 +431,7 @@ final class TimelineManager: ObservableObject {
         )
 
         timeline.addClip(clip, toLane: laneId)
+        extendTimelineIfNeeded(toEndFrame: clip.timelineEndFrame)
         return clip
     }
 
@@ -433,6 +478,7 @@ final class TimelineManager: ObservableObject {
         )
 
         timeline.addClip(clip, toLane: laneId)
+        extendTimelineIfNeeded(toEndFrame: clip.timelineEndFrame)
         return clip
     }
 
@@ -443,11 +489,21 @@ final class TimelineManager: ObservableObject {
 
     /// Move an audio clip to a new position
     func moveAudioClip(clipId: UUID, inLane laneId: UUID, to newFrame: Int) {
-        if let laneIndex = timeline.audioLanes.firstIndex(where: { $0.id == laneId }),
-           var clip = timeline.audioLanes[laneIndex].clips.first(where: { $0.id == clipId }) {
-            clip.timelineStartFrame = newFrame
-            timeline.audioLanes[laneIndex].updateClip(clip)
-        }
+        moveAudioClip(clipId: clipId, inLane: laneId, to: newFrame, moveLinkedReel: true)
+    }
+
+    private func moveAudioClip(clipId: UUID, inLane laneId: UUID, to newFrame: Int, moveLinkedReel shouldMoveLinkedReel: Bool) {
+        guard let laneIndex = timeline.audioLanes.firstIndex(where: { $0.id == laneId }),
+              var clip = timeline.audioLanes[laneIndex].clips.first(where: { $0.id == clipId }) else { return }
+
+        let oldFrame = clip.timelineStartFrame
+        guard oldFrame != newFrame else { return }
+
+        clip.timelineStartFrame = newFrame
+        timeline.audioLanes[laneIndex].updateClip(clip)
+
+        guard shouldMoveLinkedReel, clip.sourceType == .videoTrack else { return }
+        moveLinkedReel(for: clip, oldFrame: oldFrame, newFrame: newFrame)
     }
 
     /// Move an audio clip to a different lane
@@ -467,6 +523,43 @@ final class TimelineManager: ObservableObject {
                 timeline.audioLanes[toIndex].addClip(clip)
             }
         }
+    }
+
+    private func moveLinkedReel(for clip: AudioClip, oldFrame: Int, newFrame: Int) {
+        guard let reel = timeline.videoReels.first(where: {
+            $0.sourceURL == clip.sourceURL &&
+            $0.sourceStartFrame == clip.sourceStartFrame &&
+            $0.durationFrames == clip.durationFrames &&
+            $0.timelineStartFrame == oldFrame
+        }) else { return }
+
+        moveVideoReel(id: reel.id, to: newFrame, moveLinkedAudio: false)
+        moveLinkedAudioClips(for: reel, oldFrame: oldFrame, newFrame: newFrame, excludingClipId: clip.id)
+    }
+
+    private func moveLinkedAudioClips(
+        for reel: VideoReel,
+        oldFrame: Int,
+        newFrame: Int,
+        excludingClipId: UUID?
+    ) {
+        for laneIndex in timeline.audioLanes.indices {
+            let clips = timeline.audioLanes[laneIndex].clips
+            for clip in clips where isLinked(clip, to: reel, at: oldFrame) {
+                guard clip.id != excludingClipId else { continue }
+                var updated = clip
+                updated.timelineStartFrame = newFrame
+                timeline.audioLanes[laneIndex].updateClip(updated)
+            }
+        }
+    }
+
+    private func isLinked(_ clip: AudioClip, to reel: VideoReel, at startFrame: Int) -> Bool {
+        clip.sourceType == .videoTrack &&
+        clip.sourceURL == reel.sourceURL &&
+        clip.sourceStartFrame == reel.sourceStartFrame &&
+        clip.durationFrames == reel.durationFrames &&
+        clip.timelineStartFrame == startFrame
     }
 
     /// Update the source URL for an audio clip (used when relocating missing files)

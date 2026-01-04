@@ -1,6 +1,14 @@
 import Foundation
 import SwiftTimecodeCore
 
+struct LinkedDragPreview: Equatable {
+    let sourceURL: URL
+    let sourceStartFrame: Int
+    let durationFrames: Int
+    let fromFrame: Int
+    let toFrame: Int
+}
+
 /// Master timeline containing video reels and audio lanes
 struct Timeline: Codable, Equatable {
     /// Timeline configuration (start/end, frame rate)
@@ -102,6 +110,11 @@ struct Timeline: Codable, Equatable {
     /// Add an audio lane
     mutating func addAudioLane(_ lane: AudioLane) {
         audioLanes.append(lane)
+    }
+
+    /// Add an audio lane at the top (index 0).
+    mutating func addAudioLaneAtTop(_ lane: AudioLane) {
+        audioLanes.insert(lane, at: 0)
     }
 
     /// Remove an audio lane by ID

@@ -26,6 +26,9 @@ struct AudioLane: Identifiable, Codable, Equatable {
     /// Output device UID (nil = use global/system default)
     var outputDeviceUID: String?
 
+    /// Mapped output selection ID
+    var outputMappingId: UUID?
+
     /// Color index for visual distinction
     var colorIndex: Int
 
@@ -38,6 +41,7 @@ struct AudioLane: Identifiable, Codable, Equatable {
         volume: Float = 1.0,
         outputChannelOffset: Int = 0,
         outputDeviceUID: String? = nil,
+        outputMappingId: UUID? = nil,
         colorIndex: Int = 0
     ) {
         self.id = id
@@ -48,6 +52,7 @@ struct AudioLane: Identifiable, Codable, Equatable {
         self.volume = volume
         self.outputChannelOffset = outputChannelOffset
         self.outputDeviceUID = outputDeviceUID
+        self.outputMappingId = outputMappingId
         self.colorIndex = colorIndex
     }
 

@@ -30,6 +30,7 @@ struct ContentView: View {
     @StateObject private var audioManager = AudioOutputManager()
     @StateObject private var projectDocument = ProjectDocument()
     @ObservedObject private var settings = AppSettings.shared
+    @Environment(\.undoManager) private var undoManager
 
     // MARK: - MIDI Sync (Actor-based for thread safety)
     /// The MIDI sync actor (logic layer) - handles MTC/MMC on dedicated context
@@ -57,7 +58,6 @@ struct ContentView: View {
 
     // MARK: - UI State
     @State private var showSettings = false
-    @State private var isDropTargeted = false
     @State private var isLoadingMedia = false
     @State private var loadError: String?
     @State private var showErrorAlert = false
@@ -129,14 +129,10 @@ struct ContentView: View {
                 .allowsHitTesting(false)
             }
         }
-        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
-            handleDrop(providers: providers)
-        }
         .sheet(isPresented: $showSettings) {
             SettingsView(
                 midiSync: midiSyncViewModel,
                 audioManager: audioManager,
-                timelineManager: timelineManager,
                 isPresented: $showSettings
             )
         }
@@ -274,6 +270,9 @@ struct ContentView: View {
                 overlayOpacity: settings.timecodeOverlayOpacity,
                 extraTrailingPadding: settings.timecodeOverlayPosition == .bottomRight ? 50 : 0
             )
+            .onDrop(of: [UTType.fileURL, UTType.url], isTargeted: nil) { providers in
+                handleDrop(providers: providers)
+            }
             .frame(minWidth: 480, minHeight: 200)
             .frame(height: playbackHeight)
             .transaction { $0.animation = nil }
@@ -291,14 +290,6 @@ struct ContentView: View {
                 }
             )
             .overlay {
-                // Drop target overlay
-                if isDropTargeted {
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.accentColor, lineWidth: 3)
-                        .background(Color.accentColor.opacity(0.1))
-                        .padding(8)
-                }
-
                 // Loading overlay
                 if isLoadingMedia {
                     ZStack {
@@ -439,7 +430,7 @@ struct ContentView: View {
                             mediaLibrary: mediaLibrary,
                             onAddToVideoTrack: handleAddToVideoTrack,
                             onAddToAudioLane: handleAddToAudioLane,
-                            onDeleteItem: handleDeleteMediaItem
+                            onDeleteItems: handleDeleteMediaItems
                         )
                         .padding(.horizontal, 16)
                         .padding(.top, 8)
@@ -489,6 +480,9 @@ struct ContentView: View {
                 overlayOpacity: settings.timecodeOverlayOpacity,
                 extraTrailingPadding: settings.timecodeOverlayPosition == .bottomRight ? 50 : 0
             )
+            .onDrop(of: [UTType.fileURL, UTType.url], isTargeted: nil) { providers in
+                handleDrop(providers: providers)
+            }
             .ignoresSafeArea()
 
             // Minimize button in bottom right corner
@@ -1038,14 +1032,31 @@ struct ContentView: View {
     private func loadURL(from provider: NSItemProvider) async -> URL? {
         await withCheckedContinuation { continuation in
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
-                if let data = item as? Data,
-                   let url = URL(dataRepresentation: data, relativeTo: nil) {
+                if let url = extractURL(from: item) {
                     continuation.resume(returning: url)
-                } else {
-                    continuation.resume(returning: nil)
+                    return
+                }
+                provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
+                    continuation.resume(returning: extractURL(from: item))
                 }
             }
         }
+    }
+
+    private func extractURL(from item: Any?) -> URL? {
+        if let data = item as? Data {
+            return URL(dataRepresentation: data, relativeTo: nil)
+        }
+        if let url = item as? URL {
+            return url
+        }
+        if let url = item as? NSURL {
+            return url as URL
+        }
+        if let string = item as? String {
+            return URL(string: string)
+        }
+        return nil
     }
 
     private func partitionDuplicateMediaURLs(_ urls: [URL]) -> ([URL], [String]) {
@@ -1069,12 +1080,7 @@ struct ContentView: View {
     /// Handle video files dropped on the timeline video track
     private func handleVideoDropOnTimeline(_ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
         Task {
-            let (newURLs, duplicateNames) = isInternalDrag ? (urls, []) : partitionDuplicateMediaURLs(urls)
-            if !duplicateNames.isEmpty {
-                duplicateMediaNames = duplicateNames
-                showDuplicateMediaAlert = true
-            }
-            for url in newURLs {
+            for url in urls {
                 await addVideoToTimeline(url: url, atFrame: atFrame)
             }
         }
@@ -1083,11 +1089,6 @@ struct ContentView: View {
     /// Handle audio files dropped on a specific audio lane
     private func handleAudioDropOnTimeline(_ laneIndex: Int, _ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
         Task {
-            let (newURLs, duplicateNames) = isInternalDrag ? (urls, []) : partitionDuplicateMediaURLs(urls)
-            if !duplicateNames.isEmpty {
-                duplicateMediaNames = duplicateNames
-                showDuplicateMediaAlert = true
-            }
             // Ensure the lane exists
             while timelineManager.timeline.audioLanes.count <= laneIndex {
                 _ = timelineManager.addAudioLane()
@@ -1096,7 +1097,7 @@ struct ContentView: View {
             let lane = timelineManager.timeline.audioLanes[laneIndex]
             var insertFrame = max(0, atFrame)
 
-            for url in newURLs {
+            for url in urls {
                 let clip = await addAudioToTimeline(url: url, laneId: lane.id, atFrame: insertFrame)
                 if let clip = clip {
                     insertFrame = clip.timelineEndFrame
@@ -1232,8 +1233,31 @@ struct ContentView: View {
         return Timecode(.components(h: h, m: m, s: s, f: f), at: frameRate, by: .clamping)
     }
 
+    /// Remove media items from the project and register undo.
+    private func handleDeleteMediaItems(_ items: [MediaItem]) {
+        guard !items.isEmpty else { return }
+
+        let previousTimeline = timelineManager.timeline
+        let previousItems = mediaLibrary.exportItems()
+        let reelsToPrewarm = previousTimeline.videoReels
+
+        undoManager?.registerUndo(withTarget: timelineManager) { _ in
+            timelineManager.timeline = previousTimeline
+            mediaLibrary.load(items: previousItems)
+            syncTimelineToPlaybackEngine()
+            for reel in reelsToPrewarm {
+                thumbnailCache.prewarm(for: reel)
+            }
+        }
+        undoManager?.setActionName(items.count == 1 ? "Remove Media Item" : "Remove Media Items")
+
+        for item in items {
+            removeMediaItem(item)
+        }
+    }
+
     /// Remove a media item from the project and clean up timeline references.
-    private func handleDeleteMediaItem(_ item: MediaItem) {
+    private func removeMediaItem(_ item: MediaItem) {
         // Remove any video reels that reference this item.
         let reelsToRemove = timelineManager.timeline.videoReels.filter { $0.sourceURL == item.url }
         for reel in reelsToRemove {
@@ -1397,13 +1421,8 @@ struct ContentView: View {
             let audioTracks = try await asset.loadTracks(withMediaType: .audio)
             guard !audioTracks.isEmpty else { return }
 
-            // Ensure we have at least one audio lane
-            let lane: AudioLane
-            if timelineManager.timeline.audioLanes.isEmpty {
-                lane = timelineManager.addAudioLane(name: "Audio")
-            } else {
-                lane = timelineManager.timeline.audioLanes[0]
-            }
+            let laneNumber = timelineManager.timeline.audioLanes.count + 1
+            let lane = timelineManager.addAudioLaneAtTop(name: "Audio \(laneNumber)")
 
             // Extract the first audio track
             _ = try await timelineManager.extractAudioFromReel(reel.id, trackIndex: 0, toLane: lane.id)
