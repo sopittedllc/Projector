@@ -200,11 +200,11 @@ final class TimecodeOCRManager: ObservableObject {
     /// Normalize various timecode formats to HH:MM:SS:FF
     private func normalizeTimecode(_ tc: String) -> String {
         // Replace various separators with colons
-        var normalized = tc.replacingOccurrences(of: ";", with: ":")
-                           .replacingOccurrences(of: ".", with: ":")
+        let cleaned = tc.replacingOccurrences(of: ";", with: ":")
+                        .replacingOccurrences(of: ".", with: ":")
 
         // Ensure proper formatting
-        let components = normalized.split(separator: ":")
+        let components = cleaned.split(separator: ":")
         if components.count == 4 {
             let h = String(format: "%02d", Int(components[0]) ?? 0)
             let m = String(format: "%02d", Int(components[1]) ?? 0)
@@ -213,7 +213,7 @@ final class TimecodeOCRManager: ObservableObject {
             return "\(h):\(m):\(s):\(f)"
         }
 
-        return normalized
+        return cleaned
     }
 
     /// Parse timecode string to seconds

@@ -244,7 +244,6 @@ struct AudioLaneView: View {
                 pixelsPerFrame: pixelsPerFrame,
                 scrollOffset: scrollOffset,
                 durationFrames: timelineDurationFrames,
-                isDropAllowed: { isDropAllowed },
                 dropOperation: { (isDropAllowed || isLoadingDropPreview) ? .copy : .cancel },
                 dropHandler: { providers, location in
                     handleDrop(providers: providers, at: location)
@@ -585,7 +584,6 @@ private struct AudioLaneDropDelegate: DropDelegate {
     let pixelsPerFrame: CGFloat
     let scrollOffset: CGFloat
     let durationFrames: Int
-    let isDropAllowed: () -> Bool
     let dropOperation: () -> DropOperation
     let dropHandler: ([NSItemProvider], CGPoint) -> Bool
     let updateHandler: (CGPoint) -> Void

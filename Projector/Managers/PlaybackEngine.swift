@@ -86,6 +86,12 @@ final class PlaybackEngine: ObservableObject {
     /// Whether we're currently seeking
     private var isSeeking = false
 
+    /// Selected audio output device UID
+    private var audioOutputDeviceUID: String?
+
+    /// Pending seek request (coalesced)
+    private var pendingSeekFrame: Int?
+
     // MARK: - Constants
 
     /// Seconds before reel boundary to start preloading
@@ -116,6 +122,7 @@ final class PlaybackEngine: ObservableObject {
         let playerItem = AVPlayerItem(asset: asset)
         let player = AVPlayer(playerItem: playerItem)
         player.automaticallyWaitsToMinimizeStalling = false
+        player.isMuted = true
 
         // Cache asset
         assetCache[reel.id] = asset
@@ -144,7 +151,7 @@ final class PlaybackEngine: ObservableObject {
             if currentPlayer == nil || currentReelId != reel.id {
                 Task {
                     try? await loadReel(reel)
-                    seekWithinReel(reel, timelineFrame: currentFrame)
+                    seekWithinReel(reel, timelineFrame: currentFrame, resumeAfterSeek: true) {}
                 }
             } else {
                 currentPlayer?.play()
@@ -190,30 +197,8 @@ final class PlaybackEngine: ObservableObject {
         let clampedFrame = max(0, min(frame, durationFrames - 1))
         currentFrame = clampedFrame
         updateCurrentTimecode()
-
-        // Check if we need to switch reels
-        if let reel = timeline.videoReel(at: clampedFrame) {
-            if reel.id != currentReelId {
-                // Need to switch to different reel
-                Task {
-                    try? await loadReel(reel)
-                    seekWithinReel(reel, timelineFrame: clampedFrame)
-                }
-            } else {
-                // Same reel, just seek within it
-                seekWithinReel(reel, timelineFrame: clampedFrame)
-            }
-            isInGap = false
-            activeReel = reel
-        } else {
-            // In a gap - show black
-            isInGap = true
-            activeReel = nil
-            currentPlayer?.pause()
-        }
-
-        // Update audio clips
-        syncAudioClips()
+        pendingSeekFrame = clampedFrame
+        performPendingSeekIfNeeded()
     }
 
     /// Seek to a specific timecode
@@ -228,15 +213,6 @@ final class PlaybackEngine: ObservableObject {
         let frame = timeline.config.frame(for: timecode)
         if timeline.config.isValidFrame(frame) {
             seekToFrame(frame)
-
-            // If we were playing, continue playing
-            if isPlaying {
-                if isInGap {
-                    startGapPlayback()
-                } else {
-                    currentPlayer?.play()
-                }
-            }
         }
     }
 
@@ -252,6 +228,7 @@ final class PlaybackEngine: ObservableObject {
 
     /// Set the audio output device
     func setAudioOutputDevice(_ deviceUID: String?) {
+        audioOutputDeviceUID = deviceUID
         currentPlayer?.audioOutputDeviceUniqueID = deviceUID
         preloadPlayer?.audioOutputDeviceUniqueID = deviceUID
 
@@ -273,20 +250,25 @@ final class PlaybackEngine: ObservableObject {
         return asset
     }
 
-    /// Seek within a reel to a specific timeline frame
-    private func seekWithinReel(_ reel: VideoReel, timelineFrame: Int) {
+    private func seekWithinReel(
+        _ reel: VideoReel,
+        timelineFrame: Int,
+        resumeAfterSeek: Bool,
+        completion: @escaping () -> Void
+    ) {
         guard let sourceTime = reel.sourceTime(at: timelineFrame),
-              let player = currentPlayer else { return }
+              let player = currentPlayer else {
+            completion()
+            return
+        }
 
-        isSeeking = true
         let time = CMTime(seconds: sourceTime, preferredTimescale: 600)
-
         player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] completed in
             Task { @MainActor in
-                self?.isSeeking = false
-                if completed && self?.isPlaying == true {
+                if completed && resumeAfterSeek {
                     self?.currentPlayer?.play()
                 }
+                completion()
             }
         }
     }
@@ -323,6 +305,7 @@ final class PlaybackEngine: ObservableObject {
                 let playerItem = AVPlayerItem(asset: asset)
                 let player = AVPlayer(playerItem: playerItem)
                 player.automaticallyWaitsToMinimizeStalling = false
+                player.isMuted = true
 
                 await MainActor.run {
                     self.preloadPlayer = player
@@ -398,10 +381,7 @@ final class PlaybackEngine: ObservableObject {
             // Load and play the reel
             Task {
                 try? await loadReel(reel)
-                seekWithinReel(reel, timelineFrame: currentFrame)
-                if isPlaying {
-                    currentPlayer?.play()
-                }
+                seekWithinReel(reel, timelineFrame: currentFrame, resumeAfterSeek: isPlaying) {}
             }
         }
 
@@ -423,6 +403,8 @@ final class PlaybackEngine: ObservableObject {
         for (lane, clip) in activeClips {
             if audioPlayers[clip.id] == nil {
                 loadAudioClip(clip, lane: lane)
+            } else if let player = audioPlayers[clip.id] {
+                syncAudioPlayer(player, for: clip, shouldPlay: isPlaying)
             }
         }
     }
@@ -431,9 +413,15 @@ final class PlaybackEngine: ObservableObject {
     private func loadAudioClip(_ clip: AudioClip, lane: AudioLane) {
         let asset: AVAsset
 
-        if clip.sourceType == .videoTrack, let cached = assetCache.values.first(where: { _ in true }) {
-            // For video audio, use cached asset if available
-            asset = cached
+        if clip.sourceType == .videoTrack {
+            if let cached = assetCache.values.first(where: { asset in
+                guard let urlAsset = asset as? AVURLAsset else { return false }
+                return urlAsset.url == clip.sourceURL
+            }) {
+                asset = cached
+            } else {
+                asset = AVAsset(url: clip.sourceURL)
+            }
         } else {
             asset = AVAsset(url: clip.sourceURL)
         }
@@ -449,6 +437,7 @@ final class PlaybackEngine: ObservableObject {
                 let playerItem = AVPlayerItem(asset: asset)
                 let player = AVPlayer(playerItem: playerItem)
                 player.automaticallyWaitsToMinimizeStalling = false
+                player.audioOutputDeviceUniqueID = self.audioOutputDeviceUID
 
                 // Apply volume
                 let volume = clip.volume * lane.volume
@@ -498,13 +487,26 @@ final class PlaybackEngine: ObservableObject {
         // Seek active clips
         for (lane, clip) in activeClips {
             if let player = audioPlayers[clip.id] {
-                if let sourceTime = clip.sourceTime(at: currentFrame, masterFrameRate: frameRate) {
-                    let time = CMTime(seconds: sourceTime, preferredTimescale: 600)
-                    player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
-                }
+                syncAudioPlayer(player, for: clip, shouldPlay: isPlaying)
             } else {
                 loadAudioClip(clip, lane: lane)
             }
+        }
+    }
+
+    private func syncAudioPlayer(_ player: AVPlayer, for clip: AudioClip, shouldPlay: Bool) {
+        guard let sourceTime = clip.sourceTime(at: currentFrame, masterFrameRate: frameRate) else { return }
+        let time = CMTime(seconds: sourceTime, preferredTimescale: 600)
+        let currentSeconds = CMTimeGetSeconds(player.currentTime())
+        let drift = abs(currentSeconds - sourceTime)
+        let driftThreshold = shouldPlay ? 0.2 : 0.01
+
+        if isSeeking || drift > driftThreshold {
+            player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+        }
+
+        if shouldPlay, player.timeControlStatus != .playing {
+            player.play()
         }
     }
 
@@ -593,6 +595,62 @@ final class PlaybackEngine: ObservableObject {
     /// Update current timecode from frame
     private func updateCurrentTimecode() {
         currentTimecode = timeline.config.timecode(at: currentFrame)
+    }
+
+    private func performPendingSeekIfNeeded() {
+        guard !isSeeking, let targetFrame = pendingSeekFrame else { return }
+        pendingSeekFrame = nil
+
+        let wasPlaying = isPlaying
+        if wasPlaying {
+            currentPlayer?.pause()
+            stopGapPlayback()
+            stopAllAudioClips()
+        }
+
+        isSeeking = true
+
+        performSeek(to: targetFrame) { [weak self] in
+            guard let self else { return }
+            self.isSeeking = false
+
+            if self.pendingSeekFrame != nil {
+                self.performPendingSeekIfNeeded()
+                return
+            }
+
+            if wasPlaying {
+                if self.isInGap {
+                    self.startGapPlayback()
+                } else {
+                    self.currentPlayer?.play()
+                }
+            }
+
+            self.syncAudioClips()
+        }
+    }
+
+    private func performSeek(to frame: Int, completion: @escaping () -> Void) {
+        if let reel = timeline.videoReel(at: frame) {
+            isInGap = false
+            activeReel = reel
+
+            if reel.id != currentReelId {
+                Task { [weak self] in
+                    guard let self else { return }
+                    try? await self.loadReel(reel)
+                    self.seekWithinReel(reel, timelineFrame: frame, resumeAfterSeek: false, completion: completion)
+                }
+            } else {
+                seekWithinReel(reel, timelineFrame: frame, resumeAfterSeek: false, completion: completion)
+            }
+        } else {
+            isInGap = true
+            activeReel = nil
+            currentPlayer?.pause()
+            completion()
+        }
     }
 
     /// Update timeline properties when timeline changes

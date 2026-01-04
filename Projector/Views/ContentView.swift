@@ -6,6 +6,10 @@ import AppKit
 import Iconoir
 import Combine
 
+private struct ProviderBox: @unchecked Sendable {
+    let provider: NSItemProvider
+}
+
 /// Info about a missing file that needs to be located
 struct MissingFileInfo: Identifiable {
     let id: UUID
@@ -280,11 +284,15 @@ struct ContentView: View {
                 GeometryReader { proxy in
                     Color.clear
                         .onAppear {
-                            playbackMeasuredHeight = proxy.size.height
+                            DispatchQueue.main.async {
+                                playbackMeasuredHeight = proxy.size.height
+                            }
                         }
                         .onChange(of: proxy.size.height) { _, newValue in
                             if !isResizingPlayback, newValue != playbackMeasuredHeight {
-                                playbackMeasuredHeight = newValue
+                                DispatchQueue.main.async {
+                                    playbackMeasuredHeight = newValue
+                                }
                             }
                         }
                 }
@@ -389,12 +397,16 @@ struct ContentView: View {
                 GeometryReader { proxy in
                     Color.clear
                         .onAppear {
-                            vitalControlsHeight = proxy.size.height
+                            DispatchQueue.main.async {
+                                vitalControlsHeight = proxy.size.height
+                            }
                         }
                         .onChange(of: proxy.size.height) { _, newValue in
                             if newValue != vitalControlsHeight {
-                                vitalControlsHeight = newValue
-                                clampPlaybackHeightIfNeeded()
+                                DispatchQueue.main.async {
+                                    vitalControlsHeight = newValue
+                                    clampPlaybackHeightIfNeeded()
+                                }
                             }
                         }
                 }
@@ -451,12 +463,16 @@ struct ContentView: View {
             GeometryReader { proxy in
                 Color.clear
                     .onAppear {
-                        normalViewHeight = proxy.size.height
+                        DispatchQueue.main.async {
+                            normalViewHeight = proxy.size.height
+                        }
                     }
                     .onChange(of: proxy.size.height) { _, newValue in
                         if newValue != normalViewHeight {
-                            normalViewHeight = newValue
-                            clampPlaybackHeightIfNeeded()
+                            DispatchQueue.main.async {
+                                normalViewHeight = newValue
+                                clampPlaybackHeightIfNeeded()
+                            }
                         }
                     }
             }
@@ -1015,7 +1031,7 @@ struct ContentView: View {
                     // Create a new audio lane for each audio file
                     let laneNumber = self.timelineManager.timeline.audioLanes.count + 1
                     let newLane = self.timelineManager.addAudioLane(name: "Audio \(laneNumber)")
-                    await self.addAudioToTimeline(url: url, laneId: newLane.id, atFrame: nil)
+                    _ = await self.addAudioToTimeline(url: url, laneId: newLane.id, atFrame: nil)
                 }
             }
 
@@ -1030,13 +1046,14 @@ struct ContentView: View {
 
     /// Helper to load URL from NSItemProvider
     private func loadURL(from provider: NSItemProvider) async -> URL? {
-        await withCheckedContinuation { continuation in
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
+        let boxedProvider = ProviderBox(provider: provider)
+        return await withCheckedContinuation { continuation in
+            boxedProvider.provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
                 if let url = extractURL(from: item) {
                     continuation.resume(returning: url)
                     return
                 }
-                provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
+                boxedProvider.provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
                     continuation.resume(returning: extractURL(from: item))
                 }
             }
@@ -1501,7 +1518,7 @@ struct ContentView: View {
                                 // Create a new lane for each audio file
                                 let laneNumber = self.timelineManager.timeline.audioLanes.count + 1
                                 let newLane = self.timelineManager.addAudioLane(name: "Audio \(laneNumber)")
-                                await self.addAudioToTimeline(url: url, laneId: newLane.id, atFrame: nil)
+                                _ = await self.addAudioToTimeline(url: url, laneId: newLane.id, atFrame: nil)
                             }
                         }
                     }

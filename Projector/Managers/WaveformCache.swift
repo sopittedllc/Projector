@@ -114,32 +114,34 @@ final class WaveformCache: ObservableObject {
         let sampleCount = max(10, min(rawSampleCount, maxSampleCount))
         let effectiveSamplesPerSecond = max(
             1,
-            min(samplesPerSecond, Int(Double(maxSampleCount) / max(durationSeconds, 1)))
+            min(samplesPerSecond, Int(Double(sampleCount) / max(durationSeconds, 1)))
         )
 
-        let samples: [Float]
-        let analyzer = WaveformAnalyzer()
-        do {
-            samples = try await analyzer.samples(fromAudioAt: url, count: sampleCount)
-        } catch {
-            guard clip.sourceType == .videoTrack else {
-                throw error
-            }
-            let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-            guard !audioTracks.isEmpty else {
-                throw WaveformCacheError.noAudioTracks
-            }
-            let trackIndex = clip.sourceTrackIndex ?? 0
-            guard audioTracks.indices.contains(trackIndex) else {
-                throw WaveformCacheError.invalidTrackIndex
-            }
-            samples = try await samplesUsingAssetReader(
-                asset: asset,
-                track: audioTracks[trackIndex],
-                samplesPerSecond: effectiveSamplesPerSecond,
-                durationSeconds: durationSeconds
-            )
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        guard !audioTracks.isEmpty else {
+            throw WaveformCacheError.noAudioTracks
         }
+        let trackIndex = clip.sourceTrackIndex ?? 0
+        guard audioTracks.indices.contains(trackIndex) else {
+            throw WaveformCacheError.invalidTrackIndex
+        }
+        let track = audioTracks[trackIndex]
+        let trackTimeRange = try await track.load(.timeRange)
+        let trackStartSeconds = CMTimeGetSeconds(trackTimeRange.start)
+
+        let rawSamples = try await samplesUsingAssetReader(
+            asset: asset,
+            track: track,
+            samplesPerSecond: effectiveSamplesPerSecond,
+            durationSeconds: durationSeconds
+        )
+
+        let samples = applyTrackOffset(
+            samples: rawSamples,
+            expectedSamples: sampleCount,
+            trackStartSeconds: trackStartSeconds,
+            durationSeconds: durationSeconds
+        )
 
         let normalizedSamples = normalize(samples: samples)
         let levels = buildLevels(from: normalizedSamples, bucketCounts: bucketCounts)
@@ -153,22 +155,6 @@ final class WaveformCache: ObservableObject {
         durationSeconds: Double
     ) async throws -> [Float] {
         let reader = try AVAssetReader(asset: asset)
-        let outputSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVLinearPCMBitDepthKey: 32,
-            AVLinearPCMIsFloatKey: true,
-            AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsNonInterleaved: false
-        ]
-
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: outputSettings)
-        output.alwaysCopiesSampleData = false
-        reader.add(output)
-
-        guard reader.startReading() else {
-            throw WaveformCacheError.failedToStartReading
-        }
-
         let expectedSamples = Int(durationSeconds * Double(samplesPerSecond))
         var samples: [Float] = []
         samples.reserveCapacity(expectedSamples)
@@ -179,9 +165,28 @@ final class WaveformCache: ObservableObject {
             sampleRate = basicDesc.pointee.mSampleRate
         }
 
-        let samplesPerOutputSample = max(1, Int(sampleRate) / samplesPerSecond)
-        var sampleBuffer: [Float] = []
-        sampleBuffer.reserveCapacity(samplesPerOutputSample * 2)
+        let targetSampleRate = min(sampleRate, max(8000, Double(samplesPerSecond) * 20))
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: targetSampleRate,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false
+        ])
+        output.alwaysCopiesSampleData = false
+        reader.add(output)
+
+        guard reader.startReading() else {
+            throw WaveformCacheError.failedToStartReading
+        }
+
+        let processingSampleRate = targetSampleRate
+        let samplesPerOutputSample = max(1, Int(processingSampleRate) / samplesPerSecond)
+        let int16Scale: Float = 1.0 / 32768.0
+        var samplesInBucket = 0
+        var currentPeak: Int32 = 0
 
         while let sampleBuffer2 = output.copyNextSampleBuffer() {
             guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer2) else { continue }
@@ -198,23 +203,25 @@ final class WaveformCache: ObservableObject {
 
             guard let data = dataPointer else { continue }
 
-            let floatCount = length / MemoryLayout<Float>.size
-            let floatPointer = data.withMemoryRebound(to: Float.self, capacity: floatCount) { $0 }
+            let sampleCount = length / MemoryLayout<Int16>.size
+            let samplePointer = data.withMemoryRebound(to: Int16.self, capacity: sampleCount) { $0 }
 
-            for i in 0..<floatCount {
-                sampleBuffer.append(abs(floatPointer[i]))
-
-                if sampleBuffer.count >= samplesPerOutputSample {
-                    let peak = sampleBuffer.max() ?? 0
-                    samples.append(min(1.0, peak))
-                    sampleBuffer.removeAll(keepingCapacity: true)
+            for sampleIndex in 0..<sampleCount {
+                let absValue = abs(Int32(samplePointer[sampleIndex]))
+                if absValue > currentPeak {
+                    currentPeak = absValue
+                }
+                samplesInBucket += 1
+                if samplesInBucket >= samplesPerOutputSample {
+                    samples.append(min(1.0, Float(currentPeak) * int16Scale))
+                    samplesInBucket = 0
+                    currentPeak = 0
                 }
             }
         }
 
-        if !sampleBuffer.isEmpty {
-            let peak = sampleBuffer.max() ?? 0
-            samples.append(min(1.0, peak))
+        if samplesInBucket > 0 {
+            samples.append(min(1.0, Float(currentPeak) * int16Scale))
         }
 
         reader.cancelReading()
@@ -342,6 +349,30 @@ final class WaveformCache: ObservableObject {
         }
         let scale = 1.0 / peak
         return samples.map { abs($0) * scale }
+    }
+
+    private nonisolated static func applyTrackOffset(
+        samples: [Float],
+        expectedSamples: Int,
+        trackStartSeconds: Double,
+        durationSeconds: Double
+    ) -> [Float] {
+        guard expectedSamples > 0 else { return samples }
+        var output = samples
+        if trackStartSeconds > 0, durationSeconds > 0 {
+            let leadingSamples = max(0, Int(round((trackStartSeconds / durationSeconds) * Double(expectedSamples))))
+            if leadingSamples > 0 {
+                output.insert(contentsOf: Array(repeating: 0, count: leadingSamples), at: 0)
+            }
+        }
+
+        if output.count < expectedSamples {
+            output.append(contentsOf: Array(repeating: 0, count: expectedSamples - output.count))
+        } else if output.count > expectedSamples {
+            output = Array(output.prefix(expectedSamples))
+        }
+
+        return output
     }
 
     private nonisolated static func buildLevels(from samples: [Float], bucketCounts: [Int]) -> [Int: WaveformLevel] {

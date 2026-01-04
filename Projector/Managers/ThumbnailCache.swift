@@ -69,7 +69,7 @@ final class ThumbnailCache: ObservableObject {
                     jpegCompression: jpegCompression
                 )
 
-                await MainActor.run {
+                await MainActor.run { () -> Void in
                     var atlas = self.atlases[reel.id] ?? ThumbnailAtlas(duration: strip.sourceDuration)
                     atlas.addLevel(strip, bucketCount: bucketCount)
                     self.atlases[reel.id] = atlas
@@ -77,7 +77,7 @@ final class ThumbnailCache: ObservableObject {
                 }
             } catch {
                 NSLog(">>> ThumbnailCache: Failed to generate thumbnails for \(reel.id): \(error)")
-                await MainActor.run {
+                await MainActor.run { () -> Void in
                     self.generationTasks.removeValue(forKey: key)
                 }
             }
@@ -130,7 +130,8 @@ final class ThumbnailCache: ObservableObject {
 
         let collector = ThumbnailCollector(sourceDuration: durationSeconds, interval: interval)
 
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        let timesCount = times.count
+        let _: Void = await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             var completedCount = 0
             let lock = NSLock()
 
@@ -142,7 +143,7 @@ final class ThumbnailCache: ObservableObject {
 
                 lock.lock()
                 completedCount += 1
-                let done = completedCount >= times.count
+                let done = completedCount >= timesCount
                 lock.unlock()
 
                 if done {

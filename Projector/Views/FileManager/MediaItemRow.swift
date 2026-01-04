@@ -6,6 +6,17 @@ enum MediaDragProvider {
     static func provider(for item: MediaItem) -> NSItemProvider {
         let provider = NSItemProvider(item: item.url as NSURL, typeIdentifier: UTType.fileURL.identifier)
         provider.suggestedName = item.url.lastPathComponent
+        if item.type == .audio {
+            provider.registerDataRepresentation(forTypeIdentifier: UTType.audio.identifier, visibility: .all) { completion in
+                completion(Data(), nil)
+                return nil
+            }
+        } else if item.type == .video {
+            provider.registerDataRepresentation(forTypeIdentifier: UTType.movie.identifier, visibility: .all) { completion in
+                completion(Data(), nil)
+                return nil
+            }
+        }
         if let data = item.id.uuidString.data(using: .utf8) {
             provider.registerDataRepresentation(forTypeIdentifier: UTType.projectorMediaItem.identifier, visibility: .all) { completion in
                 completion(data, nil)

@@ -66,7 +66,7 @@ extension View {
     /// Apply a dark translucent panel effect
     func darkPanelBackground() -> some View {
         self.background(
-            VisualEffectView(material: .dark, blendingMode: .behindWindow)
+            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
         )
     }
 

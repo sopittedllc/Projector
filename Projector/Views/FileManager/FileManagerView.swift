@@ -40,7 +40,7 @@ struct FileManagerView: View {
         .contentShape(Rectangle())
         .clipped()
         .background(
-            VisualEffectView(material: .dark, blendingMode: .behindWindow, alphaValue: 0.6)
+            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow, alphaValue: 0.6)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
         )
         .overlay(
