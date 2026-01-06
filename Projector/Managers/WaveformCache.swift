@@ -66,25 +66,24 @@ final class WaveformCache: ObservableObject {
 
         let task = Task {
             do {
-                let atlas = try await Self.generateAtlasForClip(
-                    clip: clip,
-                    samplesPerSecond: sps,
-                    bucketCounts: atlasBucketCounts
-                )
+                let bucketCounts = atlasBucketCounts
+                let atlas = try await Task.detached(priority: .userInitiated) {
+                    try await Self.generateAtlasForClip(
+                        clip: clip,
+                        samplesPerSecond: sps,
+                        bucketCounts: bucketCounts
+                    )
+                }.value
 
-                await MainActor.run {
-                    self.clipAtlases[clipId] = atlas
-                    self.generationTasks.removeValue(forKey: clipId)
-                    self.pendingCount -= 1
-                    self.updateGeneratingState()
-                }
+                self.clipAtlases[clipId] = atlas
+                self.generationTasks.removeValue(forKey: clipId)
+                self.pendingCount -= 1
+                self.updateGeneratingState()
             } catch {
                 NSLog(">>> WaveformCache: Failed to generate waveform for clip \(clipId): \(error)")
-                await MainActor.run {
-                    self.generationTasks.removeValue(forKey: clipId)
-                    self.pendingCount -= 1
-                    self.updateGeneratingState()
-                }
+                self.generationTasks.removeValue(forKey: clipId)
+                self.pendingCount -= 1
+                self.updateGeneratingState()
             }
         }
 

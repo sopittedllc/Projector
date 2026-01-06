@@ -9,6 +9,7 @@ struct FileManagerView: View {
     let onAddToVideoTrack: (MediaItem) -> Void
     let onAddToAudioLane: (MediaItem, Int) -> Void
     let onDeleteItems: ([MediaItem]) -> Void
+    @EnvironmentObject private var dragContext: DragContext
 
     @State private var selectedItemIds: Set<UUID> = []
     @State private var lastSelectedIndex: Int?
@@ -40,8 +41,12 @@ struct FileManagerView: View {
         .contentShape(Rectangle())
         .clipped()
         .background(
-            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow, alphaValue: 0.6)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            ZStack {
+                VisualEffectView(material: .titlebar, blendingMode: .behindWindow, alphaValue: 1.0)
+                Color(red: 30.0 / 255.0, green: 30.0 / 255.0, blue: 30.0 / 255.0)
+                    .opacity(0.85)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)

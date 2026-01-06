@@ -29,6 +29,8 @@ struct ProjectorApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSWindowDelegate {
     private var hasSetupMenus = false
     private var hasSetupWindowDelegate = false
+    private var activationAttempt = 0
+    private let maxActivationAttempts = 6
 
     /// URL to open when the app finishes launching (for file double-click)
     static var pendingOpenURL: URL?
@@ -41,6 +43,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
         // Swizzle NSApplication's sendEvent to intercept CMD+S
         swizzleSendEvent()
+
+        requestInitialActivation()
 
         // Setup menus after a delay to ensure SwiftUI has created them
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -66,6 +70,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
             queue: .main
         ) { _ in
             self.openFile()
+        }
+    }
+
+    private func requestInitialActivation() {
+        activationAttempt = 0
+        attemptActivation()
+    }
+
+    private func attemptActivation() {
+        activationAttempt += 1
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.unhide(nil)
+
+        if let window = NSApp.mainWindow ?? NSApp.keyWindow ?? NSApp.windows.first {
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            return
+        }
+
+        guard activationAttempt < maxActivationAttempts else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.attemptActivation()
         }
     }
 

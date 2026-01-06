@@ -307,6 +307,10 @@ final class TimelineManager: ObservableObject {
             lane.outputMappingId = mapping?.id
             if let mapping = mapping {
                 lane.outputChannelOffset = max(0, mapping.channelStart - 1)
+                lane.outputChannelCount = max(1, mapping.channelCount)
+            } else {
+                lane.outputChannelOffset = 0
+                lane.outputChannelCount = 2
             }
             timeline.updateAudioLane(lane)
         }

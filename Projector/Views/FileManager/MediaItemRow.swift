@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 import UniformTypeIdentifiers
 import Iconoir
 
@@ -17,7 +18,12 @@ enum MediaDragProvider {
                 return nil
             }
         }
-        if let data = item.id.uuidString.data(using: .utf8) {
+        if let data = try? JSONSerialization.data(withJSONObject: [
+            "id": item.id.uuidString,
+            "url": item.url.absoluteString,
+            "type": item.type.rawValue,
+            "duration": item.duration
+        ]) {
             provider.registerDataRepresentation(forTypeIdentifier: UTType.projectorMediaItem.identifier, visibility: .all) { completion in
                 completion(data, nil)
                 return nil
@@ -39,6 +45,7 @@ struct MediaItemRow: View {
     let onDoubleClick: () -> Void
 
     @State private var isDragging = false
+    @EnvironmentObject private var dragContext: DragContext
 
     var body: some View {
         HStack(spacing: 10) {
@@ -95,6 +102,7 @@ struct MediaItemRow: View {
         .opacity(isDragging ? 0.5 : 1.0)
         .onDrag {
             isDragging = true
+            dragContext.begin(item)
             return MediaDragProvider.provider(for: item)
         }
         .onChange(of: isDragging) { _, newValue in

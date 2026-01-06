@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import Combine
 import SwiftTimecodeCore
+import AudioToolbox
 
 /// Multi-reel playback engine with timeline support
 /// Manages seamless video reel switching and multiple audio clip playback
@@ -65,8 +66,11 @@ final class PlaybackEngine: ObservableObject {
     /// Asset cache for loaded video files
     private var assetCache: [UUID: AVAsset] = [:]
 
+    /// Audio engine for routed playback
+    private let audioEngine = AVAudioEngine()
+
     /// Audio players for active clips
-    private var audioPlayers: [UUID: AVPlayer] = [:]
+    private var audioPlayers: [UUID: AudioClipPlayback] = [:]
 
     /// Time observer for periodic updates
     private var timeObserver: Any?
@@ -89,6 +93,21 @@ final class PlaybackEngine: ObservableObject {
     /// Selected audio output device UID
     private var audioOutputDeviceUID: String?
 
+    /// Selected audio output device ID
+    private var audioOutputDeviceID: AudioDeviceID?
+
+    /// Output channel count for selected device
+    private var audioOutputChannelCount: Int = 2
+
+    /// Output sample rate for selected device
+    private var audioOutputSampleRate: Double = 48000
+
+    /// Cached output format
+    private var audioOutputFormat: AVAudioFormat?
+
+    /// Cached extracted audio files for video tracks
+    private var extractedAudioCache: [AudioExtractionKey: URL] = [:]
+
     /// Pending seek request (coalesced)
     private var pendingSeekFrame: Int?
 
@@ -97,12 +116,56 @@ final class PlaybackEngine: ObservableObject {
     /// Seconds before reel boundary to start preloading
     private let preloadThreshold: Double = 5.0
 
+    private struct AudioExtractionKey: Hashable {
+        let url: URL
+        let trackIndex: Int
+    }
+
+    private struct ExportSessionBox: @unchecked Sendable {
+        let session: AVAssetExportSession
+    }
+
+    private final class AudioClipPlayback {
+        let clipId: UUID
+        let player: AVAudioPlayerNode
+        let converter: AVAudioUnit
+        let audioFile: AVAudioFile
+        let inputChannelCount: Int
+
+        var outputMappingId: UUID?
+        var outputChannelOffset: Int
+        var outputChannelCount: Int
+        var scheduledSourceTime: Double?
+
+        init(
+            clipId: UUID,
+            player: AVAudioPlayerNode,
+            converter: AVAudioUnit,
+            audioFile: AVAudioFile,
+            inputChannelCount: Int,
+            outputMappingId: UUID?,
+            outputChannelOffset: Int,
+            outputChannelCount: Int
+        ) {
+            self.clipId = clipId
+            self.player = player
+            self.converter = converter
+            self.audioFile = audioFile
+            self.inputChannelCount = inputChannelCount
+            self.outputMappingId = outputMappingId
+            self.outputChannelOffset = outputChannelOffset
+            self.outputChannelCount = outputChannelCount
+            self.scheduledSourceTime = nil
+        }
+    }
+
     // MARK: - Initialization
 
     init(timeline: Timeline = .empty) {
         self.timeline = timeline
         self.currentTimecode = timeline.config.startTimecode
         updateTimelineProperties()
+        updateAudioOutputDeviceSettings()
     }
 
     // MARK: - Public Methods
@@ -142,6 +205,7 @@ final class PlaybackEngine: ObservableObject {
     /// Start playback
     func play() {
         guard hasContent else { return }
+        resetSeekState()
 
         if let reel = timeline.videoReel(at: currentFrame) {
             isInGap = false
@@ -173,6 +237,7 @@ final class PlaybackEngine: ObservableObject {
     func pause() {
         currentPlayer?.pause()
         isPlaying = false
+        resetSeekState()
         stopGapPlayback()
         stopAllAudioClips()
     }
@@ -190,6 +255,11 @@ final class PlaybackEngine: ObservableObject {
     func stop() {
         pause()
         seekToFrame(0)
+    }
+
+    private func resetSeekState() {
+        isSeeking = false
+        pendingSeekFrame = nil
     }
 
     /// Seek to a specific timeline frame
@@ -231,10 +301,8 @@ final class PlaybackEngine: ObservableObject {
         audioOutputDeviceUID = deviceUID
         currentPlayer?.audioOutputDeviceUniqueID = deviceUID
         preloadPlayer?.audioOutputDeviceUniqueID = deviceUID
-
-        for player in audioPlayers.values {
-            player.audioOutputDeviceUniqueID = deviceUID
-        }
+        updateAudioOutputDeviceSettings()
+        reconfigureAudioEngineForOutputChange()
     }
 
     // MARK: - Private Methods - Video
@@ -265,7 +333,7 @@ final class PlaybackEngine: ObservableObject {
         let time = CMTime(seconds: sourceTime, preferredTimescale: 600)
         player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] completed in
             Task { @MainActor in
-                if completed && resumeAfterSeek {
+                if completed && resumeAfterSeek, self?.isPlaying == true {
                     self?.currentPlayer?.play()
                 }
                 completion()
@@ -400,62 +468,52 @@ final class PlaybackEngine: ObservableObject {
     private func startActiveAudioClips() {
         let activeClips = timeline.activeAudioClips(at: currentFrame)
 
+        guard !activeClips.isEmpty else { return }
+
         for (lane, clip) in activeClips {
-            if audioPlayers[clip.id] == nil {
+            if let playback = audioPlayers[clip.id] {
+                syncAudioPlayer(playback, for: clip, lane: lane, shouldPlay: isPlaying)
+            } else {
                 loadAudioClip(clip, lane: lane)
-            } else if let player = audioPlayers[clip.id] {
-                syncAudioPlayer(player, for: clip, shouldPlay: isPlaying)
             }
         }
     }
 
     /// Load an audio clip for playback
     private func loadAudioClip(_ clip: AudioClip, lane: AudioLane) {
-        let asset: AVAsset
-
-        if clip.sourceType == .videoTrack {
-            if let cached = assetCache.values.first(where: { asset in
-                guard let urlAsset = asset as? AVURLAsset else { return false }
-                return urlAsset.url == clip.sourceURL
-            }) {
-                asset = cached
-            } else {
-                asset = AVAsset(url: clip.sourceURL)
-            }
-        } else {
-            asset = AVAsset(url: clip.sourceURL)
-        }
-
-        Task {
+        let clipSnapshot = clip
+        let laneSnapshot = lane
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
             do {
-                let tracks = try await asset.load(.tracks)
-                let audioTracks = tracks.filter { $0.mediaType == .audio }
-
-                guard let trackIndex = clip.sourceTrackIndex ?? (audioTracks.isEmpty ? nil : 0),
-                      trackIndex < audioTracks.count else { return }
-
-                let playerItem = AVPlayerItem(asset: asset)
-                let player = AVPlayer(playerItem: playerItem)
-                player.automaticallyWaitsToMinimizeStalling = false
-                player.audioOutputDeviceUniqueID = self.audioOutputDeviceUID
-
-                // Apply volume
-                let volume = clip.volume * lane.volume
-                player.volume = volume
-
-                await MainActor.run {
-                    self.audioPlayers[clip.id] = player
-
-                    // Seek to correct position
-                    if let sourceTime = clip.sourceTime(at: self.currentFrame, masterFrameRate: self.frameRate) {
-                        let time = CMTime(seconds: sourceTime, preferredTimescale: 600)
-                        let shouldPlay = self.isPlaying
-                        player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { completed in
-                            if completed && shouldPlay {
-                                player.play()
-                            }
+                let sourceURL: URL
+                if clipSnapshot.sourceType == .videoTrack {
+                    let key = AudioExtractionKey(
+                        url: clipSnapshot.sourceURL,
+                        trackIndex: clipSnapshot.sourceTrackIndex ?? 0
+                    )
+                    if let cached = await MainActor.run { self.extractedAudioCache[key] } {
+                        sourceURL = cached
+                    } else {
+                        let extractedURL = try await Self.extractAudioToTemporaryFile(for: clipSnapshot, key: key)
+                        await MainActor.run {
+                            self.extractedAudioCache[key] = extractedURL
                         }
+                        sourceURL = extractedURL
                     }
+                } else {
+                    sourceURL = clipSnapshot.sourceURL
+                }
+                let audioFile = try AVAudioFile(forReading: sourceURL)
+                let playback = try await self.buildAudioPlayback(for: clipSnapshot, lane: laneSnapshot, audioFile: audioFile)
+                await MainActor.run {
+                    self.audioPlayers[clipSnapshot.id] = playback
+                    self.scheduleAudioPlayback(
+                        playback,
+                        clip: clipSnapshot,
+                        lane: laneSnapshot,
+                        shouldPlay: self.isPlaying
+                    )
                 }
             } catch {
                 NSLog(">>> PlaybackEngine: Failed to load audio clip: \(error)")
@@ -465,8 +523,8 @@ final class PlaybackEngine: ObservableObject {
 
     /// Stop all audio clips
     private func stopAllAudioClips() {
-        for player in audioPlayers.values {
-            player.pause()
+        for playback in audioPlayers.values {
+            playback.player.stop()
         }
     }
 
@@ -477,37 +535,468 @@ final class PlaybackEngine: ObservableObject {
         let activeIds = Set(activeClips.map { $0.clip.id })
 
         // Remove clips that are no longer active
-        for id in audioPlayers.keys {
+        for id in Array(audioPlayers.keys) {
             if !activeIds.contains(id) {
-                audioPlayers[id]?.pause()
-                audioPlayers.removeValue(forKey: id)
+                removeAudioPlayback(id: id)
             }
         }
 
         // Seek active clips
         for (lane, clip) in activeClips {
-            if let player = audioPlayers[clip.id] {
-                syncAudioPlayer(player, for: clip, shouldPlay: isPlaying)
+            if let playback = audioPlayers[clip.id] {
+                syncAudioPlayer(playback, for: clip, lane: lane, shouldPlay: isPlaying)
             } else {
                 loadAudioClip(clip, lane: lane)
             }
         }
     }
 
-    private func syncAudioPlayer(_ player: AVPlayer, for clip: AudioClip, shouldPlay: Bool) {
+    private func syncAudioPlayer(_ playback: AudioClipPlayback, for clip: AudioClip, lane: AudioLane, shouldPlay: Bool) {
+        applyOutputMappingIfNeeded(playback, lane: lane)
+        playback.player.volume = clip.volume * lane.volume
         guard let sourceTime = clip.sourceTime(at: currentFrame, masterFrameRate: frameRate) else { return }
-        let time = CMTime(seconds: sourceTime, preferredTimescale: 600)
-        let currentSeconds = CMTimeGetSeconds(player.currentTime())
+
+        let currentSeconds: Double? = {
+            guard let nodeTime = playback.player.lastRenderTime,
+                  let playerTime = playback.player.playerTime(forNodeTime: nodeTime) else {
+                return nil
+            }
+            let scheduledBase = playback.scheduledSourceTime ?? sourceTime
+            return scheduledBase + (Double(playerTime.sampleTime) / playerTime.sampleRate)
+        }()
+
+        guard let currentSeconds else {
+            scheduleAudioPlayback(playback, clip: clip, lane: lane, shouldPlay: shouldPlay)
+            return
+        }
+
         let drift = abs(currentSeconds - sourceTime)
         let driftThreshold = shouldPlay ? 0.2 : 0.01
 
         if isSeeking || drift > driftThreshold {
-            player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+            scheduleAudioPlayback(playback, clip: clip, lane: lane, shouldPlay: shouldPlay)
         }
 
-        if shouldPlay, player.timeControlStatus != .playing {
-            player.play()
+        if shouldPlay, !playback.player.isPlaying {
+            ensureAudioEngineRunning()
+            playback.player.play()
+        } else if !shouldPlay, playback.player.isPlaying {
+            playback.player.pause()
         }
+    }
+
+    private func scheduleAudioPlayback(
+        _ playback: AudioClipPlayback,
+        clip: AudioClip,
+        lane: AudioLane,
+        shouldPlay: Bool
+    ) {
+        guard let sourceTime = clip.sourceTime(at: currentFrame, masterFrameRate: frameRate) else { return }
+
+        let file = playback.audioFile
+        let sampleRate = file.processingFormat.sampleRate
+        let startFrame = AVAudioFramePosition(sourceTime * sampleRate)
+        let remainingSeconds = Double(max(0, clip.timelineEndFrame - currentFrame)) / frameRate.fps
+        let maxFrames = AVAudioFramePosition(remainingSeconds * sampleRate)
+        let availableFrames = max(0, file.length - startFrame)
+        let frameCount = AVAudioFrameCount(min(Double(availableFrames), Double(maxFrames)))
+
+        guard frameCount > 0 else { return }
+
+        playback.player.stop()
+        playback.player.volume = clip.volume * lane.volume
+        playback.player.scheduleSegment(file, startingFrame: startFrame, frameCount: frameCount, at: nil)
+        playback.scheduledSourceTime = sourceTime
+        if shouldPlay {
+            ensureAudioEngineRunning()
+            playback.player.play()
+        }
+    }
+
+    private func buildAudioPlayback(
+        for clip: AudioClip,
+        lane: AudioLane,
+        audioFile: AVAudioFile
+    ) async throws -> AudioClipPlayback {
+        configureAudioEngineIfNeeded()
+
+        let player = AVAudioPlayerNode()
+        let converter = try await makeChannelMapConverter()
+        let inputFormat = audioFile.processingFormat
+
+        audioEngine.attach(player)
+        audioEngine.attach(converter)
+        audioEngine.connect(player, to: converter, format: inputFormat)
+
+        if let outputFormat = audioOutputFormat {
+            audioEngine.connect(converter, to: audioEngine.mainMixerNode, format: outputFormat)
+        } else {
+            audioEngine.connect(converter, to: audioEngine.mainMixerNode, format: inputFormat)
+        }
+
+        let inputChannelCount = Int(inputFormat.channelCount)
+        let playback = AudioClipPlayback(
+            clipId: clip.id,
+            player: player,
+            converter: converter,
+            audioFile: audioFile,
+            inputChannelCount: inputChannelCount,
+            outputMappingId: lane.outputMappingId,
+            outputChannelOffset: lane.outputChannelOffset,
+            outputChannelCount: lane.outputChannelCount
+        )
+        playback.converter.auAudioUnit.channelMap = makeChannelMap(
+            lane: lane,
+            inputChannelCount: inputChannelCount
+        )
+        return playback
+    }
+
+    private func removeAudioPlayback(id: UUID) {
+        guard let playback = audioPlayers[id] else { return }
+        playback.player.stop()
+        audioEngine.detach(playback.player)
+        audioEngine.detach(playback.converter)
+        audioPlayers.removeValue(forKey: id)
+    }
+
+    private func applyOutputMappingIfNeeded(_ playback: AudioClipPlayback, lane: AudioLane) {
+        let mappingChanged = playback.outputMappingId != lane.outputMappingId
+            || playback.outputChannelOffset != lane.outputChannelOffset
+            || playback.outputChannelCount != lane.outputChannelCount
+
+        guard mappingChanged else { return }
+
+        playback.outputMappingId = lane.outputMappingId
+        playback.outputChannelOffset = lane.outputChannelOffset
+        playback.outputChannelCount = lane.outputChannelCount
+
+        playback.converter.auAudioUnit.channelMap = makeChannelMap(
+            lane: lane,
+            inputChannelCount: playback.inputChannelCount
+        )
+    }
+
+    private func makeChannelMap(lane: AudioLane, inputChannelCount: Int) -> [NSNumber]? {
+        guard lane.outputMappingId != nil else { return nil }
+        let outputChannels = max(1, audioOutputChannelCount)
+        let outputStart = min(max(lane.outputChannelOffset, 0), max(0, outputChannels - 1))
+        let channelsToMap = min(
+            max(1, lane.outputChannelCount),
+            inputChannelCount,
+            outputChannels - outputStart
+        )
+
+        guard channelsToMap > 0 else { return nil }
+
+        var map = Array(repeating: -1, count: outputChannels)
+        for index in 0..<channelsToMap {
+            map[outputStart + index] = index
+        }
+        return map.map { NSNumber(value: $0) }
+    }
+
+    private func makeChannelMapConverter() async throws -> AVAudioUnit {
+        let description = AudioComponentDescription(
+            componentType: kAudioUnitType_FormatConverter,
+            componentSubType: kAudioUnitSubType_AUConverter,
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0,
+            componentFlagsMask: 0
+        )
+        return try await AVAudioUnit.instantiate(with: description, options: [])
+    }
+
+    private func configureAudioEngineIfNeeded() {
+        guard audioOutputFormat == nil else { return }
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+        let outputNode = audioEngine.outputNode
+        applyAudioOutputDevice()
+
+        let outputNodeFormat = outputNode.inputFormat(forBus: 0)
+        if outputNodeFormat.channelCount > 0 {
+            audioOutputSampleRate = outputNodeFormat.sampleRate
+        }
+
+        let desiredChannelCount = max(audioOutputChannelCount, Int(outputNodeFormat.channelCount))
+        if desiredChannelCount > Int(outputNodeFormat.channelCount) {
+            audioOutputChannelCount = desiredChannelCount
+            audioOutputFormat = makeOutputFormat()
+        } else if outputNodeFormat.channelCount > 0 {
+            audioOutputChannelCount = Int(outputNodeFormat.channelCount)
+            audioOutputFormat = outputNodeFormat
+        } else {
+            audioOutputFormat = makeOutputFormat()
+        }
+        audioEngine.disconnectNodeOutput(audioEngine.mainMixerNode)
+        audioEngine.connect(audioEngine.mainMixerNode, to: outputNode, format: audioOutputFormat)
+    }
+
+    private func ensureAudioEngineRunning() {
+        configureAudioEngineIfNeeded()
+        guard !audioEngine.isRunning else { return }
+
+        do {
+            try audioEngine.start()
+            applyAudioOutputDevice()
+            synchronizeOutputFormatIfNeeded()
+        } catch {
+            NSLog(">>> PlaybackEngine: Failed to start audio engine: \(error)")
+        }
+    }
+
+    private func synchronizeOutputFormatIfNeeded() {
+        guard audioPlayers.isEmpty else { return }
+        let nodeFormat = audioEngine.outputNode.inputFormat(forBus: 0)
+        guard nodeFormat.channelCount > 0 else { return }
+
+        let needsUpdate = audioOutputFormat?.channelCount != nodeFormat.channelCount
+            || audioOutputFormat?.sampleRate != nodeFormat.sampleRate
+        guard needsUpdate else { return }
+
+        audioEngine.stop()
+        audioEngine.disconnectNodeOutput(audioEngine.mainMixerNode)
+        audioOutputChannelCount = Int(nodeFormat.channelCount)
+        audioOutputSampleRate = nodeFormat.sampleRate
+        audioOutputFormat = nodeFormat
+        audioEngine.connect(audioEngine.mainMixerNode, to: audioEngine.outputNode, format: nodeFormat)
+
+        do {
+            try audioEngine.start()
+            applyAudioOutputDevice()
+        } catch {
+            NSLog(">>> PlaybackEngine: Failed to restart audio engine: \(error)")
+        }
+    }
+
+    private func applyAudioOutputDevice() {
+        guard let deviceID = audioOutputDeviceID else { return }
+        guard let audioUnit = audioEngine.outputNode.audioUnit else { return }
+        var outputDeviceID = deviceID
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &outputDeviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        if status != noErr {
+            NSLog(">>> PlaybackEngine: Failed to set output device: \(status)")
+        }
+    }
+
+    private func makeOutputFormat() -> AVAudioFormat {
+        let channels = max(1, audioOutputChannelCount)
+        let sampleRate = max(8000, audioOutputSampleRate)
+        return AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: AVAudioChannelCount(channels))
+            ?? AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+    }
+
+    private func updateAudioOutputDeviceSettings() {
+        if let uid = audioOutputDeviceUID, let deviceID = deviceID(for: uid) {
+            audioOutputDeviceID = deviceID
+        } else {
+            audioOutputDeviceID = defaultOutputDeviceID()
+        }
+
+        if let deviceID = audioOutputDeviceID {
+            audioOutputChannelCount = max(1, outputChannelCount(for: deviceID))
+            audioOutputSampleRate = outputSampleRate(for: deviceID) ?? audioOutputSampleRate
+        } else {
+            audioOutputChannelCount = 2
+            audioOutputSampleRate = 48000
+        }
+    }
+
+    private func reconfigureAudioEngineForOutputChange() {
+        let wasPlaying = isPlaying
+        stopAllAudioClips()
+        audioEngine.stop()
+        audioEngine.reset()
+        audioOutputFormat = nil
+
+        for id in Array(audioPlayers.keys) {
+            removeAudioPlayback(id: id)
+        }
+
+        if wasPlaying {
+            startActiveAudioClips()
+        }
+    }
+
+    private static func extractAudioToTemporaryFile(for clip: AudioClip, key: AudioExtractionKey) async throws -> URL {
+        let asset = AVAsset(url: clip.sourceURL)
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        guard key.trackIndex < audioTracks.count else {
+            throw PlaybackEngineError.noAudioTrack
+        }
+
+        let composition = AVMutableComposition()
+        guard let compositionTrack = composition.addMutableTrack(
+            withMediaType: .audio,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ) else {
+            throw PlaybackEngineError.audioExtractionFailed
+        }
+
+        let track = audioTracks[key.trackIndex]
+        let duration = try await asset.load(.duration)
+        try compositionTrack.insertTimeRange(
+            CMTimeRange(start: .zero, duration: duration),
+            of: track,
+            at: .zero
+        )
+
+        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
+            throw PlaybackEngineError.audioExtractionFailed
+        }
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("projector-audio-\(clip.id).m4a")
+        try? FileManager.default.removeItem(at: tempURL)
+
+        if #available(macOS 15.0, *) {
+            try await export.export(to: tempURL, as: .m4a)
+        } else {
+            export.outputURL = tempURL
+            export.outputFileType = .m4a
+            try await exportAudioLegacy(export)
+        }
+
+        return tempURL
+    }
+
+    private static func exportAudioLegacy(_ export: AVAssetExportSession) async throws {
+        let box = ExportSessionBox(session: export)
+        try await withCheckedThrowingContinuation { continuation in
+            box.session.exportAsynchronously {
+                switch box.session.status {
+                case .completed:
+                    continuation.resume(returning: ())
+                case .failed:
+                    continuation.resume(throwing: box.session.error ?? PlaybackEngineError.audioExtractionFailed)
+                case .cancelled:
+                    continuation.resume(throwing: PlaybackEngineError.audioExtractionFailed)
+                case .unknown, .waiting, .exporting:
+                    continuation.resume(throwing: PlaybackEngineError.audioExtractionFailed)
+                @unknown default:
+                    continuation.resume(throwing: PlaybackEngineError.audioExtractionFailed)
+                }
+            }
+        }
+    }
+
+    private func deviceID(for uid: String) -> AudioDeviceID? {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        var propertySize: UInt32 = 0
+        let status = AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0,
+            nil,
+            &propertySize
+        )
+
+        guard status == noErr, propertySize > 0 else { return nil }
+
+        let deviceCount = Int(propertySize) / MemoryLayout<AudioDeviceID>.size
+        var deviceIDs = Array(repeating: AudioDeviceID(0), count: deviceCount)
+
+        let fetchStatus = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0,
+            nil,
+            &propertySize,
+            &deviceIDs
+        )
+
+        guard fetchStatus == noErr else { return nil }
+
+        for deviceID in deviceIDs {
+            if uid == deviceUID(for: deviceID) {
+                return deviceID
+            }
+        }
+        return nil
+    }
+
+    private func deviceUID(for deviceID: AudioDeviceID) -> String? {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        var propertySize = UInt32(MemoryLayout<Unmanaged<CFString>>.size)
+        var uid: Unmanaged<CFString>?
+        let status = AudioObjectGetPropertyData(deviceID, &propertyAddress, 0, nil, &propertySize, &uid)
+        guard status == noErr, let uidValue = uid?.takeRetainedValue() else { return nil }
+        return uidValue as String
+    }
+
+    private func defaultOutputDeviceID() -> AudioDeviceID? {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceID = AudioDeviceID(0)
+        var propertySize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0,
+            nil,
+            &propertySize,
+            &deviceID
+        )
+        return status == noErr ? deviceID : nil
+    }
+
+    private func outputChannelCount(for deviceID: AudioDeviceID) -> Int {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        var propertySize: UInt32 = 0
+        let status = AudioObjectGetPropertyDataSize(deviceID, &propertyAddress, 0, nil, &propertySize)
+        guard status == noErr, propertySize > 0 else { return 0 }
+
+        let bufferListPointer = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(propertySize),
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        )
+        defer { bufferListPointer.deallocate() }
+
+        let result = AudioObjectGetPropertyData(deviceID, &propertyAddress, 0, nil, &propertySize, bufferListPointer)
+        guard result == noErr else { return 0 }
+
+        let audioBufferList = bufferListPointer.assumingMemoryBound(to: AudioBufferList.self)
+        let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+        return buffers.reduce(0) { $0 + Int($1.mNumberChannels) }
+    }
+
+    private func outputSampleRate(for deviceID: AudioDeviceID) -> Double? {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var sampleRate = Float64(0)
+        var propertySize = UInt32(MemoryLayout<Float64>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &propertyAddress, 0, nil, &propertySize, &sampleRate)
+        return status == noErr ? sampleRate : nil
     }
 
     // MARK: - Private Methods - Time Observation
@@ -619,7 +1108,7 @@ final class PlaybackEngine: ObservableObject {
                 return
             }
 
-            if wasPlaying {
+            if wasPlaying, self.isPlaying {
                 if self.isInGap {
                     self.startGapPlayback()
                 } else {
@@ -677,6 +1166,9 @@ enum PlaybackEngineError: LocalizedError {
     case notPlayable
     case reelNotFound
     case seekFailed
+    case noAudioTrack
+    case audioExtractionFailed
+    case audioUnitInstantiationFailed
 
     var errorDescription: String? {
         switch self {
@@ -686,6 +1178,12 @@ enum PlaybackEngineError: LocalizedError {
             return "The video reel could not be found."
         case .seekFailed:
             return "Failed to seek to the specified position."
+        case .noAudioTrack:
+            return "No audio track was found."
+        case .audioExtractionFailed:
+            return "Failed to extract audio from the source."
+        case .audioUnitInstantiationFailed:
+            return "Failed to create audio routing unit."
         }
     }
 }

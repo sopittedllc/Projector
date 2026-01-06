@@ -23,6 +23,9 @@ struct AudioLane: Identifiable, Codable, Equatable {
     /// Starting channel on the output device (0-indexed)
     var outputChannelOffset: Int
 
+    /// Number of output channels to use (1 = mono, 2 = stereo)
+    var outputChannelCount: Int
+
     /// Output device UID (nil = use global/system default)
     var outputDeviceUID: String?
 
@@ -40,6 +43,7 @@ struct AudioLane: Identifiable, Codable, Equatable {
         isSolo: Bool = false,
         volume: Float = 1.0,
         outputChannelOffset: Int = 0,
+        outputChannelCount: Int = 2,
         outputDeviceUID: String? = nil,
         outputMappingId: UUID? = nil,
         colorIndex: Int = 0
@@ -51,6 +55,7 @@ struct AudioLane: Identifiable, Codable, Equatable {
         self.isSolo = isSolo
         self.volume = volume
         self.outputChannelOffset = outputChannelOffset
+        self.outputChannelCount = outputChannelCount
         self.outputDeviceUID = outputDeviceUID
         self.outputMappingId = outputMappingId
         self.colorIndex = colorIndex
@@ -101,5 +106,53 @@ struct AudioLane: Identifiable, Codable, Equatable {
     /// Get the next available position after all clips
     var nextAvailableFrame: Int {
         clips.map { $0.timelineEndFrame }.max() ?? 0
+    }
+}
+
+// MARK: - Codable
+
+extension AudioLane {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case clips
+        case isMuted
+        case isSolo
+        case volume
+        case outputChannelOffset
+        case outputChannelCount
+        case outputDeviceUID
+        case outputMappingId
+        case colorIndex
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        clips = try container.decode([AudioClip].self, forKey: .clips)
+        isMuted = try container.decode(Bool.self, forKey: .isMuted)
+        isSolo = try container.decode(Bool.self, forKey: .isSolo)
+        volume = try container.decode(Float.self, forKey: .volume)
+        outputChannelOffset = try container.decodeIfPresent(Int.self, forKey: .outputChannelOffset) ?? 0
+        outputChannelCount = try container.decodeIfPresent(Int.self, forKey: .outputChannelCount) ?? 2
+        outputDeviceUID = try container.decodeIfPresent(String.self, forKey: .outputDeviceUID)
+        outputMappingId = try container.decodeIfPresent(UUID.self, forKey: .outputMappingId)
+        colorIndex = try container.decode(Int.self, forKey: .colorIndex)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(clips, forKey: .clips)
+        try container.encode(isMuted, forKey: .isMuted)
+        try container.encode(isSolo, forKey: .isSolo)
+        try container.encode(volume, forKey: .volume)
+        try container.encode(outputChannelOffset, forKey: .outputChannelOffset)
+        try container.encode(outputChannelCount, forKey: .outputChannelCount)
+        try container.encodeIfPresent(outputDeviceUID, forKey: .outputDeviceUID)
+        try container.encodeIfPresent(outputMappingId, forKey: .outputMappingId)
+        try container.encode(colorIndex, forKey: .colorIndex)
     }
 }

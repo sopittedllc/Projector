@@ -1,8 +1,10 @@
 import SwiftUI
+import Foundation
 import SwiftTimecodeCore
 import Iconoir
 import UniformTypeIdentifiers
 import AVFoundation
+import AppKit
 
 /// Simple triangle shape for playhead
 private struct Triangle: Shape {
@@ -30,6 +32,8 @@ struct MultiTrackTimelineView: View {
     @ObservedObject var waveformCache: WaveformCache
     @ObservedObject var audioOutputManager: AudioOutputManager
     @ObservedObject var thumbnailCache: ThumbnailCache
+    @ObservedObject var mediaLibrary: ProjectMediaLibrary
+    @EnvironmentObject private var dragContext: DragContext
     @Environment(\.undoManager) private var undoManager
     let onDropVideoMedia: ([URL], Int, Bool) -> Void
     let onDropAudioMedia: (Int, [URL], Int, Bool) -> Void
@@ -51,6 +55,7 @@ struct MultiTrackTimelineView: View {
     @State private var emptyAudioDropPreviewFrame: Int?
     @State private var emptyAudioDropPreviewDurationFrames: Int?
     @State private var emptyAudioDropLocation: CGPoint?
+    @State private var emptyAudioDropSourceURL: URL?
 
     // Selection state
     @State private var selectedVideoReelId: UUID?
@@ -90,6 +95,8 @@ struct MultiTrackTimelineView: View {
 
     /// Toolbar height (TC display + zoom controls)
     private let toolbarHeight: CGFloat = 40
+    /// Height for the inactive "new lane" drop target
+    private let newLaneDropInactiveHeight: CGFloat = 20
 
     // MARK: - Computed Properties
 
@@ -694,6 +701,16 @@ struct MultiTrackTimelineView: View {
             let contentAreaWidth = geometry.size.width - headerWidth
             let totalContentWidth = timelineContentWidth(for: geometry.size.width)
             let ppf = pixelsPerFrame(for: geometry.size.width)
+            let scrollHeight = max(0, geometry.size.height - rulerHeight - 1)
+            let audioLanesHeight: CGFloat = {
+                if timeline.audioLanes.isEmpty {
+                    return audioLaneHeight
+                }
+                let dividers = max(0, timeline.audioLanes.count - 1)
+                return (CGFloat(timeline.audioLanes.count) * audioLaneHeight) + CGFloat(dividers)
+            }()
+            let baseTracksHeight = 4 + videoTrackHeight + 1 + audioLanesHeight
+            let availableNewLaneHeight = max(0, scrollHeight - baseTracksHeight - 8)
 
             VStack(spacing: 0) {
                 // Ruler row (with seek gesture - doesn't scroll)
@@ -854,7 +871,17 @@ struct MultiTrackTimelineView: View {
                         }
 
                         if timeline.audioLanes.isEmpty {
-                            emptyAudioLanesPlaceholder(pixelsPerFrame: ppf)
+                            emptyAudioLanesPlaceholder(pixelsPerFrame: ppf, laneIndex: 0)
+                                .frame(width: totalContentWidth)
+                                .overlay(alignment: .bottom) {
+                                    laneBorder
+                                }
+                        } else {
+                            newAudioLaneDropZone(
+                                pixelsPerFrame: ppf,
+                                laneIndex: timeline.audioLanes.count,
+                                availableHeight: availableNewLaneHeight
+                            )
                                 .frame(width: totalContentWidth)
                                 .overlay(alignment: .bottom) {
                                     laneBorder
@@ -864,6 +891,7 @@ struct MultiTrackTimelineView: View {
                         // Bottom padding
                         Spacer().frame(height: 8)
                     }
+                    .frame(minHeight: scrollHeight)
                 }
             }
             // Playhead overlay spanning full height
@@ -920,8 +948,12 @@ struct MultiTrackTimelineView: View {
         return videoTrackHeight + 1 + audioHeight + 8 // +8 for bottom padding
     }
 
-    private func emptyAudioLanesPlaceholder(pixelsPerFrame: CGFloat) -> some View {
-        HStack(spacing: 0) {
+    private func emptyAudioLanesPlaceholder(pixelsPerFrame: CGFloat, laneIndex: Int) -> some View {
+        let adjustLocation: (CGPoint) -> CGPoint = { location in
+            CGPoint(x: max(0, location.x - headerWidth), y: location.y)
+        }
+
+        return HStack(spacing: 0) {
             // Header area - overlay centers content
             Color.clear
                 .frame(width: headerWidth, height: audioLaneHeight)
@@ -969,25 +1001,202 @@ struct MultiTrackTimelineView: View {
                         )
                     }
                 }
-                .onDrop(of: [UTType.fileURL, UTType.url, UTType.projectorMediaItem], delegate: EmptyAudioLaneDropDelegate(
-                    isDropAllowed: $isEmptyAudioDropAllowed,
-                    enterHandler: { providers, location in
-                        beginEmptyAudioDrop(with: providers, at: location, pixelsPerFrame: pixelsPerFrame)
-                    },
-                    exitHandler: {
-                        clearEmptyAudioDrop()
-                    },
-                    dropHandler: { providers, location in
-                        handleEmptyAudioDrop(providers: providers, at: location, pixelsPerFrame: pixelsPerFrame)
-                    },
-                    updateHandler: { location in
-                        updateEmptyAudioDropPreview(location: location, pixelsPerFrame: pixelsPerFrame)
-                    },
-                    isLoading: { isEmptyAudioDropLoading }
-                ))
             }
         }
+        .contentShape(Rectangle())
+        .overlay {
+            DragCaptureView(
+                onEntered: { info, location in
+                    handleNewLaneDragEntered(info: info, location: adjustLocation(location), pixelsPerFrame: pixelsPerFrame)
+                },
+                onUpdated: { info, location in
+                    handleNewLaneDragUpdated(info: info, location: adjustLocation(location), pixelsPerFrame: pixelsPerFrame)
+                },
+                onExited: {
+                    clearEmptyAudioDrop()
+                },
+                onPerform: { info, location in
+                    handleNewLanePerformDrop(info: info, location: adjustLocation(location), pixelsPerFrame: pixelsPerFrame, laneIndex: laneIndex)
+                }
+            )
+        }
         .frame(height: audioLaneHeight)
+    }
+
+    private func newAudioLaneDropZone(
+        pixelsPerFrame: CGFloat,
+        laneIndex: Int,
+        availableHeight: CGFloat
+    ) -> some View {
+        let adjustLocation: (CGPoint) -> CGPoint = { location in
+            CGPoint(x: max(0, location.x - headerWidth), y: location.y)
+        }
+        let isActive = isEmptyAudioDropAllowed || isEmptyAudioDropLoading
+        let baseHeight = max(audioLaneHeight, availableHeight, newLaneDropInactiveHeight)
+
+        return HStack(spacing: 0) {
+            Color.clear
+                .frame(width: headerWidth)
+                .background(isActive ? Color(nsColor: .controlBackgroundColor).opacity(0.6) : Color.clear)
+                .overlay(
+                    VStack(spacing: 4) {
+                        Text("New Lane")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.secondary)
+                        Image(systemName: "waveform.badge.plus")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary.opacity(0.7))
+                    }
+                    .opacity(isActive ? 1 : 0)
+                )
+
+            GeometryReader { geometry in
+                ZStack(alignment: .topLeading) {
+                    if isActive {
+                        DustyBackground()
+                    }
+
+                    if isActive {
+                        VStack(spacing: 4) {
+                            Text("Drop to create new lane")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary.opacity(0.7))
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .offset(x: -headerWidth / 2)
+                    }
+
+                    if (isEmptyAudioDropAllowed || isEmptyAudioDropLoading),
+                       let previewFrame = emptyAudioDropPreviewFrame {
+                        emptyAudioDropPreviewOverlay(
+                            frame: previewFrame,
+                            height: min(audioLaneHeight, geometry.size.height),
+                            width: geometry.size.width,
+                            pixelsPerFrame: pixelsPerFrame
+                        )
+                    }
+                }
+            }
+        }
+        .contentShape(Rectangle())
+        .overlay {
+            DragCaptureView(
+                onEntered: { info, location in
+                    handleNewLaneDragEntered(info: info, location: adjustLocation(location), pixelsPerFrame: pixelsPerFrame)
+                },
+                onUpdated: { info, location in
+                    handleNewLaneDragUpdated(info: info, location: adjustLocation(location), pixelsPerFrame: pixelsPerFrame)
+                },
+                onExited: {
+                    clearEmptyAudioDrop()
+                },
+                onPerform: { info, location in
+                    handleNewLanePerformDrop(info: info, location: adjustLocation(location), pixelsPerFrame: pixelsPerFrame, laneIndex: laneIndex)
+                }
+            )
+        }
+        .frame(height: baseHeight)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .animation(.easeInOut(duration: 0.12), value: isActive)
+    }
+
+    private func handleNewLaneDragEntered(
+        info: NSDraggingInfo,
+        location: CGPoint,
+        pixelsPerFrame: CGFloat
+    ) {
+        _ = updateEmptyAudioDrop(from: info, location: location, pixelsPerFrame: pixelsPerFrame)
+    }
+
+    private func handleNewLaneDragUpdated(
+        info: NSDraggingInfo,
+        location: CGPoint,
+        pixelsPerFrame: CGFloat
+    ) -> NSDragOperation {
+        let allowed = updateEmptyAudioDrop(from: info, location: location, pixelsPerFrame: pixelsPerFrame)
+        return allowed ? .copy : []
+    }
+
+    private func handleNewLanePerformDrop(
+        info: NSDraggingInfo,
+        location: CGPoint,
+        pixelsPerFrame: CGFloat,
+        laneIndex: Int
+    ) -> Bool {
+        let urls = audioURLs(from: info)
+        guard !urls.isEmpty else {
+            clearEmptyAudioDrop()
+            return false
+        }
+        let targetFrame = max(0, Int(location.x / max(pixelsPerFrame, 0.001)))
+        let isInternal = dragContext.mediaItem != nil
+        onDropAudioMedia(laneIndex, urls, targetFrame, isInternal)
+        dragContext.end()
+        clearEmptyAudioDrop()
+        return true
+    }
+
+    private func updateEmptyAudioDrop(
+        from info: NSDraggingInfo,
+        location: CGPoint,
+        pixelsPerFrame: CGFloat
+    ) -> Bool {
+        emptyAudioDropLocation = location
+        emptyAudioDropPreviewFrame = emptyAudioDropFrame(for: location, pixelsPerFrame: pixelsPerFrame)
+
+        let candidate = audioCandidate(from: info)
+        guard !candidate.urls.isEmpty else {
+            clearEmptyAudioDrop()
+            return false
+        }
+
+        isEmptyAudioDropAllowed = true
+
+        if let duration = candidate.duration {
+            emptyAudioDropSourceURL = candidate.urls.first
+            emptyAudioDropPreviewDurationFrames = max(1, Int(duration * timeline.config.frameRate.fps))
+            isEmptyAudioDropLoading = false
+            return true
+        }
+
+        if let url = candidate.urls.first {
+            if emptyAudioDropSourceURL != url {
+                emptyAudioDropSourceURL = url
+                emptyAudioDropPreviewDurationFrames = nil
+            }
+            if emptyAudioDropPreviewDurationFrames == nil && !isEmptyAudioDropLoading {
+                isEmptyAudioDropLoading = true
+                Task {
+                    let asset = AVAsset(url: url)
+                    do {
+                        let duration = try await asset.load(.duration)
+                        emptyAudioDropPreviewDurationFrames = max(1, Int(duration.seconds * timeline.config.frameRate.fps))
+                    } catch {
+                        emptyAudioDropPreviewDurationFrames = nil
+                    }
+                    isEmptyAudioDropLoading = false
+                }
+            }
+        }
+        return true
+    }
+
+    private func audioCandidate(from info: NSDraggingInfo) -> (urls: [URL], duration: Double?, isInternal: Bool) {
+        if let item = dragContext.mediaItem, item.type == .audio {
+            return ([item.url], item.duration, true)
+        }
+
+        let pasteboard = info.draggingPasteboard
+        let urls = (pasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true
+        ]) as? [URL] ?? []).filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
+
+        return (urls, nil, false)
+    }
+
+    private func audioURLs(from info: NSDraggingInfo) -> [URL] {
+        let candidate = audioCandidate(from: info)
+        return candidate.urls
     }
 
     private func beginEmptyAudioDrop(
@@ -1002,6 +1211,11 @@ struct MultiTrackTimelineView: View {
         isEmptyAudioDropAllowed = false
         isEmptyAudioDropLoading = true
         emptyAudioDropPreviewDurationFrames = nil
+        let isInternalDrag = providers.contains { provider in
+            provider.hasItemConformingToTypeIdentifier(UTType.projectorMediaItem.identifier)
+        }
+
+        let internalItem = dragContext.mediaItem ?? mediaItem(from: providers)
 
         if let quickType = quickMediaType(from: providers) {
             guard quickType == .audio else {
@@ -1010,11 +1224,50 @@ struct MultiTrackTimelineView: View {
                 return
             }
             isEmptyAudioDropAllowed = true
+            if let internalItem, internalItem.type == .audio {
+                emptyAudioDropPreviewDurationFrames = max(
+                    1,
+                    Int(internalItem.duration * timeline.config.frameRate.fps)
+                )
+            }
+        } else if isInternalDrag {
+            // Internal drags may not expose URL data during hover; try the custom payload.
+            if let provider = providers.first(where: {
+                $0.hasItemConformingToTypeIdentifier(UTType.projectorMediaItem.identifier)
+            }) {
+                provider.loadDataRepresentation(forTypeIdentifier: UTType.projectorMediaItem.identifier) { data, _ in
+                    DispatchQueue.main.async {
+                        let info = extractProjectorMediaInfo(from: data)
+                        if info.type == .audio {
+                            isEmptyAudioDropAllowed = true
+                            if let duration = info.duration {
+                                emptyAudioDropPreviewDurationFrames = max(
+                                    1,
+                                    Int(duration * timeline.config.frameRate.fps)
+                                )
+                            }
+                            if info.url != nil {
+                                updateEmptyAudioDropPreview(location: emptyAudioDropLocation ?? location, pixelsPerFrame: pixelsPerFrame)
+                            }
+                            isEmptyAudioDropLoading = false
+                        } else {
+                            clearEmptyAudioDrop()
+                        }
+                    }
+                }
+                return
+            }
         }
 
         loadFirstURL(from: providers) { url in
-            guard let url, ProjectMediaLibrary.mediaType(for: url) == .audio else {
+            guard let url else {
+                // Keep active for internal drags even if hover data isn't available yet.
                 isEmptyAudioDropLoading = false
+                return
+            }
+            guard ProjectMediaLibrary.mediaType(for: url) == .audio else {
+                isEmptyAudioDropLoading = false
+                clearEmptyAudioDrop()
                 return
             }
             isEmptyAudioDropAllowed = true
@@ -1039,34 +1292,51 @@ struct MultiTrackTimelineView: View {
         emptyAudioDropPreviewFrame = nil
         emptyAudioDropPreviewDurationFrames = nil
         emptyAudioDropLocation = nil
+        emptyAudioDropSourceURL = nil
     }
 
     private func handleEmptyAudioDrop(
         providers: [NSItemProvider],
         at location: CGPoint,
-        pixelsPerFrame: CGFloat
+        pixelsPerFrame: CGFloat,
+        laneIndex: Int
     ) -> Bool {
         var urls: [URL] = []
         let group = DispatchGroup()
         let isInternalDrag = providers.contains { provider in
             provider.hasItemConformingToTypeIdentifier(UTType.projectorMediaItem.identifier)
         }
+        let internalItem = dragContext.mediaItem ?? mediaItem(from: providers)
 
         for provider in providers {
             group.enter()
-            loadURL(from: provider) { url in
-                defer { group.leave() }
-                if let url = url {
-                    urls.append(url)
+            if provider.hasItemConformingToTypeIdentifier(UTType.projectorMediaItem.identifier) {
+                provider.loadDataRepresentation(forTypeIdentifier: UTType.projectorMediaItem.identifier) { data, _ in
+                    defer { group.leave() }
+                    let info = extractProjectorMediaInfo(from: data)
+                    if info.type == .audio, let url = info.url {
+                        urls.append(url)
+                    }
+                }
+            } else {
+                loadURL(from: provider) { url in
+                    defer { group.leave() }
+                    if let url = url {
+                        urls.append(url)
+                    }
                 }
             }
         }
 
         group.notify(queue: .main) {
-            let audioURLs = urls.filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
+            if urls.isEmpty, let internalItem, internalItem.type == .audio {
+                urls.append(internalItem.url)
+            }
+            let audioURLs = Array(Set(urls.filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }))
             guard !audioURLs.isEmpty else { return }
             let targetFrame = max(0, Int(location.x / max(pixelsPerFrame, 0.001)))
-            onDropAudioMedia(0, audioURLs, targetFrame, isInternalDrag)
+            onDropAudioMedia(laneIndex, audioURLs, targetFrame, isInternalDrag)
+            dragContext.end()
         }
 
         clearEmptyAudioDrop()
@@ -1113,13 +1383,32 @@ struct MultiTrackTimelineView: View {
     }
 
     private func loadURL(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {
-        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-            if let url = extractURL(from: item) {
-                completion(url)
+        var didFinish = false
+        func finish(_ url: URL?) {
+            guard !didFinish else { return }
+            didFinish = true
+            completion(url)
+        }
+
+        provider.loadObject(ofClass: NSURL.self) { object, _ in
+            if let url = object as? NSURL {
+                finish(url as URL)
                 return
             }
-            provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
-                completion(extractURL(from: item))
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                if let url = extractURL(from: item) {
+                    finish(url)
+                    return
+                }
+                provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
+                    if let url = extractURL(from: item) {
+                        finish(url)
+                        return
+                    }
+                    provider.loadDataRepresentation(forTypeIdentifier: UTType.projectorMediaItem.identifier) { data, _ in
+                        finish(extractProjectorMediaURL(from: data))
+                    }
+                }
             }
         }
     }
@@ -1136,6 +1425,46 @@ struct MultiTrackTimelineView: View {
         }
         if let string = item as? String {
             return URL(string: string)
+        }
+        return nil
+    }
+
+    private func extractProjectorMediaURL(from item: Any?) -> URL? {
+        extractProjectorMediaInfo(from: item).url
+    }
+
+    private func extractProjectorMediaInfo(from item: Any?) -> (url: URL?, type: MediaType?, duration: Double?, id: UUID?) {
+        guard let data = item as? Data else { return (nil, nil, nil, nil) }
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let urlString = object["url"] as? String {
+            let type = (object["type"] as? String).flatMap { MediaType(rawValue: $0) }
+            let duration = object["duration"] as? Double
+            let id = (object["id"] as? String).flatMap { UUID(uuidString: $0) }
+            if let url = URL(string: urlString) {
+                return (url, type, duration, id)
+            }
+            if urlString.hasPrefix("/") {
+                return (URL(fileURLWithPath: urlString), type, duration, id)
+            }
+        }
+        if let string = String(data: data, encoding: .utf8) {
+            if let url = URL(string: string), url.scheme != nil {
+                return (url, nil, nil, nil)
+            }
+            if string.hasPrefix("/") {
+                return (URL(fileURLWithPath: string), nil, nil, nil)
+            }
+        }
+        return (nil, nil, nil, nil)
+    }
+
+    private func mediaItem(from providers: [NSItemProvider]) -> MediaItem? {
+        for provider in providers {
+            if let name = provider.suggestedName {
+                if let item = mediaLibrary.items.first(where: { $0.url.lastPathComponent == name }) {
+                    return item
+                }
+            }
         }
         return nil
     }
@@ -1213,7 +1542,7 @@ private struct EmptyAudioLaneDropDelegate: DropDelegate {
     let exitHandler: () -> Void
     let dropHandler: ([NSItemProvider], CGPoint) -> Bool
     let updateHandler: (CGPoint) -> Void
-    private let supportedTypes: [UTType] = [.fileURL, .url, .projectorMediaItem]
+    private let supportedTypes: [UTType] = [.item]
     let isLoading: () -> Bool
 
     func validateDrop(info: DropInfo) -> Bool {
@@ -1231,13 +1560,92 @@ private struct EmptyAudioLaneDropDelegate: DropDelegate {
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         updateHandler(info.location)
-        return DropProposal(operation: isLoading() || isDropAllowed ? .copy : .cancel)
+        return DropProposal(operation: .copy)
     }
 
     func performDrop(info: DropInfo) -> Bool {
         exitHandler()
         let providers = info.itemProviders(for: supportedTypes)
         return dropHandler(providers, info.location)
+    }
+}
+
+private struct DragCaptureView: NSViewRepresentable {
+    var onEntered: (NSDraggingInfo, CGPoint) -> Void
+    var onUpdated: (NSDraggingInfo, CGPoint) -> NSDragOperation
+    var onExited: () -> Void
+    var onPerform: (NSDraggingInfo, CGPoint) -> Bool
+
+    func makeNSView(context: Context) -> DragCaptureNSView {
+        let view = DragCaptureNSView()
+        view.onEntered = onEntered
+        view.onUpdated = onUpdated
+        view.onExited = onExited
+        view.onPerform = onPerform
+        return view
+    }
+
+    func updateNSView(_ nsView: DragCaptureNSView, context: Context) {
+        nsView.onEntered = onEntered
+        nsView.onUpdated = onUpdated
+        nsView.onExited = onExited
+        nsView.onPerform = onPerform
+    }
+}
+
+private final class DragCaptureNSView: NSView {
+    var onEntered: ((NSDraggingInfo, CGPoint) -> Void)?
+    var onUpdated: ((NSDraggingInfo, CGPoint) -> NSDragOperation)?
+    var onExited: (() -> Void)?
+    var onPerform: ((NSDraggingInfo, CGPoint) -> Bool)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes([
+            .fileURL,
+            .URL,
+            NSPasteboard.PasteboardType("com.projector.media-item"),
+            NSPasteboard.PasteboardType("public.item")
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        registerForDraggedTypes([
+            .fileURL,
+            .URL,
+            NSPasteboard.PasteboardType("com.projector.media-item"),
+            NSPasteboard.PasteboardType("public.item")
+        ])
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        onEntered?(sender, localLocation(for: sender))
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        onUpdated?(sender, localLocation(for: sender)) ?? []
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        onExited?()
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        true
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        onPerform?(sender, localLocation(for: sender)) ?? false
+    }
+
+    override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+        onExited?()
+    }
+
+    private func localLocation(for info: NSDraggingInfo) -> CGPoint {
+        convert(info.draggingLocation, from: nil)
     }
 }
 
@@ -1248,6 +1656,7 @@ private struct EmptyAudioLaneDropDelegate: DropDelegate {
         @StateObject var waveformCache = WaveformCache()
         @StateObject var audioOutputManager = AudioOutputManager()
         @StateObject var thumbnailCache = ThumbnailCache()
+        @StateObject var mediaLibrary = ProjectMediaLibrary()
         @State var zoomLevel: CGFloat = 0.0
 
         var body: some View {
@@ -1257,6 +1666,7 @@ private struct EmptyAudioLaneDropDelegate: DropDelegate {
                 waveformCache: waveformCache,
                 audioOutputManager: audioOutputManager,
                 thumbnailCache: thumbnailCache,
+                mediaLibrary: mediaLibrary,
                 onDropVideoMedia: { _, _, _ in },
                 onDropAudioMedia: { _, _, _, _ in },
                 onSeek: { _ in },
@@ -1264,6 +1674,7 @@ private struct EmptyAudioLaneDropDelegate: DropDelegate {
                 zoomLevel: $zoomLevel
             )
             .frame(width: 800, height: 300)
+            .environmentObject(DragContext())
         }
     }
 

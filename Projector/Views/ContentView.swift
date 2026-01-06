@@ -34,6 +34,7 @@ struct ContentView: View {
     @StateObject private var audioManager = AudioOutputManager()
     @StateObject private var projectDocument = ProjectDocument()
     @ObservedObject private var settings = AppSettings.shared
+    @StateObject private var dragContext = DragContext()
     @Environment(\.undoManager) private var undoManager
 
     // MARK: - MIDI Sync (Actor-based for thread safety)
@@ -196,7 +197,11 @@ struct ContentView: View {
         .frame(minWidth: 640, minHeight: 400)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(
-            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow, alphaValue: 0.95)
+            ZStack {
+                VisualEffectView(material: .titlebar, blendingMode: .behindWindow, alphaValue: 1.0)
+                Color(red: 30.0 / 255.0, green: 30.0 / 255.0, blue: 30.0 / 255.0)
+                    .opacity(0.95)
+            }
         )
         .navigationTitle("")
         .background(WindowTitleConfigurator(
@@ -421,6 +426,7 @@ struct ContentView: View {
                         waveformCache: waveformCache,
                         audioOutputManager: audioManager,
                         timelineViewModel: timelineViewModel,
+                        mediaLibrary: mediaLibrary,
                         thumbnailCache: thumbnailCache,
                         onDropVideoMedia: handleVideoDropOnTimeline,
                         onDropAudioMedia: handleAudioDropOnTimeline,
@@ -454,6 +460,7 @@ struct ContentView: View {
             .frame(minHeight: lowerPanelsMinHeight)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .environmentObject(dragContext)
         .simultaneousGesture(
             TapGesture().onEnded {
                 dismissTimecodeEditing()
@@ -479,6 +486,14 @@ struct ContentView: View {
         )
         .onChange(of: showFileManager) { _, _ in
             clampPlaybackHeightIfNeeded()
+        }
+        .onChange(of: audioManager.mappedOutputs) { _, outputs in
+            guard !outputs.isEmpty else { return }
+            let lanes = timelineManager.timeline.audioLanes
+            for (index, lane) in lanes.enumerated() where lane.outputMappingId == nil {
+                let output = outputs[min(index, outputs.count - 1)]
+                timelineManager.setLaneOutputMapping(id: lane.id, mapping: output)
+            }
         }
     }
 

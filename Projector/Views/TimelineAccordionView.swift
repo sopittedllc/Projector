@@ -23,6 +23,7 @@ struct TimelineAccordionView: View {
     @ObservedObject var waveformCache: WaveformCache
     @ObservedObject var audioOutputManager: AudioOutputManager
     @ObservedObject var timelineViewModel: TimelineViewModel
+    @ObservedObject var mediaLibrary: ProjectMediaLibrary
 
     /// Video reel thumbnail cache
     @ObservedObject var thumbnailCache: ThumbnailCache
@@ -62,8 +63,12 @@ struct TimelineAccordionView: View {
         .frame(height: timelineViewModel.currentHeight, alignment: .top)
         .clipped()
         .background(
-            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow, alphaValue: 0.8)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            ZStack {
+                VisualEffectView(material: .titlebar, blendingMode: .behindWindow, alphaValue: 1.0)
+                Color(red: 30.0 / 255.0, green: 30.0 / 255.0, blue: 30.0 / 255.0)
+                    .opacity(0.85)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
@@ -112,6 +117,7 @@ struct TimelineAccordionView: View {
             waveformCache: waveformCache,
             audioOutputManager: audioOutputManager,
             thumbnailCache: thumbnailCache,
+            mediaLibrary: mediaLibrary,
             onDropVideoMedia: onDropVideoMedia,
             onDropAudioMedia: onDropAudioMedia,
             onSeek: onSeek,

@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 import UniformTypeIdentifiers
 import Iconoir
 import AVFoundation
@@ -29,6 +30,7 @@ struct VideoTrackView: View {
     @State private var draggingReelId: UUID?
     @State private var dragStartFrame: Int = 0
     @State private var dragOffsetFrames: Int = 0
+    @EnvironmentObject private var dragContext: DragContext
 
     /// Track header width - must match MultiTrackTimelineView
     private let headerWidth: CGFloat = 120
@@ -244,6 +246,9 @@ struct VideoTrackView: View {
             if !videoURLs.isEmpty {
                 onDropMedia(videoURLs, targetFrame, isInternalDrag)
             }
+            if isInternalDrag {
+                dragContext.end()
+            }
         }
         clearDropPreview()
 
@@ -356,13 +361,32 @@ struct VideoTrackView: View {
     }
 
     private func loadURL(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {
-        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-            if let url = extractURL(from: item) {
-                completion(url)
+        var didFinish = false
+        func finish(_ url: URL?) {
+            guard !didFinish else { return }
+            didFinish = true
+            completion(url)
+        }
+
+        provider.loadObject(ofClass: NSURL.self) { object, _ in
+            if let url = object as? NSURL {
+                finish(url as URL)
                 return
             }
-            provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
-                completion(extractURL(from: item))
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                if let url = extractURL(from: item) {
+                    finish(url)
+                    return
+                }
+                provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
+                    if let url = extractURL(from: item) {
+                        finish(url)
+                        return
+                    }
+                    provider.loadDataRepresentation(forTypeIdentifier: UTType.projectorMediaItem.identifier) { data, _ in
+                        finish(extractProjectorMediaURL(from: data))
+                    }
+                }
             }
         }
     }
@@ -379,6 +403,28 @@ struct VideoTrackView: View {
         }
         if let string = item as? String {
             return URL(string: string)
+        }
+        return nil
+    }
+
+    private func extractProjectorMediaURL(from item: Any?) -> URL? {
+        guard let data = item as? Data else { return nil }
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let urlString = object["url"] as? String {
+            if let url = URL(string: urlString) {
+                return url
+            }
+            if urlString.hasPrefix("/") {
+                return URL(fileURLWithPath: urlString)
+            }
+        }
+        if let string = String(data: data, encoding: .utf8) {
+            if let url = URL(string: string), url.scheme != nil {
+                return url
+            }
+            if string.hasPrefix("/") {
+                return URL(fileURLWithPath: string)
+            }
         }
         return nil
     }

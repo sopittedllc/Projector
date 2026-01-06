@@ -1,11 +1,26 @@
 import Foundation
 import AVFoundation
 import AppKit
+import SwiftUI
 
 /// Type of media content
 enum MediaType: String, Codable, CaseIterable {
     case video
     case audio
+}
+
+/// Shared drag state for internal Media panel drags.
+@MainActor
+final class DragContext: ObservableObject {
+    @Published var mediaItem: MediaItem?
+
+    func begin(_ item: MediaItem) {
+        mediaItem = item
+    }
+
+    func end() {
+        mediaItem = nil
+    }
 }
 
 /// Represents a media file in the project library
@@ -167,4 +182,3 @@ extension MediaItem {
         try container.encode(importedAt, forKey: .importedAt)
     }
 }
-
