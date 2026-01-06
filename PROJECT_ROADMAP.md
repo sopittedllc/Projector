@@ -1,8 +1,8 @@
 # Projector - Project Roadmap
 
-> **Last Updated**: 2026-01-02 (Phase 3 DocC + QA Audit Complete)
+> **Last Updated**: 2026-01-06 (Audio Routing Fix + MTC Transmit Removed)
 > **Owner**: the-lead agent
-> **Overall Progress**: 90% (DocC coverage improved, QA audit passed)
+> **Overall Progress**: 92% (Audio routing fixed, scope refined)
 
 ---
 
@@ -16,16 +16,16 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         PROJECT COMPLETION: 90%                              │
+│                         PROJECT COMPLETION: 92%                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  ████████████████████████████████████████████████████████████████████░ 90%   │
+│  ██████████████████████████████████████████████████████████████████████░ 92%   │
 │                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Core Playback      ████████████████████████████████████████████████  95%   │
 │  Timeline UI        ██████████████████████████████████████████░░░░░░  85%   │
 │  MTC/MMC Sync       ████████████████████████████████████████████████  95%   │
-│  Audio Routing      ████████████████████████████░░░░░░░░░░░░░░░░░░░░  60%   │
+│  Audio Routing      ██████████████████████████████████████████░░░░░░  80%   │
 │  Architecture       ██████████████████████████████████████████████████  90%   │
 │  Documentation      ██████████████████████████████████░░░░░░░░░░░░░░  70%   │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -60,7 +60,7 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | **Remaining** | 🔄 Pending | Magic numbers integration (after Xcode setup) |
 | **Remaining** | 🔄 In Progress | Performance optimization for large projects |
 
-### 3. MTC/MMC Sync (85%)
+### 3. MTC/MMC Sync (95%)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -68,17 +68,18 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | MMC receive | ✅ Complete | Play/Stop/Locate |
 | Basic sync | ✅ Complete | Follows external TC |
 | Thread-safe actor | ✅ Complete | MIDISyncActor refactor done |
-| **Remaining** | ❌ Not Started | MTC transmit |
 | **Remaining** | ❌ Not Started | Drift compensation UI |
 
-### 4. Audio Routing (60%)
+> **Scope Update (2026-01-06)**: MTC transmit removed from scope - not needed for project requirements.
+
+### 4. Audio Routing (80%)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Device selection | ✅ Complete | Per-lane routing |
 | Volume control | ✅ Complete | Per-lane |
 | Mute/Solo | ✅ Complete | Standard DAW behavior |
-| **Remaining** | ❌ Not Started | Multi-channel output |
+| Multi-channel output | ✅ Complete | Channel offset/count routing works without outputMappingId |
 | **Remaining** | ❌ Not Started | Audio metering |
 
 ### 5. Architecture Compliance (90%)
@@ -202,6 +203,32 @@ All tap gestures replaced with Button + simultaneousGesture pattern (GP-003):
 ---
 
 ## Recent Changes
+
+### 2026-01-06 - Audio Routing Fix + Scope Refinement
+
+**Changes**:
+- Fixed multi-channel audio routing to work without requiring `outputMappingId`
+- Removed MTC transmit from project scope (confirmed not needed)
+
+**Files Modified**:
+- `Projector/Managers/PlaybackEngine.swift` - `makeChannelMap` now triggers on channel offset/count changes
+
+**Technical Details**:
+The `makeChannelMap` function previously required `outputMappingId` to be set before applying channel routing. This blocked multi-channel output even when `outputChannelOffset` and `outputChannelCount` were properly configured. The fix changes the guard condition to:
+```swift
+let needsCustomRouting = lane.outputChannelOffset != 0
+    || (lane.outputChannelCount != 2 && lane.outputChannelCount != inputChannelCount)
+guard needsCustomRouting else { return nil }
+```
+
+**Progress Impact**:
+- Audio Routing: 60% -> 80%
+- MTC/MMC Sync: 95% (scope refined - MTC transmit removed)
+- **Overall: 90% -> 92%**
+
+**QA Approval**: qa-auditor (all checks passed)
+
+---
 
 ### 2026-01-02 - Accordion Hit-Testing + Waveform Access Fixes
 

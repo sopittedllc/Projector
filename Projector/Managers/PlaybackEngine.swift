@@ -678,7 +678,10 @@ final class PlaybackEngine: ObservableObject {
     }
 
     private func makeChannelMap(lane: AudioLane, inputChannelCount: Int) -> [NSNumber]? {
-        guard lane.outputMappingId != nil else { return nil }
+        let needsCustomRouting = lane.outputChannelOffset != 0
+            || (lane.outputChannelCount != 2 && lane.outputChannelCount != inputChannelCount)
+
+        guard needsCustomRouting else { return nil }
         let outputChannels = max(1, audioOutputChannelCount)
         let outputStart = min(max(lane.outputChannelOffset, 0), max(0, outputChannels - 1))
         let channelsToMap = min(
