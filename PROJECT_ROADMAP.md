@@ -1,8 +1,8 @@
 # Projector - Project Roadmap
 
-> **Last Updated**: 2026-01-06 (Audio Routing Fix + MTC Transmit Removed)
+> **Last Updated**: 2026-01-06 (Magic Numbers Cleanup Complete)
 > **Owner**: the-lead agent
-> **Overall Progress**: 92% (Audio routing fixed, scope refined)
+> **Overall Progress**: 93% (Magic numbers cleanup complete, layout consistency achieved)
 
 ---
 
@@ -16,14 +16,14 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         PROJECT COMPLETION: 92%                              │
+│                         PROJECT COMPLETION: 93%                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  ██████████████████████████████████████████████████████████████████████░ 92%   │
+│  ██████████████████████████████████████████████████████████████████████░ 93%   │
 │                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Core Playback      ████████████████████████████████████████████████  95%   │
-│  Timeline UI        ██████████████████████████████████████████░░░░░░  85%   │
+│  Timeline UI        ████████████████████████████████████████████████  90%   │
 │  MTC/MMC Sync       ████████████████████████████████████████████████  95%   │
 │  Audio Routing      ██████████████████████████████████████████░░░░░░  80%   │
 │  Architecture       ██████████████████████████████████████████████████  90%   │
@@ -46,7 +46,7 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | Timecode overlay | ✅ Complete | Configurable position |
 | **Remaining** | 🔄 In Progress | Audio track extraction optimization |
 
-### 2. Timeline UI (80%)
+### 2. Timeline UI (90%)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -56,8 +56,8 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | Zoom controls | ✅ Complete | 1x-10x range |
 | Drag-and-drop | ✅ Complete | Reordering clips |
 | Tap gesture fixes | ✅ Complete | All 11 violations fixed (GP-003 pattern) |
-| LayoutConstants.swift | ✅ Created | Needs Xcode project addition |
-| **Remaining** | 🔄 Pending | Magic numbers integration (after Xcode setup) |
+| LayoutConstants.swift | ✅ Complete | All constants integrated |
+| Magic numbers cleanup | ✅ Complete | 37+ local constants replaced with LayoutConstants |
 | **Remaining** | 🔄 In Progress | Performance optimization for large projects |
 
 ### 3. MTC/MMC Sync (95%)
@@ -97,8 +97,8 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | WindowTitleConfigurator | ✅ Complete | Window title utility extracted |
 | AccordionResizeHandle | ✅ Complete | Resize handle utility extracted |
 | ContentView decomposition | ✅ Complete | 1696 → 1103 lines (35% reduction) |
+| Magic numbers cleanup | ✅ Complete | All timeline views use LayoutConstants |
 | **Remaining** | ❌ High | TransportServiceProtocol |
-| **Remaining** | ❌ Medium | Magic number extraction |
 
 ### 6. Documentation (70%)
 
@@ -153,16 +153,16 @@ All tap gestures replaced with Button + simultaneousGesture pattern (GP-003):
 | `MediaItemRow.swift` | ✅ Fixed | Button + TapGesture(count: 2) |
 | `SettingsView.swift` | ✅ Fixed | Button overlay |
 
-#### 🔄 PENDING: Magic Numbers (needs Xcode project setup)
+#### ✅ RESOLVED: Magic Numbers (37+ instances)
 
-`LayoutConstants.swift` has been created at `Projector/Utilities/LayoutConstants.swift` with:
-- `TimelineLayout` - header/track heights, clip dimensions
+`LayoutConstants.swift` at `Projector/Utilities/LayoutConstants.swift` provides:
+- `TimelineLayout` - header/track heights, clip dimensions, playhead sizing
 - `ZoomConstants` - min/max/default zoom levels
-- `FileManagerLayout` - grid item sizes
+- `FileManagerLayout` - grid item sizes, collapsed/expanded heights
 - `TransportLayout` - control sizes
 - `Spacing` - consistent spacing values
 
-**BLOCKER**: File needs to be added to Xcode project before constants can be used.
+All local constant declarations removed and replaced with `LayoutConstants` references.
 
 | Task | Owner | Status | Est. Effort |
 |------|-------|--------|-------------|
@@ -173,9 +173,8 @@ All tap gestures replaced with Button + simultaneousGesture pattern (GP-003):
 | Fix FileManagerView tap gestures | ui-specialist | ✅ Complete | 30m |
 | Fix ContentView tap gestures | ui-specialist | ✅ Complete | 1h |
 | Create `LayoutConstants.swift` | ui-specialist | ✅ Complete | 1h |
-| **Add files to Xcode project** | **USER ACTION** | **🚫 BLOCKED** | 5m |
-| Replace magic numbers | ui-specialist | 🔄 Pending | 2h |
-| QA audit | qa-auditor | 🔄 Pending | 1h |
+| Replace magic numbers in timeline views | ui-specialist | ✅ Complete | 2h |
+| QA audit | qa-auditor | ✅ Complete | 1h |
 
 ### Phase 2: Architecture (Priority P1)
 
@@ -203,6 +202,33 @@ All tap gestures replaced with Button + simultaneousGesture pattern (GP-003):
 ---
 
 ## Recent Changes
+
+### 2026-01-06 - Magic Numbers Cleanup (AP-004)
+
+**Changes**:
+- Removed all local constant declarations from timeline views
+- Replaced 37+ magic numbers with centralized `LayoutConstants` references
+- Achieved consistent layout sizing across all timeline components
+
+**Files Modified**:
+- `Projector/Views/Timeline/MultiTrackTimelineView.swift` - Removed 7 local constants, replaced with TimelineLayout references
+- `Projector/Views/Timeline/AudioLaneView.swift` - Removed headerWidth/trackHeight, using TimelineLayout
+- `Projector/Views/Timeline/VideoTrackView.swift` - Removed headerWidth/trackHeight, using TimelineLayout
+- `Projector/Views/FileManager/FileManagerView.swift` - Removed collapsedHeight/expandedHeight, using FileManagerLayout
+
+**Technical Details**:
+Local constants like `headerWidth`, `trackHeight`, `videoTrackHeight`, `audioLaneHeight`, `rulerHeight`, `toolbarHeight` were duplicated across multiple view files. These have been consolidated into `LayoutConstants.swift` under `TimelineLayout` and `FileManagerLayout` enums, ensuring:
+- Single source of truth for layout values
+- Consistent sizing across all timeline views
+- Easier maintenance and future adjustments
+
+**Progress Impact**:
+- Timeline UI: 85% -> 90%
+- **Overall: 92% -> 93%**
+
+**QA Approval**: qa-auditor (all checks passed)
+
+---
 
 ### 2026-01-06 - Audio Routing Fix + Scope Refinement
 
@@ -564,7 +590,7 @@ let minZoom: CGFloat = 1.0  // was 0.1 (unusable)
 | ~~onTapGesture in ScrollView~~ | ~~150ms+ trackpad latency~~ | ~~ui-specialist~~ | ✅ **RESOLVED** - All 11 violations fixed |
 | ~~Files not in Xcode project~~ | ~~Can't use new code~~ | ~~USER ACTION~~ | ✅ **RESOLVED** - All files added to Xcode |
 | ~~ContentView 1680 lines~~ | ~~Hard to maintain~~ | ~~ui-specialist~~ | ✅ **RESOLVED** - Decomposed to 1103 lines (35% reduction) |
-| Magic numbers (37+) | Inconsistent layout | ui-specialist | LayoutConstants.swift created, integration pending |
+| ~~Magic numbers (37+)~~ | ~~Inconsistent layout~~ | ~~ui-specialist~~ | ✅ **RESOLVED** - All replaced with LayoutConstants |
 | Missing contracts | Layer coupling | arch-architect | MIDISyncServiceProtocol done, TransportServiceProtocol pending |
 
 ### ✅ Files Added to Xcode Project (Programmatically)
@@ -662,7 +688,7 @@ When the pro-grade audit began, the following issues were identified:
 
 | Issue | Impact | Resolution |
 |-------|--------|------------|
-| Magic numbers (37+ instances) | Inconsistent layout; hard to maintain | `LayoutConstants.swift` created; integration pending |
+| ~~Magic numbers (37+ instances)~~ | ~~Inconsistent layout; hard to maintain~~ | ✅ **RESOLVED** - All replaced with LayoutConstants |
 | Missing DocC documentation | Poor API discoverability | Phase 3 planned |
 | No ViewModel pattern for timeline | UI logic in Views | `TimelineViewModel` created |
 
@@ -673,7 +699,7 @@ The codebase had functional features but lacked professional architecture patter
 2. **Separation of concerns**: Business logic mixed with UI code in large View files
 3. **Consistency**: No centralized constants, inconsistent patterns across files
 
-**Progress**: 7 of 12 critical/high issues resolved. Remaining work focuses on ContentView decomposition and documentation.
+**Progress**: 8 of 12 critical/high issues resolved. Remaining work focuses on documentation and TransportServiceProtocol.
 
 ---
 

@@ -79,22 +79,7 @@ struct MultiTrackTimelineView: View {
     @State private var linkedDragPreview: LinkedDragPreview?
 
     // MARK: - Constants
-    // TODO: Use LayoutConstants after adding to Xcode project
 
-    /// Track header width (for lane labels/controls)
-    private let headerWidth: CGFloat = 120
-
-    /// Video track height
-    private let videoTrackHeight: CGFloat = 60
-
-    /// Audio lane height
-    private let audioLaneHeight: CGFloat = 60
-
-    /// Ruler height
-    private let rulerHeight: CGFloat = 24
-
-    /// Toolbar height (TC display + zoom controls)
-    private let toolbarHeight: CGFloat = 40
     /// Height for the inactive "new lane" drop target
     private let newLaneDropInactiveHeight: CGFloat = 20
 
@@ -104,7 +89,7 @@ struct MultiTrackTimelineView: View {
     private let maxZoomMultiplier: CGFloat = 10.0
 
     private func pixelsPerFrame(for availableWidth: CGFloat) -> CGFloat {
-        let contentWidth = max(1, availableWidth - headerWidth)
+        let contentWidth = max(1, availableWidth - TimelineLayout.headerWidth)
         let durationFrames = max(1, timeline.config.durationFrames)
         let fitPixelsPerFrame = contentWidth / CGFloat(durationFrames)
         let clampedZoom = min(max(zoomLevel, minZoom), maxZoom)
@@ -113,7 +98,7 @@ struct MultiTrackTimelineView: View {
     }
 
     private func timelineContentWidth(for availableWidth: CGFloat) -> CGFloat {
-        CGFloat(timeline.config.durationFrames) * pixelsPerFrame(for: availableWidth) + headerWidth
+        CGFloat(timeline.config.durationFrames) * pixelsPerFrame(for: availableWidth) + TimelineLayout.headerWidth
     }
 
     private var timeline: Timeline {
@@ -121,9 +106,9 @@ struct MultiTrackTimelineView: View {
     }
 
     private var totalHeight: CGFloat {
-        var height = toolbarHeight + rulerHeight + 1 // Toolbar + ruler + divider
-        height += videoTrackHeight + 1 // Video track + divider
-        height += max(audioLaneHeight, CGFloat(timeline.audioLanes.count) * (audioLaneHeight + 1)) // Audio lanes
+        var height = TimelineLayout.toolbarHeight + TimelineLayout.rulerHeight + 1 // Toolbar + ruler + divider
+        height += TimelineLayout.videoTrackHeight + 1 // Video track + divider
+        height += max(TimelineLayout.audioLaneHeight, CGFloat(timeline.audioLanes.count) * (TimelineLayout.audioLaneHeight + 1)) // Audio lanes
         return height
     }
 
@@ -398,7 +383,7 @@ struct MultiTrackTimelineView: View {
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 12)
-            .frame(height: toolbarHeight)
+            .frame(height: TimelineLayout.toolbarHeight)
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
 
             Divider()
@@ -698,24 +683,24 @@ struct MultiTrackTimelineView: View {
     private var tracksSection: some View {
         GeometryReader { geometry in
             let debug = TimelineDebugFlags.current
-            let contentAreaWidth = geometry.size.width - headerWidth
+            let contentAreaWidth = geometry.size.width - TimelineLayout.headerWidth
             let totalContentWidth = timelineContentWidth(for: geometry.size.width)
             let ppf = pixelsPerFrame(for: geometry.size.width)
-            let scrollHeight = max(0, geometry.size.height - rulerHeight - 1)
+            let scrollHeight = max(0, geometry.size.height - TimelineLayout.rulerHeight - 1)
             let audioLanesHeight: CGFloat = {
                 if timeline.audioLanes.isEmpty {
-                    return audioLaneHeight
+                    return TimelineLayout.audioLaneHeight
                 }
                 let dividers = max(0, timeline.audioLanes.count - 1)
-                return (CGFloat(timeline.audioLanes.count) * audioLaneHeight) + CGFloat(dividers)
+                return (CGFloat(timeline.audioLanes.count) * TimelineLayout.audioLaneHeight) + CGFloat(dividers)
             }()
-            let baseTracksHeight = 4 + videoTrackHeight + 1 + audioLanesHeight
+            let baseTracksHeight = 4 + TimelineLayout.videoTrackHeight + 1 + audioLanesHeight
             let availableNewLaneHeight = max(0, scrollHeight - baseTracksHeight - 8)
 
             VStack(spacing: 0) {
                 // Ruler row (with seek gesture - doesn't scroll)
                 HStack(spacing: 0) {
-                    Color.clear.frame(width: headerWidth)
+                    Color.clear.frame(width: TimelineLayout.headerWidth)
                     if debug.disableRulerGesture {
                         TimelineRulerView(
                             duration: playbackEngine.duration,
@@ -733,7 +718,7 @@ struct MultiTrackTimelineView: View {
                         .gesture(seekGesture(contentAreaWidth: contentAreaWidth))
                     }
                 }
-                .frame(height: rulerHeight)
+                .frame(height: TimelineLayout.rulerHeight)
                 .background(Color(white: 0.18))
 
                 Rectangle()
@@ -788,7 +773,7 @@ struct MultiTrackTimelineView: View {
                                 }
                             }
                         )
-                        .frame(width: totalContentWidth, height: videoTrackHeight)
+                        .frame(width: totalContentWidth, height: TimelineLayout.videoTrackHeight)
                         .overlay(alignment: .top) {
                             laneBorder
                         }
@@ -858,7 +843,7 @@ struct MultiTrackTimelineView: View {
                                     timelineManager.renameAudioLane(id: lane.id, name: newName)
                                 }
                             )
-                            .frame(width: totalContentWidth, height: audioLaneHeight)
+                            .frame(width: totalContentWidth, height: TimelineLayout.audioLaneHeight)
                             .overlay(alignment: .bottom) {
                                 if index == timeline.audioLanes.count - 1 {
                                     laneBorder
@@ -904,13 +889,13 @@ struct MultiTrackTimelineView: View {
 
     // Simple playhead using offset positioning (more efficient than .position())
     private func playhead(pixelsPerFrame: CGFloat, totalHeight: CGFloat) -> some View {
-        let xOffset = headerWidth + (CGFloat(playbackEngine.currentFrame) * pixelsPerFrame) - 1 // -1 for half width
+        let xOffset = TimelineLayout.headerWidth + (CGFloat(playbackEngine.currentFrame) * pixelsPerFrame) - 1 // -1 for half width
 
         return VStack(spacing: 0) {
             // Triangle at top
             Triangle()
                 .fill(Color.accentColor)
-                .frame(width: 10, height: 8)
+                .frame(width: TimelineLayout.playheadTriangleWidth, height: TimelineLayout.playheadTriangleHeight)
             // Vertical line
             Rectangle()
                 .fill(Color.accentColor)
@@ -934,8 +919,6 @@ struct MultiTrackTimelineView: View {
             }
     }
 
-    /// Spacing between ruler and tracks (separator + spacer)
-    private let rulerSpacing: CGFloat = 5
 
     private var laneBorder: some View {
         Rectangle()
@@ -944,19 +927,19 @@ struct MultiTrackTimelineView: View {
     }
 
     private var tracksHeight: CGFloat {
-        let audioHeight = max(50, CGFloat(timeline.audioLanes.count) * (audioLaneHeight + 1))
-        return videoTrackHeight + 1 + audioHeight + 8 // +8 for bottom padding
+        let audioHeight = max(50, CGFloat(timeline.audioLanes.count) * (TimelineLayout.audioLaneHeight + 1))
+        return TimelineLayout.videoTrackHeight + 1 + audioHeight + 8 // +8 for bottom padding
     }
 
     private func emptyAudioLanesPlaceholder(pixelsPerFrame: CGFloat, laneIndex: Int) -> some View {
         let adjustLocation: (CGPoint) -> CGPoint = { location in
-            CGPoint(x: max(0, location.x - headerWidth), y: location.y)
+            CGPoint(x: max(0, location.x - TimelineLayout.headerWidth), y: location.y)
         }
 
         return HStack(spacing: 0) {
             // Header area - overlay centers content
             Color.clear
-                .frame(width: headerWidth, height: audioLaneHeight)
+                .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
                 .overlay(
                     VStack(spacing: 4) {
                         Text("Audio")
@@ -989,7 +972,7 @@ struct MultiTrackTimelineView: View {
                             .foregroundColor(.secondary.opacity(0.6))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .offset(x: -headerWidth / 2)
+                    .offset(x: -TimelineLayout.headerWidth / 2)
 
                     if (isEmptyAudioDropAllowed || isEmptyAudioDropLoading),
                        let previewFrame = emptyAudioDropPreviewFrame {
@@ -1020,7 +1003,7 @@ struct MultiTrackTimelineView: View {
                 }
             )
         }
-        .frame(height: audioLaneHeight)
+        .frame(height: TimelineLayout.audioLaneHeight)
     }
 
     private func newAudioLaneDropZone(
@@ -1029,14 +1012,14 @@ struct MultiTrackTimelineView: View {
         availableHeight: CGFloat
     ) -> some View {
         let adjustLocation: (CGPoint) -> CGPoint = { location in
-            CGPoint(x: max(0, location.x - headerWidth), y: location.y)
+            CGPoint(x: max(0, location.x - TimelineLayout.headerWidth), y: location.y)
         }
         let isActive = isEmptyAudioDropAllowed || isEmptyAudioDropLoading
-        let baseHeight = max(audioLaneHeight, availableHeight, newLaneDropInactiveHeight)
+        let baseHeight = max(TimelineLayout.audioLaneHeight, availableHeight, newLaneDropInactiveHeight)
 
         return HStack(spacing: 0) {
             Color.clear
-                .frame(width: headerWidth)
+                .frame(width: TimelineLayout.headerWidth)
                 .background(isActive ? Color(nsColor: .controlBackgroundColor).opacity(0.6) : Color.clear)
                 .overlay(
                     VStack(spacing: 4) {
@@ -1063,14 +1046,14 @@ struct MultiTrackTimelineView: View {
                                 .foregroundColor(.secondary.opacity(0.7))
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .offset(x: -headerWidth / 2)
+                        .offset(x: -TimelineLayout.headerWidth / 2)
                     }
 
                     if (isEmptyAudioDropAllowed || isEmptyAudioDropLoading),
                        let previewFrame = emptyAudioDropPreviewFrame {
                         emptyAudioDropPreviewOverlay(
                             frame: previewFrame,
-                            height: min(audioLaneHeight, geometry.size.height),
+                            height: min(TimelineLayout.audioLaneHeight, geometry.size.height),
                             width: geometry.size.width,
                             pixelsPerFrame: pixelsPerFrame
                         )

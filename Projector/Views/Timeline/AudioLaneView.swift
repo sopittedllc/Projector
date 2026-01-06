@@ -46,10 +46,6 @@ struct AudioLaneView: View {
     @FocusState private var isNameFieldFocused: Bool
     @EnvironmentObject private var dragContext: DragContext
 
-    /// Track header width - wider to accommodate output selector
-    private let headerWidth: CGFloat = 120  // TODO: Use TimelineLayout.headerWidth after adding to Xcode project
-    /// Track height for audio clips
-    private let trackHeight: CGFloat = 60  // TODO: Use TimelineLayout.audioLaneHeight after adding to Xcode project
 
     var body: some View {
         HStack(spacing: 0) {
@@ -59,7 +55,7 @@ struct AudioLaneView: View {
             // Clips area
             clipsArea
         }
-        .frame(height: trackHeight)
+        .frame(height: TimelineLayout.audioLaneHeight)
         .background(laneBackground)
         .onAppear {
             applyDefaultMappingIfNeeded()
@@ -80,7 +76,7 @@ struct AudioLaneView: View {
 
     private var laneHeader: some View {
         Color.clear
-            .frame(width: headerWidth, height: trackHeight)
+            .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
             .overlay(
                 VStack(spacing: 4) {
                     // Lane name (editable on double-click)
@@ -96,7 +92,7 @@ struct AudioLaneView: View {
                             .onExitCommand {
                                 cancelNameEdit()
                             }
-                            .frame(maxWidth: headerWidth - 12)
+                            .frame(maxWidth: TimelineLayout.headerWidth - 12)
                     } else {
                         // Use Button instead of onTapGesture to avoid ScrollView latency (GP-003)
                         Button(action: {}) {
@@ -284,7 +280,7 @@ struct AudioLaneView: View {
                 .font(.system(size: 9))
                 .foregroundColor(.secondary.opacity(0.5))
         }
-        .offset(x: -headerWidth / 2)
+        .offset(x: -TimelineLayout.headerWidth / 2)
     }
 
     private func dropPreviewOverlay(frame: Int, height: CGFloat, width: CGFloat) -> some View {

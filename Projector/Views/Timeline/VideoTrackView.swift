@@ -32,10 +32,6 @@ struct VideoTrackView: View {
     @State private var dragOffsetFrames: Int = 0
     @EnvironmentObject private var dragContext: DragContext
 
-    /// Track header width - must match MultiTrackTimelineView
-    private let headerWidth: CGFloat = 120
-    /// Track height for video reels
-    private let trackHeight: CGFloat = 60
 
     var body: some View {
         HStack(spacing: 0) {
@@ -45,7 +41,7 @@ struct VideoTrackView: View {
             // Reels area
             reelsArea
         }
-        .frame(height: trackHeight)
+        .frame(height: TimelineLayout.videoTrackHeight)
         .background(Color(nsColor: .textBackgroundColor).opacity(0.3))
     }
 
@@ -53,7 +49,7 @@ struct VideoTrackView: View {
 
     private var trackHeader: some View {
         Color.clear
-            .frame(width: headerWidth, height: trackHeight)
+            .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.videoTrackHeight)
             .overlay(
                 VStack(spacing: 3) {
                     Text("Video")
@@ -132,7 +128,7 @@ struct VideoTrackView: View {
                 .font(.system(size: 10))
                 .foregroundColor(.secondary.opacity(0.6))
         }
-        .offset(x: -headerWidth / 2)
+        .offset(x: -TimelineLayout.headerWidth / 2)
     }
 
     private func dropPreviewOverlay(frame: Int, height: CGFloat, width: CGFloat) -> some View {

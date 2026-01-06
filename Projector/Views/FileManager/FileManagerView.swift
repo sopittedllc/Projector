@@ -27,9 +27,6 @@ struct FileManagerView: View {
     // Focus state for keyboard commands
     @FocusState private var isMediaListFocused: Bool
 
-    private let collapsedHeight: CGFloat = 32
-    /// Fixed expanded height for horizontal scroll layout
-    private let expandedHeight: CGFloat = 125
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,7 +34,7 @@ struct FileManagerView: View {
             Divider()
             contentArea
         }
-        .frame(height: isExpanded ? expandedHeight : collapsedHeight, alignment: .top)
+        .frame(height: isExpanded ? FileManagerLayout.expandedHeight : FileManagerLayout.collapsedHeight, alignment: .top)
         .contentShape(Rectangle())
         .clipped()
         .background(
@@ -438,7 +435,7 @@ struct MediaGridCell: View {
             VStack(spacing: 4) {
                 // Thumbnail
                 thumbnailView
-                    .frame(width: 64, height: 48)
+                    .frame(width: FileManagerLayout.gridThumbnailWidth, height: FileManagerLayout.gridThumbnailHeight)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .overlay(
                         RoundedRectangle(cornerRadius: 4)
@@ -451,7 +448,7 @@ struct MediaGridCell: View {
                     .foregroundColor(.primary)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
-                    .frame(width: 80)
+                    .frame(width: FileManagerLayout.gridLabelWidth)
             }
             .padding(4)
             .background(
@@ -485,7 +482,7 @@ struct MediaGridCell: View {
             Image(nsImage: nsImage)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
-                .frame(width: 64, height: 48)
+                .frame(width: FileManagerLayout.gridThumbnailWidth, height: FileManagerLayout.gridThumbnailHeight)
                 .clipped()
         } else {
             // Placeholder with icon
