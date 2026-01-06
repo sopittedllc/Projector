@@ -1,6 +1,6 @@
 # Projector Knowledge Base
 
-> **Last Updated**: 2026-01-02
+> **Last Updated**: 2026-01-06
 > **Maintainer**: The Librarian Agent
 >
 > This document captures institutional knowledge extracted from the Projector codebase.
@@ -611,6 +611,56 @@ Build failed after a GeometryReader closure used `_` but still referenced `geome
 
 ---
 
+### AP-008: Guard Conditions Coupling Unrelated Features
+**Added**: 2026-01-06
+**Discovered**: Multi-channel audio routing failure
+**Severity**: High
+
+#### The Mistake
+```swift
+// ❌ PROHIBITED - Optional naming feature blocks core routing functionality
+private func makeChannelMap(lane: AudioLane, inputChannelCount: Int) -> [NSNumber]? {
+    guard lane.outputMappingId != nil else { return nil }  // If no preset name, skip ALL routing
+    // ... channel mapping logic
+}
+```
+
+#### Why It's Wrong
+This guard condition couples two unrelated features:
+1. **`outputMappingId`**: An optional naming/preset feature (convenience)
+2. **Channel routing** (`outputChannelOffset`, `outputChannelCount`): The core functionality
+
+The result: multi-channel audio routing ONLY worked when a named preset was selected, even though `AudioLane` already had explicit `outputChannelOffset` and `outputChannelCount` properties that should work independently.
+
+#### The Fix
+```swift
+// ✅ CORRECT - Check actual routing parameters, not optional metadata
+private func makeChannelMap(lane: AudioLane, inputChannelCount: Int) -> [NSNumber]? {
+    let needsCustomRouting = lane.outputChannelOffset != 0
+        || (lane.outputChannelCount != 2 && lane.outputChannelCount != inputChannelCount)
+
+    guard needsCustomRouting else { return nil }
+    // ... channel mapping logic
+}
+```
+
+#### Root Cause Pattern
+Guard conditions that check for "optional feature X" can accidentally block "required feature Y" when:
+- X was added as a convenience/enhancement to Y
+- The guard assumes X is the trigger for Y
+- Y actually has its own independent state that should work without X
+
+#### Prevention
+When writing guards, ask: **"What is the minimum data required for this function to work?"**
+- Check the actual operational parameters, not convenience metadata
+- Optional naming/preset features should never block core functionality
+- Test features independently: "Does routing work without presets?"
+
+#### Incident
+Audio routing to channels 3+ failed until a mapping preset was selected in the UI, even when `outputChannelOffset` was correctly set to route to those channels.
+
+---
+
 ## MTC/MMC Sync Standards
 
 ### MTC-001: Frame Rate Encoding
@@ -839,6 +889,27 @@ public enum MTCSyncState: Sendable, Equatable, Hashable { }
 - Reference class instances across actors
 
 **Prevention**: Always add `: Sendable` to protocols and types that cross actor boundaries.
+
+---
+
+### LL-004: Guard Conditions Should Check Operational State, Not Metadata
+**Date**: 2026-01-06
+**Source**: `Projector/Managers/PlaybackEngine.swift:680`
+
+**Problem**: Multi-channel audio routing failed silently when no mapping preset was selected.
+
+**Root Cause**: The `makeChannelMap` function used `guard lane.outputMappingId != nil` to determine if channel mapping was needed. This checked for the presence of a named preset (metadata) rather than checking if the actual routing parameters differed from defaults.
+
+**Solution**: Changed the guard to check the operational state:
+```swift
+let needsCustomRouting = lane.outputChannelOffset != 0
+    || (lane.outputChannelCount != 2 && lane.outputChannelCount != inputChannelCount)
+guard needsCustomRouting else { return nil }
+```
+
+**Key Insight**: When optional convenience features (presets, names, tags) are added alongside core functionality, guard conditions should always check the core operational parameters, not the optional metadata. The question to ask: "What data does this function actually need to do its job?"
+
+**Related**: See AP-008 for the anti-pattern documentation.
 
 ---
 
