@@ -108,6 +108,9 @@ final class PlaybackEngine: ObservableObject {
     /// Cached extracted audio files for video tracks
     private var extractedAudioCache: [AudioExtractionKey: URL] = [:]
 
+    /// Pending audio extractions to prevent race conditions
+    private var pendingExtractions: [AudioExtractionKey: Task<URL, Error>] = [:]
+
     /// Pending seek request (coalesced)
     private var pendingSeekFrame: Int?
 
@@ -488,19 +491,7 @@ final class PlaybackEngine: ObservableObject {
             do {
                 let sourceURL: URL
                 if clipSnapshot.sourceType == .videoTrack {
-                    let key = AudioExtractionKey(
-                        url: clipSnapshot.sourceURL,
-                        trackIndex: clipSnapshot.sourceTrackIndex ?? 0
-                    )
-                    if let cached = await MainActor.run { self.extractedAudioCache[key] } {
-                        sourceURL = cached
-                    } else {
-                        let extractedURL = try await Self.extractAudioToTemporaryFile(for: clipSnapshot, key: key)
-                        await MainActor.run {
-                            self.extractedAudioCache[key] = extractedURL
-                        }
-                        sourceURL = extractedURL
-                    }
+                    sourceURL = try await self.getExtractedAudioURL(for: clipSnapshot)
                 } else {
                     sourceURL = clipSnapshot.sourceURL
                 }
@@ -518,6 +509,48 @@ final class PlaybackEngine: ObservableObject {
             } catch {
                 NSLog(">>> PlaybackEngine: Failed to load audio clip: \(error)")
             }
+        }
+    }
+
+    /// Get or extract audio URL, coordinating concurrent requests
+    private func getExtractedAudioURL(for clip: AudioClip) async throws -> URL {
+        let key = AudioExtractionKey(
+            url: clip.sourceURL,
+            trackIndex: clip.sourceTrackIndex ?? 0
+        )
+
+        // Atomically check cache, pending task, or create new extraction
+        let taskToAwait: Task<URL, Error> = await MainActor.run {
+            // Check cache first
+            if let cached = self.extractedAudioCache[key] {
+                return Task { cached }
+            }
+
+            // Check for pending extraction
+            if let pendingTask = self.pendingExtractions[key] {
+                return pendingTask
+            }
+
+            // Create and register new extraction task
+            let extractionTask = Task<URL, Error> {
+                try await Self.extractAudioToTemporaryFile(for: clip, key: key)
+            }
+            self.pendingExtractions[key] = extractionTask
+            return extractionTask
+        }
+
+        do {
+            let extractedURL = try await taskToAwait.value
+            await MainActor.run {
+                self.extractedAudioCache[key] = extractedURL
+                self.pendingExtractions.removeValue(forKey: key)
+            }
+            return extractedURL
+        } catch {
+            _ = await MainActor.run {
+                self.pendingExtractions.removeValue(forKey: key)
+            }
+            throw error
         }
     }
 
@@ -857,9 +890,15 @@ final class PlaybackEngine: ObservableObject {
             throw PlaybackEngineError.audioExtractionFailed
         }
 
+        // Use a deterministic filename based on source URL and track index
+        let keyHash = "\(key.url.absoluteString)-track\(key.trackIndex)".hashValue
         let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("projector-audio-\(clip.id).m4a")
-        try? FileManager.default.removeItem(at: tempURL)
+            .appendingPathComponent("projector-audio-\(abs(keyHash)).m4a")
+
+        // Remove existing file if present
+        if FileManager.default.fileExists(atPath: tempURL.path) {
+            try FileManager.default.removeItem(at: tempURL)
+        }
 
         if #available(macOS 15.0, *) {
             try await export.export(to: tempURL, as: .m4a)
