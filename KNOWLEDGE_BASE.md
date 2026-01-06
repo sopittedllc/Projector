@@ -1,6 +1,6 @@
 # Projector Knowledge Base
 
-> **Last Updated**: 2026-01-06
+> **Last Updated**: 2026-01-06 (GP-012 added)
 > **Maintainer**: The Librarian Agent
 >
 > This document captures institutional knowledge extracted from the Projector codebase.
@@ -384,6 +384,88 @@ Any collapsible header inside scrollable containers.
 
 ---
 
+### GP-012: Centralized Layout Constants
+**Added**: 2026-01-06
+**Source**: `Projector/Utilities/LayoutConstants.swift`
+**Category**: Architecture
+
+#### Problem
+Magic numbers (hardcoded values like `120`, `60`, `48`) were duplicated across multiple view files. This caused:
+- Inconsistent layout values when views were modified independently
+- No clear documentation of what values represent
+- Difficult maintenance when design changes require updating multiple files
+- Violations of AP-004 (No Magic Numbers standard)
+
+#### Solution
+Create a centralized `LayoutConstants.swift` file with domain-specific nested enums:
+
+```swift
+/// Timeline layout constants
+enum TimelineLayout {
+    /// Width of track/lane headers (video track, audio lanes)
+    static let headerWidth: CGFloat = 120
+
+    /// Height of the video track
+    static let videoTrackHeight: CGFloat = 60
+
+    /// Height of each audio lane
+    static let audioLaneHeight: CGFloat = 60
+
+    /// Height of audio clips
+    static let audioClipHeight: CGFloat = 50
+}
+
+/// File manager panel constants
+enum FileManagerLayout {
+    /// Height when collapsed (header only)
+    static let collapsedHeight: CGFloat = 32
+
+    /// Height when expanded
+    static let expandedHeight: CGFloat = 125
+}
+
+/// Common spacing and padding
+enum Spacing {
+    /// Standard content padding
+    static let contentPadding: CGFloat = 12
+
+    /// Small spacing between controls
+    static let controlSpacing: CGFloat = 4
+}
+```
+
+#### Usage in Views
+```swift
+// Before (magic numbers scattered across files)
+.frame(width: 120, height: 60)  // What do these mean?
+
+// After (centralized, documented constants)
+.frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
+```
+
+#### Why It Works
+- **Single source of truth**: All layout values defined in one place
+- **Self-documenting**: Enum names and DocC comments explain purpose
+- **Type-safe**: Compiler catches typos in constant names
+- **Domain organization**: Nested enums group related constants (TimelineLayout, FileManagerLayout, etc.)
+- **Easy refactoring**: Change once, applied everywhere
+
+#### When to Use
+- Any numeric layout value used in more than one file
+- Any value that represents a design decision (heights, widths, spacing)
+- Constants that may need tuning during development
+
+#### Files Using This Pattern
+- `Projector/Views/Timeline/MultiTrackTimelineView.swift`
+- `Projector/Views/Timeline/AudioLaneView.swift`
+- `Projector/Views/Timeline/VideoTrackView.swift`
+- `Projector/Views/FileManager/FileManagerView.swift`
+
+#### Related
+- Addresses AP-004 (Magic Numbers anti-pattern)
+
+---
+
 ## Prohibited Anti-Patterns
 
 ### AP-001: @MainActor for MIDI Processing
@@ -485,6 +567,7 @@ class TimelineViewModel: ObservableObject {
 
 ### AP-004: Magic Numbers
 **Added**: 2026-01-02
+**Updated**: 2026-01-06 (solution implemented via GP-012)
 **Discovered**: Architectural standards
 **Severity**: Medium
 
@@ -493,22 +576,25 @@ class TimelineViewModel: ObservableObject {
 // ❌ PROHIBITED
 let height = 120.0  // What is this?
 let frameRate = 29.97  // Where did this come from?
+.frame(width: 120, height: 60)  // Duplicated across files
 ```
 
 #### Why It's Wrong
-Magic numbers make code incomprehensible and error-prone. They hide intent and make refactoring dangerous.
+Magic numbers make code incomprehensible and error-prone. They hide intent, make refactoring dangerous, and lead to inconsistencies when the same value is duplicated across files.
 
 #### The Fix
 ```swift
-// ✅ CORRECT
-enum LayoutConstants {
-    static let transportBarHeight: CGFloat = 120
-}
+// ✅ CORRECT - Use centralized LayoutConstants.swift (see GP-012)
+.frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
 
+// For frame rates and other domain constants
 enum FrameRate {
     static let ntscDropFrame: Double = 29.97
 }
 ```
+
+#### Resolution
+This anti-pattern is now addressed by **GP-012: Centralized Layout Constants**. All layout values should be defined in `Projector/Utilities/LayoutConstants.swift` using domain-specific enums.
 
 ---
 
