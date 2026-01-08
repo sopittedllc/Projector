@@ -24,6 +24,14 @@ struct MissingFileInfo: Identifiable {
     }
 }
 
+/// Helper for comparing lane output states in onChange observer
+private struct LaneOutputState: Equatable {
+    let id: UUID
+    let mappingId: UUID?
+    let offset: Int
+    let count: Int
+}
+
 /// Main application content view
 struct ContentView: View {
     // MARK: - Managers
@@ -490,10 +498,19 @@ struct ContentView: View {
         .onChange(of: audioManager.mappedOutputs) { _, outputs in
             guard !outputs.isEmpty else { return }
             let lanes = timelineManager.timeline.audioLanes
+            var didAssign = false
             for (index, lane) in lanes.enumerated() where lane.outputMappingId == nil {
                 let output = outputs[min(index, outputs.count - 1)]
                 timelineManager.setLaneOutputMapping(id: lane.id, mapping: output)
+                didAssign = true
             }
+            if didAssign {
+                syncTimelineToPlaybackEngine()
+            }
+        }
+        // Sync to PlaybackEngine when lane output mappings change (e.g., from dropdown)
+        .onChange(of: timelineManager.timeline.audioLanes.map { LaneOutputState(id: $0.id, mappingId: $0.outputMappingId, offset: $0.outputChannelOffset, count: $0.outputChannelCount) }) { _, _ in
+            syncTimelineToPlaybackEngine()
         }
     }
 

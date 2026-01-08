@@ -157,29 +157,15 @@ struct AudioLaneView: View {
 
     private var outputMappingPicker: some View {
         Menu {
-            Button {
-                onOutputMappingChange(nil)
-            } label: {
-                HStack {
-                    Text("Default")
-                    if lane.outputMappingId == nil {
-                        Spacer()
-                        Image(systemName: "checkmark")
-                    }
-                }
-            }
-            if !availableAudioOutputs.isEmpty {
-                Divider()
-                ForEach(availableAudioOutputs) { output in
-                    Button {
-                        onOutputMappingChange(output)
-                    } label: {
-                        HStack {
-                            Text(output.name)
-                            if lane.outputMappingId == output.id {
-                                Spacer()
-                                Image(systemName: "checkmark")
-                            }
+            ForEach(availableAudioOutputs) { output in
+                Button {
+                    onOutputMappingChange(output)
+                } label: {
+                    HStack {
+                        Text(output.name)
+                        if lane.outputMappingId == output.id {
+                            Spacer()
+                            Image(systemName: "checkmark")
                         }
                     }
                 }
@@ -201,16 +187,24 @@ struct AudioLaneView: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(availableAudioOutputs.isEmpty)
     }
 
     /// Get display name for current output device
     private var outputMappingName: String {
+        // Show selected output if available
         if let id = lane.outputMappingId,
            let output = availableAudioOutputs.first(where: { $0.id == id }) {
             let name = output.name
             return name.count > 12 ? String(name.prefix(10)) + "…" : name
         }
-        return availableAudioOutputs.isEmpty ? "Default" : "Default"
+        // Fallback to first available output (will be auto-assigned on appear)
+        if let first = availableAudioOutputs.first {
+            let name = first.name
+            return name.count > 12 ? String(name.prefix(10)) + "…" : name
+        }
+        // No outputs configured
+        return "No Output"
     }
 
     private func applyDefaultMappingIfNeeded() {

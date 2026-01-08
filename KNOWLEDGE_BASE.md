@@ -1,6 +1,6 @@
 # Projector Knowledge Base
 
-> **Last Updated**: 2026-01-07 (GP-013, GP-014 added)
+> **Last Updated**: 2026-01-08 (GP-015, GP-016, GP-017 added)
 > **Maintainer**: The Librarian Agent
 >
 > This document captures institutional knowledge extracted from the Projector codebase.
@@ -603,6 +603,257 @@ Both must be correct for multi-channel routing to work.
 - Any audio application supporting multi-channel output interfaces
 - Pro audio applications with configurable output routing
 - Applications that need to route audio to non-stereo outputs (surround, headphone mixes, etc.)
+
+#### Related Files
+- `Projector/Managers/PlaybackEngine.swift`
+
+---
+
+### GP-015: AUMatrixMixer Channel Routing
+**Added**: 2026-01-08
+**Source**: Multi-channel audio routing implementation
+**Category**: Audio / CoreAudio
+
+#### Problem
+`AVAudioUnitEQ` and `AVAudioUnitConverter`'s `channelMap` property is non-functional for actual channel routing in AVAudioEngine. Setting `channelMap` appears to have no effect on audio output routing, leaving no apparent way to route mono/stereo sources to specific output channels.
+
+#### Solution
+Use `kAudioUnitSubType_MatrixMixer` AudioUnit with crosspoint gain values to achieve precise channel routing:
+
+```swift
+// Create Matrix Mixer AudioUnit
+var componentDescription = AudioComponentDescription(
+    componentType: kAudioUnitType_Mixer,
+    componentSubType: kAudioUnitSubType_MatrixMixer,
+    componentManufacturer: kAudioUnitManufacturer_Apple,
+    componentFlags: 0,
+    componentFlagsMask: 0
+)
+let matrixMixer = AVAudioUnitGenerator(audioComponentDescription: componentDescription)
+engine.attach(matrixMixer)
+
+// Connect in the chain
+engine.connect(sourceNode, to: matrixMixer, format: sourceFormat)
+engine.connect(matrixMixer, to: engine.mainMixerNode, format: outputFormat)
+
+// CRITICAL: Start engine BEFORE setting parameters
+try engine.start()
+
+// Set volumes (required for any output)
+let audioUnit = matrixMixer.audioUnit
+AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume, kAudioUnitScope_Global, 0, 1.0, 0)
+AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume, kAudioUnitScope_Input, 0, 1.0, 0)
+AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume, kAudioUnitScope_Output, 0, 1.0, 0)
+
+// Set crosspoint gains to route input channel to output channel
+// Crosspoint element = (inputChannel << 16) | outputChannel
+let crosspoint = UInt32((inputChannel << 16) | outputChannel)
+AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume, kAudioUnitScope_Global, crosspoint, 1.0, 0)
+```
+
+#### Critical Implementation Details
+
+1. **Parameter timing**: All `AudioUnitSetParameter` calls MUST occur AFTER `engine.start()`. Setting parameters before start causes silent output.
+
+2. **Crosspoint calculation**: The element parameter encodes both channels:
+   ```swift
+   let element = UInt32((inputCh << 16) | outputCh)
+   ```
+
+3. **Volume hierarchy**: Must set all three volume levels:
+   - Global volume (overall mixer level)
+   - Input volume (per-input-bus level)
+   - Output volume (per-output-bus level)
+   - Crosspoint volume (individual routing gain)
+
+4. **Default state**: All crosspoints default to 0.0 (silent). You must explicitly enable each desired routing.
+
+#### Why It Works
+The Matrix Mixer is designed specifically for M-to-N channel routing scenarios. Each crosspoint represents a gain value between an input channel and output channel, allowing:
+- Mono to specific output channel
+- Stereo split across non-adjacent outputs
+- Input channel duplication to multiple outputs
+- Per-crosspoint gain control for mixing
+
+#### Common Mistakes
+```swift
+// WRONG - Setting parameters before engine.start()
+engine.attach(matrixMixer)
+AudioUnitSetParameter(audioUnit, ...) // Silent output!
+try engine.start()
+
+// WRONG - Using channelMap on converter (non-functional)
+let converter = AVAudioUnitConverter()
+converter.channelMap = [2, 3] // Does nothing
+
+// WRONG - Forgetting to set global/input/output volumes
+AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume, kAudioUnitScope_Global, crosspoint, 1.0, 0)
+// Missing global/input/output volume settings = silent
+```
+
+#### When to Use
+- Routing audio to specific output channels on multi-channel interfaces
+- Creating custom monitor mixes
+- Any scenario requiring M-to-N channel routing
+
+#### Related Files
+- `Projector/Managers/PlaybackEngine.swift`
+
+---
+
+### GP-016: Multi-Channel AVAudioFormat Creation
+**Added**: 2026-01-08
+**Source**: Multi-channel audio routing implementation
+**Category**: Audio / AVFoundation
+
+#### Problem
+Creating `AVAudioFormat` for multi-channel (>2) audio requires specific initialization patterns. Common approaches fail:
+
+1. `AVAudioFormat(standardFormatWithSampleRate:channels:)` returns `nil` for channel counts > 2
+2. Using `kAudioChannelLayoutTag_DiscreteInOrder` causes silent output on multi-output interfaces
+
+#### Solution
+Use `AVAudioChannelLayout` with `kAudioChannelLayoutTag_Unknown | channelCount`:
+
+```swift
+func createMultiChannelFormat(sampleRate: Double, channelCount: UInt32) -> AVAudioFormat? {
+    // For stereo, use the simple initializer
+    if channelCount <= 2 {
+        return AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channelCount)
+    }
+
+    // For multi-channel, create explicit channel layout
+    var layout = AudioChannelLayout()
+    layout.mChannelLayoutTag = kAudioChannelLayoutTag_Unknown | channelCount
+    layout.mChannelBitmap = AudioChannelBitmap(rawValue: 0)
+    layout.mNumberChannelDescriptions = 0
+
+    guard let channelLayout = AVAudioChannelLayout(layout: &layout) else {
+        return nil
+    }
+
+    return AVAudioFormat(
+        standardFormatWithSampleRate: sampleRate,
+        channelLayout: channelLayout
+    )
+}
+```
+
+#### Why `kAudioChannelLayoutTag_Unknown | channelCount`
+- The `Unknown` tag tells CoreAudio "I'm providing raw channels without semantic meaning"
+- The bitwise OR with channel count specifies how many channels exist
+- This combination works reliably with multi-output audio interfaces
+
+#### Why NOT `kAudioChannelLayoutTag_DiscreteInOrder`
+Despite seeming like the correct choice for "discrete channels in order," this tag causes silent output on many multi-channel interfaces. The exact reason is undocumented, but empirical testing confirms `Unknown | count` works where `DiscreteInOrder | count` fails.
+
+#### Implementation Pattern
+```swift
+// CORRECT - Works for 6-channel interface
+let layout = kAudioChannelLayoutTag_Unknown | UInt32(6)
+
+// WRONG - Causes silent output
+let layout = kAudioChannelLayoutTag_DiscreteInOrder | UInt32(6)
+
+// WRONG - Returns nil for > 2 channels
+let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 6) // nil!
+```
+
+#### When to Use
+- Creating formats for multi-channel audio interfaces (>2 outputs)
+- Building audio processing graphs that support arbitrary channel counts
+- Pro audio applications with configurable output routing
+
+#### Related Files
+- `Projector/Managers/PlaybackEngine.swift`
+
+---
+
+### GP-017: AVAudioEngine Device Channel Count Query
+**Added**: 2026-01-08
+**Source**: Multi-channel audio routing implementation
+**Category**: Audio / CoreAudio
+
+#### Problem
+`engine.outputNode.inputFormat(forBus: 0).channelCount` may incorrectly report 2 channels even when connected to a 6+ channel audio interface. Relying on this value for multi-channel routing decisions results in only stereo output being available.
+
+#### Solution
+Use CoreAudio's `kAudioDevicePropertyStreamConfiguration` to query the actual device capabilities:
+
+```swift
+func getDeviceChannelCount(deviceID: AudioDeviceID) -> UInt32 {
+    var propertyAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioDevicePropertyStreamConfiguration,
+        mScope: kAudioDevicePropertyScopeOutput,
+        mElement: kAudioObjectPropertyElementMain
+    )
+
+    var propertySize: UInt32 = 0
+    var status = AudioObjectGetPropertyDataSize(
+        deviceID,
+        &propertyAddress,
+        0,
+        nil,
+        &propertySize
+    )
+
+    guard status == noErr, propertySize > 0 else { return 2 }
+
+    let bufferListPointer = UnsafeMutablePointer<AudioBufferList>.allocate(
+        capacity: Int(propertySize) / MemoryLayout<AudioBufferList>.size + 1
+    )
+    defer { bufferListPointer.deallocate() }
+
+    status = AudioObjectGetPropertyData(
+        deviceID,
+        &propertyAddress,
+        0,
+        nil,
+        &propertySize,
+        bufferListPointer
+    )
+
+    guard status == noErr else { return 2 }
+
+    let bufferList = UnsafeMutableAudioBufferListPointer(bufferListPointer)
+    var totalChannels: UInt32 = 0
+
+    for buffer in bufferList {
+        totalChannels += buffer.mNumberChannels
+    }
+
+    return totalChannels
+}
+```
+
+#### Why the Node Format is Unreliable
+AVAudioEngine's `outputNode.inputFormat` reflects the format of the *connection* to the output node, not the device's actual capabilities. When no explicit multi-channel format has been set, it defaults to stereo regardless of the hardware.
+
+#### Implementation Pattern
+```swift
+// WRONG - May report 2 even for 6-channel device
+let channelCount = engine.outputNode.inputFormat(forBus: 0).channelCount
+
+// CORRECT - Query device directly
+let deviceChannelCount = getDeviceChannelCount(deviceID: outputDeviceID)
+
+// Store and preserve the device-queried value
+self.availableOutputChannels = deviceChannelCount
+```
+
+#### Key Implementation Notes
+1. **Query once, cache result**: Device capabilities don't change while running. Query at startup or device change.
+
+2. **Never overwrite with node format**: If you query the device and get 6, don't later overwrite that value with the node's reported 2.
+
+3. **Handle device changes**: Re-query when the output device changes (via `AudioObjectPropertyListenerProc`).
+
+4. **Fallback gracefully**: If the query fails, fall back to stereo (2 channels) to ensure basic functionality.
+
+#### When to Use
+- Determining available output channels for routing UI
+- Creating multi-channel formats that match device capabilities
+- Any code that needs to know the true channel count of the audio output device
 
 #### Related Files
 - `Projector/Managers/PlaybackEngine.swift`
