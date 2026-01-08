@@ -1034,6 +1034,15 @@ final class PlaybackEngine: ObservableObject {
     }
 
     private static func extractAudioToTemporaryFile(for clip: AudioClip, key: AudioExtractionKey) async throws -> URL {
+        // Start accessing security-scoped resource for sandboxed access
+        let didStartAccess = clip.sourceURL.startAccessingSecurityScopedResource()
+        NSLog(">>> extractAudioToTemporaryFile: startAccess=\(didStartAccess), url=\(clip.sourceURL.lastPathComponent)")
+        defer {
+            if didStartAccess {
+                clip.sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
         let asset = AVAsset(url: clip.sourceURL)
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
         guard key.trackIndex < audioTracks.count else {
