@@ -111,6 +111,9 @@ final class PlaybackEngine: ObservableObject {
     /// Pending audio extractions to prevent race conditions
     private var pendingExtractions: [AudioExtractionKey: Task<URL, Error>] = [:]
 
+    /// Clips currently being loaded (to prevent duplicate load attempts)
+    private var loadingClipIds: Set<UUID> = []
+
     /// Pending seek request (coalesced)
     private var pendingSeekFrame: Int?
 
@@ -494,6 +497,12 @@ final class PlaybackEngine: ObservableObject {
 
     /// Load an audio clip for playback
     private func loadAudioClip(_ clip: AudioClip, lane: AudioLane) {
+        // Prevent duplicate load attempts while async loading is in progress
+        guard !loadingClipIds.contains(clip.id) else {
+            return
+        }
+        loadingClipIds.insert(clip.id)
+
         NSLog(">>> loadAudioClip: starting for clip \(clip.id), sourceType=\(clip.sourceType)")
         let clipSnapshot = clip
         let laneSnapshot = lane
@@ -511,6 +520,7 @@ final class PlaybackEngine: ObservableObject {
                 let playback = try await self.buildAudioPlayback(for: clipSnapshot, lane: laneSnapshot, audioFile: audioFile)
                 await MainActor.run {
                     self.audioPlayers[clipSnapshot.id] = playback
+                    self.loadingClipIds.remove(clipSnapshot.id)
                     self.scheduleAudioPlayback(
                         playback,
                         clip: clipSnapshot,
@@ -520,6 +530,9 @@ final class PlaybackEngine: ObservableObject {
                 }
             } catch {
                 NSLog(">>> PlaybackEngine: Failed to load audio clip: \(error)")
+                await MainActor.run {
+                    self.loadingClipIds.remove(clipSnapshot.id)
+                }
             }
         }
     }
@@ -677,13 +690,6 @@ final class PlaybackEngine: ObservableObject {
             channels: inputFormat.channelCount
         ) ?? inputFormat
 
-        // Determine the multi-channel output format for the channel mapper
-        let outputChannels = AVAudioChannelCount(max(2, audioOutputChannelCount))
-        let channelMapperOutputFormat = AVAudioFormat(
-            standardFormatWithSampleRate: audioOutputSampleRate,
-            channels: outputChannels
-        ) ?? audioOutputFormat ?? intermediateFormat
-
         audioEngine.attach(player)
         audioEngine.attach(rateConverter)
         audioEngine.attach(channelMapper)
@@ -691,7 +697,6 @@ final class PlaybackEngine: ObservableObject {
         // Debug: log format information
         NSLog(">>> Audio formats - Input: \(inputFormat.sampleRate)Hz/\(inputFormat.channelCount)ch, " +
               "Intermediate: \(intermediateFormat.sampleRate)Hz/\(intermediateFormat.channelCount)ch, " +
-              "Output: \(channelMapperOutputFormat.sampleRate)Hz/\(channelMapperOutputFormat.channelCount)ch, " +
               "Engine output: \(audioOutputSampleRate)Hz/\(audioOutputChannelCount)ch")
 
         // Player -> RateConverter: mixer handles sample rate conversion automatically
@@ -701,7 +706,7 @@ final class PlaybackEngine: ObservableObject {
         audioEngine.connect(rateConverter, to: channelMapper, format: intermediateFormat)
 
         // ChannelMapper -> MainMixer: connect with intermediate format
-        // The mixer node handles any remaining format conversion
+        // The main mixer handles multi-channel output based on its configuration
         audioEngine.connect(channelMapper, to: audioEngine.mainMixerNode, format: intermediateFormat)
 
         let inputChannelCount = Int(inputFormat.channelCount)
