@@ -1034,16 +1034,41 @@ final class PlaybackEngine: ObservableObject {
     }
 
     private static func extractAudioToTemporaryFile(for clip: AudioClip, key: AudioExtractionKey) async throws -> URL {
-        // Start accessing security-scoped resource for sandboxed access
-        let didStartAccess = clip.sourceURL.startAccessingSecurityScopedResource()
-        NSLog(">>> extractAudioToTemporaryFile: startAccess=\(didStartAccess), url=\(clip.sourceURL.lastPathComponent)")
+        // Resolve security-scoped bookmark if available, otherwise try direct access
+        let accessURL: URL
+        var didStartAccess = false
+
+        if let bookmarkData = clip.sourceBookmark {
+            var isStale = false
+            if let resolvedURL = try? URL(
+                resolvingBookmarkData: bookmarkData,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ) {
+                accessURL = resolvedURL
+                didStartAccess = accessURL.startAccessingSecurityScopedResource()
+                NSLog(">>> extractAudioToTemporaryFile: resolved bookmark, startAccess=\(didStartAccess), stale=\(isStale), url=\(accessURL.lastPathComponent)")
+            } else {
+                // Bookmark resolution failed, try direct URL
+                accessURL = clip.sourceURL
+                didStartAccess = accessURL.startAccessingSecurityScopedResource()
+                NSLog(">>> extractAudioToTemporaryFile: bookmark failed, trying direct, startAccess=\(didStartAccess), url=\(accessURL.lastPathComponent)")
+            }
+        } else {
+            // No bookmark, try direct URL access
+            accessURL = clip.sourceURL
+            didStartAccess = accessURL.startAccessingSecurityScopedResource()
+            NSLog(">>> extractAudioToTemporaryFile: no bookmark, startAccess=\(didStartAccess), url=\(accessURL.lastPathComponent)")
+        }
+
         defer {
             if didStartAccess {
-                clip.sourceURL.stopAccessingSecurityScopedResource()
+                accessURL.stopAccessingSecurityScopedResource()
             }
         }
 
-        let asset = AVAsset(url: clip.sourceURL)
+        let asset = AVAsset(url: accessURL)
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
         guard key.trackIndex < audioTracks.count else {
             throw PlaybackEngineError.noAudioTrack
