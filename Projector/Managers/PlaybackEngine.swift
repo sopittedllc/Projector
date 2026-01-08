@@ -668,9 +668,26 @@ final class PlaybackEngine: ObservableObject {
             channels: inputFormat.channelCount
         ) ?? inputFormat
 
+        // Determine the multi-channel output format for the channel mapper
+        let outputChannels = AVAudioChannelCount(max(2, audioOutputChannelCount))
+        let channelMapperOutputFormat = AVAudioFormat(
+            standardFormatWithSampleRate: audioOutputSampleRate,
+            channels: outputChannels
+        ) ?? audioOutputFormat ?? intermediateFormat
+
         audioEngine.attach(player)
         audioEngine.attach(rateConverter)
         audioEngine.attach(channelMapper)
+
+        // Configure the channel mapper's input and output bus formats for multi-channel
+        // This is required for the channel map to work correctly
+        let auAudioUnit = channelMapper.auAudioUnit
+        if auAudioUnit.inputBusses.count > 0 {
+            try? auAudioUnit.inputBusses[0].setFormat(intermediateFormat)
+        }
+        if auAudioUnit.outputBusses.count > 0 {
+            try? auAudioUnit.outputBusses[0].setFormat(channelMapperOutputFormat)
+        }
 
         // Player -> RateConverter: mixer handles sample rate conversion automatically
         audioEngine.connect(player, to: rateConverter, format: inputFormat)
@@ -678,12 +695,8 @@ final class PlaybackEngine: ObservableObject {
         // RateConverter -> ChannelMapper: use intermediate format (correct sample rate)
         audioEngine.connect(rateConverter, to: channelMapper, format: intermediateFormat)
 
-        // ChannelMapper -> MainMixer: use output format
-        if let outputFormat = audioOutputFormat {
-            audioEngine.connect(channelMapper, to: audioEngine.mainMixerNode, format: outputFormat)
-        } else {
-            audioEngine.connect(channelMapper, to: audioEngine.mainMixerNode, format: intermediateFormat)
-        }
+        // ChannelMapper -> MainMixer: use multi-channel output format
+        audioEngine.connect(channelMapper, to: audioEngine.mainMixerNode, format: channelMapperOutputFormat)
 
         let inputChannelCount = Int(inputFormat.channelCount)
         let playback = AudioClipPlayback(

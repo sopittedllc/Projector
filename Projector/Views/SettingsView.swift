@@ -9,10 +9,10 @@ struct SettingsView: View {
 
     @Binding var isPresented: Bool
 
-    // Accordion section states
-    @State private var midiExpanded = false
-    @State private var audioExpanded = false
-    @State private var displayExpanded = false
+    // Accordion section states - default to expanded
+    @State private var midiExpanded = true
+    @State private var audioExpanded = true
+    @State private var displayExpanded = true
 
     @State private var showInterfaceMapping = false
 
