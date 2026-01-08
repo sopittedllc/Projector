@@ -473,10 +473,17 @@ final class PlaybackEngine: ObservableObject {
     /// Start playing active audio clips at current position
     private func startActiveAudioClips() {
         let activeClips = timeline.activeAudioClips(at: currentFrame)
+        let totalClips = timeline.audioLanes.flatMap { $0.clips }.count
 
-        guard !activeClips.isEmpty else { return }
+        NSLog(">>> startActiveAudioClips: frame=\(currentFrame), activeClips=\(activeClips.count), totalClips=\(totalClips), lanes=\(timeline.audioLanes.count)")
+
+        guard !activeClips.isEmpty else {
+            NSLog(">>> startActiveAudioClips: no active clips at current frame")
+            return
+        }
 
         for (lane, clip) in activeClips {
+            NSLog(">>> startActiveAudioClips: loading clip \(clip.id) from lane \(lane.name)")
             if let playback = audioPlayers[clip.id] {
                 syncAudioPlayer(playback, for: clip, lane: lane, shouldPlay: isPlaying)
             } else {
@@ -487,6 +494,7 @@ final class PlaybackEngine: ObservableObject {
 
     /// Load an audio clip for playback
     private func loadAudioClip(_ clip: AudioClip, lane: AudioLane) {
+        NSLog(">>> loadAudioClip: starting for clip \(clip.id), sourceType=\(clip.sourceType)")
         let clipSnapshot = clip
         let laneSnapshot = lane
         Task.detached(priority: .userInitiated) { [weak self] in
@@ -494,6 +502,7 @@ final class PlaybackEngine: ObservableObject {
             do {
                 let sourceURL: URL
                 if clipSnapshot.sourceType == .videoTrack {
+                    NSLog(">>> loadAudioClip: extracting audio from video track")
                     sourceURL = try await self.getExtractedAudioURL(for: clipSnapshot)
                 } else {
                     sourceURL = clipSnapshot.sourceURL
