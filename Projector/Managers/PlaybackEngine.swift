@@ -690,6 +690,13 @@ final class PlaybackEngine: ObservableObject {
             channels: inputFormat.channelCount
         ) ?? inputFormat
 
+        // Create multi-channel output format for ChannelMapper → MainMixer connection
+        // This must use the device's channel count to enable routing to outputs 3-6
+        let multiChannelOutputFormat = AVAudioFormat(
+            standardFormatWithSampleRate: audioOutputSampleRate,
+            channels: AVAudioChannelCount(max(2, audioOutputChannelCount))
+        ) ?? intermediateFormat
+
         audioEngine.attach(player)
         audioEngine.attach(rateConverter)
         audioEngine.attach(channelMapper)
@@ -697,7 +704,7 @@ final class PlaybackEngine: ObservableObject {
         // Debug: log format information
         NSLog(">>> Audio formats - Input: \(inputFormat.sampleRate)Hz/\(inputFormat.channelCount)ch, " +
               "Intermediate: \(intermediateFormat.sampleRate)Hz/\(intermediateFormat.channelCount)ch, " +
-              "Engine output: \(audioOutputSampleRate)Hz/\(audioOutputChannelCount)ch")
+              "MultiCh Output: \(multiChannelOutputFormat.sampleRate)Hz/\(multiChannelOutputFormat.channelCount)ch")
 
         // Player -> RateConverter: mixer handles sample rate conversion automatically
         audioEngine.connect(player, to: rateConverter, format: inputFormat)
@@ -705,9 +712,8 @@ final class PlaybackEngine: ObservableObject {
         // RateConverter -> ChannelMapper: intermediate format with correct sample rate
         audioEngine.connect(rateConverter, to: channelMapper, format: intermediateFormat)
 
-        // ChannelMapper -> MainMixer: connect with intermediate format
-        // The main mixer handles multi-channel output based on its configuration
-        audioEngine.connect(channelMapper, to: audioEngine.mainMixerNode, format: intermediateFormat)
+        // ChannelMapper -> MainMixer: use full device channel count for multi-channel routing
+        audioEngine.connect(channelMapper, to: audioEngine.mainMixerNode, format: multiChannelOutputFormat)
 
         let inputChannelCount = Int(inputFormat.channelCount)
         let playback = AudioClipPlayback(

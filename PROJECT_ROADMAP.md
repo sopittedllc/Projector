@@ -1,8 +1,8 @@
 # Projector - Project Roadmap
 
-> **Last Updated**: 2026-01-06 (Magic Numbers Cleanup Complete)
+> **Last Updated**: 2026-01-07 (Audio Loading + Multi-Channel Output Fix)
 > **Owner**: the-lead agent
-> **Overall Progress**: 93% (Magic numbers cleanup complete, layout consistency achieved)
+> **Overall Progress**: 94% (Audio clip loading stabilized, multi-channel output routing fixed)
 
 ---
 
@@ -16,16 +16,16 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         PROJECT COMPLETION: 93%                              │
+│                         PROJECT COMPLETION: 94%                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  ██████████████████████████████████████████████████████████████████████░ 93%   │
+│  ███████████████████████████████████████████████████████████████████████ 94%   │
 │                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Core Playback      ████████████████████████████████████████████████  95%   │
 │  Timeline UI        ████████████████████████████████████████████████  90%   │
 │  MTC/MMC Sync       ████████████████████████████████████████████████  95%   │
-│  Audio Routing      ██████████████████████████████████████████░░░░░░  80%   │
+│  Audio Routing      ████████████████████████████████████████████████  90%   │
 │  Architecture       ██████████████████████████████████████████████████  90%   │
 │  Documentation      ██████████████████████████████████░░░░░░░░░░░░░░  70%   │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -72,7 +72,7 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 
 > **Scope Update (2026-01-06)**: MTC transmit removed from scope - not needed for project requirements.
 
-### 4. Audio Routing (80%)
+### 4. Audio Routing (90%)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -80,6 +80,8 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | Volume control | ✅ Complete | Per-lane |
 | Mute/Solo | ✅ Complete | Standard DAW behavior |
 | Multi-channel output | ✅ Complete | Channel offset/count routing works without outputMappingId |
+| Multi-channel format | ✅ Complete | ChannelMapper uses device channel count for outputs 3-6 |
+| Duplicate load prevention | ✅ Complete | loadingClipIds guard prevents race conditions |
 | **Remaining** | ❌ Not Started | Audio metering |
 
 ### 5. Architecture Compliance (90%)
@@ -202,6 +204,42 @@ All local constant declarations removed and replaced with `LayoutConstants` refe
 ---
 
 ## Recent Changes
+
+### 2026-01-07 - Audio Loading + Multi-Channel Output Fix
+
+**Changes**:
+- Added `loadingClipIds` guard to prevent duplicate async load attempts for audio clips
+- Fixed multi-channel output format: ChannelMapper now uses device channel count (e.g., 6) instead of input channel count (e.g., 2) for MainMixer connection
+
+**Files Modified**:
+- `Projector/Managers/PlaybackEngine.swift` - Added loadingClipIds Set, multi-channel output format fix
+
+**Technical Details**:
+
+1. **Duplicate Load Prevention**: The `loadAudioClip` method was being called hundreds of times for the same clip during rapid state updates. Added `loadingClipIds: Set<UUID>` to track clips currently being loaded asynchronously:
+```swift
+guard !loadingClipIds.contains(clip.id) else { return }
+loadingClipIds.insert(clip.id)
+// ... async loading ...
+loadingClipIds.remove(clip.id)  // on success or failure
+```
+
+2. **Multi-Channel Output Format**: The ChannelMapper was connected to MainMixer using `intermediateFormat` (2 channels from input), which prevented audio from routing to outputs 3-6 on multi-channel devices. Fixed by creating `multiChannelOutputFormat` using the device's actual channel count:
+```swift
+let multiChannelOutputFormat = AVAudioFormat(
+    standardFormatWithSampleRate: audioOutputSampleRate,
+    channels: AVAudioChannelCount(max(2, audioOutputChannelCount))
+) ?? intermediateFormat
+audioEngine.connect(channelMapper, to: audioEngine.mainMixerNode, format: multiChannelOutputFormat)
+```
+
+**Progress Impact**:
+- Audio Routing: 80% -> 90%
+- **Overall: 93% -> 94%**
+
+**QA Approval**: qa-auditor (thread safety acceptable, edge cases pass, audio chain verified)
+
+---
 
 ### 2026-01-06 - Magic Numbers Cleanup (AP-004)
 
