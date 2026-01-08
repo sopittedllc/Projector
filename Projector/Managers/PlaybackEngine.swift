@@ -679,24 +679,21 @@ final class PlaybackEngine: ObservableObject {
         audioEngine.attach(rateConverter)
         audioEngine.attach(channelMapper)
 
-        // Configure the channel mapper's input and output bus formats for multi-channel
-        // This is required for the channel map to work correctly
-        let auAudioUnit = channelMapper.auAudioUnit
-        if auAudioUnit.inputBusses.count > 0 {
-            try? auAudioUnit.inputBusses[0].setFormat(intermediateFormat)
-        }
-        if auAudioUnit.outputBusses.count > 0 {
-            try? auAudioUnit.outputBusses[0].setFormat(channelMapperOutputFormat)
-        }
+        // Debug: log format information
+        NSLog(">>> Audio formats - Input: \(inputFormat.sampleRate)Hz/\(inputFormat.channelCount)ch, " +
+              "Intermediate: \(intermediateFormat.sampleRate)Hz/\(intermediateFormat.channelCount)ch, " +
+              "Output: \(channelMapperOutputFormat.sampleRate)Hz/\(channelMapperOutputFormat.channelCount)ch, " +
+              "Engine output: \(audioOutputSampleRate)Hz/\(audioOutputChannelCount)ch")
 
         // Player -> RateConverter: mixer handles sample rate conversion automatically
         audioEngine.connect(player, to: rateConverter, format: inputFormat)
 
-        // RateConverter -> ChannelMapper: use intermediate format (correct sample rate)
+        // RateConverter -> ChannelMapper: intermediate format with correct sample rate
         audioEngine.connect(rateConverter, to: channelMapper, format: intermediateFormat)
 
-        // ChannelMapper -> MainMixer: use multi-channel output format
-        audioEngine.connect(channelMapper, to: audioEngine.mainMixerNode, format: channelMapperOutputFormat)
+        // ChannelMapper -> MainMixer: connect with intermediate format
+        // The mixer node handles any remaining format conversion
+        audioEngine.connect(channelMapper, to: audioEngine.mainMixerNode, format: intermediateFormat)
 
         let inputChannelCount = Int(inputFormat.channelCount)
         let playback = AudioClipPlayback(
