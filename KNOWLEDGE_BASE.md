@@ -1,6 +1,6 @@
 # Projector Knowledge Base
 
-> **Last Updated**: 2026-01-06 (GP-012 added)
+> **Last Updated**: 2026-01-07 (GP-013, GP-014 added)
 > **Maintainer**: The Librarian Agent
 >
 > This document captures institutional knowledge extracted from the Projector codebase.
@@ -463,6 +463,149 @@ enum Spacing {
 
 #### Related
 - Addresses AP-004 (Magic Numbers anti-pattern)
+
+---
+
+### GP-013: Async Loading Guard Pattern
+**Added**: 2026-01-07
+**Source**: Session pattern for preventing redundant async loads
+**Category**: Threading / Performance
+
+#### Problem
+Rapid state updates (e.g., sync loops running at frame rate, frequent zoom changes) can trigger the same async load operation hundreds of times before the first one completes. This causes:
+- Wasted CPU cycles spawning redundant tasks
+- Memory pressure from overlapping operations
+- Potential race conditions when multiple completions update state
+- UI flickering as loading states toggle repeatedly
+
+#### Solution
+Use a `Set<UUID>` (or appropriate identifier type) to track in-flight operations. Guard at entry and clean up on completion:
+
+```swift
+private var loadingIds: Set<UUID> = []
+
+func loadAsync(_ item: Item) {
+    // Guard: Skip if already loading this item
+    guard !loadingIds.contains(item.id) else { return }
+
+    // Mark as loading
+    loadingIds.insert(item.id)
+
+    Task {
+        defer { loadingIds.remove(item.id) }
+
+        // ... async work (file I/O, network, audio analysis, etc.)
+        let result = try await performExpensiveOperation(item)
+
+        // Update state with result
+        await MainActor.run {
+            self.cache[item.id] = result
+        }
+    }
+}
+```
+
+#### Why It Works
+- **Idempotent entry**: Multiple calls for the same item become no-ops
+- **Automatic cleanup**: `defer` ensures the ID is removed even if the task fails
+- **Memory efficient**: Set lookup is O(1), minimal overhead
+- **Thread-safe**: Can be made actor-isolated for concurrent access
+
+#### Variations
+For actor-isolated contexts:
+```swift
+actor WaveformLoader {
+    private var loadingIds: Set<UUID> = []
+
+    func load(_ clip: AudioClip) async {
+        guard !loadingIds.contains(clip.id) else { return }
+        loadingIds.insert(clip.id)
+        defer { loadingIds.remove(clip.id) }
+
+        // async work...
+    }
+}
+```
+
+#### When to Use
+- Waveform loading triggered by timeline updates
+- Thumbnail generation during scroll
+- Any async operation that may be triggered faster than it completes
+- Operations expensive enough that redundant execution is wasteful
+
+#### Related Files
+- `Projector/Managers/WaveformCache.swift`
+
+---
+
+### GP-014: AVAudioEngine Multi-Channel Format Pattern
+**Added**: 2026-01-07
+**Source**: Multi-channel audio routing implementation
+**Category**: Audio / AVFoundation
+
+#### Problem
+When connecting AVAudioEngine nodes with a 2-channel (stereo) format, audio cannot be routed to outputs beyond channels 1-2 (e.g., outputs 3-6 on a multi-channel audio interface). Even with correct channel mapping logic, the bus format itself limits which channels are accessible.
+
+#### Solution
+Create the output format using the device's actual channel count for connections to the main mixer:
+
+```swift
+// Get the device's actual channel count
+let deviceChannelCount = engine.outputNode.outputFormat(forBus: 0).channelCount
+
+// Create format that supports all device channels
+let multiChannelFormat = AVAudioFormat(
+    standardFormatWithSampleRate: sampleRate,
+    channels: AVAudioChannelCount(deviceChannelCount)
+)
+
+// Connect with multi-channel format
+engine.connect(sourceNode, to: engine.mainMixerNode, format: multiChannelFormat)
+```
+
+#### Why It Works
+- AVAudioEngine bus formats define the maximum channel capacity for that connection
+- A 2-channel format only allocates buffer space for channels 0-1
+- Channel mapping (via `AVAudioMixerNode` pan/volume or `AVAudioChannelLayout`) operates within the bus format's channel count
+- Using the device's full channel count allows the mapper to route to any supported output
+
+#### Implementation Notes
+```swift
+// ❌ WRONG - Limits routing to stereo outputs only
+let stereoFormat = AVAudioFormat(
+    standardFormatWithSampleRate: 48000,
+    channels: 2
+)
+engine.connect(playerNode, to: engine.mainMixerNode, format: stereoFormat)
+
+// ✅ CORRECT - Supports full device channel count
+let outputFormat = engine.outputNode.outputFormat(forBus: 0)
+let multiFormat = AVAudioFormat(
+    standardFormatWithSampleRate: outputFormat.sampleRate,
+    channels: outputFormat.channelCount
+)
+engine.connect(playerNode, to: engine.mainMixerNode, format: multiFormat)
+```
+
+#### Edge Cases
+- **Fallback for headphones**: When connected to 2-channel output, `deviceChannelCount` is 2, so the pattern degrades gracefully
+- **Sample rate matching**: Always match the device's sample rate to avoid automatic conversion
+- **Hot-plugging**: If the output device changes, the format may need to be updated (engine restart may be required)
+
+#### Separation of Concerns
+This pattern is **separate from channel mapping logic**:
+1. **Bus format** (this pattern): Defines maximum channel capacity
+2. **Channel mapping**: Routes specific input channels to specific output channels within that capacity
+
+Both must be correct for multi-channel routing to work.
+
+#### When to Use
+- Any audio application supporting multi-channel output interfaces
+- Pro audio applications with configurable output routing
+- Applications that need to route audio to non-stereo outputs (surround, headphone mixes, etc.)
+
+#### Related Files
+- `Projector/Managers/PlaybackEngine.swift`
 
 ---
 

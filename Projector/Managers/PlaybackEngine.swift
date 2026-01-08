@@ -135,7 +135,7 @@ final class PlaybackEngine: ObservableObject {
         let clipId: UUID
         let player: AVAudioPlayerNode
         let rateConverter: AVAudioMixerNode
-        let channelMapper: AVAudioUnit
+        let matrixMixer: AVAudioUnit
         let audioFile: AVAudioFile
         let inputChannelCount: Int
 
@@ -148,7 +148,7 @@ final class PlaybackEngine: ObservableObject {
             clipId: UUID,
             player: AVAudioPlayerNode,
             rateConverter: AVAudioMixerNode,
-            channelMapper: AVAudioUnit,
+            matrixMixer: AVAudioUnit,
             audioFile: AVAudioFile,
             inputChannelCount: Int,
             outputMappingId: UUID?,
@@ -158,7 +158,7 @@ final class PlaybackEngine: ObservableObject {
             self.clipId = clipId
             self.player = player
             self.rateConverter = rateConverter
-            self.channelMapper = channelMapper
+            self.matrixMixer = matrixMixer
             self.audioFile = audioFile
             self.inputChannelCount = inputChannelCount
             self.outputMappingId = outputMappingId
@@ -311,6 +311,9 @@ final class PlaybackEngine: ObservableObject {
         currentPlayer?.audioOutputDeviceUniqueID = deviceUID
         preloadPlayer?.audioOutputDeviceUniqueID = deviceUID
         updateAudioOutputDeviceSettings()
+
+        NSLog(">>> setAudioOutputDevice: UID=\(deviceUID ?? "nil"), DeviceID=\(audioOutputDeviceID ?? 0), Channels=\(audioOutputChannelCount)")
+
         reconfigureAudioEngineForOutputChange()
     }
 
@@ -667,6 +670,14 @@ final class PlaybackEngine: ObservableObject {
         playback.scheduledSourceTime = sourceTime
         if shouldPlay {
             ensureAudioEngineRunning()
+            // CRITICAL: Configure MatrixMixer routing AFTER engine is running
+            // Parameters set before engine.start() cause silent output
+            configureMatrixMixerRouting(
+                playback.matrixMixer,
+                inputChannelCount: playback.inputChannelCount,
+                outputOffset: playback.outputChannelOffset,
+                outputCount: playback.outputChannelCount
+            )
             playback.player.play()
         }
     }
@@ -680,7 +691,7 @@ final class PlaybackEngine: ObservableObject {
 
         let player = AVAudioPlayerNode()
         let rateConverter = AVAudioMixerNode()
-        let channelMapper = try await makeChannelMapConverter()
+        let matrixMixer = try await makeMatrixMixer()
         let inputFormat = audioFile.processingFormat
 
         // Determine the intermediate format after sample rate conversion
@@ -690,16 +701,42 @@ final class PlaybackEngine: ObservableObject {
             channels: inputFormat.channelCount
         ) ?? inputFormat
 
-        // Create multi-channel output format for ChannelMapper → MainMixer connection
+        // Create multi-channel output format for MatrixMixer -> MainMixer connection
         // This must use the device's channel count to enable routing to outputs 3-6
-        let multiChannelOutputFormat = AVAudioFormat(
-            standardFormatWithSampleRate: audioOutputSampleRate,
-            channels: AVAudioChannelCount(max(2, audioOutputChannelCount))
-        ) ?? intermediateFormat
+        let desiredOutputChannels = AVAudioChannelCount(max(2, audioOutputChannelCount))
+        NSLog(">>> buildAudioPlayback: audioOutputChannelCount=\(audioOutputChannelCount), desiredOutputChannels=\(desiredOutputChannels)")
+
+        // For >2 channels, AVAudioFormat requires a channel layout
+        // Use Unknown layout tag for multi-output audio interfaces (DiscreteInOrder causes silent output)
+        let multiChannelOutputFormat: AVAudioFormat
+        if desiredOutputChannels > 2 {
+            // Create channel layout with Unknown tag - works best for multi-output interfaces
+            let layoutTag = kAudioChannelLayoutTag_Unknown | UInt32(desiredOutputChannels)
+            if let channelLayout = AVAudioChannelLayout(layoutTag: layoutTag) {
+                let format = AVAudioFormat(standardFormatWithSampleRate: audioOutputSampleRate, channelLayout: channelLayout)
+                multiChannelOutputFormat = format
+                NSLog(">>> Created \(desiredOutputChannels)-channel format with Unknown layout")
+            } else {
+                // Fallback: try using the main mixer's output format
+                let mixerFormat = audioEngine.mainMixerNode.outputFormat(forBus: 0)
+                if mixerFormat.channelCount >= desiredOutputChannels {
+                    multiChannelOutputFormat = mixerFormat
+                    NSLog(">>> Using mainMixerNode format: \(mixerFormat.channelCount) channels")
+                } else {
+                    multiChannelOutputFormat = intermediateFormat
+                    NSLog(">>> WARNING: Falling back to intermediate format (\(intermediateFormat.channelCount) channels)")
+                }
+            }
+        } else {
+            multiChannelOutputFormat = AVAudioFormat(
+                standardFormatWithSampleRate: audioOutputSampleRate,
+                channels: desiredOutputChannels
+            ) ?? intermediateFormat
+        }
 
         audioEngine.attach(player)
         audioEngine.attach(rateConverter)
-        audioEngine.attach(channelMapper)
+        audioEngine.attach(matrixMixer)
 
         // Debug: log format information
         NSLog(">>> Audio formats - Input: \(inputFormat.sampleRate)Hz/\(inputFormat.channelCount)ch, " +
@@ -709,27 +746,27 @@ final class PlaybackEngine: ObservableObject {
         // Player -> RateConverter: mixer handles sample rate conversion automatically
         audioEngine.connect(player, to: rateConverter, format: inputFormat)
 
-        // RateConverter -> ChannelMapper: intermediate format with correct sample rate
-        audioEngine.connect(rateConverter, to: channelMapper, format: intermediateFormat)
+        // RateConverter -> MatrixMixer: intermediate format with correct sample rate
+        audioEngine.connect(rateConverter, to: matrixMixer, format: intermediateFormat)
 
-        // ChannelMapper -> MainMixer: use full device channel count for multi-channel routing
-        audioEngine.connect(channelMapper, to: audioEngine.mainMixerNode, format: multiChannelOutputFormat)
+        // MatrixMixer -> MainMixer: use full device channel count for multi-channel routing
+        audioEngine.connect(matrixMixer, to: audioEngine.mainMixerNode, format: multiChannelOutputFormat)
 
         let inputChannelCount = Int(inputFormat.channelCount)
+
+        // NOTE: MatrixMixer routing is configured in scheduleAudioPlayback() AFTER engine starts
+        // Setting parameters before engine.start() causes silent output
+
         let playback = AudioClipPlayback(
             clipId: clip.id,
             player: player,
             rateConverter: rateConverter,
-            channelMapper: channelMapper,
+            matrixMixer: matrixMixer,
             audioFile: audioFile,
             inputChannelCount: inputChannelCount,
             outputMappingId: lane.outputMappingId,
             outputChannelOffset: lane.outputChannelOffset,
             outputChannelCount: lane.outputChannelCount
-        )
-        playback.channelMapper.auAudioUnit.channelMap = makeChannelMap(
-            lane: lane,
-            inputChannelCount: inputChannelCount
         )
         return playback
     }
@@ -739,7 +776,7 @@ final class PlaybackEngine: ObservableObject {
         playback.player.stop()
         audioEngine.detach(playback.player)
         audioEngine.detach(playback.rateConverter)
-        audioEngine.detach(playback.channelMapper)
+        audioEngine.detach(playback.matrixMixer)
         audioPlayers.removeValue(forKey: id)
     }
 
@@ -754,43 +791,85 @@ final class PlaybackEngine: ObservableObject {
         playback.outputChannelOffset = lane.outputChannelOffset
         playback.outputChannelCount = lane.outputChannelCount
 
-        playback.channelMapper.auAudioUnit.channelMap = makeChannelMap(
-            lane: lane,
-            inputChannelCount: playback.inputChannelCount
+        configureMatrixMixerRouting(
+            playback.matrixMixer,
+            inputChannelCount: playback.inputChannelCount,
+            outputOffset: lane.outputChannelOffset,
+            outputCount: lane.outputChannelCount
         )
     }
 
-    private func makeChannelMap(lane: AudioLane, inputChannelCount: Int) -> [NSNumber]? {
-        let needsCustomRouting = lane.outputChannelOffset != 0
-            || (lane.outputChannelCount != 2 && lane.outputChannelCount != inputChannelCount)
-
-        guard needsCustomRouting else { return nil }
-        let outputChannels = max(1, audioOutputChannelCount)
-        let outputStart = min(max(lane.outputChannelOffset, 0), max(0, outputChannels - 1))
-        let channelsToMap = min(
-            max(1, lane.outputChannelCount),
-            inputChannelCount,
-            outputChannels - outputStart
-        )
-
-        guard channelsToMap > 0 else { return nil }
-
-        var map = Array(repeating: -1, count: outputChannels)
-        for index in 0..<channelsToMap {
-            map[outputStart + index] = index
-        }
-        return map.map { NSNumber(value: $0) }
-    }
-
-    private func makeChannelMapConverter() async throws -> AVAudioUnit {
+    private func makeMatrixMixer() async throws -> AVAudioUnit {
         let description = AudioComponentDescription(
-            componentType: kAudioUnitType_FormatConverter,
-            componentSubType: kAudioUnitSubType_AUConverter,
+            componentType: kAudioUnitType_Mixer,
+            componentSubType: kAudioUnitSubType_MatrixMixer,
             componentManufacturer: kAudioUnitManufacturer_Apple,
             componentFlags: 0,
             componentFlagsMask: 0
         )
         return try await AVAudioUnit.instantiate(with: description, options: [])
+    }
+
+    /// Configures the matrix mixer crosspoints for channel routing
+    ///
+    /// - Parameters:
+    ///   - matrixMixer: The AUMatrixMixer audio unit to configure
+    ///   - inputChannelCount: Number of input channels from the audio source
+    ///   - outputOffset: The starting output channel index (e.g., 2 for outputs 3-4)
+    ///   - outputCount: Number of output channels to route to
+    private func configureMatrixMixerRouting(
+        _ matrixMixer: AVAudioUnit,
+        inputChannelCount: Int,
+        outputOffset: Int,
+        outputCount: Int
+    ) {
+        let audioUnit = matrixMixer.audioUnit
+        let totalOutputChannels = max(2, audioOutputChannelCount)
+        var status: OSStatus
+
+        NSLog(">>> configureMatrixMixerRouting: engine.isRunning=\(audioEngine.isRunning), inputs=\(inputChannelCount), outputs=\(totalOutputChannels)")
+
+        // Set global volume
+        status = AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume,
+                              kAudioUnitScope_Global, 0xFFFF_FFFF, 1.0, 0)
+        if status != noErr { NSLog(">>> MatrixMixer global volume error: \(status)") }
+
+        // Set input channel volumes
+        for i in 0..<inputChannelCount {
+            status = AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume,
+                                  kAudioUnitScope_Input, UInt32(i), 1.0, 0)
+            if status != noErr { NSLog(">>> MatrixMixer input[\(i)] volume error: \(status)") }
+        }
+
+        // Set output channel volumes
+        for i in 0..<totalOutputChannels {
+            status = AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume,
+                                  kAudioUnitScope_Output, UInt32(i), 1.0, 0)
+            if status != noErr { NSLog(">>> MatrixMixer output[\(i)] volume error: \(status)") }
+        }
+
+        // Clear all crosspoints first (silence)
+        for inputCh in 0..<inputChannelCount {
+            for outputCh in 0..<totalOutputChannels {
+                let crossPoint = UInt32((inputCh << 16) | outputCh)
+                status = AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume,
+                                      kAudioUnitScope_Global, crossPoint, 0.0, 0)
+                if status != noErr { NSLog(">>> MatrixMixer crosspoint[\(inputCh)->\(outputCh)] clear error: \(status)") }
+            }
+        }
+
+        // Set desired routing crosspoints
+        let channelsToMap = min(inputChannelCount, outputCount, totalOutputChannels - outputOffset)
+        for i in 0..<channelsToMap {
+            let inputCh = i
+            let outputCh = outputOffset + i
+            let crossPoint = UInt32((inputCh << 16) | outputCh)
+            status = AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume,
+                                  kAudioUnitScope_Global, crossPoint, 1.0, 0)
+            if status != noErr { NSLog(">>> MatrixMixer crosspoint[\(inputCh)->\(outputCh)] set error: \(status)") }
+        }
+
+        NSLog(">>> MatrixMixer configured: \(inputChannelCount) inputs -> outputs \(outputOffset)-\(outputOffset + channelsToMap - 1)")
     }
 
     private func configureAudioEngineIfNeeded() {
@@ -801,21 +880,19 @@ final class PlaybackEngine: ObservableObject {
         let outputNode = audioEngine.outputNode
         applyAudioOutputDevice()
 
+        // Query node format for sample rate only - don't trust its channel count
+        // The node format reflects current state, not device capability
         let outputNodeFormat = outputNode.inputFormat(forBus: 0)
-        if outputNodeFormat.channelCount > 0 {
+        if outputNodeFormat.channelCount > 0, outputNodeFormat.sampleRate > 0 {
             audioOutputSampleRate = outputNodeFormat.sampleRate
         }
 
-        let desiredChannelCount = max(audioOutputChannelCount, Int(outputNodeFormat.channelCount))
-        if desiredChannelCount > Int(outputNodeFormat.channelCount) {
-            audioOutputChannelCount = desiredChannelCount
-            audioOutputFormat = makeOutputFormat()
-        } else if outputNodeFormat.channelCount > 0 {
-            audioOutputChannelCount = Int(outputNodeFormat.channelCount)
-            audioOutputFormat = outputNodeFormat
-        } else {
-            audioOutputFormat = makeOutputFormat()
-        }
+        // Always use device-queried channel count from audioOutputChannelCount
+        // Don't overwrite with node format - it may report 2ch even for 6ch devices
+        audioOutputFormat = makeOutputFormat()
+
+        NSLog(">>> configureAudioEngineIfNeeded: Using \(audioOutputChannelCount) channels at \(audioOutputSampleRate)Hz")
+
         audioEngine.disconnectNodeOutput(audioEngine.mainMixerNode)
         audioEngine.connect(audioEngine.mainMixerNode, to: outputNode, format: audioOutputFormat)
     }
@@ -877,8 +954,23 @@ final class PlaybackEngine: ObservableObject {
     private func makeOutputFormat() -> AVAudioFormat {
         let channels = max(1, audioOutputChannelCount)
         let sampleRate = max(8000, audioOutputSampleRate)
-        return AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: AVAudioChannelCount(channels))
+
+        // For > 2 channels, we must use a channel layout
+        // kAudioChannelLayoutTag_Unknown works best for multi-output interfaces
+        if channels > 2 {
+            let layoutTag = kAudioChannelLayoutTag_Unknown | UInt32(channels)
+            if let channelLayout = AVAudioChannelLayout(layoutTag: layoutTag) {
+                let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channelLayout: channelLayout)
+                NSLog(">>> makeOutputFormat: Created \(channels)-channel format with Unknown layout")
+                return format
+            }
+            NSLog(">>> WARNING: makeOutputFormat failed to create \(channels)-channel layout")
+        }
+
+        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: AVAudioChannelCount(channels))
             ?? AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+        NSLog(">>> makeOutputFormat: Created \(format.channelCount)-channel standard format")
+        return format
     }
 
     private func updateAudioOutputDeviceSettings() {
@@ -886,14 +978,20 @@ final class PlaybackEngine: ObservableObject {
             audioOutputDeviceID = deviceID
         } else {
             audioOutputDeviceID = defaultOutputDeviceID()
+            if audioOutputDeviceUID != nil {
+                NSLog(">>> WARNING: Device '\(audioOutputDeviceUID!)' not found, using system default")
+            }
         }
 
         if let deviceID = audioOutputDeviceID {
-            audioOutputChannelCount = max(1, outputChannelCount(for: deviceID))
+            let queriedChannels = outputChannelCount(for: deviceID)
+            audioOutputChannelCount = max(1, queriedChannels)
             audioOutputSampleRate = outputSampleRate(for: deviceID) ?? audioOutputSampleRate
+            NSLog(">>> updateAudioOutputDeviceSettings: DeviceID=\(deviceID), QueriedChannels=\(queriedChannels), FinalChannels=\(audioOutputChannelCount)")
         } else {
             audioOutputChannelCount = 2
             audioOutputSampleRate = 48000
+            NSLog(">>> updateAudioOutputDeviceSettings: No device, defaulting to 2 channels")
         }
     }
 
