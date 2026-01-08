@@ -114,6 +114,12 @@ final class PlaybackEngine: ObservableObject {
     /// Clips currently being loaded (to prevent duplicate load attempts)
     private var loadingClipIds: Set<UUID> = []
 
+    /// Clips that failed to load with timestamp (for retry cooldown)
+    private var failedClipCooldowns: [UUID: Date] = [:]
+
+    /// Cooldown duration before retrying a failed clip load (seconds)
+    private let failedClipRetryCooldown: TimeInterval = 2.0
+
     /// Pending seek request (coalesced)
     private var pendingSeekFrame: Int?
 
@@ -175,6 +181,9 @@ final class PlaybackEngine: ObservableObject {
         self.currentTimecode = timeline.config.startTimecode
         updateTimelineProperties()
         updateAudioOutputDeviceSettings()
+        // Pre-configure audio engine at launch for immediate playback readiness
+        configureAudioEngineIfNeeded()
+        ensureAudioEngineRunning()
     }
 
     // MARK: - Public Methods
@@ -504,6 +513,17 @@ final class PlaybackEngine: ObservableObject {
         guard !loadingClipIds.contains(clip.id) else {
             return
         }
+
+        // Check cooldown for previously failed clips
+        if let failedAt = failedClipCooldowns[clip.id] {
+            let elapsed = Date().timeIntervalSince(failedAt)
+            if elapsed < failedClipRetryCooldown {
+                return // Still in cooldown, skip this attempt
+            }
+            // Cooldown expired, clear it and retry
+            failedClipCooldowns.removeValue(forKey: clip.id)
+        }
+
         loadingClipIds.insert(clip.id)
 
         NSLog(">>> loadAudioClip: starting for clip \(clip.id), sourceType=\(clip.sourceType)")
@@ -524,6 +544,7 @@ final class PlaybackEngine: ObservableObject {
                 await MainActor.run {
                     self.audioPlayers[clipSnapshot.id] = playback
                     self.loadingClipIds.remove(clipSnapshot.id)
+                    self.failedClipCooldowns.removeValue(forKey: clipSnapshot.id) // Clear any previous failure
                     self.scheduleAudioPlayback(
                         playback,
                         clip: clipSnapshot,
@@ -535,6 +556,7 @@ final class PlaybackEngine: ObservableObject {
                 NSLog(">>> PlaybackEngine: Failed to load audio clip: \(error)")
                 await MainActor.run {
                     self.loadingClipIds.remove(clipSnapshot.id)
+                    self.failedClipCooldowns[clipSnapshot.id] = Date() // Start cooldown
                 }
             }
         }
