@@ -131,7 +131,8 @@ final class PlaybackEngine: ObservableObject {
     private final class AudioClipPlayback {
         let clipId: UUID
         let player: AVAudioPlayerNode
-        let converter: AVAudioUnit
+        let rateConverter: AVAudioMixerNode
+        let channelMapper: AVAudioUnit
         let audioFile: AVAudioFile
         let inputChannelCount: Int
 
@@ -143,7 +144,8 @@ final class PlaybackEngine: ObservableObject {
         init(
             clipId: UUID,
             player: AVAudioPlayerNode,
-            converter: AVAudioUnit,
+            rateConverter: AVAudioMixerNode,
+            channelMapper: AVAudioUnit,
             audioFile: AVAudioFile,
             inputChannelCount: Int,
             outputMappingId: UUID?,
@@ -152,7 +154,8 @@ final class PlaybackEngine: ObservableObject {
         ) {
             self.clipId = clipId
             self.player = player
-            self.converter = converter
+            self.rateConverter = rateConverter
+            self.channelMapper = channelMapper
             self.audioFile = audioFile
             self.inputChannelCount = inputChannelCount
             self.outputMappingId = outputMappingId
@@ -654,31 +657,47 @@ final class PlaybackEngine: ObservableObject {
         configureAudioEngineIfNeeded()
 
         let player = AVAudioPlayerNode()
-        let converter = try await makeChannelMapConverter()
+        let rateConverter = AVAudioMixerNode()
+        let channelMapper = try await makeChannelMapConverter()
         let inputFormat = audioFile.processingFormat
 
-        audioEngine.attach(player)
-        audioEngine.attach(converter)
-        audioEngine.connect(player, to: converter, format: inputFormat)
+        // Determine the intermediate format after sample rate conversion
+        // Use the output sample rate but keep the input channel count
+        let intermediateFormat = AVAudioFormat(
+            standardFormatWithSampleRate: audioOutputSampleRate,
+            channels: inputFormat.channelCount
+        ) ?? inputFormat
 
+        audioEngine.attach(player)
+        audioEngine.attach(rateConverter)
+        audioEngine.attach(channelMapper)
+
+        // Player -> RateConverter: mixer handles sample rate conversion automatically
+        audioEngine.connect(player, to: rateConverter, format: inputFormat)
+
+        // RateConverter -> ChannelMapper: use intermediate format (correct sample rate)
+        audioEngine.connect(rateConverter, to: channelMapper, format: intermediateFormat)
+
+        // ChannelMapper -> MainMixer: use output format
         if let outputFormat = audioOutputFormat {
-            audioEngine.connect(converter, to: audioEngine.mainMixerNode, format: outputFormat)
+            audioEngine.connect(channelMapper, to: audioEngine.mainMixerNode, format: outputFormat)
         } else {
-            audioEngine.connect(converter, to: audioEngine.mainMixerNode, format: inputFormat)
+            audioEngine.connect(channelMapper, to: audioEngine.mainMixerNode, format: intermediateFormat)
         }
 
         let inputChannelCount = Int(inputFormat.channelCount)
         let playback = AudioClipPlayback(
             clipId: clip.id,
             player: player,
-            converter: converter,
+            rateConverter: rateConverter,
+            channelMapper: channelMapper,
             audioFile: audioFile,
             inputChannelCount: inputChannelCount,
             outputMappingId: lane.outputMappingId,
             outputChannelOffset: lane.outputChannelOffset,
             outputChannelCount: lane.outputChannelCount
         )
-        playback.converter.auAudioUnit.channelMap = makeChannelMap(
+        playback.channelMapper.auAudioUnit.channelMap = makeChannelMap(
             lane: lane,
             inputChannelCount: inputChannelCount
         )
@@ -689,7 +708,8 @@ final class PlaybackEngine: ObservableObject {
         guard let playback = audioPlayers[id] else { return }
         playback.player.stop()
         audioEngine.detach(playback.player)
-        audioEngine.detach(playback.converter)
+        audioEngine.detach(playback.rateConverter)
+        audioEngine.detach(playback.channelMapper)
         audioPlayers.removeValue(forKey: id)
     }
 
@@ -704,7 +724,7 @@ final class PlaybackEngine: ObservableObject {
         playback.outputChannelOffset = lane.outputChannelOffset
         playback.outputChannelCount = lane.outputChannelCount
 
-        playback.converter.auAudioUnit.channelMap = makeChannelMap(
+        playback.channelMapper.auAudioUnit.channelMap = makeChannelMap(
             lane: lane,
             inputChannelCount: playback.inputChannelCount
         )
