@@ -346,14 +346,20 @@ final class OptimizationViewModel: ObservableObject {
     // MARK: - Private Helpers
 
     private func updateReferences(from result: OptimizationResult) async {
+        NSLog(">>> OptimizationViewModel.updateReferences: updating \(result.successfulItems.count) items")
         // Update media library URLs and mark as optimized
         for item in result.successfulItems {
+            NSLog(">>> OptimizationViewModel.updateReferences: updating mediaItemId=\(item.mediaItemId), newURL=\(item.optimizedURL.lastPathComponent)")
             mediaLibrary.updateItemURL(
                 id: item.mediaItemId,
                 newURL: item.optimizedURL,
                 newBookmark: try? item.optimizedURL.bookmarkData(options: .withSecurityScope),
                 isOptimized: true
             )
+            // Verify update
+            if let updated = mediaLibrary.items.first(where: { $0.id == item.mediaItemId }) {
+                NSLog(">>> OptimizationViewModel.updateReferences: VERIFIED - mediaItemId=\(item.mediaItemId), isOptimized=\(updated.isOptimized)")
+            }
         }
 
         // Update timeline references if available

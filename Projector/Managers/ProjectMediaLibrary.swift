@@ -215,8 +215,13 @@ final class ProjectMediaLibrary: ObservableObject {
     ///   - newURL: The new file URL
     ///   - newBookmark: Optional pre-created bookmark (created if nil)
     func updateItemURL(id: UUID, newURL: URL, newBookmark: Data? = nil, isOptimized: Bool? = nil) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = items.firstIndex(where: { $0.id == id }) else {
+            NSLog(">>> ProjectMediaLibrary.updateItemURL: item not found for id=\(id)")
+            return
+        }
         let item = items[index]
+        let newIsOptimized = isOptimized ?? item.isOptimized
+        NSLog(">>> ProjectMediaLibrary.updateItemURL: id=\(id), oldURL=\(item.url.lastPathComponent), newURL=\(newURL.lastPathComponent), oldIsOptimized=\(item.isOptimized), newIsOptimized=\(newIsOptimized)")
 
         let bookmark = newBookmark ?? (try? newURL.bookmarkData(options: .withSecurityScope))
 
@@ -231,9 +236,10 @@ final class ProjectMediaLibrary: ObservableObject {
             channelCount: item.channelCount,
             sampleRate: item.sampleRate,
             importedAt: item.importedAt,
-            isOptimized: isOptimized ?? item.isOptimized,
+            isOptimized: newIsOptimized,
             thumbnailData: item.thumbnailData
         )
+        NSLog(">>> ProjectMediaLibrary.updateItemURL: UPDATED - items[\(index)].isOptimized = \(items[index].isOptimized)")
         markDirty()
     }
 
