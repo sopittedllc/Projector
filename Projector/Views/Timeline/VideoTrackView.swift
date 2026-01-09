@@ -363,14 +363,11 @@ struct VideoTrackView: View {
         // First try to find by mediaItemId (most reliable)
         if let mediaItemId = reel.mediaItemId,
            let item = mediaLibrary.items.first(where: { $0.id == mediaItemId }) {
-            NSLog(">>> isReelOptimized: Found by mediaItemId - reel: \(reel.displayName), mediaItemId: \(mediaItemId), isOptimized: \(item.isOptimized)")
             return item.isOptimized
         }
         // Fall back to URL matching
         let item = mediaLibrary.items.first { $0.url == reel.sourceURL }
-        let result = item?.isOptimized ?? false
-        NSLog(">>> isReelOptimized: URL lookup - reel: \(reel.displayName), sourceURL: \(reel.sourceURL.lastPathComponent), found: \(item != nil), isOptimized: \(result)")
-        return result
+        return item?.isOptimized ?? false
     }
 
     private func loadURL(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {
