@@ -318,6 +318,8 @@ final class OptimizationViewModel: ObservableObject {
 
     /// Cancel the current optimization
     func cancel() {
+        NSLog(">>> OptimizationViewModel.cancel: called")
+        NSLog(">>> OptimizationViewModel.cancel: stack trace: \(Thread.callStackSymbols.prefix(10).joined(separator: "\n"))")
         optimizationTask?.cancel()
         optimizationTask = nil
         Task {
@@ -328,6 +330,8 @@ final class OptimizationViewModel: ObservableObject {
 
     /// Reset to initial state
     func reset() {
+        NSLog(">>> OptimizationViewModel.reset: called")
+        NSLog(">>> OptimizationViewModel.reset: stack trace: \(Thread.callStackSymbols.prefix(10).joined(separator: "\n"))")
         cancel()
         state = .idle
         analysisResult = .empty
