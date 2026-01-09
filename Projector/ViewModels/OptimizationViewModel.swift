@@ -59,7 +59,8 @@ final class OptimizationViewModel: ObservableObject {
     private let timelineManager: TimelineManager?
 
     /// The project document (observed for fileURL changes after save)
-    private weak var projectDocument: ProjectDocument?
+    /// Note: Not weak because we need it to persist for the lifetime of the ViewModel
+    private let projectDocument: ProjectDocument
 
     private var optimizationTask: Task<Void, Never>?
 
@@ -87,7 +88,7 @@ final class OptimizationViewModel: ObservableObject {
     /// The project file URL (nil if project not saved yet)
     /// Computed from projectDocument to reflect saves that happen while sheet is open
     var projectURL: URL? {
-        projectDocument?.fileURL
+        projectDocument.fileURL
     }
 
     /// Whether the project has been saved (required for optimization)

@@ -48,9 +48,19 @@ struct OptimizationSheetView: View {
         .frame(width: 600, height: 500)
         .onAppear {
             NSLog(">>> OptimizationSheetView: onAppear - projectURL: \(String(describing: projectDocument.fileURL)), isProjectSaved: \(viewModel.isProjectSaved), state: \(viewModel.state)")
+            NSLog(">>> OptimizationSheetView: media library has \(viewModel.analysisResult.items.count) items analyzed")
             if viewModel.state == .idle {
+                NSLog(">>> OptimizationSheetView: calling analyze()")
                 viewModel.analyze()
+            } else {
+                NSLog(">>> OptimizationSheetView: NOT calling analyze() - state is not idle")
             }
+        }
+        .onChange(of: viewModel.state) { oldState, newState in
+            NSLog(">>> OptimizationSheetView: state changed from \(oldState) to \(newState)")
+        }
+        .onChange(of: projectDocument.fileURL) { oldURL, newURL in
+            NSLog(">>> OptimizationSheetView: projectDocument.fileURL changed from \(String(describing: oldURL)) to \(String(describing: newURL))")
         }
     }
 
@@ -427,35 +437,43 @@ struct OptimizationSheetView: View {
     /// Shows an NSSavePanel for saving the project.
     /// Uses NSSavePanel directly to avoid SwiftUI sheet conflicts.
     private func showSavePanel() {
+        // Use NSSavePanel to save the .projector file directly
         let panel = NSSavePanel()
         panel.title = "Save Project"
         panel.prompt = "Save"
         panel.nameFieldLabel = "Project Name:"
         panel.nameFieldStringValue = "Untitled"
-        panel.allowedContentTypes = [.folder]
+        panel.allowedContentTypes = [UTType(filenameExtension: "projector") ?? .data]
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
-        panel.message = "Choose a location and name for your project folder"
+        panel.message = "Choose a name and location for your project"
 
-        // Show as a sheet on the current window
-        if let window = NSApp.keyWindow {
-            panel.beginSheetModal(for: window) { response in
-                if response == .OK, let url = panel.url {
-                    let projectName = url.lastPathComponent
-                    let projectFolderURL = url
-                    let projectFileURL = projectFolderURL.appendingPathComponent("\(projectName).projector")
+        NSLog(">>> OptimizationSheetView.showSavePanel: opening save panel")
 
-                    do {
-                        // Create the project folder
-                        try FileManager.default.createDirectory(at: projectFolderURL, withIntermediateDirectories: true)
-                        // Save the project
-                        try projectDocument.save(to: projectFileURL)
-                        NSLog(">>> OptimizationSheetView: Project saved to \(projectFileURL.path)")
-                    } catch {
-                        NSLog(">>> OptimizationSheetView: Save failed - \(error.localizedDescription)")
-                    }
-                }
+        // Run modal (not as sheet) to avoid conflicts with the optimization sheet
+        let response = panel.runModal()
+
+        if response == .OK, let fileURL = panel.url {
+            NSLog(">>> OptimizationSheetView.showSavePanel: user selected \(fileURL.path)")
+
+            // Create the parent folder (project folder) with the same name as the file
+            let projectName = fileURL.deletingPathExtension().lastPathComponent
+            let projectFolderURL = fileURL.deletingLastPathComponent().appendingPathComponent(projectName)
+            let projectFileURL = projectFolderURL.appendingPathComponent("\(projectName).projector")
+
+            do {
+                // Create the project folder
+                try FileManager.default.createDirectory(at: projectFolderURL, withIntermediateDirectories: true)
+                NSLog(">>> OptimizationSheetView.showSavePanel: created folder at \(projectFolderURL.path)")
+
+                // Save the project
+                try projectDocument.save(to: projectFileURL)
+                NSLog(">>> OptimizationSheetView.showSavePanel: project saved to \(projectFileURL.path)")
+            } catch {
+                NSLog(">>> OptimizationSheetView.showSavePanel: save failed - \(error.localizedDescription)")
             }
+        } else {
+            NSLog(">>> OptimizationSheetView.showSavePanel: user cancelled")
         }
     }
 }

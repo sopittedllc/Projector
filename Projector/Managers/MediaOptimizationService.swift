@@ -52,17 +52,21 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
     // MARK: - Analysis
 
     func analyzeProject(mediaItems: [MediaItem]) async throws -> ProjectAnalysisResult {
+        NSLog(">>> MediaOptimizationService.analyzeProject: analyzing \(mediaItems.count) items")
         var analysisItems: [MediaAnalysisItem] = []
         var totalOriginalSize: UInt64 = 0
         var totalEstimatedSize: UInt64 = 0
 
         for item in mediaItems {
+            NSLog(">>> MediaOptimizationService.analyzeProject: analyzing \(item.displayName) (type: \(item.type))")
             let analysis = try await analyzeMediaItem(item)
+            NSLog(">>> MediaOptimizationService.analyzeProject: \(item.displayName) - needsOptimization: \(analysis.needsOptimization), codec: \(analysis.currentCodec ?? "unknown")")
             analysisItems.append(analysis)
             totalOriginalSize += analysis.originalSize
             totalEstimatedSize += analysis.estimatedOptimizedSize
         }
 
+        NSLog(">>> MediaOptimizationService.analyzeProject: complete - \(analysisItems.count) items, \(analysisItems.filter { $0.needsOptimization }.count) need optimization")
         return ProjectAnalysisResult(
             items: analysisItems,
             totalOriginalSize: totalOriginalSize,
