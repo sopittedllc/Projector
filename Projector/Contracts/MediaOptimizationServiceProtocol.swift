@@ -20,6 +20,12 @@ struct MediaAnalysisItem: Sendable, Identifiable, Equatable {
     /// ID of the source MediaItem in the library
     let mediaItemId: UUID
 
+    /// Source file URL
+    let sourceURL: URL
+
+    /// Security-scoped bookmark for sandbox access
+    let sourceBookmark: Data?
+
     /// Display name (filename without extension)
     let displayName: String
 
@@ -65,6 +71,8 @@ struct MediaAnalysisItem: Sendable, Identifiable, Equatable {
     init(
         id: UUID = UUID(),
         mediaItemId: UUID,
+        sourceURL: URL,
+        sourceBookmark: Data?,
         displayName: String,
         originalSize: UInt64,
         estimatedOptimizedSize: UInt64,
@@ -78,6 +86,8 @@ struct MediaAnalysisItem: Sendable, Identifiable, Equatable {
     ) {
         self.id = id
         self.mediaItemId = mediaItemId
+        self.sourceURL = sourceURL
+        self.sourceBookmark = sourceBookmark
         self.displayName = displayName
         self.originalSize = originalSize
         self.estimatedOptimizedSize = estimatedOptimizedSize
@@ -132,6 +142,11 @@ struct ProjectAnalysisResult: Sendable, Equatable {
 // MARK: - Optimization Options
 
 /// Configuration for the optimization process
+///
+/// Based on HandBrake "Very Fast 720p30" preset:
+/// - Video: H.264, veryfast preset, CRF 23 equivalent, Main profile L3.1
+/// - Audio: AAC stereo, 160 kbps, preserves source sample rate
+/// - Frame rate: Preserves source (PFR mode - peak frame rate capped at 30)
 struct OptimizationOptions: Sendable, Equatable {
     /// If true, originals are moved to trash. If false, moved to "Originals" folder.
     let replaceOriginals: Bool
@@ -142,19 +157,26 @@ struct OptimizationOptions: Sendable, Equatable {
     /// Target video height in pixels (720p = 720)
     let videoTargetHeight: Int
 
-    /// Target video bitrate in bits per second (~2.5 Mbps for 720p)
+    /// Target video bitrate in bits per second
+    /// HandBrake uses CRF 23 which typically yields ~2 Mbps for 720p
     let videoBitrate: Int
 
-    /// Target audio bitrate in bits per second (128 kbps for AAC)
+    /// Target audio bitrate in bits per second
+    /// HandBrake preset uses 160 kbps for AAC stereo
     let audioTargetBitrate: Int
 
-    /// Default optimization preset (720p H.264, AAC stereo, preserve timing)
-    static let defaultPreset = OptimizationOptions(
+    /// Maximum frame rate cap (source fps preserved if below this)
+    /// HandBrake "pfr" mode caps at 30fps but preserves lower rates
+    let maxFrameRate: Double
+
+    /// Default optimization preset matching HandBrake "Very Fast 720p30"
+    static let handbrakeVeryFast720p = OptimizationOptions(
         replaceOriginals: false,
         videoTargetWidth: 1280,
         videoTargetHeight: 720,
-        videoBitrate: 2_500_000,
-        audioTargetBitrate: 128_000
+        videoBitrate: 2_000_000,      // HandBrake VideoAvgBitrate: 2000
+        audioTargetBitrate: 160_000,  // HandBrake AudioBitrate: 160
+        maxFrameRate: 30.0            // HandBrake VideoFramerate: "30" with pfr mode
     )
 
     init(
@@ -162,13 +184,15 @@ struct OptimizationOptions: Sendable, Equatable {
         videoTargetWidth: Int,
         videoTargetHeight: Int,
         videoBitrate: Int,
-        audioTargetBitrate: Int
+        audioTargetBitrate: Int,
+        maxFrameRate: Double = 30.0
     ) {
         self.replaceOriginals = replaceOriginals
         self.videoTargetWidth = videoTargetWidth
         self.videoTargetHeight = videoTargetHeight
         self.videoBitrate = videoBitrate
         self.audioTargetBitrate = audioTargetBitrate
+        self.maxFrameRate = maxFrameRate
     }
 }
 

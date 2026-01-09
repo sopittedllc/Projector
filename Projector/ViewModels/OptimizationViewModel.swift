@@ -158,12 +158,14 @@ final class OptimizationViewModel: ObservableObject {
         result = nil
 
         let itemsToOptimize = analysisResult.itemsNeedingOptimization
+        // Use HandBrake "Very Fast 720p30" equivalent settings
         let options = OptimizationOptions(
             replaceOriginals: replaceOriginals,
             videoTargetWidth: 1280,
             videoTargetHeight: 720,
-            videoBitrate: 2_500_000,
-            audioTargetBitrate: 128_000
+            videoBitrate: 2_000_000,       // HandBrake CRF 23 equivalent
+            audioTargetBitrate: 160_000,   // HandBrake AAC stereo
+            maxFrameRate: 30.0             // Cap at 30fps, preserve lower rates
         )
 
         optimizationTask = Task {

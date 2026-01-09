@@ -37,12 +37,15 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         static let compressedAudioToAAC: Double = 0.9
     }
 
-    /// Target specs
+    /// Target specs matching HandBrake "Very Fast 720p30" preset
+    /// Source: github.com/HandBrake/HandBrake/preset/preset_builtin.json
     private enum TargetSpecs {
         static let videoWidth = 1280
         static let videoHeight = 720
-        static let videoBitrate = 2_500_000  // 2.5 Mbps
-        static let audioBitrate = 128_000    // 128 kbps
+        static let videoBitrate = 2_000_000  // HandBrake VideoAvgBitrate: 2000 (kbps -> bps)
+        static let audioBitrate = 160_000    // HandBrake AudioBitrate: 160 (kbps -> bps)
+        static let maxFrameRate = 30.0       // HandBrake VideoFramerate: "30" with pfr mode
+        // HandBrake settings: VideoProfile: "main", VideoLevel: "3.1"
     }
 
     // MARK: - Analysis
@@ -91,6 +94,8 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
 
         return MediaAnalysisItem(
             mediaItemId: item.id,
+            sourceURL: item.url,
+            sourceBookmark: item.bookmark,
             displayName: item.displayName,
             originalSize: fileSize,
             estimatedOptimizedSize: needsOptimization ? estimatedSize : fileSize,
@@ -412,31 +417,402 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         originalsFolder: URL?,
         progressHandler: @escaping @Sendable (Double) async -> Void
     ) async throws -> OptimizedItemResult {
-        // This will be implemented with actual transcoding
-        // For now, return a placeholder that simulates the operation
-        // TODO: Implement actual AVAssetWriter transcoding
+        // Resolve the source URL with security scope
+        var sourceURL = item.sourceURL
+        var didStartAccess = false
 
-        // Simulate progress for now
-        for i in 0...10 {
-            if isCancelled { throw MediaOptimizationError.cancelled }
-            try await Task.sleep(nanoseconds: 100_000_000)  // 0.1s
-            await progressHandler(Double(i) / 10.0)
+        if let bookmark = item.sourceBookmark {
+            var isStale = false
+            if let resolvedURL = try? URL(
+                resolvingBookmarkData: bookmark,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ) {
+                sourceURL = resolvedURL
+                didStartAccess = sourceURL.startAccessingSecurityScopedResource()
+            }
         }
 
-        // Return placeholder result
-        // This will be replaced with real transcoding
-        return OptimizedItemResult(
-            mediaItemId: item.mediaItemId,
-            displayName: item.displayName,
-            originalSize: item.originalSize,
-            optimizedSize: item.estimatedOptimizedSize,
-            originalURL: URL(fileURLWithPath: "/placeholder/original"),
-            optimizedURL: URL(fileURLWithPath: "/placeholder/optimized"),
-            isVideo: item.isVideo,
-            frameRate: item.currentFrameRate,
-            sampleRate: item.currentSampleRate,
-            success: true
+        defer {
+            if didStartAccess {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        // Create output URL (same directory, new extension)
+        let outputExtension = item.isVideo ? "mp4" : "m4a"
+        let outputName = item.sourceURL.deletingPathExtension().lastPathComponent + "_optimized"
+        let outputURL = item.sourceURL.deletingLastPathComponent()
+            .appendingPathComponent(outputName)
+            .appendingPathExtension(outputExtension)
+
+        do {
+            if item.isVideo {
+                try await transcodeVideo(
+                    from: sourceURL,
+                    to: outputURL,
+                    options: options,
+                    sourceFrameRate: item.currentFrameRate,
+                    progressHandler: progressHandler
+                )
+            } else {
+                try await transcodeAudio(
+                    from: sourceURL,
+                    to: outputURL,
+                    sourceSampleRate: item.currentSampleRate,
+                    progressHandler: progressHandler
+                )
+            }
+
+            // Get actual output file size
+            let outputAttributes = try FileManager.default.attributesOfItem(atPath: outputURL.path)
+            let outputSize = outputAttributes[.size] as? UInt64 ?? 0
+
+            // Handle originals
+            if let originalsFolder = originalsFolder {
+                // Move original to originals folder
+                let originalDest = originalsFolder.appendingPathComponent(item.sourceURL.lastPathComponent)
+                try FileManager.default.moveItem(at: item.sourceURL, to: originalDest)
+            } else {
+                // Move original to trash
+                try FileManager.default.trashItem(at: item.sourceURL, resultingItemURL: nil)
+            }
+
+            // Rename optimized file to original name
+            let finalURL = item.sourceURL.deletingPathExtension().appendingPathExtension(outputExtension)
+            if finalURL != outputURL {
+                // If the original had a different extension, rename
+                if FileManager.default.fileExists(atPath: finalURL.path) {
+                    try FileManager.default.removeItem(at: finalURL)
+                }
+                try FileManager.default.moveItem(at: outputURL, to: finalURL)
+            }
+
+            // Verify preserved frame rate/sample rate from output file
+            let verifiedFrameRate = item.isVideo ? try await getOutputFrameRate(url: finalURL) : nil
+            let verifiedSampleRate = try await getOutputSampleRate(url: finalURL)
+
+            return OptimizedItemResult(
+                mediaItemId: item.mediaItemId,
+                displayName: item.displayName,
+                originalSize: item.originalSize,
+                optimizedSize: outputSize,
+                originalURL: item.sourceURL,
+                optimizedURL: finalURL,
+                isVideo: item.isVideo,
+                frameRate: verifiedFrameRate,
+                sampleRate: verifiedSampleRate,
+                success: true
+            )
+        } catch {
+            // Clean up partial output if exists
+            try? FileManager.default.removeItem(at: outputURL)
+
+            return OptimizedItemResult(
+                mediaItemId: item.mediaItemId,
+                displayName: item.displayName,
+                originalSize: item.originalSize,
+                optimizedSize: 0,
+                originalURL: item.sourceURL,
+                optimizedURL: item.sourceURL,
+                isVideo: item.isVideo,
+                frameRate: nil,
+                sampleRate: nil,
+                success: false,
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+
+    // MARK: - Video Transcoding
+
+    private func transcodeVideo(
+        from sourceURL: URL,
+        to outputURL: URL,
+        options: OptimizationOptions,
+        sourceFrameRate: Double?,
+        progressHandler: @escaping @Sendable (Double) async -> Void
+    ) async throws {
+        let asset = AVURLAsset(url: sourceURL)
+
+        // Load tracks
+        let videoTracks = try await asset.loadTracks(withMediaType: .video)
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+
+        guard let videoTrack = videoTracks.first else {
+            throw MediaOptimizationError.unsupportedFormat(sourceURL, "No video track found")
+        }
+
+        let duration = try await asset.load(.duration)
+        let totalSeconds = duration.seconds
+
+        // Set up asset reader
+        let reader = try AVAssetReader(asset: asset)
+
+        // Video reader output (decompress to raw frames)
+        let videoReaderOutput = AVAssetReaderTrackOutput(
+            track: videoTrack,
+            outputSettings: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+            ]
         )
+        videoReaderOutput.alwaysCopiesSampleData = false
+
+        if reader.canAdd(videoReaderOutput) {
+            reader.add(videoReaderOutput)
+        }
+
+        // Audio reader output (if present)
+        // CRITICAL: Preserve source sample rate per HandBrake AudioSamplerate: "auto"
+        var audioReaderOutput: AVAssetReaderTrackOutput?
+        var sourceSampleRate: Double = 48000  // Default fallback
+        if let audioTrack = audioTracks.first {
+            // Get source sample rate to preserve it
+            let audioFormatDescs = try await audioTrack.load(.formatDescriptions)
+            if let formatDesc = audioFormatDescs.first {
+                let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)
+                if let rate = asbd?.pointee.mSampleRate, rate > 0 {
+                    sourceSampleRate = rate
+                }
+            }
+
+            let output = AVAssetReaderTrackOutput(
+                track: audioTrack,
+                outputSettings: [
+                    AVFormatIDKey: kAudioFormatLinearPCM,
+                    AVSampleRateKey: sourceSampleRate,  // Preserve source sample rate
+                    AVNumberOfChannelsKey: 2,
+                    AVLinearPCMBitDepthKey: 16,
+                    AVLinearPCMIsFloatKey: false,
+                    AVLinearPCMIsBigEndianKey: false,
+                    AVLinearPCMIsNonInterleaved: false
+                ]
+            )
+            output.alwaysCopiesSampleData = false
+            if reader.canAdd(output) {
+                reader.add(output)
+                audioReaderOutput = output
+            }
+        }
+
+        // Set up asset writer
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+
+        // Video writer input with H.264 encoding
+        // Settings match HandBrake "Very Fast 720p30" preset:
+        // - Profile: Main (VideoProfile: "main")
+        // - Level: 3.1 (VideoLevel: "3.1")
+        // - Bitrate: ~2 Mbps (VideoAvgBitrate: 2000)
+        // CRITICAL: Frame rate is preserved via sample buffer timestamps
+        let videoSettings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: options.videoTargetWidth,
+            AVVideoHeightKey: options.videoTargetHeight,
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: options.videoBitrate,
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264Main31,  // HandBrake: Main 3.1
+                AVVideoMaxKeyFrameIntervalKey: 30,
+                AVVideoAllowFrameReorderingKey: true  // B-frames for better compression
+            ]
+        ]
+
+        let videoWriterInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+        videoWriterInput.expectsMediaDataInRealTime = false
+
+        // Get source transform to handle rotation
+        let preferredTransform = try await videoTrack.load(.preferredTransform)
+        videoWriterInput.transform = preferredTransform
+
+        if writer.canAdd(videoWriterInput) {
+            writer.add(videoWriterInput)
+        }
+
+        // Audio writer input with AAC encoding
+        // Settings match HandBrake: AAC stereo, 160kbps, preserve sample rate
+        var audioWriterInput: AVAssetWriterInput?
+        if audioReaderOutput != nil {
+            let audioSettings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: sourceSampleRate,  // Preserve source sample rate
+                AVNumberOfChannelsKey: 2,           // HandBrake AudioMixdown: "stereo"
+                AVEncoderBitRateKey: options.audioTargetBitrate  // HandBrake: 160kbps
+            ]
+
+            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+            input.expectsMediaDataInRealTime = false
+
+            if writer.canAdd(input) {
+                writer.add(input)
+                audioWriterInput = input
+            }
+        }
+
+        // Start reading and writing
+        reader.startReading()
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+
+        // Process video and audio on background threads
+        // Use a concurrent queue with dispatch group to track completion
+        let processingQueue = DispatchQueue(label: "com.projector.transcoding", attributes: .concurrent)
+        let dispatchGroup = DispatchGroup()
+
+        // Capture progress for async reporting
+        var lastReportedProgress: Double = 0
+
+        // Video processing
+        dispatchGroup.enter()
+        processingQueue.async {
+            self.processTrackSync(
+                readerOutput: videoReaderOutput,
+                writerInput: videoWriterInput,
+                totalSeconds: totalSeconds,
+                progressCallback: { progress in
+                    // Only report if progress increased significantly
+                    if progress - lastReportedProgress >= 0.01 {
+                        lastReportedProgress = progress
+                        Task {
+                            await progressHandler(progress)
+                        }
+                    }
+                }
+            )
+            dispatchGroup.leave()
+        }
+
+        // Audio processing (if present)
+        if let audioOutput = audioReaderOutput, let audioInput = audioWriterInput {
+            dispatchGroup.enter()
+            processingQueue.async {
+                self.processTrackSync(
+                    readerOutput: audioOutput,
+                    writerInput: audioInput,
+                    totalSeconds: totalSeconds,
+                    progressCallback: { _ in }  // Don't report audio progress separately
+                )
+                dispatchGroup.leave()
+            }
+        }
+
+        // Wait for all processing to complete
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            dispatchGroup.notify(queue: .main) {
+                continuation.resume()
+            }
+        }
+
+        // Check for cancellation
+        if isCancelled {
+            reader.cancelReading()
+            writer.cancelWriting()
+            throw MediaOptimizationError.cancelled
+        }
+
+        // Finish writing
+        await writer.finishWriting()
+
+        if writer.status == .failed {
+            throw MediaOptimizationError.transcodingFailed(
+                sourceURL,
+                writer.error?.localizedDescription ?? "Unknown error"
+            )
+        }
+    }
+
+    private nonisolated func processTrackSync(
+        readerOutput: AVAssetReaderTrackOutput,
+        writerInput: AVAssetWriterInput,
+        totalSeconds: Double,
+        progressCallback: @escaping (Double) -> Void
+    ) {
+        // Pull-based synchronous processing (runs on background thread)
+        while !writerInput.isReadyForMoreMediaData {
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+
+        while let sampleBuffer = readerOutput.copyNextSampleBuffer() {
+            while !writerInput.isReadyForMoreMediaData {
+                Thread.sleep(forTimeInterval: 0.001)
+            }
+
+            // Calculate progress from presentation time
+            let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+            let currentSeconds = pts.seconds
+            let progress = min(currentSeconds / totalSeconds, 1.0)
+            progressCallback(progress)
+
+            writerInput.append(sampleBuffer)
+        }
+
+        writerInput.markAsFinished()
+    }
+
+    // MARK: - Audio Transcoding
+
+    private func transcodeAudio(
+        from sourceURL: URL,
+        to outputURL: URL,
+        sourceSampleRate: Double?,
+        progressHandler: @escaping @Sendable (Double) async -> Void
+    ) async throws {
+        let asset = AVURLAsset(url: sourceURL)
+
+        guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+            throw MediaOptimizationError.unsupportedFormat(sourceURL, "Cannot create export session")
+        }
+
+        exportSession.outputURL = outputURL
+        exportSession.outputFileType = .m4a
+
+        // CRITICAL: Preserve original sample rate by not resampling
+        // AVAssetExportPresetAppleM4A preserves the source sample rate
+
+        // Start export
+        await exportSession.export()
+
+        // Monitor progress
+        while exportSession.status == .exporting {
+            await progressHandler(Double(exportSession.progress))
+            try await Task.sleep(nanoseconds: 100_000_000)  // Check every 0.1s
+
+            if isCancelled {
+                exportSession.cancelExport()
+                throw MediaOptimizationError.cancelled
+            }
+        }
+
+        if exportSession.status == .failed {
+            throw MediaOptimizationError.transcodingFailed(
+                sourceURL,
+                exportSession.error?.localizedDescription ?? "Unknown error"
+            )
+        }
+
+        await progressHandler(1.0)
+    }
+
+    // MARK: - Verification Helpers
+
+    private func getOutputFrameRate(url: URL) async throws -> Double? {
+        let asset = AVURLAsset(url: url)
+        let videoTracks = try await asset.loadTracks(withMediaType: .video)
+        guard let track = videoTracks.first else { return nil }
+
+        let frameRate = try await track.load(.nominalFrameRate)
+        return Double(frameRate)
+    }
+
+    private func getOutputSampleRate(url: URL) async throws -> Double? {
+        let asset = AVURLAsset(url: url)
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        guard let track = audioTracks.first else { return nil }
+
+        let formatDescriptions = try await track.load(.formatDescriptions)
+        guard let formatDesc = formatDescriptions.first else { return nil }
+
+        let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)
+        return asbd?.pointee.mSampleRate
     }
 
     private func createOriginalsFolder() throws -> URL {
