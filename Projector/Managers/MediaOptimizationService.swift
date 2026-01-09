@@ -461,6 +461,8 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             .appendingPathExtension(outputExtension)
 
         do {
+            NSLog(">>> MediaOptimizationService: Starting transcode for \(item.displayName)")
+
             if item.isVideo {
                 try await transcodeVideo(
                     from: sourceURL,
@@ -478,22 +480,29 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                 )
             }
 
+            NSLog(">>> MediaOptimizationService: Transcode complete, getting output size")
+
             // Get actual output file size
             let outputAttributes = try FileManager.default.attributesOfItem(atPath: outputURL.path)
             let outputSize = outputAttributes[.size] as? UInt64 ?? 0
 
+            NSLog(">>> MediaOptimizationService: Output size: \(outputSize) bytes")
+
             // Handle originals - use security-scoped sourceURL
             if let originalsFolder = originalsFolder {
                 // Move original to originals folder
+                NSLog(">>> MediaOptimizationService: Moving original to Originals folder")
                 let originalDest = originalsFolder.appendingPathComponent(sourceURL.lastPathComponent)
                 try FileManager.default.moveItem(at: sourceURL, to: originalDest)
             } else {
                 // Move original to trash
+                NSLog(">>> MediaOptimizationService: Moving original to trash")
                 try FileManager.default.trashItem(at: sourceURL, resultingItemURL: nil)
             }
 
             // Rename optimized file to original name (keep same base name, new extension)
             let finalURL = sourceURL.deletingPathExtension().appendingPathExtension(outputExtension)
+            NSLog(">>> MediaOptimizationService: Renaming optimized file to \(finalURL.lastPathComponent)")
             if finalURL != outputURL {
                 // If the original had a different extension, rename
                 if FileManager.default.fileExists(atPath: finalURL.path) {
@@ -502,9 +511,13 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                 try FileManager.default.moveItem(at: outputURL, to: finalURL)
             }
 
+            NSLog(">>> MediaOptimizationService: Verifying output file")
+
             // Verify preserved frame rate/sample rate from output file
             let verifiedFrameRate = item.isVideo ? try await getOutputFrameRate(url: finalURL) : nil
             let verifiedSampleRate = try await getOutputSampleRate(url: finalURL)
+
+            NSLog(">>> MediaOptimizationService: Verification complete - frameRate: \(String(describing: verifiedFrameRate)), sampleRate: \(String(describing: verifiedSampleRate))")
 
             return OptimizedItemResult(
                 mediaItemId: item.mediaItemId,
@@ -737,12 +750,26 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         // Finish writing
         await writer.finishWriting()
 
-        if writer.status == .failed {
+        // Check writer status - must be completed
+        switch writer.status {
+        case .completed:
+            NSLog(">>> MediaOptimizationService: Video transcoding completed successfully")
+        case .failed:
             throw MediaOptimizationError.transcodingFailed(
                 sourceURL,
                 writer.error?.localizedDescription ?? "Unknown error"
             )
+        case .cancelled:
+            throw MediaOptimizationError.cancelled
+        default:
+            throw MediaOptimizationError.transcodingFailed(
+                sourceURL,
+                "Writer ended with unexpected status: \(writer.status.rawValue)"
+            )
         }
+
+        // Final progress update
+        await progressHandler(1.0)
     }
 
     private nonisolated func processTrackSync(
@@ -793,24 +820,38 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         // CRITICAL: Preserve original sample rate by not resampling
         // AVAssetExportPresetAppleM4A preserves the source sample rate
 
-        // Start export
-        await exportSession.export()
+        NSLog(">>> MediaOptimizationService: Starting audio export for \(sourceURL.lastPathComponent)")
 
-        // Monitor progress
-        while exportSession.status == .exporting {
+        // Start export asynchronously and monitor progress
+        exportSession.exportAsynchronously { }
+
+        // Monitor progress while exporting
+        while exportSession.status == .exporting || exportSession.status == .waiting {
             await progressHandler(Double(exportSession.progress))
-            try await Task.sleep(nanoseconds: 100_000_000)  // Check every 0.1s
 
             if isCancelled {
                 exportSession.cancelExport()
                 throw MediaOptimizationError.cancelled
             }
+
+            try await Task.sleep(nanoseconds: 100_000_000)  // Check every 0.1s
         }
 
-        if exportSession.status == .failed {
+        // Check final status
+        switch exportSession.status {
+        case .completed:
+            NSLog(">>> MediaOptimizationService: Audio export completed successfully")
+        case .failed:
             throw MediaOptimizationError.transcodingFailed(
                 sourceURL,
                 exportSession.error?.localizedDescription ?? "Unknown error"
+            )
+        case .cancelled:
+            throw MediaOptimizationError.cancelled
+        default:
+            throw MediaOptimizationError.transcodingFailed(
+                sourceURL,
+                "Export ended with unexpected status: \(exportSession.status.rawValue)"
             )
         }
 

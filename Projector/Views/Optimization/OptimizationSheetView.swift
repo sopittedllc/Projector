@@ -44,6 +44,7 @@ struct OptimizationSheetView: View {
         }
         .frame(width: 600, height: 500)
         .onAppear {
+            NSLog(">>> OptimizationSheetView: onAppear - projectURL: \(String(describing: viewModel.projectURL)), isProjectSaved: \(viewModel.isProjectSaved)")
             if viewModel.state == .idle {
                 viewModel.analyze()
             }
