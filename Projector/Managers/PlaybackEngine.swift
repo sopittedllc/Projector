@@ -1104,14 +1104,16 @@ final class PlaybackEngine: ObservableObject {
             at: .zero
         )
 
-        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
+        // Use passthrough - copies audio stream without re-encoding (MUCH faster)
+        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
             throw PlaybackEngineError.audioExtractionFailed
         }
 
         // Use a deterministic filename based on source URL and track index
+        // Use .mov container for passthrough compatibility
         let keyHash = "\(key.url.absoluteString)-track\(key.trackIndex)".hashValue
         let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("projector-audio-\(abs(keyHash)).m4a")
+            .appendingPathComponent("projector-audio-\(abs(keyHash)).mov")
 
         // Remove existing file if present
         if FileManager.default.fileExists(atPath: tempURL.path) {
@@ -1119,10 +1121,10 @@ final class PlaybackEngine: ObservableObject {
         }
 
         if #available(macOS 15.0, *) {
-            try await export.export(to: tempURL, as: .m4a)
+            try await export.export(to: tempURL, as: .mov)
         } else {
             export.outputURL = tempURL
-            export.outputFileType = .m4a
+            export.outputFileType = .mov
             try await exportAudioLegacy(export)
         }
 

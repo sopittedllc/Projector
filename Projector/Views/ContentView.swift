@@ -1534,7 +1534,8 @@ struct ContentView: View {
         }
     }
 
-    /// Extract an audio track from an asset to a temporary M4A file
+    /// Extract an audio track from an asset to a temporary file
+    /// Uses passthrough (no re-encoding) for speed
     /// Must be called while security-scoped access is active
     private func extractAudioTrackToTemp(from asset: AVAsset, trackIndex: Int, sourceURL: URL) async throws -> URL {
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
@@ -1558,24 +1559,26 @@ struct ContentView: View {
             at: .zero
         )
 
-        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
+        // Use passthrough preset - copies audio stream without re-encoding (MUCH faster)
+        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
             throw NSError(domain: "ContentView", code: -3, userInfo: [NSLocalizedDescriptionKey: "Failed to create export session"])
         }
 
         // Deterministic filename based on source URL and track
+        // Use .mov container for passthrough compatibility
         let keyHash = "\(sourceURL.absoluteString)-track\(trackIndex)".hashValue
         let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("projector-audio-\(abs(keyHash)).m4a")
+            .appendingPathComponent("projector-audio-\(abs(keyHash)).mov")
 
         if FileManager.default.fileExists(atPath: tempURL.path) {
             try FileManager.default.removeItem(at: tempURL)
         }
 
         if #available(macOS 15.0, *) {
-            try await export.export(to: tempURL, as: .m4a)
+            try await export.export(to: tempURL, as: .mov)
         } else {
             export.outputURL = tempURL
-            export.outputFileType = .m4a
+            export.outputFileType = .mov
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 export.exportAsynchronously {
                     switch export.status {
