@@ -14,6 +14,10 @@ struct AudioClip: Identifiable, Codable, Equatable {
     /// Unique identifier for the clip
     let id: UUID
 
+    /// Reference to the MediaItem in the library (for optimization status lookup)
+    /// For videoTrack sources, this references the parent video's MediaItem
+    var mediaItemId: UUID?
+
     /// Source file URL (video file for videoTrack, audio file for audioFile)
     var sourceURL: URL
 
@@ -77,6 +81,7 @@ struct AudioClip: Identifiable, Codable, Equatable {
 
     init(
         id: UUID = UUID(),
+        mediaItemId: UUID? = nil,
         sourceURL: URL,
         sourceBookmark: Data? = nil,
         timelineStartFrame: Int,
@@ -93,6 +98,7 @@ struct AudioClip: Identifiable, Codable, Equatable {
         sourceFrameRate: TimecodeFrameRate? = nil
     ) {
         self.id = id
+        self.mediaItemId = mediaItemId
         self.sourceURL = sourceURL
         self.sourceBookmark = sourceBookmark
         self.timelineStartFrame = timelineStartFrame
@@ -137,6 +143,7 @@ struct AudioClip: Identifiable, Codable, Equatable {
 extension AudioClip {
     enum CodingKeys: String, CodingKey {
         case id
+        case mediaItemId
         case sourcePath
         case sourceBookmark
         case timelineStartFrame
@@ -157,6 +164,7 @@ extension AudioClip {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         id = try container.decode(UUID.self, forKey: .id)
+        mediaItemId = try container.decodeIfPresent(UUID.self, forKey: .mediaItemId)
         let sourcePath = try container.decode(String.self, forKey: .sourcePath)
         sourceURL = URL(fileURLWithPath: sourcePath)
         sourceBookmark = try container.decodeIfPresent(Data.self, forKey: .sourceBookmark)
@@ -186,6 +194,7 @@ extension AudioClip {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
         try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(mediaItemId, forKey: .mediaItemId)
         try container.encode(sourceURL.path, forKey: .sourcePath)
         try container.encodeIfPresent(sourceBookmark, forKey: .sourceBookmark)
         try container.encode(timelineStartFrame, forKey: .timelineStartFrame)

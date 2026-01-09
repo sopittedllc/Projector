@@ -1591,6 +1591,7 @@ struct ContentView: View {
             // Create a placeholder clip IMMEDIATELY (without extractedAudioURL)
             // This ensures the audio region appears in UI right away, before extraction completes
             let clip = AudioClip(
+                mediaItemId: reel.mediaItemId,
                 sourceURL: reel.sourceURL,
                 sourceBookmark: reel.sourceBookmark,
                 timelineStartFrame: reel.timelineStartFrame,

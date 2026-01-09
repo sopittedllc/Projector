@@ -13,6 +13,7 @@ struct AudioClipView: View {
     let waveformCache: WaveformCache
     let showWaveform: Bool
     let interactionsEnabled: Bool
+    let isOptimized: Bool
     let onSelect: () -> Void
     let onDoubleClick: () -> Void
 
@@ -38,6 +39,13 @@ struct AudioClipView: View {
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(.white)
                         .lineLimit(1)
+
+                    // Optimization indicator
+                    if isOptimized {
+                        Image(systemName: "stopwatch.fill")
+                            .font(.system(size: 8))
+                            .foregroundColor(.green)
+                    }
 
                     Spacer(minLength: 0)
 
@@ -281,6 +289,7 @@ private struct WaveformBarsView: Shape {
             waveformCache: WaveformCache(),
             showWaveform: true,
             interactionsEnabled: true,
+            isOptimized: true,
             onSelect: {},
             onDoubleClick: {}
         )
@@ -303,6 +312,7 @@ private struct WaveformBarsView: Shape {
             waveformCache: WaveformCache(),
             showWaveform: true,
             interactionsEnabled: true,
+            isOptimized: false,
             onSelect: {},
             onDoubleClick: {}
         )

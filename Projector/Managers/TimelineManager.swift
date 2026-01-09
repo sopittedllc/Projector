@@ -533,6 +533,7 @@ final class TimelineManager: ObservableObject {
         }
 
         let clip = AudioClip(
+            mediaItemId: reel.mediaItemId,
             sourceURL: reel.sourceURL,
             sourceBookmark: reel.sourceBookmark,
             timelineStartFrame: reel.timelineStartFrame,
