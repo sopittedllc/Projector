@@ -1561,6 +1561,7 @@ struct ContentView: View {
 
     /// Check if video has audio tracks and create lane + placeholder clip immediately
     /// Returns (lane, clipId) if audio tracks exist, nil otherwise
+    /// Reuses existing lanes if the new clip fits without overlap
     private func prepareAudioLaneIfNeeded(for reel: VideoReel) async -> (lane: AudioLane, clipId: UUID)? {
         let asset = AVAsset(url: reel.sourceURL)
         do {
@@ -1584,10 +1585,6 @@ struct ContentView: View {
                 }
             }
 
-            // Create the lane IMMEDIATELY so it appears in the UI right away
-            let laneNumber = timelineManager.timeline.audioLanes.count + 1
-            let lane = timelineManager.addAudioLaneAtTop(name: "Audio \(laneNumber)")
-
             // Create a placeholder clip IMMEDIATELY (without extractedAudioURL)
             // This ensures the audio region appears in UI right away, before extraction completes
             let clip = AudioClip(
@@ -1604,9 +1601,32 @@ struct ContentView: View {
                 extractedAudioURL: nil,  // Will be set after extraction
                 sourceFrameRate: reel.sourceFrameRate
             )
+
+            // Try to find an existing lane where the clip fits without overlap
+            var targetLane: AudioLane?
+            for lane in timelineManager.timeline.audioLanes {
+                if !lane.hasOverlap(with: clip) {
+                    targetLane = lane
+                    NSLog(">>> prepareAudioLaneIfNeeded: Found existing lane '\(lane.name)' with no overlap")
+                    break
+                }
+            }
+
+            // If no existing lane can fit the clip, create a new one
+            if targetLane == nil {
+                let laneNumber = timelineManager.timeline.audioLanes.count + 1
+                targetLane = timelineManager.addAudioLaneAtTop(name: "Audio \(laneNumber)")
+                NSLog(">>> prepareAudioLaneIfNeeded: Created new lane '\(targetLane!.name)'")
+            }
+
+            guard let lane = targetLane else {
+                NSLog(">>> prepareAudioLaneIfNeeded: Failed to get target lane")
+                return nil
+            }
+
             timelineManager.timeline.addClip(clip, toLane: lane.id)
 
-            NSLog(">>> prepareAudioLaneIfNeeded: Lane '\(lane.name)' + placeholder clip created with \(audioTracks.count) audio track(s)")
+            NSLog(">>> prepareAudioLaneIfNeeded: Added clip to lane '\(lane.name)' with \(audioTracks.count) audio track(s)")
             return (lane, clip.id)
         } catch {
             NSLog(">>> prepareAudioLaneIfNeeded: Failed to check audio tracks - \(error)")
