@@ -735,6 +735,7 @@ struct MultiTrackTimelineView: View {
                             timelineManager: timelineManager,
                             playbackEngine: playbackEngine,
                             thumbnailCache: thumbnailCache,
+                            mediaLibrary: mediaLibrary,
                             pixelsPerFrame: ppf,
                             scrollOffset: 0,
                             showThumbnails: !debug.disableThumbnails,

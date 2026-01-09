@@ -385,26 +385,27 @@ struct OptimizationSheetView: View {
 
     /// Simple alert shown when trying to optimize an unsaved project
     private var unsavedProjectView: some View {
-        VStack(spacing: 20) {
-            Spacer()
+        VStack(spacing: 0) {
+            // Content area
+            VStack(spacing: 16) {
+                Image(systemName: "doc.badge.gearshape")
+                    .font(.system(size: 56))
+                    .foregroundColor(.secondary)
 
-            Image(systemName: "doc.badge.gearshape")
-                .font(.system(size: 56))
-                .foregroundColor(.secondary)
+                Text("Save Project to Optimize")
+                    .font(.headline)
 
-            Text("Save Project to Optimize")
-                .font(.headline)
-
-            Text("Projects must be saved before media can be optimized.\nThis allows optimized files to be stored in your project folder.")
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-
-            Spacer()
+                Text("Projects must be saved before media can be optimized.\nThis allows optimized files to be stored in your project folder.")
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+            .frame(maxHeight: .infinity)
 
             Divider()
 
-            HStack(alignment: .center) {
+            // Footer with buttons
+            HStack(spacing: 12) {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
@@ -423,9 +424,10 @@ struct OptimizationSheetView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
             }
-            .padding()
+            .frame(height: 52)
+            .padding(.horizontal)
         }
-        .frame(width: 400, height: 280)
+        .frame(width: 400, height: 260)
     }
 
     // MARK: - Footer

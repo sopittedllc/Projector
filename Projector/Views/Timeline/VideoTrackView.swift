@@ -9,6 +9,7 @@ struct VideoTrackView: View {
     @ObservedObject var timelineManager: TimelineManager
     let playbackEngine: PlaybackEngine
     @ObservedObject var thumbnailCache: ThumbnailCache
+    @ObservedObject var mediaLibrary: ProjectMediaLibrary
     let pixelsPerFrame: CGFloat
     let scrollOffset: CGFloat
     let showThumbnails: Bool
@@ -159,6 +160,7 @@ struct VideoTrackView: View {
                 showThumbnails: showThumbnails,
                 isSelected: selectedReelId == reel.id,
                 interactionsEnabled: clipInteractionsEnabled,
+                isOptimized: isReelOptimized(reel),
                 onSelect: {
                     selectedReelId = reel.id
                     onReelSelected(reel.id)
@@ -356,6 +358,11 @@ struct VideoTrackView: View {
         reel.timelineStartFrame == preview.fromFrame
     }
 
+    /// Check if the media item for this reel is optimized
+    private func isReelOptimized(_ reel: VideoReel) -> Bool {
+        mediaLibrary.items.first { $0.url == reel.sourceURL }?.isOptimized ?? false
+    }
+
     private func loadURL(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {
         var didFinish = false
         func finish(_ url: URL?) {
@@ -472,12 +479,14 @@ private struct VideoTrackDropDelegate: DropDelegate {
         @StateObject var timelineManager = TimelineManager()
         @StateObject var playbackEngine = PlaybackEngine()
         @StateObject var thumbnailCache = ThumbnailCache()
+        @StateObject var mediaLibrary = ProjectMediaLibrary()
 
         var body: some View {
             VideoTrackView(
                 timelineManager: timelineManager,
                 playbackEngine: playbackEngine,
                 thumbnailCache: thumbnailCache,
+                mediaLibrary: mediaLibrary,
                 pixelsPerFrame: 0.5,
                 scrollOffset: 0,
                 showThumbnails: true,

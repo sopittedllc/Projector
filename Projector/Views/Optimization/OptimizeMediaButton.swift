@@ -14,7 +14,7 @@ struct OptimizeMediaButton: View {
     var body: some View {
         Button(action: { showSheet = true }) {
             HStack(spacing: 4) {
-                Image(systemName: "arrow.triangle.2.circlepath")
+                Image(systemName: "stopwatch")
                     .font(.system(size: 10))
                 Text("Optimize")
                     .font(.system(size: 11))

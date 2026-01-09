@@ -214,7 +214,7 @@ final class ProjectMediaLibrary: ObservableObject {
     ///   - id: The media item ID
     ///   - newURL: The new file URL
     ///   - newBookmark: Optional pre-created bookmark (created if nil)
-    func updateItemURL(id: UUID, newURL: URL, newBookmark: Data? = nil) {
+    func updateItemURL(id: UUID, newURL: URL, newBookmark: Data? = nil, isOptimized: Bool? = nil) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         let item = items[index]
 
@@ -231,6 +231,7 @@ final class ProjectMediaLibrary: ObservableObject {
             channelCount: item.channelCount,
             sampleRate: item.sampleRate,
             importedAt: item.importedAt,
+            isOptimized: isOptimized ?? item.isOptimized,
             thumbnailData: item.thumbnailData
         )
         markDirty()

@@ -55,6 +55,9 @@ struct MediaItem: Identifiable, Codable, Equatable {
     /// Date the file was imported
     let importedAt: Date
 
+    /// Whether this media has been optimized
+    var isOptimized: Bool
+
     /// Cached thumbnail image (not persisted)
     var thumbnailData: Data?
 
@@ -109,6 +112,7 @@ struct MediaItem: Identifiable, Codable, Equatable {
         channelCount: Int? = nil,
         sampleRate: Double? = nil,
         importedAt: Date = Date(),
+        isOptimized: Bool = false,
         thumbnailData: Data? = nil
     ) {
         self.id = id
@@ -121,6 +125,7 @@ struct MediaItem: Identifiable, Codable, Equatable {
         self.channelCount = channelCount
         self.sampleRate = sampleRate
         self.importedAt = importedAt
+        self.isOptimized = isOptimized
         self.thumbnailData = thumbnailData
     }
 }
@@ -140,6 +145,7 @@ extension MediaItem {
         case channelCount
         case sampleRate
         case importedAt
+        case isOptimized
     }
 
     init(from decoder: Decoder) throws {
@@ -163,6 +169,7 @@ extension MediaItem {
         channelCount = try container.decodeIfPresent(Int.self, forKey: .channelCount)
         sampleRate = try container.decodeIfPresent(Double.self, forKey: .sampleRate)
         importedAt = try container.decode(Date.self, forKey: .importedAt)
+        isOptimized = try container.decodeIfPresent(Bool.self, forKey: .isOptimized) ?? false
         thumbnailData = nil
     }
 
@@ -180,5 +187,6 @@ extension MediaItem {
         try container.encodeIfPresent(channelCount, forKey: .channelCount)
         try container.encodeIfPresent(sampleRate, forKey: .sampleRate)
         try container.encode(importedAt, forKey: .importedAt)
+        try container.encode(isOptimized, forKey: .isOptimized)
     }
 }

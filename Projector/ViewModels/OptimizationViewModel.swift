@@ -346,12 +346,13 @@ final class OptimizationViewModel: ObservableObject {
     // MARK: - Private Helpers
 
     private func updateReferences(from result: OptimizationResult) async {
-        // Update media library URLs
+        // Update media library URLs and mark as optimized
         for item in result.successfulItems {
             mediaLibrary.updateItemURL(
                 id: item.mediaItemId,
                 newURL: item.optimizedURL,
-                newBookmark: try? item.optimizedURL.bookmarkData(options: .withSecurityScope)
+                newBookmark: try? item.optimizedURL.bookmarkData(options: .withSecurityScope),
+                isOptimized: true
             )
         }
 

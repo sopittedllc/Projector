@@ -10,6 +10,7 @@ struct VideoReelClipView: View {
     let showThumbnails: Bool
     let isSelected: Bool
     let interactionsEnabled: Bool
+    let isOptimized: Bool
     let onSelect: () -> Void
     let onDoubleClick: () -> Void
 
@@ -54,11 +55,21 @@ struct VideoReelClipView: View {
             HStack(spacing: 4) {
                 // Reel info
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(reel.displayName)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
-                        .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 1)
+                    HStack(spacing: 4) {
+                        Text(reel.displayName)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                            .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 1)
+
+                        // Optimization indicator
+                        if isOptimized {
+                            Image(systemName: "stopwatch.fill")
+                                .font(.system(size: 9))
+                                .foregroundColor(.green)
+                                .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 1)
+                        }
+                    }
 
                     Text(formattedDuration)
                         .font(.system(size: 9, weight: .medium, design: .monospaced))
@@ -187,6 +198,7 @@ struct VideoReelClipView: View {
             showThumbnails: true,
             isSelected: false,
             interactionsEnabled: true,
+            isOptimized: true,
             onSelect: {},
             onDoubleClick: {}
         )
@@ -205,6 +217,7 @@ struct VideoReelClipView: View {
             showThumbnails: true,
             isSelected: true,
             interactionsEnabled: true,
+            isOptimized: false,
             onSelect: {},
             onDoubleClick: {}
         )
