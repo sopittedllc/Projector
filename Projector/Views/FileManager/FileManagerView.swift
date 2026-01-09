@@ -23,6 +23,7 @@ struct FileManagerView: View {
     @State private var dragEndMonitor: Any?
     @State private var showDuplicateImportAlert = false
     @State private var duplicateImportNames: [String] = []
+    @State private var showOptimizationSheet = false
 
     // Focus state for keyboard commands
     @FocusState private var isMediaListFocused: Bool
@@ -80,6 +81,14 @@ struct FileManagerView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(duplicateImportMessage)
+        }
+        .sheet(isPresented: $showOptimizationSheet) {
+            OptimizationSheetView(
+                viewModel: OptimizationViewModel(
+                    service: MediaOptimizationService(),
+                    mediaLibrary: mediaLibrary
+                )
+            )
         }
         // Take focus when an item is selected
         .onChange(of: selectedItemIds) { _, newValue in
@@ -160,6 +169,11 @@ struct FileManagerView: View {
             if isExpanded {
                 // Filter buttons
                 filterButtons
+
+                // Optimize button (only show if there are items)
+                if !mediaLibrary.items.isEmpty {
+                    OptimizeMediaButton(showSheet: $showOptimizationSheet)
+                }
 
                 // Import button
                 Button(action: importMedia) {

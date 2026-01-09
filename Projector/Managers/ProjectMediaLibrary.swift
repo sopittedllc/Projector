@@ -208,19 +208,31 @@ final class ProjectMediaLibrary: ObservableObject {
         markDirty()
     }
 
-    /// Update the URL for an item (used when relocating missing files)
-    func updateItemURL(id: UUID, newURL: URL) {
+    /// Update the URL for an item (used when relocating missing files or after optimization)
+    ///
+    /// - Parameters:
+    ///   - id: The media item ID
+    ///   - newURL: The new file URL
+    ///   - newBookmark: Optional pre-created bookmark (created if nil)
+    func updateItemURL(id: UUID, newURL: URL, newBookmark: Data? = nil) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-        var item = items[index]
-        item = MediaItem(
+        let item = items[index]
+
+        let bookmark = newBookmark ?? (try? newURL.bookmarkData(options: .withSecurityScope))
+
+        items[index] = MediaItem(
             id: item.id,
             url: newURL,
-            bookmark: try? newURL.bookmarkData(options: .withSecurityScope),
+            bookmark: bookmark,
             type: item.type,
             duration: item.duration,
-            frameRate: item.frameRate
+            frameRate: item.frameRate,
+            videoSize: item.videoSize,
+            channelCount: item.channelCount,
+            sampleRate: item.sampleRate,
+            importedAt: item.importedAt,
+            thumbnailData: item.thumbnailData
         )
-        items[index] = item
         markDirty()
     }
 
