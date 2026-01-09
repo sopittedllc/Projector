@@ -46,8 +46,6 @@ final class OptimizationViewModel: ObservableObject {
     /// Optimization result (available when state == .complete)
     @Published public private(set) var result: OptimizationResult?
 
-    /// Whether to replace originals (user toggle)
-    @Published public var replaceOriginals: Bool = false
 
     /// IDs of items selected for optimization
     @Published public var selectedItemIds: Set<UUID> = []
@@ -96,10 +94,10 @@ final class OptimizationViewModel: ObservableObject {
         projectURL != nil
     }
 
-    /// The Originals folder URL (sibling of the .projector file)
-    /// Structure: ProjectFolder/Originals/ (not inside .projector package)
-    var originalsFolderURL: URL? {
-        projectURL?.deletingLastPathComponent().appendingPathComponent("Originals")
+    /// The "Optimized Media" folder URL (sibling of the .projector file)
+    /// Structure: ProjectFolder/Optimized Media/ (not inside .projector package)
+    var optimizedMediaFolderURL: URL? {
+        projectURL?.deletingLastPathComponent().appendingPathComponent("Optimized Media")
     }
 
     // MARK: - Computed Properties
@@ -273,10 +271,16 @@ final class OptimizationViewModel: ObservableObject {
         let itemsToOptimize = selectedItemsToOptimize
         NSLog(">>> OptimizationViewModel.startOptimization: \(itemsToOptimize.count) items to optimize")
 
+        // Ensure we have a valid optimized media folder URL
+        guard let optimizedFolderURL = optimizedMediaFolderURL else {
+            NSLog(">>> OptimizationViewModel.startOptimization: cannot optimize - no optimizedMediaFolderURL")
+            state = .error("Project must be saved before optimizing media")
+            return
+        }
+
         // Use HandBrake "Very Fast 720p30" equivalent settings
         let options = OptimizationOptions(
-            replaceOriginals: replaceOriginals,
-            originalsFolderURL: originalsFolderURL,  // Inside project package
+            optimizedMediaFolderURL: optimizedFolderURL,
             videoTargetWidth: 1280,
             videoTargetHeight: 720,
             videoBitrate: 2_000_000,       // HandBrake CRF 23 equivalent

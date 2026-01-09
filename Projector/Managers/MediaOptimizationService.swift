@@ -326,8 +326,8 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             throw MediaOptimizationError.noItemsToOptimize
         }
 
-        // Check disk space
-        let requiredSpace = itemsToOptimize.reduce(0) { $0 + $1.originalSize }
+        // Check disk space - we need space for optimized copies (not replacing originals)
+        let requiredSpace = itemsToOptimize.reduce(0) { $0 + $1.estimatedOptimizedSize }
         let availableSpace = try availableDiskSpace()
         if availableSpace < requiredSpace {
             throw MediaOptimizationError.insufficientDiskSpace(required: requiredSpace, available: availableSpace)
@@ -337,17 +337,11 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         var optimizedCount = 0
         var failedCount = 0
         var totalSaved: UInt64 = 0
-        var originalsFolder: URL?
 
-        // Create originals folder if not replacing
-        if !options.replaceOriginals {
-            guard let folderURL = options.originalsFolderURL else {
-                throw MediaOptimizationError.fileAccessDenied(URL(fileURLWithPath: "/"))
-            }
-            // Create the Originals folder inside the project package
-            try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
-            originalsFolder = folderURL
-        }
+        // Create the "Optimized Media" folder
+        let optimizedMediaFolder = options.optimizedMediaFolderURL
+        try FileManager.default.createDirectory(at: optimizedMediaFolder, withIntermediateDirectories: true)
+        NSLog(">>> MediaOptimizationService: Created Optimized Media folder at \(optimizedMediaFolder.path)")
 
         for (index, item) in itemsToOptimize.enumerated() {
             if isCancelled {
@@ -369,7 +363,6 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                 let result = try await optimizeItem(
                     item,
                     options: options,
-                    originalsFolder: originalsFolder,
                     progressHandler: { itemProgress in
                         let overallProgress = (Double(index) + itemProgress) / Double(itemsToOptimize.count)
                         let progress = OptimizationProgress(
@@ -417,14 +410,13 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             skippedCount: items.count - itemsToOptimize.count,
             failedCount: failedCount,
             totalSavedBytes: totalSaved,
-            originalsFolder: originalsFolder
+            optimizedMediaFolder: optimizedMediaFolder
         )
     }
 
     private func optimizeItem(
         _ item: MediaAnalysisItem,
         options: OptimizationOptions,
-        originalsFolder: URL?,
         progressHandler: @escaping @Sendable (Double) async -> Void
     ) async throws -> OptimizedItemResult {
         // Resolve the source URL with security scope
@@ -444,28 +436,23 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             }
         }
 
-        // Also start access to the parent directory for writing
-        let parentDir = sourceURL.deletingLastPathComponent()
-        let didStartParentAccess = parentDir.startAccessingSecurityScopedResource()
-
         defer {
             if didStartAccess {
                 sourceURL.stopAccessingSecurityScopedResource()
             }
-            if didStartParentAccess {
-                parentDir.stopAccessingSecurityScopedResource()
-            }
         }
 
-        // Create output URL (same directory, new extension) - use security-scoped sourceURL
+        // Create output URL in the "Optimized Media" folder
+        // Keep the original filename but with new extension
         let outputExtension = item.isVideo ? "mp4" : "m4a"
-        let outputName = sourceURL.deletingPathExtension().lastPathComponent + "_optimized"
-        let outputURL = sourceURL.deletingLastPathComponent()
+        let outputName = sourceURL.deletingPathExtension().lastPathComponent
+        let outputURL = options.optimizedMediaFolderURL
             .appendingPathComponent(outputName)
             .appendingPathExtension(outputExtension)
 
         do {
             NSLog(">>> MediaOptimizationService: Starting transcode for \(item.displayName)")
+            NSLog(">>> MediaOptimizationService: Output will be saved to \(outputURL.path)")
 
             if item.isVideo {
                 try await transcodeVideo(
@@ -491,35 +478,13 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             let outputSize = outputAttributes[.size] as? UInt64 ?? 0
 
             NSLog(">>> MediaOptimizationService: Output size: \(outputSize) bytes")
-
-            // Handle originals - use security-scoped sourceURL
-            if let originalsFolder = originalsFolder {
-                // Move original to originals folder
-                NSLog(">>> MediaOptimizationService: Moving original to Originals folder")
-                let originalDest = originalsFolder.appendingPathComponent(sourceURL.lastPathComponent)
-                try FileManager.default.moveItem(at: sourceURL, to: originalDest)
-            } else {
-                // Move original to trash
-                NSLog(">>> MediaOptimizationService: Moving original to trash")
-                try FileManager.default.trashItem(at: sourceURL, resultingItemURL: nil)
-            }
-
-            // Rename optimized file to original name (keep same base name, new extension)
-            let finalURL = sourceURL.deletingPathExtension().appendingPathExtension(outputExtension)
-            NSLog(">>> MediaOptimizationService: Renaming optimized file to \(finalURL.lastPathComponent)")
-            if finalURL != outputURL {
-                // If the original had a different extension, rename
-                if FileManager.default.fileExists(atPath: finalURL.path) {
-                    try FileManager.default.removeItem(at: finalURL)
-                }
-                try FileManager.default.moveItem(at: outputURL, to: finalURL)
-            }
+            NSLog(">>> MediaOptimizationService: Original file left untouched at \(sourceURL.path)")
 
             NSLog(">>> MediaOptimizationService: Verifying output file")
 
             // Verify preserved frame rate/sample rate from output file
-            let verifiedFrameRate = item.isVideo ? try await getOutputFrameRate(url: finalURL) : nil
-            let verifiedSampleRate = try await getOutputSampleRate(url: finalURL)
+            let verifiedFrameRate = item.isVideo ? try await getOutputFrameRate(url: outputURL) : nil
+            let verifiedSampleRate = try await getOutputSampleRate(url: outputURL)
 
             NSLog(">>> MediaOptimizationService: Verification complete - frameRate: \(String(describing: verifiedFrameRate)), sampleRate: \(String(describing: verifiedSampleRate))")
 
@@ -529,7 +494,7 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                 originalSize: item.originalSize,
                 optimizedSize: outputSize,
                 originalURL: item.sourceURL,
-                optimizedURL: finalURL,
+                optimizedURL: outputURL,
                 isVideo: item.isVideo,
                 frameRate: verifiedFrameRate,
                 sampleRate: verifiedSampleRate,

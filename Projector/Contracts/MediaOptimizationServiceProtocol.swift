@@ -147,13 +147,12 @@ struct ProjectAnalysisResult: Sendable, Equatable {
 /// - Video: H.264, veryfast preset, CRF 23 equivalent, Main profile L3.1
 /// - Audio: AAC stereo, 160 kbps, preserves source sample rate
 /// - Frame rate: Preserves source (PFR mode - peak frame rate capped at 30)
+///
+/// Note: Original files are never modified. Optimized files are saved to a
+/// separate "Optimized Media" folder within the project directory.
 struct OptimizationOptions: Sendable, Equatable {
-    /// If true, originals are moved to trash. If false, moved to "Originals" folder.
-    let replaceOriginals: Bool
-
-    /// URL of the originals folder (inside project package)
-    /// Required if replaceOriginals is false
-    let originalsFolderURL: URL?
+    /// URL of the "Optimized Media" folder where optimized files will be saved
+    let optimizedMediaFolderURL: URL
 
     /// Target video width in pixels (720p = 1280)
     let videoTargetWidth: Int
@@ -174,27 +173,26 @@ struct OptimizationOptions: Sendable, Equatable {
     let maxFrameRate: Double
 
     /// Default optimization preset matching HandBrake "Very Fast 720p30"
-    static let handbrakeVeryFast720p = OptimizationOptions(
-        replaceOriginals: false,
-        originalsFolderURL: nil,
-        videoTargetWidth: 1280,
-        videoTargetHeight: 720,
-        videoBitrate: 2_000_000,      // HandBrake VideoAvgBitrate: 2000
-        audioTargetBitrate: 160_000,  // HandBrake AudioBitrate: 160
-        maxFrameRate: 30.0            // HandBrake VideoFramerate: "30" with pfr mode
-    )
+    static func handbrakeVeryFast720p(optimizedMediaFolderURL: URL) -> OptimizationOptions {
+        OptimizationOptions(
+            optimizedMediaFolderURL: optimizedMediaFolderURL,
+            videoTargetWidth: 1280,
+            videoTargetHeight: 720,
+            videoBitrate: 2_000_000,      // HandBrake VideoAvgBitrate: 2000
+            audioTargetBitrate: 160_000,  // HandBrake AudioBitrate: 160
+            maxFrameRate: 30.0            // HandBrake VideoFramerate: "30" with pfr mode
+        )
+    }
 
     init(
-        replaceOriginals: Bool,
-        originalsFolderURL: URL? = nil,
+        optimizedMediaFolderURL: URL,
         videoTargetWidth: Int,
         videoTargetHeight: Int,
         videoBitrate: Int,
         audioTargetBitrate: Int,
         maxFrameRate: Double = 30.0
     ) {
-        self.replaceOriginals = replaceOriginals
-        self.originalsFolderURL = originalsFolderURL
+        self.optimizedMediaFolderURL = optimizedMediaFolderURL
         self.videoTargetWidth = videoTargetWidth
         self.videoTargetHeight = videoTargetHeight
         self.videoBitrate = videoBitrate
@@ -336,8 +334,8 @@ struct OptimizationResult: Sendable, Equatable {
     /// Total bytes saved
     let totalSavedBytes: UInt64
 
-    /// URL of the "Originals" folder (nil if replaceOriginals was true)
-    let originalsFolder: URL?
+    /// URL of the "Optimized Media" folder where optimized files were saved
+    let optimizedMediaFolder: URL
 
     /// Successfully optimized items
     var successfulItems: [OptimizedItemResult] {
@@ -355,14 +353,14 @@ struct OptimizationResult: Sendable, Equatable {
         skippedCount: Int,
         failedCount: Int,
         totalSavedBytes: UInt64,
-        originalsFolder: URL?
+        optimizedMediaFolder: URL
     ) {
         self.itemResults = itemResults
         self.optimizedCount = optimizedCount
         self.skippedCount = skippedCount
         self.failedCount = failedCount
         self.totalSavedBytes = totalSavedBytes
-        self.originalsFolder = originalsFolder
+        self.optimizedMediaFolder = optimizedMediaFolder
     }
 }
 

@@ -18,42 +18,50 @@ struct OptimizationSheetView: View {
     let onSaveProject: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            header
+        Group {
+            // Show a simple alert if project isn't saved
+            if !viewModel.isProjectSaved {
+                unsavedProjectView
+            } else {
+                VStack(spacing: 0) {
+                    // Header
+                    header
 
-            Divider()
+                    Divider()
 
-            // Content based on state
-            switch viewModel.state {
-            case .idle:
-                idleView
-            case .analyzing:
-                analyzingView
-            case .ready:
-                readyView
-            case .optimizing:
-                optimizingView
-            case .complete:
-                completeView
-            case .error(let message):
-                errorView(message: message)
+                    // Content based on state
+                    switch viewModel.state {
+                    case .idle:
+                        idleView
+                    case .analyzing:
+                        analyzingView
+                    case .ready:
+                        readyView
+                    case .optimizing:
+                        optimizingView
+                    case .complete:
+                        completeView
+                    case .error(let message):
+                        errorView(message: message)
+                    }
+
+                    Divider()
+
+                    // Footer with actions
+                    footer
+                }
+                .frame(width: 600, height: 500)
             }
-
-            Divider()
-
-            // Footer with actions
-            footer
         }
-        .frame(width: 600, height: 500)
         .onAppear {
             NSLog(">>> OptimizationSheetView: onAppear - projectURL: \(String(describing: projectDocument.fileURL)), isProjectSaved: \(viewModel.isProjectSaved), state: \(viewModel.state)")
             NSLog(">>> OptimizationSheetView: media library has \(viewModel.analysisResult.items.count) items analyzed")
-            if viewModel.state == .idle {
+            // Only analyze if project is saved
+            if viewModel.isProjectSaved && viewModel.state == .idle {
                 NSLog(">>> OptimizationSheetView: calling analyze()")
                 viewModel.analyze()
             } else {
-                NSLog(">>> OptimizationSheetView: NOT calling analyze() - state is not idle")
+                NSLog(">>> OptimizationSheetView: NOT calling analyze() - isProjectSaved: \(viewModel.isProjectSaved), state: \(viewModel.state)")
             }
         }
         .onChange(of: viewModel.state) { oldState, newState in
@@ -130,8 +138,8 @@ struct OptimizationSheetView: View {
             // Summary
             summaryView
 
-            // Options
-            optionsView
+            // Optimization info (no options needed - we always preserve originals)
+            optimizationInfoView
         }
     }
 
@@ -209,22 +217,28 @@ struct OptimizationSheetView: View {
         .padding()
     }
 
-    private var optionsView: some View {
+    private var optimizationInfoView: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Toggle(isOn: $viewModel.replaceOriginals) {
-                VStack(alignment: .leading) {
-                    Text("Replace originals")
-                    Text("Originals will be moved to \"Originals\" folder if unchecked")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+            HStack {
+                Image(systemName: "folder.badge.plus")
+                    .foregroundColor(.blue)
+                Text("Optimized files will be saved to \"Optimized Media\" folder")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
-            .toggleStyle(.checkbox)
 
             HStack {
                 Image(systemName: "info.circle")
                     .foregroundColor(.blue)
                 Text("Video: H.264 720p ~2Mbps  |  Audio: AAC Stereo 160kbps")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            HStack {
+                Image(systemName: "checkmark.circle")
+                    .foregroundColor(.green)
+                Text("Original files will not be modified")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -329,12 +343,12 @@ struct OptimizationSheetView: View {
                 .padding(.horizontal)
             }
 
-            // Originals folder info
-            if let folder = viewModel.result?.originalsFolder {
+            // Optimized media folder info
+            if let folder = viewModel.result?.optimizedMediaFolder {
                 HStack {
-                    Image(systemName: "folder")
-                        .foregroundColor(.secondary)
-                    Text("Originals saved to: \(folder.lastPathComponent)")
+                    Image(systemName: "folder.fill")
+                        .foregroundColor(.blue)
+                    Text("Optimized files saved to: \(folder.lastPathComponent)")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -365,21 +379,54 @@ struct OptimizationSheetView: View {
         }
     }
 
+    // MARK: - Unsaved Project View
+
+    /// Simple alert shown when trying to optimize an unsaved project
+    private var unsavedProjectView: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            Image(systemName: "doc.badge.gearshape")
+                .font(.system(size: 56))
+                .foregroundColor(.secondary)
+
+            Text("Save Project to Optimize")
+                .font(.headline)
+
+            Text("Projects must be saved before media can be optimized.\nThis allows optimized files to be stored in your project folder.")
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+
+            Spacer()
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+
+                Button("Save Project...") {
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        onSaveProject()
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+        }
+        .frame(width: 400, height: 280)
+    }
+
     // MARK: - Footer
 
     private var footer: some View {
         HStack {
             // Left side info
             if viewModel.state == .ready {
-                if !viewModel.isProjectSaved {
-                    HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.orange)
-                        Text("Save project first to enable optimization")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                    }
-                } else if viewModel.selectedCount > 0 {
+                if viewModel.selectedCount > 0 {
                     Text("\(viewModel.selectedCount) of \(viewModel.itemsNeedingOptimizationCount) files selected")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -402,24 +449,11 @@ struct OptimizationSheetView: View {
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
 
-                if !viewModel.isProjectSaved {
-                    Button("Save Project...") {
-                        // Dismiss this sheet first, then trigger save
-                        // User can re-open optimization after saving
-                        dismiss()
-                        // Small delay to ensure sheet is dismissed before showing save dialog
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            onSaveProject()
-                        }
-                    }
-                    .keyboardShortcut(.defaultAction)
-                } else {
-                    Button("Optimize \(viewModel.selectedCount) File\(viewModel.selectedCount == 1 ? "" : "s")") {
-                        viewModel.startOptimization()
-                    }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!viewModel.canOptimize)
+                Button("Optimize \(viewModel.selectedCount) File\(viewModel.selectedCount == 1 ? "" : "s")") {
+                    viewModel.startOptimization()
                 }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!viewModel.canOptimize)
 
             case .optimizing:
                 Button("Cancel") {
