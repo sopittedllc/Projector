@@ -618,7 +618,7 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                 // Performance optimizations
                 kVTCompressionPropertyKey_RealTime as String: false,  // Quality mode
                 kVTCompressionPropertyKey_AllowOpenGOP as String: true,  // Better compression
-                kVTCompressionPropertyKey_MaxFrameDelayCount as String: 4  // Reduce latency
+                kVTCompressionPropertyKey_MaxFrameDelayCount as String: 3  // HEVC only allows value of 3
             ],
             // Request hardware encoding via VideoToolbox
             AVVideoEncoderSpecificationKey: [
