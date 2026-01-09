@@ -404,10 +404,13 @@ struct OptimizationSheetView: View {
 
                 if !viewModel.isProjectSaved {
                     Button("Save Project...") {
-                        // Show NSSavePanel directly to avoid SwiftUI sheet conflicts
-                        // The sheet will update when project is saved because
-                        // viewModel.isProjectSaved is computed from projectDocument.fileURL
-                        showSavePanel()
+                        // Dismiss this sheet first, then trigger save
+                        // User can re-open optimization after saving
+                        dismiss()
+                        // Small delay to ensure sheet is dismissed before showing save dialog
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            onSaveProject()
+                        }
                     }
                     .keyboardShortcut(.defaultAction)
                 } else {
