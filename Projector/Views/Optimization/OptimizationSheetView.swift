@@ -12,6 +12,7 @@ import SwiftUI
 struct OptimizationSheetView: View {
     @ObservedObject var viewModel: OptimizationViewModel
     @Environment(\.dismiss) private var dismiss
+    let onSaveProject: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -356,7 +357,15 @@ struct OptimizationSheetView: View {
         HStack {
             // Left side info
             if viewModel.state == .ready {
-                if viewModel.selectedCount > 0 {
+                if !viewModel.isProjectSaved {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("Save project first to enable optimization")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                } else if viewModel.selectedCount > 0 {
                     Text("\(viewModel.selectedCount) of \(viewModel.itemsNeedingOptimizationCount) files selected")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -379,11 +388,19 @@ struct OptimizationSheetView: View {
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
 
-                Button("Optimize \(viewModel.selectedCount) File\(viewModel.selectedCount == 1 ? "" : "s")") {
-                    viewModel.startOptimization()
+                if !viewModel.isProjectSaved {
+                    Button("Save Project...") {
+                        dismiss()
+                        onSaveProject()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                } else {
+                    Button("Optimize \(viewModel.selectedCount) File\(viewModel.selectedCount == 1 ? "" : "s")") {
+                        viewModel.startOptimization()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!viewModel.canOptimize)
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!viewModel.canOptimize)
 
             case .optimizing:
                 Button("Cancel") {

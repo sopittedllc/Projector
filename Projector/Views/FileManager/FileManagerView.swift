@@ -6,9 +6,11 @@ import AppKit
 /// File manager panel for importing and organizing media files
 struct FileManagerView: View {
     @ObservedObject var mediaLibrary: ProjectMediaLibrary
+    @ObservedObject var projectDocument: ProjectDocument
     let onAddToVideoTrack: (MediaItem) -> Void
     let onAddToAudioLane: (MediaItem, Int) -> Void
     let onDeleteItems: ([MediaItem]) -> Void
+    let onSaveProject: () -> Void
     @EnvironmentObject private var dragContext: DragContext
 
     @State private var selectedItemIds: Set<UUID> = []
@@ -86,8 +88,10 @@ struct FileManagerView: View {
             OptimizationSheetView(
                 viewModel: OptimizationViewModel(
                     service: MediaOptimizationService(),
-                    mediaLibrary: mediaLibrary
-                )
+                    mediaLibrary: mediaLibrary,
+                    projectURL: projectDocument.fileURL
+                ),
+                onSaveProject: onSaveProject
             )
         }
         // Take focus when an item is selected
@@ -541,13 +545,16 @@ struct MediaGridCell: View {
 #Preview {
     struct PreviewWrapper: View {
         @StateObject var library = ProjectMediaLibrary()
+        @StateObject var document = ProjectDocument()
 
         var body: some View {
             FileManagerView(
                 mediaLibrary: library,
+                projectDocument: document,
                 onAddToVideoTrack: { _ in },
                 onAddToAudioLane: { _, _ in },
-                onDeleteItems: { _ in }
+                onDeleteItems: { _ in },
+                onSaveProject: { }
             )
             .padding()
         }

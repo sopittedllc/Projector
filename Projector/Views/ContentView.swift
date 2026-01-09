@@ -454,9 +454,11 @@ struct ContentView: View {
                     if showFileManager {
                         FileManagerView(
                             mediaLibrary: mediaLibrary,
+                            projectDocument: projectDocument,
                             onAddToVideoTrack: handleAddToVideoTrack,
                             onAddToAudioLane: handleAddToAudioLane,
-                            onDeleteItems: handleDeleteMediaItems
+                            onDeleteItems: handleDeleteMediaItems,
+                            onSaveProject: { saveProjectAs() }
                         )
                         .padding(.horizontal, 16)
                         .padding(.top, 8)

@@ -151,6 +151,10 @@ struct OptimizationOptions: Sendable, Equatable {
     /// If true, originals are moved to trash. If false, moved to "Originals" folder.
     let replaceOriginals: Bool
 
+    /// URL of the originals folder (inside project package)
+    /// Required if replaceOriginals is false
+    let originalsFolderURL: URL?
+
     /// Target video width in pixels (720p = 1280)
     let videoTargetWidth: Int
 
@@ -172,6 +176,7 @@ struct OptimizationOptions: Sendable, Equatable {
     /// Default optimization preset matching HandBrake "Very Fast 720p30"
     static let handbrakeVeryFast720p = OptimizationOptions(
         replaceOriginals: false,
+        originalsFolderURL: nil,
         videoTargetWidth: 1280,
         videoTargetHeight: 720,
         videoBitrate: 2_000_000,      // HandBrake VideoAvgBitrate: 2000
@@ -181,6 +186,7 @@ struct OptimizationOptions: Sendable, Equatable {
 
     init(
         replaceOriginals: Bool,
+        originalsFolderURL: URL? = nil,
         videoTargetWidth: Int,
         videoTargetHeight: Int,
         videoBitrate: Int,
@@ -188,6 +194,7 @@ struct OptimizationOptions: Sendable, Equatable {
         maxFrameRate: Double = 30.0
     ) {
         self.replaceOriginals = replaceOriginals
+        self.originalsFolderURL = originalsFolderURL
         self.videoTargetWidth = videoTargetWidth
         self.videoTargetHeight = videoTargetHeight
         self.videoBitrate = videoBitrate

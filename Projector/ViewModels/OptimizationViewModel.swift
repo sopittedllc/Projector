@@ -58,6 +58,9 @@ final class OptimizationViewModel: ObservableObject {
     private let mediaLibrary: ProjectMediaLibrary
     private let timelineManager: TimelineManager?
 
+    /// The project file URL (nil if project not saved yet)
+    let projectURL: URL?
+
     private var optimizationTask: Task<Void, Never>?
 
     // MARK: - Initialization
@@ -67,15 +70,28 @@ final class OptimizationViewModel: ObservableObject {
     /// - Parameters:
     ///   - service: The optimization service (actor)
     ///   - mediaLibrary: The project's media library
+    ///   - projectURL: The saved project URL (nil if unsaved)
     ///   - timelineManager: Optional timeline manager for updating references
     init(
         service: MediaOptimizationServiceProtocol,
         mediaLibrary: ProjectMediaLibrary,
+        projectURL: URL? = nil,
         timelineManager: TimelineManager? = nil
     ) {
         self.service = service
         self.mediaLibrary = mediaLibrary
+        self.projectURL = projectURL
         self.timelineManager = timelineManager
+    }
+
+    /// Whether the project has been saved (required for optimization)
+    var isProjectSaved: Bool {
+        projectURL != nil
+    }
+
+    /// The Originals folder URL inside the project package
+    var originalsFolderURL: URL? {
+        projectURL?.appendingPathComponent("Originals")
     }
 
     // MARK: - Computed Properties
@@ -142,9 +158,20 @@ final class OptimizationViewModel: ObservableObject {
         ByteCountFormatter.string(fromByteCount: Int64(selectedSavings), countStyle: .file)
     }
 
-    /// Whether optimization can start
+    /// Whether optimization can start (requires saved project and selected items)
     var canOptimize: Bool {
-        state == .ready && !selectedItemsToOptimize.isEmpty
+        state == .ready && !selectedItemsToOptimize.isEmpty && isProjectSaved
+    }
+
+    /// Reason why optimization cannot start
+    var cannotOptimizeReason: String? {
+        if !isProjectSaved {
+            return "Save your project first to enable optimization"
+        }
+        if selectedItemsToOptimize.isEmpty {
+            return "Select files to optimize"
+        }
+        return nil
     }
 
     /// Current item being processed (for progress display)
@@ -228,6 +255,7 @@ final class OptimizationViewModel: ObservableObject {
         // Use HandBrake "Very Fast 720p30" equivalent settings
         let options = OptimizationOptions(
             replaceOriginals: replaceOriginals,
+            originalsFolderURL: originalsFolderURL,  // Inside project package
             videoTargetWidth: 1280,
             videoTargetHeight: 720,
             videoBitrate: 2_000_000,       // HandBrake CRF 23 equivalent

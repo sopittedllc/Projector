@@ -336,7 +336,12 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
 
         // Create originals folder if not replacing
         if !options.replaceOriginals {
-            originalsFolder = try createOriginalsFolder()
+            guard let folderURL = options.originalsFolderURL else {
+                throw MediaOptimizationError.fileAccessDenied(URL(fileURLWithPath: "/"))
+            }
+            // Create the Originals folder inside the project package
+            try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+            originalsFolder = folderURL
         }
 
         for (index, item) in itemsToOptimize.enumerated() {
@@ -820,14 +825,6 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
 
         let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)
         return asbd?.pointee.mSampleRate
-    }
-
-    private func createOriginalsFolder() throws -> URL {
-        // Create in temp for now - will be moved to project folder
-        let folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ProjectorOriginals-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        return folder
     }
 
     private func availableDiskSpace() throws -> UInt64 {
