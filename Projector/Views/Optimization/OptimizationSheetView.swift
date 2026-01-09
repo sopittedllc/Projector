@@ -402,10 +402,12 @@ struct OptimizationSheetView: View {
 
             Divider()
 
-            HStack {
+            HStack(alignment: .center) {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
 
                 Button("Save Project...") {
                     dismiss()
@@ -414,6 +416,8 @@ struct OptimizationSheetView: View {
                     }
                 }
                 .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
             }
             .padding()
         }
