@@ -7,6 +7,7 @@ import AppKit
 struct FileManagerView: View {
     @ObservedObject var mediaLibrary: ProjectMediaLibrary
     @ObservedObject var projectDocument: ProjectDocument
+    @ObservedObject var timelineManager: TimelineManager
     let onAddToVideoTrack: (MediaItem) -> Void
     let onAddToAudioLane: (MediaItem, Int) -> Void
     let onDeleteItems: ([MediaItem]) -> Void
@@ -118,7 +119,8 @@ struct FileManagerView: View {
                 optimizationViewModel = OptimizationViewModel(
                     service: MediaOptimizationService(),
                     mediaLibrary: mediaLibrary,
-                    projectDocument: projectDocument
+                    projectDocument: projectDocument,
+                    timelineManager: timelineManager
                 )
                 NSLog(">>> FileManagerView: created new OptimizationViewModel")
             }
@@ -213,10 +215,11 @@ struct FileManagerView: View {
                 // Filter buttons
                 filterButtons
 
-                // Optimize button (only show if there are items)
-                if !mediaLibrary.items.isEmpty {
-                    OptimizeMediaButton(showSheet: $showOptimizationSheet)
-                }
+                // Optimize button (only show if there are unoptimized items)
+                OptimizeMediaButton(
+                    showSheet: $showOptimizationSheet,
+                    hasUnoptimizedFiles: mediaLibrary.items.contains { !$0.isOptimized }
+                )
 
                 // Import button
                 Button(action: importMedia) {
@@ -498,6 +501,18 @@ struct MediaGridCell: View {
                         RoundedRectangle(cornerRadius: 4)
                             .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
                     )
+                    .overlay(alignment: .topTrailing) {
+                        // Optimization badge
+                        if item.isOptimized {
+                            Image(systemName: "stopwatch.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.green)
+                                .padding(3)
+                                .background(Color.black.opacity(0.6))
+                                .clipShape(Circle())
+                                .padding(4)
+                        }
+                    }
 
                 // Filename
                 Text(item.displayName)
@@ -585,11 +600,13 @@ struct MediaGridCell: View {
     struct PreviewWrapper: View {
         @StateObject var library = ProjectMediaLibrary()
         @StateObject var document = ProjectDocument()
+        @StateObject var timelineManager = TimelineManager()
 
         var body: some View {
             FileManagerView(
                 mediaLibrary: library,
                 projectDocument: document,
+                timelineManager: timelineManager,
                 onAddToVideoTrack: { _ in },
                 onAddToAudioLane: { _, _ in },
                 onDeleteItems: { _ in },

@@ -516,6 +516,7 @@ struct ContentView: View {
                         FileManagerView(
                             mediaLibrary: mediaLibrary,
                             projectDocument: projectDocument,
+                            timelineManager: timelineManager,
                             onAddToVideoTrack: handleAddToVideoTrack,
                             onAddToAudioLane: handleAddToAudioLane,
                             onDeleteItems: handleDeleteMediaItems,
