@@ -30,6 +30,9 @@ struct FileManagerView: View {
     /// ViewModel for optimization - stored in @State to persist across re-renders
     @State private var optimizationViewModel: OptimizationViewModel?
 
+    /// Flag to re-open optimization sheet after project is saved
+    @State private var pendingOptimizationAfterSave = false
+
     // Focus state for keyboard commands
     @FocusState private var isMediaListFocused: Bool
 
@@ -96,7 +99,10 @@ struct FileManagerView: View {
                 OptimizationSheetView(
                     viewModel: viewModel,
                     projectDocument: projectDocument,
-                    onSaveProject: onSaveProject
+                    onSaveProject: onSaveProject,
+                    onRequestOptimizationAfterSave: {
+                        pendingOptimizationAfterSave = true
+                    }
                 )
             } else {
                 // This shouldn't happen since we create the ViewModel before showing
@@ -121,6 +127,16 @@ struct FileManagerView: View {
         .onChange(of: selectedItemIds) { _, newValue in
             if !newValue.isEmpty {
                 isMediaListFocused = true
+            }
+        }
+        // Re-open optimization sheet after project is saved
+        .onChange(of: projectDocument.fileURL) { oldURL, newURL in
+            if oldURL == nil && newURL != nil && pendingOptimizationAfterSave {
+                pendingOptimizationAfterSave = false
+                // Small delay to ensure UI is ready
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    showOptimizationSheet = true
+                }
             }
         }
         .onAppear {

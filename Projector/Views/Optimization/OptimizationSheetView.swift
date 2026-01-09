@@ -16,6 +16,8 @@ struct OptimizationSheetView: View {
     @ObservedObject var projectDocument: ProjectDocument
     @Environment(\.dismiss) private var dismiss
     let onSaveProject: () -> Void
+    /// Called when user saves from unsaved project view - signals to re-open optimization after save
+    var onRequestOptimizationAfterSave: (() -> Void)?
 
     var body: some View {
         Group {
@@ -410,6 +412,8 @@ struct OptimizationSheetView: View {
                     .controlSize(.regular)
 
                 Button("Save Project...") {
+                    // Request optimization to re-open after save completes
+                    onRequestOptimizationAfterSave?()
                     dismiss()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         onSaveProject()
