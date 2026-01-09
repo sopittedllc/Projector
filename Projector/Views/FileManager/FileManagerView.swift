@@ -27,6 +27,9 @@ struct FileManagerView: View {
     @State private var duplicateImportNames: [String] = []
     @State private var showOptimizationSheet = false
 
+    /// ViewModel for optimization - stored in @State to persist across re-renders
+    @State private var optimizationViewModel: OptimizationViewModel?
+
     // Focus state for keyboard commands
     @FocusState private var isMediaListFocused: Bool
 
@@ -84,16 +87,35 @@ struct FileManagerView: View {
         } message: {
             Text(duplicateImportMessage)
         }
-        .sheet(isPresented: $showOptimizationSheet) {
-            OptimizationSheetView(
-                viewModel: OptimizationViewModel(
+        .sheet(isPresented: $showOptimizationSheet, onDismiss: {
+            // Reset the ViewModel when sheet is dismissed so a fresh one is created next time
+            optimizationViewModel = nil
+        }) {
+            // Use the stored ViewModel to prevent recreation during re-renders
+            if let viewModel = optimizationViewModel {
+                OptimizationSheetView(
+                    viewModel: viewModel,
+                    projectDocument: projectDocument,
+                    onSaveProject: onSaveProject
+                )
+            } else {
+                // This shouldn't happen since we create the ViewModel before showing
+                ProgressView("Loading...")
+                    .onAppear {
+                        NSLog(">>> FileManagerView: ERROR - sheet shown without ViewModel")
+                    }
+            }
+        }
+        .onChange(of: showOptimizationSheet) { _, isShowing in
+            if isShowing && optimizationViewModel == nil {
+                // Create ViewModel when sheet is about to show
+                optimizationViewModel = OptimizationViewModel(
                     service: MediaOptimizationService(),
                     mediaLibrary: mediaLibrary,
                     projectDocument: projectDocument
-                ),
-                projectDocument: projectDocument,
-                onSaveProject: onSaveProject
-            )
+                )
+                NSLog(">>> FileManagerView: created new OptimizationViewModel")
+            }
         }
         // Take focus when an item is selected
         .onChange(of: selectedItemIds) { _, newValue in
