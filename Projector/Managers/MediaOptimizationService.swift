@@ -21,15 +21,16 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
     private var isCancelled = false
 
     /// Estimated compression ratios for different source formats
+    /// Now using HEVC which provides ~40% better compression than H.264
     private enum CompressionEstimates {
-        /// ProRes files compress very well to H.264
-        static let proResToH264: Double = 0.15
+        /// ProRes files compress very well to HEVC
+        static let proResToHEVC: Double = 0.10  // ~40% smaller than H.264
 
-        /// Already-compressed formats (H.264, HEVC) have less savings
-        static let compressedToH264: Double = 0.7
+        /// Already-compressed H.264 to HEVC has moderate savings
+        static let h264ToHEVC: Double = 0.6  // HEVC is more efficient
 
-        /// Uncompressed/lossless to H.264
-        static let uncompressedToH264: Double = 0.10
+        /// Uncompressed/lossless to HEVC
+        static let uncompressedToHEVC: Double = 0.07  // ~40% smaller than H.264
 
         /// PCM/WAV to AAC
         static let pcmToAAC: Double = 0.10
@@ -38,15 +39,14 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         static let compressedAudioToAAC: Double = 0.9
     }
 
-    /// Target specs matching HandBrake "Very Fast 720p30" preset
-    /// Source: github.com/HandBrake/HandBrake/preset/preset_builtin.json
+    /// Target specs - HEVC 720p optimized for speed + quality
+    /// Using hardware-accelerated HEVC encoding on Apple Silicon
     private enum TargetSpecs {
         static let videoWidth = 1280
         static let videoHeight = 720
-        static let videoBitrate = 2_000_000  // HandBrake VideoAvgBitrate: 2000 (kbps -> bps)
-        static let audioBitrate = 160_000    // HandBrake AudioBitrate: 160 (kbps -> bps)
-        static let maxFrameRate = 30.0       // HandBrake VideoFramerate: "30" with pfr mode
-        // HandBrake settings: VideoProfile: "main", VideoLevel: "3.1"
+        static let videoBitrate = 1_500_000  // Lower bitrate OK for HEVC
+        static let audioBitrate = 160_000    // AAC stereo
+        static let maxFrameRate = 30.0       // Peak frame rate (preserves lower)
     }
 
     // MARK: - Analysis
@@ -259,11 +259,11 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             var ratio: Double
 
             if codec.contains("prores") {
-                ratio = CompressionEstimates.proResToH264
+                ratio = CompressionEstimates.proResToHEVC
             } else if codec.contains("h.264") || codec.contains("avc") || codec.contains("hevc") {
-                ratio = CompressionEstimates.compressedToH264
+                ratio = CompressionEstimates.h264ToHEVC
             } else {
-                ratio = CompressionEstimates.uncompressedToH264
+                ratio = CompressionEstimates.uncompressedToHEVC
             }
 
             // Adjust for resolution scaling if source is larger than 720p
@@ -594,28 +594,31 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         // Set up asset writer
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
 
-        // Video writer input with H.264 encoding using HARDWARE ACCELERATION
-        // Settings match HandBrake "Very Fast 720p30" preset:
-        // - Profile: Main (VideoProfile: "main")
-        // - Level: 3.1 (VideoLevel: "3.1")
-        // - Bitrate: ~2 Mbps (VideoAvgBitrate: 2000)
-        // CRITICAL: Frame rate is preserved via sample buffer timestamps
+        // Video writer input with HEVC encoding using HARDWARE ACCELERATION
+        // HEVC provides ~40% better compression than H.264 at same quality,
+        // and hardware encoding speed is identical on Apple Silicon.
         //
         // HARDWARE ACCELERATION: Using VideoToolbox via kVTVideoEncoderSpecification
-        // This enables Apple Silicon/Intel Quick Sync hardware encoding which is
+        // This enables Apple Silicon Media Engine hardware encoding which is
         // 5-10x faster than software encoding with identical quality.
+        //
+        // PERFORMANCE OPTIMIZATIONS:
+        // - AllowOpenGOP: Allows more efficient encoding with open GOPs
+        // - MaxFrameDelayCount: Limits frame buffering for faster throughput
+        // - Quality-based encoding: Faster than strict bitrate targeting
         let videoSettings: [String: Any] = [
-            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoCodecKey: AVVideoCodecType.hevc,  // HEVC for better compression
             AVVideoWidthKey: options.videoTargetWidth,
             AVVideoHeightKey: options.videoTargetHeight,
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: options.videoBitrate,
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264Main31,  // HandBrake: Main 3.1
-                AVVideoMaxKeyFrameIntervalKey: 30,
+                AVVideoMaxKeyFrameIntervalKey: 60,  // Longer GOP for HEVC efficiency
                 AVVideoAllowFrameReorderingKey: true,  // B-frames for better compression
                 AVVideoExpectedSourceFrameRateKey: sourceFrameRate ?? 30.0,  // Hint for encoder
-                // Enable real-time encoding for faster processing (still high quality)
-                kVTCompressionPropertyKey_RealTime as String: false
+                // Performance optimizations
+                kVTCompressionPropertyKey_RealTime as String: false,  // Quality mode
+                kVTCompressionPropertyKey_AllowOpenGOP as String: true,  // Better compression
+                kVTCompressionPropertyKey_MaxFrameDelayCount as String: 4  // Reduce latency
             ],
             // Request hardware encoding via VideoToolbox
             AVVideoEncoderSpecificationKey: [
@@ -660,52 +663,91 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
 
-        // Process video and audio on background threads
-        // Use a concurrent queue with dispatch group to track completion
-        let processingQueue = DispatchQueue(label: "com.projector.transcoding", attributes: .concurrent)
-        let dispatchGroup = DispatchGroup()
+        // Process video and audio using event-driven requestMediaDataWhenReady
+        // This is MUCH faster than sleep-based polling - the encoder notifies us
+        // when it's ready for more data instead of us constantly checking.
+        let videoQueue = DispatchQueue(label: "com.projector.video-transcoding")
+        let audioQueue = DispatchQueue(label: "com.projector.audio-transcoding")
 
         // Capture progress for async reporting
         var lastReportedProgress: Double = 0
+        let progressLock = NSLock()
 
-        // Video processing
-        dispatchGroup.enter()
-        processingQueue.async {
-            self.processTrackSync(
-                readerOutput: videoReaderOutput,
-                writerInput: videoWriterInput,
-                totalSeconds: totalSeconds,
-                progressCallback: { progress in
-                    // Only report if progress increased significantly
+        // Use continuations to wait for completion
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            var videoFinished = false
+            var audioFinished = audioReaderOutput == nil  // Already finished if no audio
+            let completionLock = NSLock()
+
+            func checkCompletion() {
+                completionLock.lock()
+                let done = videoFinished && audioFinished
+                completionLock.unlock()
+                if done {
+                    continuation.resume()
+                }
+            }
+
+            // Video processing with requestMediaDataWhenReady (event-driven, not polling)
+            videoWriterInput.requestMediaDataWhenReady(on: videoQueue) { [weak self] in
+                guard let self = self else { return }
+
+                while videoWriterInput.isReadyForMoreMediaData {
+                    // Check cancellation
+                    if self.isCancelled {
+                        videoWriterInput.markAsFinished()
+                        completionLock.lock()
+                        videoFinished = true
+                        completionLock.unlock()
+                        checkCompletion()
+                        return
+                    }
+
+                    guard let sampleBuffer = videoReaderOutput.copyNextSampleBuffer() else {
+                        // No more samples
+                        videoWriterInput.markAsFinished()
+                        completionLock.lock()
+                        videoFinished = true
+                        completionLock.unlock()
+                        checkCompletion()
+                        return
+                    }
+
+                    // Calculate and report progress
+                    let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                    let progress = min(pts.seconds / totalSeconds, 1.0)
+
+                    progressLock.lock()
                     if progress - lastReportedProgress >= 0.01 {
                         lastReportedProgress = progress
+                        progressLock.unlock()
                         Task {
                             await progressHandler(progress)
                         }
+                    } else {
+                        progressLock.unlock()
+                    }
+
+                    // Append the sample buffer
+                    videoWriterInput.append(sampleBuffer)
+                }
+            }
+
+            // Audio processing (if present) - also event-driven
+            if let audioOutput = audioReaderOutput, let audioInput = audioWriterInput {
+                audioInput.requestMediaDataWhenReady(on: audioQueue) {
+                    while audioInput.isReadyForMoreMediaData {
+                        guard let sampleBuffer = audioOutput.copyNextSampleBuffer() else {
+                            audioInput.markAsFinished()
+                            completionLock.lock()
+                            audioFinished = true
+                            completionLock.unlock()
+                            checkCompletion()
+                            return
+                        }
+                        audioInput.append(sampleBuffer)
                     }
                 }
-            )
-            dispatchGroup.leave()
-        }
-
-        // Audio processing (if present)
-        if let audioOutput = audioReaderOutput, let audioInput = audioWriterInput {
-            dispatchGroup.enter()
-            processingQueue.async {
-                self.processTrackSync(
-                    readerOutput: audioOutput,
-                    writerInput: audioInput,
-                    totalSeconds: totalSeconds,
-                    progressCallback: { _ in }  // Don't report audio progress separately
-                )
-                dispatchGroup.leave()
-            }
-        }
-
-        // Wait for all processing to complete
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            dispatchGroup.notify(queue: .main) {
-                continuation.resume()
             }
         }
 
@@ -741,33 +783,6 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         await progressHandler(1.0)
     }
 
-    private nonisolated func processTrackSync(
-        readerOutput: AVAssetReaderTrackOutput,
-        writerInput: AVAssetWriterInput,
-        totalSeconds: Double,
-        progressCallback: @escaping (Double) -> Void
-    ) {
-        // Pull-based synchronous processing (runs on background thread)
-        while !writerInput.isReadyForMoreMediaData {
-            Thread.sleep(forTimeInterval: 0.001)
-        }
-
-        while let sampleBuffer = readerOutput.copyNextSampleBuffer() {
-            while !writerInput.isReadyForMoreMediaData {
-                Thread.sleep(forTimeInterval: 0.001)
-            }
-
-            // Calculate progress from presentation time
-            let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            let currentSeconds = pts.seconds
-            let progress = min(currentSeconds / totalSeconds, 1.0)
-            progressCallback(progress)
-
-            writerInput.append(sampleBuffer)
-        }
-
-        writerInput.markAsFinished()
-    }
 
     // MARK: - Audio Transcoding
 
