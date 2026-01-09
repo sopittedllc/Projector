@@ -50,6 +50,10 @@ struct AudioClip: Identifiable, Codable, Equatable {
     /// Sample rate of the source audio
     var sampleRate: Double
 
+    /// Pre-extracted audio file URL (for videoTrack sources extracted during import)
+    /// This avoids security-scoped resource issues in async contexts
+    var extractedAudioURL: URL?
+
     /// End frame on timeline (exclusive)
     var timelineEndFrame: Int {
         timelineStartFrame + durationFrames
@@ -80,7 +84,8 @@ struct AudioClip: Identifiable, Codable, Equatable {
         isMuted: Bool = false,
         name: String? = nil,
         channelCount: Int = 2,
-        sampleRate: Double = 48000
+        sampleRate: Double = 48000,
+        extractedAudioURL: URL? = nil
     ) {
         self.id = id
         self.sourceURL = sourceURL
@@ -95,6 +100,7 @@ struct AudioClip: Identifiable, Codable, Equatable {
         self.name = name
         self.channelCount = channelCount
         self.sampleRate = sampleRate
+        self.extractedAudioURL = extractedAudioURL
     }
 
     /// Check if this clip is active at a given timeline frame
@@ -134,6 +140,7 @@ extension AudioClip {
         case name
         case channelCount
         case sampleRate
+        case extractedAudioPath
     }
 
     init(from decoder: Decoder) throws {
@@ -153,6 +160,14 @@ extension AudioClip {
         name = try container.decodeIfPresent(String.self, forKey: .name)
         channelCount = try container.decodeIfPresent(Int.self, forKey: .channelCount) ?? 2
         sampleRate = try container.decodeIfPresent(Double.self, forKey: .sampleRate) ?? 48000
+
+        // Only restore extractedAudioURL if file still exists (temp files may be cleaned)
+        if let extractedPath = try container.decodeIfPresent(String.self, forKey: .extractedAudioPath),
+           FileManager.default.fileExists(atPath: extractedPath) {
+            extractedAudioURL = URL(fileURLWithPath: extractedPath)
+        } else {
+            extractedAudioURL = nil
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -171,5 +186,6 @@ extension AudioClip {
         try container.encodeIfPresent(name, forKey: .name)
         try container.encode(channelCount, forKey: .channelCount)
         try container.encode(sampleRate, forKey: .sampleRate)
+        try container.encodeIfPresent(extractedAudioURL?.path, forKey: .extractedAudioPath)
     }
 }

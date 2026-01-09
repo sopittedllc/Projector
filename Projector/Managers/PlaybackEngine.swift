@@ -534,8 +534,16 @@ final class PlaybackEngine: ObservableObject {
             do {
                 let sourceURL: URL
                 if clipSnapshot.sourceType == .videoTrack {
-                    NSLog(">>> loadAudioClip: extracting audio from video track")
-                    sourceURL = try await self.getExtractedAudioURL(for: clipSnapshot)
+                    // Use pre-extracted audio if available (fast path)
+                    if let extractedURL = clipSnapshot.extractedAudioURL,
+                       FileManager.default.fileExists(atPath: extractedURL.path) {
+                        NSLog(">>> loadAudioClip: using pre-extracted audio at \(extractedURL.lastPathComponent)")
+                        sourceURL = extractedURL
+                    } else {
+                        // Fallback to extraction (slow path, may fail due to security context)
+                        NSLog(">>> loadAudioClip: extracting audio from video track (fallback)")
+                        sourceURL = try await self.getExtractedAudioURL(for: clipSnapshot)
+                    }
                 } else {
                     sourceURL = clipSnapshot.sourceURL
                 }

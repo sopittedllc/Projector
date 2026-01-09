@@ -457,7 +457,17 @@ final class TimelineManager: ObservableObject {
     }
 
     /// Extract audio from a video reel and add it to a lane
-    func extractAudioFromReel(_ reelId: UUID, trackIndex: Int, toLane laneId: UUID) async throws -> AudioClip? {
+    /// - Parameters:
+    ///   - reelId: The video reel to extract audio from
+    ///   - trackIndex: The audio track index to extract
+    ///   - laneId: The lane to add the audio clip to
+    ///   - preExtractedURL: Optional pre-extracted audio file URL (for immediate playback)
+    func extractAudioFromReel(
+        _ reelId: UUID,
+        trackIndex: Int,
+        toLane laneId: UUID,
+        preExtractedURL: URL? = nil
+    ) async throws -> AudioClip? {
         guard let reel = timeline.videoReels.first(where: { $0.id == reelId }),
               timeline.audioLanes.contains(where: { $0.id == laneId }) else {
             return nil
@@ -495,7 +505,8 @@ final class TimelineManager: ObservableObject {
             sourceType: .videoTrack,
             sourceTrackIndex: trackIndex,
             channelCount: channelCount,
-            sampleRate: sampleRate
+            sampleRate: sampleRate,
+            extractedAudioURL: preExtractedURL
         )
 
         timeline.addClip(clip, toLane: laneId)

@@ -1463,21 +1463,113 @@ struct ContentView: View {
     }
 
     /// Extract audio track from video reel and add to audio lane
+    /// Pre-extracts audio to temp file while we have security-scoped access
     private func extractAudioFromVideo(reel: VideoReel) async {
-        // Check if video has audio tracks
-        let asset = AVAsset(url: reel.sourceURL)
+        // Resolve bookmark access for the source file
+        var accessURL = reel.sourceURL
+        var didStartAccess = false
+
+        if let bookmarkData = reel.sourceBookmark {
+            var isStale = false
+            if let resolvedURL = try? URL(
+                resolvingBookmarkData: bookmarkData,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ) {
+                accessURL = resolvedURL
+                didStartAccess = accessURL.startAccessingSecurityScopedResource()
+                NSLog(">>> extractAudioFromVideo: resolved bookmark, startAccess=\(didStartAccess)")
+            }
+        }
+
+        defer {
+            if didStartAccess {
+                accessURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let asset = AVAsset(url: accessURL)
         do {
             let audioTracks = try await asset.loadTracks(withMediaType: .audio)
             guard !audioTracks.isEmpty else { return }
 
+            // Pre-extract audio while we have live security access
+            let extractedURL = try await extractAudioTrackToTemp(from: asset, trackIndex: 0, sourceURL: accessURL)
+            NSLog(">>> extractAudioFromVideo: pre-extracted audio to \(extractedURL.lastPathComponent)")
+
             let laneNumber = timelineManager.timeline.audioLanes.count + 1
             let lane = timelineManager.addAudioLaneAtTop(name: "Audio \(laneNumber)")
 
-            // Extract the first audio track
-            _ = try await timelineManager.extractAudioFromReel(reel.id, trackIndex: 0, toLane: lane.id)
+            // Pass pre-extracted URL to avoid security context issues later
+            _ = try await timelineManager.extractAudioFromReel(
+                reel.id,
+                trackIndex: 0,
+                toLane: lane.id,
+                preExtractedURL: extractedURL
+            )
         } catch {
             NSLog(">>> Failed to extract audio from video: \(error)")
         }
+    }
+
+    /// Extract an audio track from an asset to a temporary M4A file
+    /// Must be called while security-scoped access is active
+    private func extractAudioTrackToTemp(from asset: AVAsset, trackIndex: Int, sourceURL: URL) async throws -> URL {
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        guard trackIndex < audioTracks.count else {
+            throw NSError(domain: "ContentView", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid audio track index"])
+        }
+
+        let composition = AVMutableComposition()
+        guard let compositionTrack = composition.addMutableTrack(
+            withMediaType: .audio,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ) else {
+            throw NSError(domain: "ContentView", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to create composition track"])
+        }
+
+        let track = audioTracks[trackIndex]
+        let duration = try await asset.load(.duration)
+        try compositionTrack.insertTimeRange(
+            CMTimeRange(start: .zero, duration: duration),
+            of: track,
+            at: .zero
+        )
+
+        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
+            throw NSError(domain: "ContentView", code: -3, userInfo: [NSLocalizedDescriptionKey: "Failed to create export session"])
+        }
+
+        // Deterministic filename based on source URL and track
+        let keyHash = "\(sourceURL.absoluteString)-track\(trackIndex)".hashValue
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("projector-audio-\(abs(keyHash)).m4a")
+
+        if FileManager.default.fileExists(atPath: tempURL.path) {
+            try FileManager.default.removeItem(at: tempURL)
+        }
+
+        if #available(macOS 15.0, *) {
+            try await export.export(to: tempURL, as: .m4a)
+        } else {
+            export.outputURL = tempURL
+            export.outputFileType = .m4a
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                export.exportAsynchronously {
+                    switch export.status {
+                    case .completed:
+                        continuation.resume(returning: ())
+                    case .failed:
+                        continuation.resume(throwing: export.error ?? NSError(domain: "ContentView", code: -4, userInfo: nil))
+                    default:
+                        continuation.resume(throwing: NSError(domain: "ContentView", code: -5, userInfo: nil))
+                    }
+                }
+            }
+        }
+
+        return tempURL
     }
 
     /// Add an audio file to the timeline
