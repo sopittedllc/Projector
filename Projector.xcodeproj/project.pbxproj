@@ -75,6 +75,7 @@
 		F587047D294B4B08BD7B94B1 /* OptimizationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE90E852077C43F9AE6F40DF /* OptimizationViewModel.swift */; };
 		8FA4E4EA4DA645D395B3ACD7 /* OptimizeMediaButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020DEC73914C4FCDB4106B0D /* OptimizeMediaButton.swift */; };
 		CBA9B198D87A4901A984348F /* OptimizationSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF52682FA9954FFD8CCAD64E /* OptimizationSheetView.swift */; };
+		SAVE0001PROJECTSHEET01 /* SaveProjectSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = SAVE0002PROJECTSHEET02 /* SaveProjectSheet.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -187,6 +188,7 @@
 		DE90E852077C43F9AE6F40DF /* OptimizationViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizationViewModel.swift; sourceTree = "<group>"; };
 		020DEC73914C4FCDB4106B0D /* OptimizeMediaButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizeMediaButton.swift; sourceTree = "<group>"; };
 		CF52682FA9954FFD8CCAD64E /* OptimizationSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizationSheetView.swift; sourceTree = "<group>"; };
+		SAVE0002PROJECTSHEET02 /* SaveProjectSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveProjectSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -336,6 +338,7 @@
 				648C405AE05C49199696C8C5 /* TimelineAccordionView.swift */,
 				A04AA25E97254C758E8138F0 /* WindowTitleConfigurator.swift */,
 				56A60EE069664A32A9209AF1 /* AccordionResizeHandle.swift */,
+				SAVE0002PROJECTSHEET02 /* SaveProjectSheet.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -698,6 +701,7 @@
 				74EABBA338E34AE2882468C6 /* TimelineAccordionView.swift in Sources */,
 				0F78E7CD06BB4CCBA9AA1A36 /* WindowTitleConfigurator.swift in Sources */,
 				33E7262DBE394E3DA53FDE54 /* AccordionResizeHandle.swift in Sources */,
+				SAVE0001PROJECTSHEET01 /* SaveProjectSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

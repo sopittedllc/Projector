@@ -89,9 +89,10 @@ final class OptimizationViewModel: ObservableObject {
         projectURL != nil
     }
 
-    /// The Originals folder URL inside the project package
+    /// The Originals folder URL (sibling of the .projector file)
+    /// Structure: ProjectFolder/Originals/ (not inside .projector package)
     var originalsFolderURL: URL? {
-        projectURL?.appendingPathComponent("Originals")
+        projectURL?.deletingLastPathComponent().appendingPathComponent("Originals")
     }
 
     // MARK: - Computed Properties

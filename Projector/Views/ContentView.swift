@@ -32,6 +32,85 @@ private struct LaneOutputState: Equatable {
     let count: Int
 }
 
+// MARK: - View Modifiers for Breaking Up Body Complexity
+
+/// View modifier for applying all sheets
+private struct SheetsModifier: ViewModifier {
+    @Binding var showSettings: Bool
+    @Binding var showVideoInsertSheet: Bool
+    @Binding var showSaveProjectSheet: Bool
+    let settingsView: AnyView
+    let videoInsertSheet: AnyView
+    let saveProjectSheet: AnyView
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $showSettings) { settingsView }
+            .sheet(isPresented: $showVideoInsertSheet) { videoInsertSheet }
+            .sheet(isPresented: $showSaveProjectSheet) { saveProjectSheet }
+    }
+}
+
+/// View modifier for applying all alerts
+private struct AlertsModifier: ViewModifier {
+    @Binding var showErrorAlert: Bool
+    @Binding var showVideoAlreadyInTimelineAlert: Bool
+    @Binding var showAudioAlreadyInTimelineAlert: Bool
+    @Binding var showDuplicateMediaAlert: Bool
+    @Binding var showMissingFilesAlert: Bool
+    @Binding var showFPSConflictAlert: Bool
+
+    let loadError: String?
+    let videoAlreadyInTimelineName: String
+    let audioAlreadyInTimelineName: String
+    let duplicateMediaAlertMessage: String
+    let missingFileMessage: String
+    let fpsConflictMessage: String
+
+    let onLocateMissingFile: () -> Void
+    let onSkipMissingFile: () -> Void
+    let onSkipAllMissingFiles: () -> Void
+    let onChangeProjectFPS: () -> Void
+    let onCancelFPSConflict: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Error Loading Video", isPresented: $showErrorAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(loadError ?? "Unknown error")
+            }
+            .alert("Already in Timeline", isPresented: $showVideoAlreadyInTimelineAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("\"\(videoAlreadyInTimelineName)\" is already on the timeline.")
+            }
+            .alert("Already in Timeline", isPresented: $showAudioAlreadyInTimelineAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("\"\(audioAlreadyInTimelineName)\" is already on the timeline.")
+            }
+            .alert("Already in Project", isPresented: $showDuplicateMediaAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(duplicateMediaAlertMessage)
+            }
+            .alert("Missing File", isPresented: $showMissingFilesAlert) {
+                Button("Locate...") { onLocateMissingFile() }
+                Button("Skip", role: .destructive) { onSkipMissingFile() }
+                Button("Skip All", role: .destructive) { onSkipAllMissingFiles() }
+            } message: {
+                Text(missingFileMessage)
+            }
+            .alert("Frame Rate Mismatch", isPresented: $showFPSConflictAlert) {
+                Button("Change Project FPS", role: .destructive) { onChangeProjectFPS() }
+                Button("Cancel", role: .cancel) { onCancelFPSConflict() }
+            } message: {
+                Text(fpsConflictMessage)
+            }
+    }
+}
+
 /// Main application content view
 struct ContentView: View {
     // MARK: - Managers
@@ -112,97 +191,49 @@ struct ContentView: View {
     @State private var showVideoAlreadyInTimelineAlert = false
     @State private var videoAlreadyInTimelineName: String = ""
     @State private var showAudioAlreadyInTimelineAlert = false
+    @State private var showSaveProjectSheet = false
     @State private var audioAlreadyInTimelineName: String = ""
     @State private var showDuplicateMediaAlert = false
     @State private var duplicateMediaNames: [String] = []
 
     var body: some View {
-        Group {
-            if isFullScreen {
-                fullScreenView
-            } else {
-                normalView
-            }
-        }
-        .overlay(alignment: .topLeading) {
-            if isUITesting {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(uiTestImportState ?? "boot")
-                        .accessibilityIdentifier("ui-test-status")
-                        .accessibilityLabel(uiTestImportState ?? "boot")
-                        .accessibilityValue(uiTestImportState ?? "boot")
-
-                    Text(String(uiTestClipCount))
-                        .accessibilityIdentifier("ui-test-clip-count")
-                        .accessibilityLabel(String(uiTestClipCount))
-                        .accessibilityValue(String(uiTestClipCount))
+        mainContent
+            .modifier(SheetsModifier(
+                showSettings: $showSettings,
+                showVideoInsertSheet: $showVideoInsertSheet,
+                showSaveProjectSheet: $showSaveProjectSheet,
+                settingsView: AnyView(SettingsView(
+                    midiSync: midiSyncViewModel,
+                    audioManager: audioManager,
+                    isPresented: $showSettings
+                )),
+                videoInsertSheet: AnyView(videoInsertSheet),
+                saveProjectSheet: AnyView(SaveProjectSheet(onSave: handleProjectSave))
+            ))
+            .modifier(AlertsModifier(
+                showErrorAlert: $showErrorAlert,
+                showVideoAlreadyInTimelineAlert: $showVideoAlreadyInTimelineAlert,
+                showAudioAlreadyInTimelineAlert: $showAudioAlreadyInTimelineAlert,
+                showDuplicateMediaAlert: $showDuplicateMediaAlert,
+                showMissingFilesAlert: $showMissingFilesAlert,
+                showFPSConflictAlert: $showFPSConflictAlert,
+                loadError: loadError,
+                videoAlreadyInTimelineName: videoAlreadyInTimelineName,
+                audioAlreadyInTimelineName: audioAlreadyInTimelineName,
+                duplicateMediaAlertMessage: duplicateMediaAlertMessage,
+                missingFileMessage: missingFileMessage,
+                fpsConflictMessage: fpsConflictMessage,
+                onLocateMissingFile: locateMissingFile,
+                onSkipMissingFile: skipMissingFile,
+                onSkipAllMissingFiles: skipAllMissingFiles,
+                onChangeProjectFPS: handleFPSConflictChangeProject,
+                onCancelFPSConflict: {
+                    pendingVideoURL = nil
+                    pendingVideoFPS = nil
+                    pendingVideoInsertFrame = nil
                 }
-                .font(.system(size: 1))
-                .opacity(0.01)
-                .allowsHitTesting(false)
-            }
-        }
-        .sheet(isPresented: $showSettings) {
-            SettingsView(
-                midiSync: midiSyncViewModel,
-                audioManager: audioManager,
-                isPresented: $showSettings
-            )
-        }
-        .sheet(isPresented: $showVideoInsertSheet) {
-            videoInsertSheet
-        }
-        .alert("Error Loading Video", isPresented: $showErrorAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(loadError ?? "Unknown error")
-        }
-        .alert("Already in Timeline", isPresented: $showVideoAlreadyInTimelineAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("\"\(videoAlreadyInTimelineName)\" is already on the timeline.")
-        }
-        .alert("Already in Timeline", isPresented: $showAudioAlreadyInTimelineAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("\"\(audioAlreadyInTimelineName)\" is already on the timeline.")
-        }
-        .alert("Already in Project", isPresented: $showDuplicateMediaAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(duplicateMediaAlertMessage)
-        }
-        .alert("Missing File", isPresented: $showMissingFilesAlert) {
-            Button("Locate...") {
-                locateMissingFile()
-            }
-            Button("Skip", role: .destructive) {
-                skipMissingFile()
-            }
-            Button("Skip All", role: .destructive) {
-                skipAllMissingFiles()
-            }
-        } message: {
-            if currentMissingFileIndex < missingFiles.count {
-                let file = missingFiles[currentMissingFileIndex]
-                Text("Cannot find file:\n\(file.originalPath)\n\nWould you like to locate it?")
-            }
-        }
-        .alert("Frame Rate Mismatch", isPresented: $showFPSConflictAlert) {
-            Button("Change Project FPS", role: .destructive) {
-                handleFPSConflictChangeProject()
-            }
-            Button("Cancel", role: .cancel) {
-                pendingVideoURL = nil
-                pendingVideoFPS = nil
-                pendingVideoInsertFrame = nil
-            }
-        } message: {
-            if let fps = pendingVideoFPS {
-                Text("This video is \(fps.displayName) but the project is \(timelineManager.timeline.config.frameRate.displayName).\n\nChanging the project FPS will remove all existing video reels.")
-            }
-        }
-        .frame(minWidth: 640, minHeight: 400)
+            ))
+            .frame(minWidth: 640, minHeight: 400)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(
             ZStack {
@@ -272,6 +303,36 @@ struct ContentView: View {
                 return .handled
             }
             return .ignored
+        }
+    }
+
+    // MARK: - Main Content (extracted for type-checker performance)
+
+    private var mainContent: some View {
+        Group {
+            if isFullScreen {
+                fullScreenView
+            } else {
+                normalView
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if isUITesting {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(uiTestImportState ?? "boot")
+                        .accessibilityIdentifier("ui-test-status")
+                        .accessibilityLabel(uiTestImportState ?? "boot")
+                        .accessibilityValue(uiTestImportState ?? "boot")
+
+                    Text(String(uiTestClipCount))
+                        .accessibilityIdentifier("ui-test-clip-count")
+                        .accessibilityLabel(String(uiTestClipCount))
+                        .accessibilityValue(String(uiTestClipCount))
+                }
+                .font(.system(size: 1))
+                .opacity(0.01)
+                .allowsHitTesting(false)
+            }
         }
     }
 
@@ -577,6 +638,17 @@ struct ContentView: View {
         return "\(duplicateMediaNames.count) files are already in the project."
     }
 
+    private var missingFileMessage: String {
+        guard currentMissingFileIndex < missingFiles.count else { return "" }
+        let file = missingFiles[currentMissingFileIndex]
+        return "Cannot find file:\n\(file.originalPath)\n\nWould you like to locate it?"
+    }
+
+    private var fpsConflictMessage: String {
+        guard let fps = pendingVideoFPS else { return "" }
+        return "This video is \(fps.displayName) but the project is \(timelineManager.timeline.config.frameRate.displayName).\n\nChanging the project FPS will remove all existing video reels."
+    }
+
     private var playbackMaxHeight: CGFloat {
         let reservedHeight = vitalControlsHeight + lowerPanelsMinHeight
         if normalViewHeight > 0 {
@@ -626,18 +698,16 @@ struct ContentView: View {
     }
 
     private func saveProjectAs() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.projectorProject]
-        panel.nameFieldStringValue = "Untitled.projector"
-        panel.title = "Save Project"
+        showSaveProjectSheet = true
+    }
 
-        if panel.runModal() == .OK, let url = panel.url {
-            do {
-                try projectDocument.save(to: url)
-            } catch {
-                loadError = error.localizedDescription
-                showErrorAlert = true
-            }
+    /// Handle the save callback from SaveProjectSheet
+    private func handleProjectSave(to url: URL) {
+        do {
+            try projectDocument.save(to: url)
+        } catch {
+            loadError = error.localizedDescription
+            showErrorAlert = true
         }
     }
 
