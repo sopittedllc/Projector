@@ -1403,18 +1403,25 @@ struct ContentView: View {
                 NSLog(">>> addVideoToTimeline: Reel loaded in playback engine [T+\(elapsed())]")
             }
 
+            // Check for audio tracks and create lane IMMEDIATELY (before marking loading complete)
+            // This ensures the lane appears in UI right away, even though extraction takes time
+            let audioLane = await prepareAudioLaneIfNeeded(for: reel)
+            NSLog(">>> addVideoToTimeline: Audio lane prepared [T+\(elapsed())]")
+
             isLoadingMedia = false
             NSLog(">>> addVideoToTimeline: READY FOR PLAYBACK [T+\(elapsed())]")
 
-            // Generate thumbnail and extract audio in background (non-blocking)
-            // Use Task (not Task.detached) to inherit actor context
+            // Generate thumbnail in background (non-blocking)
             let thumbnailCacheRef = thumbnailCache
             Task(priority: .utility) {
                 thumbnailCacheRef.prewarm(for: reel)
             }
 
-            Task(priority: .utility) {
-                await self.extractAudioFromVideo(reel: reel)
+            // Extract audio in background if we have an audio lane
+            if let laneId = audioLane?.id {
+                Task(priority: .utility) {
+                    await self.extractAudioInBackground(reel: reel, toLaneId: laneId)
+                }
             }
         } catch {
             NSLog(">>> addVideoToTimeline: FAILED [T+\(elapsed())] - \(error)")
@@ -1479,43 +1486,51 @@ struct ContentView: View {
         return closest
     }
 
-    /// Extract audio track from video reel and add to audio lane
-    /// Pre-extracts audio to temp file while security-scoped access is active
-    private func extractAudioFromVideo(reel: VideoReel) async {
+    /// Check if video has audio tracks and create lane immediately
+    /// Returns the lane if audio tracks exist, nil otherwise
+    private func prepareAudioLaneIfNeeded(for reel: VideoReel) async -> AudioLane? {
+        let asset = AVAsset(url: reel.sourceURL)
+        do {
+            let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+            guard !audioTracks.isEmpty else {
+                NSLog(">>> prepareAudioLaneIfNeeded: No audio tracks found")
+                return nil
+            }
+
+            // Create the lane IMMEDIATELY so it appears in the UI right away
+            let laneNumber = timelineManager.timeline.audioLanes.count + 1
+            let lane = timelineManager.addAudioLaneAtTop(name: "Audio \(laneNumber)")
+            NSLog(">>> prepareAudioLaneIfNeeded: Lane '\(lane.name)' created with \(audioTracks.count) audio track(s)")
+            return lane
+        } catch {
+            NSLog(">>> prepareAudioLaneIfNeeded: Failed to check audio tracks - \(error)")
+            return nil
+        }
+    }
+
+    /// Extract audio from video reel in background (lane already exists)
+    private func extractAudioInBackground(reel: VideoReel, toLaneId: UUID) async {
         let t0 = CFAbsoluteTimeGetCurrent()
         func elapsed() -> String { String(format: "%.3fs", CFAbsoluteTimeGetCurrent() - t0) }
 
-        // Use source URL directly - security access is managed by TimelineManager.addVideoReel
-        // and stays active until the reel is removed from the timeline
-        let accessURL = reel.sourceURL
-        NSLog(">>> extractAudioFromVideo: ENTRY [T+\(elapsed())] - \(reel.displayName)")
+        NSLog(">>> extractAudioInBackground: ENTRY [T+\(elapsed())] - \(reel.displayName)")
 
-        let asset = AVAsset(url: accessURL)
+        let asset = AVAsset(url: reel.sourceURL)
         do {
-            let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-            NSLog(">>> extractAudioFromVideo: Audio tracks loaded [T+\(elapsed())]")
-            guard !audioTracks.isEmpty else {
-                NSLog(">>> extractAudioFromVideo: No audio tracks found [T+\(elapsed())]")
-                return
-            }
+            // Do the slow extraction
+            let extractedURL = try await extractAudioTrackToTemp(from: asset, trackIndex: 0, sourceURL: reel.sourceURL)
+            NSLog(">>> extractAudioInBackground: Export complete [T+\(elapsed())] -> \(extractedURL.lastPathComponent)")
 
-            // Pre-extract audio while we have live security access
-            let extractedURL = try await extractAudioTrackToTemp(from: asset, trackIndex: 0, sourceURL: accessURL)
-            NSLog(">>> extractAudioFromVideo: Export complete [T+\(elapsed())] -> \(extractedURL.lastPathComponent)")
-
-            let laneNumber = timelineManager.timeline.audioLanes.count + 1
-            let lane = timelineManager.addAudioLaneAtTop(name: "Audio \(laneNumber)")
-
-            // Pass pre-extracted URL to avoid security context issues later
+            // Create the clip with the extracted audio
             _ = try await timelineManager.extractAudioFromReel(
                 reel.id,
                 trackIndex: 0,
-                toLane: lane.id,
+                toLane: toLaneId,
                 preExtractedURL: extractedURL
             )
-            NSLog(">>> extractAudioFromVideo: COMPLETE [T+\(elapsed())]")
+            NSLog(">>> extractAudioInBackground: COMPLETE [T+\(elapsed())]")
         } catch {
-            NSLog(">>> extractAudioFromVideo: FAILED [T+\(elapsed())] - \(error)")
+            NSLog(">>> extractAudioInBackground: FAILED [T+\(elapsed())] - \(error)")
         }
     }
 
