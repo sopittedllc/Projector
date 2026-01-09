@@ -46,6 +46,9 @@ final class OptimizationViewModel: ObservableObject {
     /// Optimization result (available when state == .complete)
     @Published public private(set) var result: OptimizationResult?
 
+    /// Time when optimization started (for time remaining calculation)
+    private var optimizationStartTime: Date?
+
 
     /// IDs of items selected for optimization
     @Published public var selectedItemIds: Set<UUID> = []
@@ -201,6 +204,65 @@ final class OptimizationViewModel: ObservableObject {
         return "Optimizing: \(p.currentItemName) (\(p.currentItemIndex + 1) of \(p.totalItems))"
     }
 
+    /// Estimated time remaining in seconds (nil if not enough data)
+    var estimatedTimeRemaining: TimeInterval? {
+        guard let startTime = optimizationStartTime,
+              let p = progress,
+              p.overallProgress > 0.01 else {  // Need at least 1% progress for meaningful estimate
+            return nil
+        }
+
+        let elapsed = Date().timeIntervalSince(startTime)
+        let progressRate = p.overallProgress / elapsed  // Progress per second
+        let remainingProgress = 1.0 - p.overallProgress
+
+        guard progressRate > 0 else { return nil }
+        return remainingProgress / progressRate
+    }
+
+    /// Formatted time remaining (e.g., "About 2 min remaining" or "About 45 sec remaining")
+    var timeRemainingFormatted: String? {
+        guard let remaining = estimatedTimeRemaining else { return nil }
+
+        if remaining < 5 {
+            return "Almost done..."
+        } else if remaining < 60 {
+            let seconds = Int(remaining)
+            return "About \(seconds) sec remaining"
+        } else if remaining < 3600 {
+            let minutes = Int(remaining / 60)
+            let seconds = Int(remaining.truncatingRemainder(dividingBy: 60))
+            if seconds > 30 {
+                return "About \(minutes + 1) min remaining"
+            } else {
+                return "About \(minutes) min remaining"
+            }
+        } else {
+            let hours = Int(remaining / 3600)
+            let minutes = Int((remaining / 60).truncatingRemainder(dividingBy: 60))
+            return "About \(hours) hr \(minutes) min remaining"
+        }
+    }
+
+    /// Elapsed time since optimization started
+    var elapsedTimeFormatted: String? {
+        guard let startTime = optimizationStartTime else { return nil }
+        let elapsed = Date().timeIntervalSince(startTime)
+
+        if elapsed < 60 {
+            return "\(Int(elapsed)) sec"
+        } else if elapsed < 3600 {
+            let minutes = Int(elapsed / 60)
+            let seconds = Int(elapsed.truncatingRemainder(dividingBy: 60))
+            return "\(minutes):\(String(format: "%02d", seconds))"
+        } else {
+            let hours = Int(elapsed / 3600)
+            let minutes = Int((elapsed / 60).truncatingRemainder(dividingBy: 60))
+            let seconds = Int(elapsed.truncatingRemainder(dividingBy: 60))
+            return "\(hours):\(String(format: "%02d", minutes)):\(String(format: "%02d", seconds))"
+        }
+    }
+
     // MARK: - Actions
 
     /// Start analyzing the project's media files
@@ -267,6 +329,7 @@ final class OptimizationViewModel: ObservableObject {
         state = .optimizing
         progress = nil
         result = nil
+        optimizationStartTime = Date()
 
         let itemsToOptimize = selectedItemsToOptimize
         NSLog(">>> OptimizationViewModel.startOptimization: \(itemsToOptimize.count) items to optimize")
@@ -307,15 +370,19 @@ final class OptimizationViewModel: ObservableObject {
                 NSLog(">>> OptimizationViewModel.startOptimization: setting state to complete - optimized: \(result.optimizedCount), failed: \(result.failedCount)")
                 self.result = result
                 self.state = .complete
+                self.optimizationStartTime = nil
             } catch is CancellationError {
                 NSLog(">>> OptimizationViewModel.startOptimization: cancelled")
                 self.state = .idle
+                self.optimizationStartTime = nil
             } catch let error as MediaOptimizationError {
                 NSLog(">>> OptimizationViewModel.startOptimization: MediaOptimizationError - \(error.localizedDescription)")
                 self.state = .error(error.localizedDescription)
+                self.optimizationStartTime = nil
             } catch {
                 NSLog(">>> OptimizationViewModel.startOptimization: error - \(error.localizedDescription)")
                 self.state = .error("Optimization failed: \(error.localizedDescription)")
+                self.optimizationStartTime = nil
             }
         }
     }
@@ -326,6 +393,7 @@ final class OptimizationViewModel: ObservableObject {
         NSLog(">>> OptimizationViewModel.cancel: stack trace: \(Thread.callStackSymbols.prefix(10).joined(separator: "\n"))")
         optimizationTask?.cancel()
         optimizationTask = nil
+        optimizationStartTime = nil
         Task {
             await service.cancel()
         }
@@ -341,6 +409,7 @@ final class OptimizationViewModel: ObservableObject {
         analysisResult = .empty
         progress = nil
         result = nil
+        optimizationStartTime = nil
     }
 
     // MARK: - Private Helpers

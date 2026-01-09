@@ -282,9 +282,17 @@ struct OptimizationSheetView: View {
                     .foregroundColor(.secondary)
                 ProgressView(value: viewModel.overallProgress)
                     .progressViewStyle(.linear)
-                Text("\(Int(viewModel.overallProgress * 100))%")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                HStack {
+                    Text("\(Int(viewModel.overallProgress * 100))%")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    if let timeRemaining = viewModel.timeRemainingFormatted {
+                        Text(timeRemaining)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
             .padding(.horizontal, 40)
 
