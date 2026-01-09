@@ -146,17 +146,22 @@ final class TimelineManager: ObservableObject {
 
     /// Add a video reel from a file URL
     func addVideoReel(from url: URL, at timelineFrame: Int) async throws -> VideoReel {
+        NSLog(">>> addVideoReel: ENTRY - \(url.lastPathComponent)")
+
         // For drop URLs, we have implicit sandbox access that expires after the drop operation.
         // We must create a bookmark AND immediately resolve it to get a persistent security-scoped URL.
 
         // Create security-scoped bookmark from the drop URL (while we have implicit access)
+        NSLog(">>> addVideoReel: Creating bookmark...")
         let bookmark = try url.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
+        NSLog(">>> addVideoReel: Bookmark created, size=\(bookmark.count) bytes")
 
         // Immediately resolve the bookmark to get a security-scoped URL
+        NSLog(">>> addVideoReel: Resolving bookmark...")
         var isStale = false
         let resolvedURL = try URL(
             resolvingBookmarkData: bookmark,
@@ -164,14 +169,17 @@ final class TimelineManager: ObservableObject {
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         )
+        NSLog(">>> addVideoReel: Resolved URL=\(resolvedURL.lastPathComponent), stale=\(isStale)")
 
         // Start security-scoped access on the RESOLVED URL (not the drop URL)
         // This access persists until we explicitly stop it
-        guard resolvedURL.startAccessingSecurityScopedResource() else {
-            NSLog(">>> addVideoReel: FAILED to start security access for resolved URL")
+        let accessStarted = resolvedURL.startAccessingSecurityScopedResource()
+        NSLog(">>> addVideoReel: startAccessingSecurityScopedResource returned \(accessStarted)")
+        guard accessStarted else {
+            NSLog(">>> addVideoReel: FAILED to start security access")
             throw TimelineError.fileAccessDenied
         }
-        NSLog(">>> addVideoReel: Started persistent security access for \(url.lastPathComponent)")
+        NSLog(">>> addVideoReel: Security access ACTIVE for \(resolvedURL.lastPathComponent)")
 
         // Get video metadata using the resolved URL
         let asset = AVURLAsset(url: resolvedURL)
