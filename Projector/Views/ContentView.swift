@@ -1385,21 +1385,27 @@ struct ContentView: View {
             // Add the video reel
             let reel = try await timelineManager.addVideoReel(from: url, at: timelineFrame)
 
-            // Generate thumbnail
-            await generateThumbnail(for: reel)
-
-            // Auto-extract audio track from video and add to audio lane
-            await extractAudioFromVideo(reel: reel)
-
-            // Sync timeline to playback engine
+            // CRITICAL: Sync timeline and load reel IMMEDIATELY for instant playback
+            // Don't block on thumbnail generation or audio extraction
             syncTimelineToPlaybackEngine()
 
-            // If this is the first reel, load it
+            // If this is the first reel, load it right away
             if timelineManager.timeline.videoReels.count == 1 {
                 try await playbackEngine.loadReel(reel)
             }
 
             isLoadingMedia = false
+
+            // Generate thumbnail and extract audio in background (non-blocking)
+            // Use Task (not Task.detached) to inherit actor context
+            let thumbnailCacheRef = thumbnailCache
+            Task(priority: .utility) {
+                thumbnailCacheRef.prewarm(for: reel)
+            }
+
+            Task(priority: .utility) {
+                await self.extractAudioFromVideo(reel: reel)
+            }
         } catch {
             isLoadingMedia = false
             loadError = error.localizedDescription
