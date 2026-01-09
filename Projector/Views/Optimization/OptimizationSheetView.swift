@@ -123,8 +123,22 @@ struct OptimizationSheetView: View {
     private var fileListView: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                // Header row
+                // Header row with select all
                 HStack {
+                    // Select all checkbox
+                    Button(action: {
+                        if viewModel.allSelected {
+                            viewModel.deselectAll()
+                        } else {
+                            viewModel.selectAll()
+                        }
+                    }) {
+                        Image(systemName: viewModel.allSelected ? "checkmark.square.fill" : "square")
+                            .foregroundColor(viewModel.allSelected ? .accentColor : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: 20)
+
                     Text("File")
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Text("Current")
@@ -143,7 +157,11 @@ struct OptimizationSheetView: View {
 
                 // File rows
                 ForEach(viewModel.analysisResult.items) { item in
-                    FileAnalysisRow(item: item)
+                    FileAnalysisRow(
+                        item: item,
+                        isSelected: viewModel.isSelected(item.id),
+                        onToggle: { viewModel.toggleSelection(for: item.id) }
+                    )
                 }
             }
         }
@@ -152,24 +170,26 @@ struct OptimizationSheetView: View {
 
     private var summaryView: some View {
         HStack {
-            Text("Total:")
+            Text("Selected: \(viewModel.selectedCount) of \(viewModel.itemsNeedingOptimizationCount)")
                 .font(.headline)
 
             Spacer()
 
-            Text("\(viewModel.totalOriginalSizeFormatted)")
-                .foregroundColor(.secondary)
+            if viewModel.selectedCount > 0 {
+                Text(ByteCountFormatter.string(fromByteCount: Int64(viewModel.selectedTotalSize), countStyle: .file))
+                    .foregroundColor(.secondary)
 
-            Image(systemName: "arrow.right")
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 4)
+                Image(systemName: "arrow.right")
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 4)
 
-            Text("\(viewModel.totalOptimizedSizeFormatted)")
-                .foregroundColor(.green)
+                Text(ByteCountFormatter.string(fromByteCount: Int64(viewModel.selectedEstimatedSize), countStyle: .file))
+                    .foregroundColor(.green)
 
-            Text("(Save \(viewModel.savingsFormatted), \(viewModel.savingsPercentageFormatted))")
-                .foregroundColor(.green)
-                .fontWeight(.semibold)
+                Text("(Save \(viewModel.selectedSavingsFormatted))")
+                    .foregroundColor(.green)
+                    .fontWeight(.semibold)
+            }
         }
         .padding()
     }
@@ -336,9 +356,15 @@ struct OptimizationSheetView: View {
         HStack {
             // Left side info
             if viewModel.state == .ready {
-                Text("\(viewModel.itemsNeedingOptimizationCount) files need optimization")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if viewModel.selectedCount > 0 {
+                    Text("\(viewModel.selectedCount) of \(viewModel.itemsNeedingOptimizationCount) files selected")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Select files to optimize")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
             }
 
             Spacer()
@@ -353,7 +379,7 @@ struct OptimizationSheetView: View {
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
 
-                Button("Optimize") {
+                Button("Optimize \(viewModel.selectedCount) File\(viewModel.selectedCount == 1 ? "" : "s")") {
                     viewModel.startOptimization()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -376,12 +402,27 @@ struct OptimizationSheetView: View {
 
 // MARK: - Supporting Views
 
-/// Row showing file analysis result
+/// Row showing file analysis result with selection checkbox
 private struct FileAnalysisRow: View {
     let item: MediaAnalysisItem
+    let isSelected: Bool
+    let onToggle: () -> Void
 
     var body: some View {
         HStack {
+            // Checkbox (only for items needing optimization)
+            if item.needsOptimization {
+                Button(action: onToggle) {
+                    Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                        .foregroundColor(isSelected ? .accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+                .frame(width: 20)
+            } else {
+                // Placeholder for alignment
+                Color.clear.frame(width: 20)
+            }
+
             // File info
             HStack(spacing: 6) {
                 Image(systemName: item.isVideo ? "film" : "waveform")
@@ -426,7 +467,7 @@ private struct FileAnalysisRow: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 6)
-        .background(Color.primary.opacity(0.02))
+        .background(isSelected ? Color.accentColor.opacity(0.1) : Color.primary.opacity(0.02))
     }
 
     private func formatBytes(_ bytes: UInt64) -> String {

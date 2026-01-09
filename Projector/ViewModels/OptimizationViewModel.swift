@@ -49,6 +49,9 @@ final class OptimizationViewModel: ObservableObject {
     /// Whether to replace originals (user toggle)
     @Published public var replaceOriginals: Bool = false
 
+    /// IDs of items selected for optimization
+    @Published public var selectedItemIds: Set<UUID> = []
+
     // MARK: - Dependencies
 
     private let service: MediaOptimizationServiceProtocol
@@ -102,9 +105,46 @@ final class OptimizationViewModel: ObservableObject {
         analysisResult.itemsNeedingOptimization.count
     }
 
+    /// Items that are both selected and need optimization
+    var selectedItemsToOptimize: [MediaAnalysisItem] {
+        analysisResult.itemsNeedingOptimization.filter { selectedItemIds.contains($0.id) }
+    }
+
+    /// Number of selected items
+    var selectedCount: Int {
+        selectedItemsToOptimize.count
+    }
+
+    /// Whether all optimizable items are selected
+    var allSelected: Bool {
+        let optimizableIds = Set(analysisResult.itemsNeedingOptimization.map { $0.id })
+        return !optimizableIds.isEmpty && optimizableIds.isSubset(of: selectedItemIds)
+    }
+
+    /// Total size of selected items
+    var selectedTotalSize: UInt64 {
+        selectedItemsToOptimize.reduce(0) { $0 + $1.originalSize }
+    }
+
+    /// Estimated size after optimization for selected items
+    var selectedEstimatedSize: UInt64 {
+        selectedItemsToOptimize.reduce(0) { $0 + $1.estimatedOptimizedSize }
+    }
+
+    /// Estimated savings for selected items
+    var selectedSavings: UInt64 {
+        guard selectedEstimatedSize < selectedTotalSize else { return 0 }
+        return selectedTotalSize - selectedEstimatedSize
+    }
+
+    /// Formatted selected savings
+    var selectedSavingsFormatted: String {
+        ByteCountFormatter.string(fromByteCount: Int64(selectedSavings), countStyle: .file)
+    }
+
     /// Whether optimization can start
     var canOptimize: Bool {
-        state == .ready && !analysisResult.itemsNeedingOptimization.isEmpty
+        state == .ready && !selectedItemsToOptimize.isEmpty
     }
 
     /// Current item being processed (for progress display)
@@ -136,17 +176,44 @@ final class OptimizationViewModel: ObservableObject {
 
         state = .analyzing
         analysisResult = .empty
+        selectedItemIds = []
 
         Task {
             do {
                 let items = mediaLibrary.items
                 let result = try await service.analyzeProject(mediaItems: items)
                 self.analysisResult = result
+                // Auto-select all items that need optimization
+                self.selectedItemIds = Set(result.itemsNeedingOptimization.map { $0.id })
                 self.state = .ready
             } catch {
                 self.state = .error("Analysis failed: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Toggle selection for a specific item
+    func toggleSelection(for itemId: UUID) {
+        if selectedItemIds.contains(itemId) {
+            selectedItemIds.remove(itemId)
+        } else {
+            selectedItemIds.insert(itemId)
+        }
+    }
+
+    /// Check if an item is selected
+    func isSelected(_ itemId: UUID) -> Bool {
+        selectedItemIds.contains(itemId)
+    }
+
+    /// Select all optimizable items
+    func selectAll() {
+        selectedItemIds = Set(analysisResult.itemsNeedingOptimization.map { $0.id })
+    }
+
+    /// Deselect all items
+    func deselectAll() {
+        selectedItemIds = []
     }
 
     /// Start the optimization process
@@ -157,7 +224,7 @@ final class OptimizationViewModel: ObservableObject {
         progress = nil
         result = nil
 
-        let itemsToOptimize = analysisResult.itemsNeedingOptimization
+        let itemsToOptimize = selectedItemsToOptimize
         // Use HandBrake "Very Fast 720p30" equivalent settings
         let options = OptimizationOptions(
             replaceOriginals: replaceOriginals,

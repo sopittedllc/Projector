@@ -434,16 +434,23 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             }
         }
 
+        // Also start access to the parent directory for writing
+        let parentDir = sourceURL.deletingLastPathComponent()
+        let didStartParentAccess = parentDir.startAccessingSecurityScopedResource()
+
         defer {
             if didStartAccess {
                 sourceURL.stopAccessingSecurityScopedResource()
             }
+            if didStartParentAccess {
+                parentDir.stopAccessingSecurityScopedResource()
+            }
         }
 
-        // Create output URL (same directory, new extension)
+        // Create output URL (same directory, new extension) - use security-scoped sourceURL
         let outputExtension = item.isVideo ? "mp4" : "m4a"
-        let outputName = item.sourceURL.deletingPathExtension().lastPathComponent + "_optimized"
-        let outputURL = item.sourceURL.deletingLastPathComponent()
+        let outputName = sourceURL.deletingPathExtension().lastPathComponent + "_optimized"
+        let outputURL = sourceURL.deletingLastPathComponent()
             .appendingPathComponent(outputName)
             .appendingPathExtension(outputExtension)
 
@@ -469,18 +476,18 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             let outputAttributes = try FileManager.default.attributesOfItem(atPath: outputURL.path)
             let outputSize = outputAttributes[.size] as? UInt64 ?? 0
 
-            // Handle originals
+            // Handle originals - use security-scoped sourceURL
             if let originalsFolder = originalsFolder {
                 // Move original to originals folder
-                let originalDest = originalsFolder.appendingPathComponent(item.sourceURL.lastPathComponent)
-                try FileManager.default.moveItem(at: item.sourceURL, to: originalDest)
+                let originalDest = originalsFolder.appendingPathComponent(sourceURL.lastPathComponent)
+                try FileManager.default.moveItem(at: sourceURL, to: originalDest)
             } else {
                 // Move original to trash
-                try FileManager.default.trashItem(at: item.sourceURL, resultingItemURL: nil)
+                try FileManager.default.trashItem(at: sourceURL, resultingItemURL: nil)
             }
 
-            // Rename optimized file to original name
-            let finalURL = item.sourceURL.deletingPathExtension().appendingPathExtension(outputExtension)
+            // Rename optimized file to original name (keep same base name, new extension)
+            let finalURL = sourceURL.deletingPathExtension().appendingPathExtension(outputExtension)
             if finalURL != outputURL {
                 // If the original had a different extension, rename
                 if FileManager.default.fileExists(atPath: finalURL.path) {
