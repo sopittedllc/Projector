@@ -146,20 +146,35 @@ final class TimelineManager: ObservableObject {
 
     /// Add a video reel from a file URL
     func addVideoReel(from url: URL, at timelineFrame: Int) async throws -> VideoReel {
-        // Start security-scoped access before creating bookmark
-        // This ensures the bookmark encodes proper permissions for later use
-        // NOTE: We do NOT stop access here - keep it active until reel is removed
-        _ = url.startAccessingSecurityScopedResource()
+        // For drop URLs, we have implicit sandbox access that expires after the drop operation.
+        // We must create a bookmark AND immediately resolve it to get a persistent security-scoped URL.
 
-        // Create security-scoped bookmark (while access is active)
+        // Create security-scoped bookmark from the drop URL (while we have implicit access)
         let bookmark = try url.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
 
-        // Get video metadata
-        let asset = AVURLAsset(url: url)
+        // Immediately resolve the bookmark to get a security-scoped URL
+        var isStale = false
+        let resolvedURL = try URL(
+            resolvingBookmarkData: bookmark,
+            options: .withSecurityScope,
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        )
+
+        // Start security-scoped access on the RESOLVED URL (not the drop URL)
+        // This access persists until we explicitly stop it
+        guard resolvedURL.startAccessingSecurityScopedResource() else {
+            NSLog(">>> addVideoReel: FAILED to start security access for resolved URL")
+            throw TimelineError.fileAccessDenied
+        }
+        NSLog(">>> addVideoReel: Started persistent security access for \(url.lastPathComponent)")
+
+        // Get video metadata using the resolved URL
+        let asset = AVURLAsset(url: resolvedURL)
         let duration = try await asset.load(.duration)
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
 
@@ -177,7 +192,7 @@ final class TimelineManager: ObservableObject {
         let durationFrames = Int(duration.seconds * frameRate.fps)
 
         let reel = VideoReel(
-            sourceURL: url,
+            sourceURL: resolvedURL,  // Use the resolved security-scoped URL
             sourceBookmark: bookmark,
             timelineStartFrame: timelineFrame,
             durationFrames: durationFrames,
@@ -185,8 +200,8 @@ final class TimelineManager: ObservableObject {
             sourceFrameRate: frameRate
         )
 
-        // Track the URL for cleanup when reel is removed
-        activeSecurityScopedURLs[reel.id] = url
+        // Track the RESOLVED URL for cleanup when reel is removed
+        activeSecurityScopedURLs[reel.id] = resolvedURL
 
         timeline.addVideoReel(reel)
         extendTimelineIfNeeded(toEndFrame: reel.timelineEndFrame)
