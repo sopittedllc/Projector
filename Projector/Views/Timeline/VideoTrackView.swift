@@ -360,7 +360,13 @@ struct VideoTrackView: View {
 
     /// Check if the media item for this reel is optimized
     private func isReelOptimized(_ reel: VideoReel) -> Bool {
-        mediaLibrary.items.first { $0.url == reel.sourceURL }?.isOptimized ?? false
+        // First try to find by mediaItemId (most reliable)
+        if let mediaItemId = reel.mediaItemId,
+           let item = mediaLibrary.items.first(where: { $0.id == mediaItemId }) {
+            return item.isOptimized
+        }
+        // Fall back to URL matching
+        return mediaLibrary.items.first { $0.url == reel.sourceURL }?.isOptimized ?? false
     }
 
     private func loadURL(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {

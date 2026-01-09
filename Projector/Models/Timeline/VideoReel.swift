@@ -6,6 +6,9 @@ struct VideoReel: Identifiable, Codable, Equatable {
     /// Unique identifier for the reel
     let id: UUID
 
+    /// Reference to the MediaItem in the library (for optimization status lookup)
+    var mediaItemId: UUID?
+
     /// Source video file URL
     var sourceURL: URL
 
@@ -39,6 +42,7 @@ struct VideoReel: Identifiable, Codable, Equatable {
 
     init(
         id: UUID = UUID(),
+        mediaItemId: UUID? = nil,
         sourceURL: URL,
         sourceBookmark: Data? = nil,
         timelineStartFrame: Int,
@@ -48,6 +52,7 @@ struct VideoReel: Identifiable, Codable, Equatable {
         name: String? = nil
     ) {
         self.id = id
+        self.mediaItemId = mediaItemId
         self.sourceURL = sourceURL
         self.sourceBookmark = sourceBookmark
         self.timelineStartFrame = timelineStartFrame
@@ -81,6 +86,7 @@ struct VideoReel: Identifiable, Codable, Equatable {
 extension VideoReel {
     enum CodingKeys: String, CodingKey {
         case id
+        case mediaItemId
         case sourcePath
         case sourceBookmark
         case timelineStartFrame
@@ -94,6 +100,7 @@ extension VideoReel {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         id = try container.decode(UUID.self, forKey: .id)
+        mediaItemId = try container.decodeIfPresent(UUID.self, forKey: .mediaItemId)
         let sourcePath = try container.decode(String.self, forKey: .sourcePath)
         sourceURL = URL(fileURLWithPath: sourcePath)
         sourceBookmark = try container.decodeIfPresent(Data.self, forKey: .sourceBookmark)
@@ -113,6 +120,7 @@ extension VideoReel {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
         try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(mediaItemId, forKey: .mediaItemId)
         try container.encode(sourceURL.path, forKey: .sourcePath)
         try container.encodeIfPresent(sourceBookmark, forKey: .sourceBookmark)
         try container.encode(timelineStartFrame, forKey: .timelineStartFrame)

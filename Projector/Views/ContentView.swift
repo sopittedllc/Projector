@@ -1458,11 +1458,11 @@ struct ContentView: View {
 
         do {
             // Import to media library first (if not already there)
-            _ = try await mediaLibrary.importFile(from: url)
+            let mediaItem = try await mediaLibrary.importFile(from: url)
             NSLog(">>> addVideoToTimeline: Media library import done [T+\(elapsed())]")
 
-            // Add the video reel
-            let reel = try await timelineManager.addVideoReel(from: url, at: timelineFrame)
+            // Add the video reel with reference to the media item
+            let reel = try await timelineManager.addVideoReel(from: url, at: timelineFrame, mediaItemId: mediaItem.id)
             NSLog(">>> addVideoToTimeline: Reel added [T+\(elapsed())]")
 
             // CRITICAL: Sync timeline and load reel IMMEDIATELY for instant playback

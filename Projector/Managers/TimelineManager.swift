@@ -145,7 +145,7 @@ final class TimelineManager: ObservableObject {
     private var activeSecurityScopedURLs: [UUID: URL] = [:]
 
     /// Add a video reel from a file URL
-    func addVideoReel(from url: URL, at timelineFrame: Int) async throws -> VideoReel {
+    func addVideoReel(from url: URL, at timelineFrame: Int, mediaItemId: UUID? = nil) async throws -> VideoReel {
         let t0 = CFAbsoluteTimeGetCurrent()
         func elapsed() -> String { String(format: "%.3fs", CFAbsoluteTimeGetCurrent() - t0) }
 
@@ -204,6 +204,7 @@ final class TimelineManager: ObservableObject {
         let durationFrames = Int(duration.seconds * frameRate.fps)
 
         let reel = VideoReel(
+            mediaItemId: mediaItemId,
             sourceURL: resolvedURL,  // Use the resolved security-scoped URL
             sourceBookmark: bookmark,
             timelineStartFrame: timelineFrame,
