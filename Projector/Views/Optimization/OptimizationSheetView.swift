@@ -7,10 +7,13 @@
 //
 
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 /// Main optimization sheet view
 struct OptimizationSheetView: View {
     @ObservedObject var viewModel: OptimizationViewModel
+    @ObservedObject var projectDocument: ProjectDocument
     @Environment(\.dismiss) private var dismiss
     let onSaveProject: () -> Void
 
@@ -44,7 +47,7 @@ struct OptimizationSheetView: View {
         }
         .frame(width: 600, height: 500)
         .onAppear {
-            NSLog(">>> OptimizationSheetView: onAppear - projectURL: \(String(describing: viewModel.projectURL)), isProjectSaved: \(viewModel.isProjectSaved)")
+            NSLog(">>> OptimizationSheetView: onAppear - projectURL: \(String(describing: projectDocument.fileURL)), isProjectSaved: \(viewModel.isProjectSaved), state: \(viewModel.state)")
             if viewModel.state == .idle {
                 viewModel.analyze()
             }
@@ -391,8 +394,10 @@ struct OptimizationSheetView: View {
 
                 if !viewModel.isProjectSaved {
                     Button("Save Project...") {
-                        dismiss()
-                        onSaveProject()
+                        // Show NSSavePanel directly to avoid SwiftUI sheet conflicts
+                        // The sheet will update when project is saved because
+                        // viewModel.isProjectSaved is computed from projectDocument.fileURL
+                        showSavePanel()
                     }
                     .keyboardShortcut(.defaultAction)
                 } else {
@@ -415,6 +420,43 @@ struct OptimizationSheetView: View {
             }
         }
         .padding()
+    }
+
+    // MARK: - Save Panel
+
+    /// Shows an NSSavePanel for saving the project.
+    /// Uses NSSavePanel directly to avoid SwiftUI sheet conflicts.
+    private func showSavePanel() {
+        let panel = NSSavePanel()
+        panel.title = "Save Project"
+        panel.prompt = "Save"
+        panel.nameFieldLabel = "Project Name:"
+        panel.nameFieldStringValue = "Untitled"
+        panel.allowedContentTypes = [.folder]
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        panel.message = "Choose a location and name for your project folder"
+
+        // Show as a sheet on the current window
+        if let window = NSApp.keyWindow {
+            panel.beginSheetModal(for: window) { response in
+                if response == .OK, let url = panel.url {
+                    let projectName = url.lastPathComponent
+                    let projectFolderURL = url
+                    let projectFileURL = projectFolderURL.appendingPathComponent("\(projectName).projector")
+
+                    do {
+                        // Create the project folder
+                        try FileManager.default.createDirectory(at: projectFolderURL, withIntermediateDirectories: true)
+                        // Save the project
+                        try projectDocument.save(to: projectFileURL)
+                        NSLog(">>> OptimizationSheetView: Project saved to \(projectFileURL.path)")
+                    } catch {
+                        NSLog(">>> OptimizationSheetView: Save failed - \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
     }
 }
 

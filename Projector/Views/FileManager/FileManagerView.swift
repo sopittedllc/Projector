@@ -89,8 +89,9 @@ struct FileManagerView: View {
                 viewModel: OptimizationViewModel(
                     service: MediaOptimizationService(),
                     mediaLibrary: mediaLibrary,
-                    projectURL: projectDocument.fileURL
+                    projectDocument: projectDocument
                 ),
+                projectDocument: projectDocument,
                 onSaveProject: onSaveProject
             )
         }

@@ -58,8 +58,8 @@ final class OptimizationViewModel: ObservableObject {
     private let mediaLibrary: ProjectMediaLibrary
     private let timelineManager: TimelineManager?
 
-    /// The project file URL (nil if project not saved yet)
-    let projectURL: URL?
+    /// The project document (observed for fileURL changes after save)
+    private weak var projectDocument: ProjectDocument?
 
     private var optimizationTask: Task<Void, Never>?
 
@@ -70,18 +70,24 @@ final class OptimizationViewModel: ObservableObject {
     /// - Parameters:
     ///   - service: The optimization service (actor)
     ///   - mediaLibrary: The project's media library
-    ///   - projectURL: The saved project URL (nil if unsaved)
+    ///   - projectDocument: The project document (used to get fileURL, which updates after save)
     ///   - timelineManager: Optional timeline manager for updating references
     init(
         service: MediaOptimizationServiceProtocol,
         mediaLibrary: ProjectMediaLibrary,
-        projectURL: URL? = nil,
+        projectDocument: ProjectDocument,
         timelineManager: TimelineManager? = nil
     ) {
         self.service = service
         self.mediaLibrary = mediaLibrary
-        self.projectURL = projectURL
+        self.projectDocument = projectDocument
         self.timelineManager = timelineManager
+    }
+
+    /// The project file URL (nil if project not saved yet)
+    /// Computed from projectDocument to reflect saves that happen while sheet is open
+    var projectURL: URL? {
+        projectDocument?.fileURL
     }
 
     /// Whether the project has been saved (required for optimization)
@@ -200,8 +206,12 @@ final class OptimizationViewModel: ObservableObject {
 
     /// Start analyzing the project's media files
     func analyze() {
-        guard state == .idle || state == .ready || state.isError else { return }
+        guard state == .idle || state == .ready || state.isError else {
+            NSLog(">>> OptimizationViewModel.analyze: skipped - current state: \(state)")
+            return
+        }
 
+        NSLog(">>> OptimizationViewModel.analyze: starting analysis")
         state = .analyzing
         analysisResult = .empty
         selectedItemIds = []
@@ -209,12 +219,15 @@ final class OptimizationViewModel: ObservableObject {
         Task {
             do {
                 let items = mediaLibrary.items
+                NSLog(">>> OptimizationViewModel.analyze: analyzing \(items.count) items")
                 let result = try await service.analyzeProject(mediaItems: items)
                 self.analysisResult = result
                 // Auto-select all items that need optimization
                 self.selectedItemIds = Set(result.itemsNeedingOptimization.map { $0.id })
+                NSLog(">>> OptimizationViewModel.analyze: complete - \(result.itemsNeedingOptimization.count) items need optimization")
                 self.state = .ready
             } catch {
+                NSLog(">>> OptimizationViewModel.analyze: error - \(error.localizedDescription)")
                 self.state = .error("Analysis failed: \(error.localizedDescription)")
             }
         }
@@ -246,13 +259,19 @@ final class OptimizationViewModel: ObservableObject {
 
     /// Start the optimization process
     func startOptimization() {
-        guard canOptimize else { return }
+        guard canOptimize else {
+            NSLog(">>> OptimizationViewModel.startOptimization: cannot optimize - canOptimize=false")
+            return
+        }
 
+        NSLog(">>> OptimizationViewModel.startOptimization: starting optimization")
         state = .optimizing
         progress = nil
         result = nil
 
         let itemsToOptimize = selectedItemsToOptimize
+        NSLog(">>> OptimizationViewModel.startOptimization: \(itemsToOptimize.count) items to optimize")
+
         // Use HandBrake "Very Fast 720p30" equivalent settings
         let options = OptimizationOptions(
             replaceOriginals: replaceOriginals,
@@ -276,16 +295,21 @@ final class OptimizationViewModel: ObservableObject {
                     }
                 )
 
+                NSLog(">>> OptimizationViewModel.startOptimization: optimization complete - updating references")
                 // Update media library and timeline references
                 await updateReferences(from: result)
 
+                NSLog(">>> OptimizationViewModel.startOptimization: setting state to complete - optimized: \(result.optimizedCount), failed: \(result.failedCount)")
                 self.result = result
                 self.state = .complete
             } catch is CancellationError {
+                NSLog(">>> OptimizationViewModel.startOptimization: cancelled")
                 self.state = .idle
             } catch let error as MediaOptimizationError {
+                NSLog(">>> OptimizationViewModel.startOptimization: MediaOptimizationError - \(error.localizedDescription)")
                 self.state = .error(error.localizedDescription)
             } catch {
+                NSLog(">>> OptimizationViewModel.startOptimization: error - \(error.localizedDescription)")
                 self.state = .error("Optimization failed: \(error.localizedDescription)")
             }
         }
