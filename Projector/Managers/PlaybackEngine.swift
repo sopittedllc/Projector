@@ -120,9 +120,6 @@ final class PlaybackEngine: ObservableObject {
     /// Cooldown duration before retrying a failed clip load (seconds)
     private let failedClipRetryCooldown: TimeInterval = 2.0
 
-    /// Active security-scoped resource URLs (must stop access when reel removed)
-    private var activeSecurityScopedURLs: [UUID: URL] = [:]
-
     /// Pending seek request (coalesced)
     private var pendingSeekFrame: Int?
 
@@ -331,48 +328,19 @@ final class PlaybackEngine: ObservableObject {
 
     // MARK: - Private Methods - Video
 
-    /// Get or load asset for a reel, resolving security-scoped bookmark for sandbox access
+    /// Get or load asset for a reel
+    /// Security-scoped access is managed by TimelineManager.addVideoReel and stays active
+    /// until the reel is removed from the timeline
     private func getAsset(for reel: VideoReel) async throws -> AVAsset {
         if let cached = assetCache[reel.id] {
             return cached
         }
 
-        // Resolve security-scoped bookmark for sandbox access
-        let accessURL: URL
-        if let bookmarkData = reel.sourceBookmark {
-            var isStale = false
-            if let resolvedURL = try? URL(
-                resolvingBookmarkData: bookmarkData,
-                options: .withSecurityScope,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) {
-                if resolvedURL.startAccessingSecurityScopedResource() {
-                    activeSecurityScopedURLs[reel.id] = resolvedURL
-                    NSLog(">>> getAsset: started security access for \(reel.displayName)")
-                }
-                accessURL = resolvedURL
-                NSLog(">>> getAsset: resolved bookmark for \(reel.displayName), stale=\(isStale)")
-            } else {
-                accessURL = reel.sourceURL
-                NSLog(">>> getAsset: bookmark resolution failed, using direct URL for \(reel.displayName)")
-            }
-        } else {
-            accessURL = reel.sourceURL
-            NSLog(">>> getAsset: no bookmark, using direct URL for \(reel.displayName)")
-        }
-
-        let asset = AVAsset(url: accessURL)
+        // Use source URL directly - security access is managed by TimelineManager
+        NSLog(">>> getAsset: using source URL for \(reel.displayName)")
+        let asset = AVAsset(url: reel.sourceURL)
         assetCache[reel.id] = asset
         return asset
-    }
-
-    /// Release security-scoped access when a reel is removed
-    private func releaseSecurityScopedAccess(for reelId: UUID) {
-        if let url = activeSecurityScopedURLs.removeValue(forKey: reelId) {
-            url.stopAccessingSecurityScopedResource()
-            NSLog(">>> releaseSecurityScopedAccess: stopped access for reel \(reelId)")
-        }
     }
 
     private func seekWithinReel(
@@ -1443,11 +1411,9 @@ final class PlaybackEngine: ObservableObject {
             activeReel = nil
         }
 
-        // Clean up security-scoped access for removed reels
+        // Clean up asset cache for removed reels
         let currentReelIds = Set(timeline.videoReels.map(\.id))
-        let staleIds = activeSecurityScopedURLs.keys.filter { !currentReelIds.contains($0) }
-        for reelId in staleIds {
-            releaseSecurityScopedAccess(for: reelId)
+        for reelId in Array(assetCache.keys) where !currentReelIds.contains(reelId) {
             assetCache.removeValue(forKey: reelId)
         }
     }
@@ -1456,10 +1422,6 @@ final class PlaybackEngine: ObservableObject {
 
     deinit {
         gapTimer?.invalidate()
-        // Release all security-scoped access
-        for url in activeSecurityScopedURLs.values {
-            url.stopAccessingSecurityScopedResource()
-        }
     }
 }
 

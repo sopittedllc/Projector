@@ -141,16 +141,15 @@ final class TimelineManager: ObservableObject {
 
     // MARK: - Video Reel Operations
 
+    /// Active security-scoped URLs that should not be released until reel removal
+    private var activeSecurityScopedURLs: [UUID: URL] = [:]
+
     /// Add a video reel from a file URL
     func addVideoReel(from url: URL, at timelineFrame: Int) async throws -> VideoReel {
         // Start security-scoped access before creating bookmark
         // This ensures the bookmark encodes proper permissions for later use
-        let didStartAccess = url.startAccessingSecurityScopedResource()
-        defer {
-            if didStartAccess {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
+        // NOTE: We do NOT stop access here - keep it active until reel is removed
+        _ = url.startAccessingSecurityScopedResource()
 
         // Create security-scoped bookmark (while access is active)
         let bookmark = try url.bookmarkData(
@@ -186,6 +185,9 @@ final class TimelineManager: ObservableObject {
             sourceFrameRate: frameRate
         )
 
+        // Track the URL for cleanup when reel is removed
+        activeSecurityScopedURLs[reel.id] = url
+
         timeline.addVideoReel(reel)
         extendTimelineIfNeeded(toEndFrame: reel.timelineEndFrame)
         return reel
@@ -193,6 +195,10 @@ final class TimelineManager: ObservableObject {
 
     /// Remove a video reel by ID
     func removeVideoReel(id: UUID) {
+        // Release security-scoped access when reel is removed
+        if let url = activeSecurityScopedURLs.removeValue(forKey: id) {
+            url.stopAccessingSecurityScopedResource()
+        }
         timeline.removeVideoReel(id: id)
     }
 
@@ -473,29 +479,9 @@ final class TimelineManager: ObservableObject {
             return nil
         }
 
-        // Resolve security-scoped bookmark for sandbox access
-        var accessURL = reel.sourceURL
-        var didStartAccess = false
-        if let bookmarkData = reel.sourceBookmark {
-            var isStale = false
-            if let resolvedURL = try? URL(
-                resolvingBookmarkData: bookmarkData,
-                options: .withSecurityScope,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) {
-                didStartAccess = resolvedURL.startAccessingSecurityScopedResource()
-                accessURL = resolvedURL
-            }
-        }
-        defer {
-            if didStartAccess {
-                accessURL.stopAccessingSecurityScopedResource()
-            }
-        }
-
-        // Get audio track info from the video
-        let asset = AVURLAsset(url: accessURL)
+        // Use the source URL directly - security access is managed by addVideoReel
+        // and stays active until reel is removed
+        let asset = AVURLAsset(url: reel.sourceURL)
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
 
         guard trackIndex < audioTracks.count else {

@@ -1463,31 +1463,12 @@ struct ContentView: View {
     }
 
     /// Extract audio track from video reel and add to audio lane
-    /// Pre-extracts audio to temp file while we have security-scoped access
+    /// Pre-extracts audio to temp file while security-scoped access is active
     private func extractAudioFromVideo(reel: VideoReel) async {
-        // Resolve bookmark access for the source file
-        var accessURL = reel.sourceURL
-        var didStartAccess = false
-
-        if let bookmarkData = reel.sourceBookmark {
-            var isStale = false
-            if let resolvedURL = try? URL(
-                resolvingBookmarkData: bookmarkData,
-                options: .withSecurityScope,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) {
-                accessURL = resolvedURL
-                didStartAccess = accessURL.startAccessingSecurityScopedResource()
-                NSLog(">>> extractAudioFromVideo: resolved bookmark, startAccess=\(didStartAccess)")
-            }
-        }
-
-        defer {
-            if didStartAccess {
-                accessURL.stopAccessingSecurityScopedResource()
-            }
-        }
+        // Use source URL directly - security access is managed by TimelineManager.addVideoReel
+        // and stays active until the reel is removed from the timeline
+        let accessURL = reel.sourceURL
+        NSLog(">>> extractAudioFromVideo: using source URL directly (access managed by TimelineManager)")
 
         let asset = AVAsset(url: accessURL)
         do {

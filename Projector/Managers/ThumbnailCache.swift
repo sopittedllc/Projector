@@ -93,28 +93,9 @@ final class ThumbnailCache: ObservableObject {
         thumbnailSize: CGSize,
         jpegCompression: CGFloat
     ) async throws -> ThumbnailStrip {
-        // Resolve security-scoped bookmark for sandbox access
-        var accessURL = reel.sourceURL
-        var didStartAccess = false
-        if let bookmarkData = reel.sourceBookmark {
-            var isStale = false
-            if let resolvedURL = try? URL(
-                resolvingBookmarkData: bookmarkData,
-                options: .withSecurityScope,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) {
-                didStartAccess = resolvedURL.startAccessingSecurityScopedResource()
-                accessURL = resolvedURL
-            }
-        }
-        defer {
-            if didStartAccess {
-                accessURL.stopAccessingSecurityScopedResource()
-            }
-        }
-
-        let asset = AVAsset(url: accessURL)
+        // Use source URL directly - security access is managed by TimelineManager.addVideoReel
+        // and stays active until the reel is removed from the timeline
+        let asset = AVAsset(url: reel.sourceURL)
         let duration = try await asset.load(.duration)
         let durationSeconds = duration.seconds
         guard durationSeconds > 0 else {
