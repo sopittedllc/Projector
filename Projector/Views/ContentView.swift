@@ -1378,23 +1378,33 @@ struct ContentView: View {
 
     /// Add video without FPS checking (internal use after conflict resolution)
     private func addVideoToTimelineUnchecked(url: URL, at timelineFrame: Int) async {
+        let t0 = CFAbsoluteTimeGetCurrent()
+        func elapsed() -> String { String(format: "%.3fs", CFAbsoluteTimeGetCurrent() - t0) }
+
+        NSLog(">>> addVideoToTimeline: ENTRY [T+\(elapsed())] - \(url.lastPathComponent)")
+
         do {
             // Import to media library first (if not already there)
             _ = try await mediaLibrary.importFile(from: url)
+            NSLog(">>> addVideoToTimeline: Media library import done [T+\(elapsed())]")
 
             // Add the video reel
             let reel = try await timelineManager.addVideoReel(from: url, at: timelineFrame)
+            NSLog(">>> addVideoToTimeline: Reel added [T+\(elapsed())]")
 
             // CRITICAL: Sync timeline and load reel IMMEDIATELY for instant playback
             // Don't block on thumbnail generation or audio extraction
             syncTimelineToPlaybackEngine()
+            NSLog(">>> addVideoToTimeline: Timeline synced [T+\(elapsed())]")
 
             // If this is the first reel, load it right away
             if timelineManager.timeline.videoReels.count == 1 {
                 try await playbackEngine.loadReel(reel)
+                NSLog(">>> addVideoToTimeline: Reel loaded in playback engine [T+\(elapsed())]")
             }
 
             isLoadingMedia = false
+            NSLog(">>> addVideoToTimeline: READY FOR PLAYBACK [T+\(elapsed())]")
 
             // Generate thumbnail and extract audio in background (non-blocking)
             // Use Task (not Task.detached) to inherit actor context
@@ -1407,6 +1417,7 @@ struct ContentView: View {
                 await self.extractAudioFromVideo(reel: reel)
             }
         } catch {
+            NSLog(">>> addVideoToTimeline: FAILED [T+\(elapsed())] - \(error)")
             isLoadingMedia = false
             loadError = error.localizedDescription
             showErrorAlert = true
@@ -1471,19 +1482,26 @@ struct ContentView: View {
     /// Extract audio track from video reel and add to audio lane
     /// Pre-extracts audio to temp file while security-scoped access is active
     private func extractAudioFromVideo(reel: VideoReel) async {
+        let t0 = CFAbsoluteTimeGetCurrent()
+        func elapsed() -> String { String(format: "%.3fs", CFAbsoluteTimeGetCurrent() - t0) }
+
         // Use source URL directly - security access is managed by TimelineManager.addVideoReel
         // and stays active until the reel is removed from the timeline
         let accessURL = reel.sourceURL
-        NSLog(">>> extractAudioFromVideo: using source URL directly (access managed by TimelineManager)")
+        NSLog(">>> extractAudioFromVideo: ENTRY [T+\(elapsed())] - \(reel.displayName)")
 
         let asset = AVAsset(url: accessURL)
         do {
             let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-            guard !audioTracks.isEmpty else { return }
+            NSLog(">>> extractAudioFromVideo: Audio tracks loaded [T+\(elapsed())]")
+            guard !audioTracks.isEmpty else {
+                NSLog(">>> extractAudioFromVideo: No audio tracks found [T+\(elapsed())]")
+                return
+            }
 
             // Pre-extract audio while we have live security access
             let extractedURL = try await extractAudioTrackToTemp(from: asset, trackIndex: 0, sourceURL: accessURL)
-            NSLog(">>> extractAudioFromVideo: pre-extracted audio to \(extractedURL.lastPathComponent)")
+            NSLog(">>> extractAudioFromVideo: Export complete [T+\(elapsed())] -> \(extractedURL.lastPathComponent)")
 
             let laneNumber = timelineManager.timeline.audioLanes.count + 1
             let lane = timelineManager.addAudioLaneAtTop(name: "Audio \(laneNumber)")
@@ -1495,8 +1513,9 @@ struct ContentView: View {
                 toLane: lane.id,
                 preExtractedURL: extractedURL
             )
+            NSLog(">>> extractAudioFromVideo: COMPLETE [T+\(elapsed())]")
         } catch {
-            NSLog(">>> Failed to extract audio from video: \(error)")
+            NSLog(">>> extractAudioFromVideo: FAILED [T+\(elapsed())] - \(error)")
         }
     }
 

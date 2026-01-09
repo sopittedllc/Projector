@@ -146,22 +146,23 @@ final class TimelineManager: ObservableObject {
 
     /// Add a video reel from a file URL
     func addVideoReel(from url: URL, at timelineFrame: Int) async throws -> VideoReel {
-        NSLog(">>> addVideoReel: ENTRY - \(url.lastPathComponent)")
+        let t0 = CFAbsoluteTimeGetCurrent()
+        func elapsed() -> String { String(format: "%.3fs", CFAbsoluteTimeGetCurrent() - t0) }
+
+        NSLog(">>> addVideoReel: ENTRY [T+\(elapsed())] - \(url.lastPathComponent)")
 
         // For drop URLs, we have implicit sandbox access that expires after the drop operation.
         // We must create a bookmark AND immediately resolve it to get a persistent security-scoped URL.
 
         // Create security-scoped bookmark from the drop URL (while we have implicit access)
-        NSLog(">>> addVideoReel: Creating bookmark...")
         let bookmark = try url.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
-        NSLog(">>> addVideoReel: Bookmark created, size=\(bookmark.count) bytes")
+        NSLog(">>> addVideoReel: Bookmark created [T+\(elapsed())]")
 
         // Immediately resolve the bookmark to get a security-scoped URL
-        NSLog(">>> addVideoReel: Resolving bookmark...")
         var isStale = false
         let resolvedURL = try URL(
             resolvingBookmarkData: bookmark,
@@ -169,22 +170,24 @@ final class TimelineManager: ObservableObject {
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         )
-        NSLog(">>> addVideoReel: Resolved URL=\(resolvedURL.lastPathComponent), stale=\(isStale)")
+        NSLog(">>> addVideoReel: Resolved URL [T+\(elapsed())] stale=\(isStale)")
 
         // Start security-scoped access on the RESOLVED URL (not the drop URL)
         // This access persists until we explicitly stop it
         let accessStarted = resolvedURL.startAccessingSecurityScopedResource()
-        NSLog(">>> addVideoReel: startAccessingSecurityScopedResource returned \(accessStarted)")
+        NSLog(">>> addVideoReel: Security access started=\(accessStarted) [T+\(elapsed())]")
         guard accessStarted else {
             NSLog(">>> addVideoReel: FAILED to start security access")
             throw TimelineError.fileAccessDenied
         }
-        NSLog(">>> addVideoReel: Security access ACTIVE for \(resolvedURL.lastPathComponent)")
 
         // Get video metadata using the resolved URL
         let asset = AVURLAsset(url: resolvedURL)
         let duration = try await asset.load(.duration)
+        NSLog(">>> addVideoReel: Duration loaded [T+\(elapsed())]")
+
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
+        NSLog(">>> addVideoReel: Video tracks loaded [T+\(elapsed())]")
 
         // Determine frame rate from video
         var frameRate = timeline.config.frameRate
@@ -196,6 +199,7 @@ final class TimelineManager: ObservableObject {
                 frameRate = detectedRate
             }
         }
+        NSLog(">>> addVideoReel: Frame rate determined [T+\(elapsed())]")
 
         let durationFrames = Int(duration.seconds * frameRate.fps)
 
@@ -213,6 +217,7 @@ final class TimelineManager: ObservableObject {
 
         timeline.addVideoReel(reel)
         extendTimelineIfNeeded(toEndFrame: reel.timelineEndFrame)
+        NSLog(">>> addVideoReel: COMPLETE [T+\(elapsed())]")
         return reel
     }
 
