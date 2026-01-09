@@ -143,7 +143,16 @@ final class TimelineManager: ObservableObject {
 
     /// Add a video reel from a file URL
     func addVideoReel(from url: URL, at timelineFrame: Int) async throws -> VideoReel {
-        // Create security-scoped bookmark
+        // Start security-scoped access before creating bookmark
+        // This ensures the bookmark encodes proper permissions for later use
+        let didStartAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        // Create security-scoped bookmark (while access is active)
         let bookmark = try url.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
@@ -350,7 +359,15 @@ final class TimelineManager: ObservableObject {
             return nil
         }
 
-        // Create security-scoped bookmark
+        // Start security-scoped access before creating bookmark
+        let didStartAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        // Create security-scoped bookmark (while access is active)
         let bookmark = try url.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,

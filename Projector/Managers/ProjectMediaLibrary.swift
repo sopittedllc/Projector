@@ -96,7 +96,15 @@ final class ProjectMediaLibrary: ObservableObject {
             return existing
         }
 
-        // Create security-scoped bookmark
+        // Start security-scoped access before creating bookmark
+        let didStartAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        // Create security-scoped bookmark (while access is active)
         let bookmark = try url.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
