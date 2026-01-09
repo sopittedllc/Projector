@@ -54,6 +54,10 @@ struct AudioClip: Identifiable, Codable, Equatable {
     /// This avoids security-scoped resource issues in async contexts
     var extractedAudioURL: URL?
 
+    /// Source frame rate (for videoTrack sources - needed for sync with video)
+    /// This must match the video's sourceFrameRate for proper audio/video sync
+    var sourceFrameRate: TimecodeFrameRate?
+
     /// End frame on timeline (exclusive)
     var timelineEndFrame: Int {
         timelineStartFrame + durationFrames
@@ -85,7 +89,8 @@ struct AudioClip: Identifiable, Codable, Equatable {
         name: String? = nil,
         channelCount: Int = 2,
         sampleRate: Double = 48000,
-        extractedAudioURL: URL? = nil
+        extractedAudioURL: URL? = nil,
+        sourceFrameRate: TimecodeFrameRate? = nil
     ) {
         self.id = id
         self.sourceURL = sourceURL
@@ -101,6 +106,7 @@ struct AudioClip: Identifiable, Codable, Equatable {
         self.channelCount = channelCount
         self.sampleRate = sampleRate
         self.extractedAudioURL = extractedAudioURL
+        self.sourceFrameRate = sourceFrameRate
     }
 
     /// Check if this clip is active at a given timeline frame
@@ -116,10 +122,13 @@ struct AudioClip: Identifiable, Codable, Equatable {
     }
 
     /// Convert a timeline frame to source time in seconds
-    /// Uses the master timeline frame rate for conversion
+    /// Uses sourceFrameRate if available (for video-sourced clips), otherwise masterFrameRate
+    /// This ensures audio stays in sync with video from the same source
     func sourceTime(at timelineFrame: Int, masterFrameRate: TimecodeFrameRate) -> Double? {
         guard let frame = sourceFrame(at: timelineFrame) else { return nil }
-        return Double(frame) / masterFrameRate.fps
+        // Use source frame rate for video-sourced clips to match video timing exactly
+        let fps = sourceFrameRate?.fps ?? masterFrameRate.fps
+        return Double(frame) / fps
     }
 }
 
@@ -141,6 +150,7 @@ extension AudioClip {
         case channelCount
         case sampleRate
         case extractedAudioPath
+        case sourceFrameRate
     }
 
     init(from decoder: Decoder) throws {
@@ -168,6 +178,8 @@ extension AudioClip {
         } else {
             extractedAudioURL = nil
         }
+
+        sourceFrameRate = try container.decodeIfPresent(TimecodeFrameRate.self, forKey: .sourceFrameRate)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -187,5 +199,6 @@ extension AudioClip {
         try container.encode(channelCount, forKey: .channelCount)
         try container.encode(sampleRate, forKey: .sampleRate)
         try container.encodeIfPresent(extractedAudioURL?.path, forKey: .extractedAudioPath)
+        try container.encodeIfPresent(sourceFrameRate, forKey: .sourceFrameRate)
     }
 }

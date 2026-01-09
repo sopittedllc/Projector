@@ -541,7 +541,8 @@ final class TimelineManager: ObservableObject {
             sourceTrackIndex: trackIndex,
             channelCount: channelCount,
             sampleRate: sampleRate,
-            extractedAudioURL: preExtractedURL
+            extractedAudioURL: preExtractedURL,
+            sourceFrameRate: reel.sourceFrameRate
         )
 
         timeline.addClip(clip, toLane: laneId)
@@ -653,6 +654,15 @@ final class TimelineManager: ObservableObject {
         if let laneIndex = timeline.audioLanes.firstIndex(where: { $0.id == laneId }),
            var clip = timeline.audioLanes[laneIndex].clips.first(where: { $0.id == clipId }) {
             clip.volume = max(0, min(1, volume))
+            timeline.audioLanes[laneIndex].updateClip(clip)
+        }
+    }
+
+    /// Update extracted audio URL for an audio clip (used when background extraction completes)
+    func updateExtractedAudioURL(clipId: UUID, inLane laneId: UUID, extractedURL: URL) {
+        if let laneIndex = timeline.audioLanes.firstIndex(where: { $0.id == laneId }),
+           var clip = timeline.audioLanes[laneIndex].clips.first(where: { $0.id == clipId }) {
+            clip.extractedAudioURL = extractedURL
             timeline.audioLanes[laneIndex].updateClip(clip)
         }
     }
