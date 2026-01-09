@@ -716,10 +716,11 @@ final class PlaybackEngine: ObservableObject {
         let matrixMixer = try await makeMatrixMixer()
         let inputFormat = audioFile.processingFormat
 
-        // Determine the intermediate format after sample rate conversion
-        // Use the output sample rate but keep the input channel count
+        // Preserve source sample rate through the audio chain
+        // Rate conversion to device output happens at mainMixerNode -> outputNode
+        let sourceSampleRate = max(8000, inputFormat.sampleRate)
         let intermediateFormat = AVAudioFormat(
-            standardFormatWithSampleRate: audioOutputSampleRate,
+            standardFormatWithSampleRate: sourceSampleRate,
             channels: inputFormat.channelCount
         ) ?? inputFormat
 
@@ -735,7 +736,7 @@ final class PlaybackEngine: ObservableObject {
             // Create channel layout with Unknown tag - works best for multi-output interfaces
             let layoutTag = kAudioChannelLayoutTag_Unknown | UInt32(desiredOutputChannels)
             if let channelLayout = AVAudioChannelLayout(layoutTag: layoutTag) {
-                let format = AVAudioFormat(standardFormatWithSampleRate: audioOutputSampleRate, channelLayout: channelLayout)
+                let format = AVAudioFormat(standardFormatWithSampleRate: sourceSampleRate, channelLayout: channelLayout)
                 multiChannelOutputFormat = format
                 NSLog(">>> Created \(desiredOutputChannels)-channel format with Unknown layout")
             } else {
@@ -751,7 +752,7 @@ final class PlaybackEngine: ObservableObject {
             }
         } else {
             multiChannelOutputFormat = AVAudioFormat(
-                standardFormatWithSampleRate: audioOutputSampleRate,
+                standardFormatWithSampleRate: sourceSampleRate,
                 channels: desiredOutputChannels
             ) ?? intermediateFormat
         }
