@@ -93,15 +93,28 @@ final class ThumbnailCache: ObservableObject {
         thumbnailSize: CGSize,
         jpegCompression: CGFloat
     ) async throws -> ThumbnailStrip {
-        let url = reel.sourceURL
-        let accessGranted = url.startAccessingSecurityScopedResource()
+        // Resolve security-scoped bookmark for sandbox access
+        var accessURL = reel.sourceURL
+        var didStartAccess = false
+        if let bookmarkData = reel.sourceBookmark {
+            var isStale = false
+            if let resolvedURL = try? URL(
+                resolvingBookmarkData: bookmarkData,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ) {
+                didStartAccess = resolvedURL.startAccessingSecurityScopedResource()
+                accessURL = resolvedURL
+            }
+        }
         defer {
-            if accessGranted {
-                url.stopAccessingSecurityScopedResource()
+            if didStartAccess {
+                accessURL.stopAccessingSecurityScopedResource()
             }
         }
 
-        let asset = AVAsset(url: url)
+        let asset = AVAsset(url: accessURL)
         let duration = try await asset.load(.duration)
         let durationSeconds = duration.seconds
         guard durationSeconds > 0 else {

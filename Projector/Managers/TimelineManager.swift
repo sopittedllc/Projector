@@ -473,8 +473,29 @@ final class TimelineManager: ObservableObject {
             return nil
         }
 
+        // Resolve security-scoped bookmark for sandbox access
+        var accessURL = reel.sourceURL
+        var didStartAccess = false
+        if let bookmarkData = reel.sourceBookmark {
+            var isStale = false
+            if let resolvedURL = try? URL(
+                resolvingBookmarkData: bookmarkData,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ) {
+                didStartAccess = resolvedURL.startAccessingSecurityScopedResource()
+                accessURL = resolvedURL
+            }
+        }
+        defer {
+            if didStartAccess {
+                accessURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
         // Get audio track info from the video
-        let asset = AVURLAsset(url: reel.sourceURL)
+        let asset = AVURLAsset(url: accessURL)
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
 
         guard trackIndex < audioTracks.count else {
