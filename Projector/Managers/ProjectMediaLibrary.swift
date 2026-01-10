@@ -1,7 +1,9 @@
 import Foundation
 import AVFoundation
-import AppKit
 import Combine
+import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
 
 /// Manages the project's media library - importing, organizing, and providing filtered views
 @MainActor
@@ -287,7 +289,8 @@ final class ProjectMediaLibrary: ObservableObject {
 
     // MARK: - Thumbnail Generation
 
-    /// Generate a thumbnail image for a video asset
+    /// Generate a thumbnail image for a video asset (returns PNG data)
+    /// Uses CoreGraphics/ImageIO to avoid AppKit dependency in the Logic layer
     private func generateThumbnail(for asset: AVAsset) async -> Data? {
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
@@ -297,20 +300,36 @@ final class ProjectMediaLibrary: ObservableObject {
             let time = CMTime(seconds: 1, preferredTimescale: 600)
             let cgImage = try await generator.image(at: time).image
 
-            let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-            return nsImage.tiffRepresentation
+            // Convert CGImage to PNG data using ImageIO
+            let mutableData = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(
+                mutableData as CFMutableData,
+                UTType.png.identifier as CFString,
+                1,
+                nil
+            ) else {
+                return nil
+            }
+
+            CGImageDestinationAddImage(destination, cgImage, nil)
+            guard CGImageDestinationFinalize(destination) else {
+                return nil
+            }
+
+            return mutableData as Data
         } catch {
             return nil
         }
     }
 
-    /// Get thumbnail for an item (loads from cache or generates)
-    func thumbnail(for itemId: UUID) async -> NSImage? {
+    /// Get thumbnail data for an item (loads from cache or generates)
+    /// Returns raw PNG data - the View layer converts to NSImage/Image
+    func thumbnailData(for itemId: UUID) async -> Data? {
         guard let item = item(withId: itemId) else { return nil }
 
         // Return cached thumbnail
-        if let data = item.thumbnailData, let image = NSImage(data: data) {
-            return image
+        if let data = item.thumbnailData {
+            return data
         }
 
         // Generate for video items
@@ -322,7 +341,7 @@ final class ProjectMediaLibrary: ObservableObject {
             if let index = items.firstIndex(where: { $0.id == itemId }) {
                 items[index].thumbnailData = data
             }
-            return NSImage(data: data)
+            return data
         }
 
         return nil
@@ -378,7 +397,6 @@ final class ProjectMediaLibrary: ObservableObject {
 
     /// Find media items that are stored outside the project folder
     func externalMediaItems(projectURL: URL) -> [MediaItem] {
-        let mediaFolder = projectURL.appendingPathComponent("Media")
         return items.filter { item in
             !item.url.path.hasPrefix(projectURL.path)
         }

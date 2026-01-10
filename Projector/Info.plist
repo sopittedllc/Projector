@@ -66,6 +66,8 @@
 			</array>
 			<key>UTTypeDescription</key>
 			<string>Projector Project</string>
+			<key>UTTypeIconFile</key>
+			<string>DocumentIcon</string>
 			<key>UTTypeIdentifier</key>
 			<string>com.keegandewitt.projector.project</string>
 			<key>UTTypeTagSpecification</key>

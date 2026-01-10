@@ -1423,8 +1423,27 @@ final class PlaybackEngine: ObservableObject {
 
     // MARK: - Cleanup
 
-    deinit {
+    /// Cleanup method to be called before the engine is deallocated.
+    /// Call this from the owning class's cleanup to ensure resources are released properly.
+    func cleanup() {
+        // Stop gap timer
         gapTimer?.invalidate()
+        gapTimer = nil
+
+        // Remove time observer from player
+        if let observer = timeObserver, let player = currentPlayer {
+            player.removeTimeObserver(observer)
+        }
+        timeObserver = nil
+
+        // Stop and clean up audio engine
+        audioEngine.stop()
+    }
+
+    deinit {
+        // Note: MainActor-isolated properties cannot be accessed in deinit.
+        // The cleanup() method should be called before deallocation.
+        // The audio engine and timer will be cleaned up automatically when released.
     }
 }
 
