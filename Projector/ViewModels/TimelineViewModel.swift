@@ -88,14 +88,14 @@ final class TimelineViewModel: ObservableObject {
     /// Zoom step for UI controls
     private let zoomStep: CGFloat = 0.1
 
-    /// Height when timeline is collapsed
-    let collapsedHeight: CGFloat = 32
+    /// Height when timeline is collapsed (header only)
+    let collapsedHeight: CGFloat = TimelineSectionLayout.collapsedHeight
 
     /// Minimum expanded height
-    let minExpandedHeight: CGFloat = 100
+    let minExpandedHeight: CGFloat = TimelineSectionLayout.minHeight
 
     /// Maximum expanded height
-    let maxExpandedHeight: CGFloat = 500
+    let maxExpandedHeight: CGFloat = TimelineSectionLayout.maxHeight
 
     // MARK: - Combine
 
@@ -103,14 +103,8 @@ final class TimelineViewModel: ObservableObject {
 
     // MARK: - Initialization
 
-    private static let defaultExpandedHeight: CGFloat = TimelineLayout.toolbarHeight
-        + TimelineLayout.rulerHeight
-        + 1
-        + TimelineLayout.videoTrackHeight
-        + 1
-        + (TimelineLayout.audioLaneHeight + 1)
-        + 8
-        + 20
+    /// Default expanded height uses TimelineSectionLayout for consistency
+    private static let defaultExpandedHeight: CGFloat = TimelineSectionLayout.defaultHeight
 
     /// Creates a new timeline view model.
     ///
@@ -301,16 +295,18 @@ final class TimelineViewModel: ObservableObject {
 
     private func resizeToFitLanes() {
         let laneCount = manager.timeline.audioLanes.count
-        let audioHeight = max(50, CGFloat(laneCount) * (TimelineLayout.audioLaneHeight + 1))
-        let totalHeight = TimelineLayout.toolbarHeight
-            + TimelineLayout.rulerHeight
-            + 1
-            + TimelineLayout.videoTrackHeight
-            + 1
-            + audioHeight
-            + 8
+        let audioHeight = max(TimelineLayout.audioLaneHeight, CGFloat(laneCount) * (TimelineLayout.audioLaneHeight + 1))
 
-        let clamped = min(maxExpandedHeight, max(minExpandedHeight, totalHeight))
+        // Calculate content height: header + ruler + video track + audio lanes + footer
+        let contentHeight = PanelLayout.headerHeight
+            + TimelineLayout.rulerHeight
+            + 1  // divider
+            + TimelineLayout.videoTrackHeight
+            + 1  // divider
+            + audioHeight
+            + PanelLayout.footerHeight
+
+        let clamped = min(maxExpandedHeight, max(minExpandedHeight, contentHeight))
         if clamped > expandedHeight {
             expandedHeight = clamped
         }
