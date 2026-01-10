@@ -500,7 +500,12 @@ struct ContentView: View {
                         onDropVideoMedia: handleVideoDropOnTimeline,
                         onDropAudioMedia: handleAudioDropOnTimeline,
                         onSeek: { frame in playbackEngine.seekToFrame(frame) },
-                        onSettingsPressed: { showSettings = true }
+                        onSettingsPressed: { showSettings = true },
+                        onAddAudioLane: {
+                            let laneNumber = timelineManager.timeline.audioLanes.count + 1
+                            _ = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+                            timelineViewModel.expandIfNeeded()
+                        }
                     )
                     .padding(.horizontal, 16)
                     .padding(.top, 8)

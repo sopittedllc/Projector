@@ -42,6 +42,9 @@ struct TimelineAccordionView: View {
     /// Called when settings button is pressed
     var onSettingsPressed: () -> Void
 
+    /// Called when user wants to add a new audio lane
+    var onAddAudioLane: () -> Void
+
     @State private var isResizingTimeline = false
     @State private var isHoveringTimelineResize = false
     @State private var timelineDragStartHeight: CGFloat = 0
@@ -84,28 +87,47 @@ struct TimelineAccordionView: View {
     // MARK: - Accordion Header
 
     private var accordionHeader: some View {
-        Button(action: { timelineViewModel.toggleExpansion() }) {
-            HStack(spacing: 6) {
-                Image(systemName: timelineViewModel.isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.secondary)
-                    .frame(width: 12)
+        HStack(spacing: 6) {
+            // Expand/collapse button
+            Button(action: { timelineViewModel.toggleExpansion() }) {
+                HStack(spacing: 6) {
+                    Image(systemName: timelineViewModel.isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .frame(width: 12)
 
-                Iconoir.videoCamera.asImage
-                    .frame(width: 14, height: 14)
-                    .foregroundColor(.secondary)
+                    Iconoir.videoCamera.asImage
+                        .frame(width: 14, height: 14)
+                        .foregroundColor(.secondary)
 
-                Text("Timeline")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.primary)
-
-                Spacer()
+                    Text("Timeline")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.primary)
+                }
+                .contentShape(Rectangle())
             }
-            .frame(height: 32)
-            .padding(.horizontal, 12)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            // Add Audio Lane button
+            Button(action: onAddAudioLane) {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("Audio Lane")
+                        .font(.system(size: 11))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.accentColor.opacity(0.1))
+                .cornerRadius(4)
+            }
+            .buttonStyle(.plain)
+            .help("Add a new audio lane")
         }
-        .buttonStyle(.plain)
+        .frame(height: 32)
+        .padding(.horizontal, 12)
     }
 
     // MARK: - Timeline Content

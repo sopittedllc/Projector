@@ -77,6 +77,7 @@ struct MultiTrackTimelineView: View {
     @State private var cachedActiveAudioClipIds: Set<UUID> = []
     @State private var lastFrameForActiveClips: Int = -1
     @State private var linkedDragPreview: LinkedDragPreview?
+    @State private var laneChangePreview: LaneChangePreview?
 
     // MARK: - Constants
 
@@ -861,7 +862,32 @@ struct MultiTrackTimelineView: View {
                                             )
                                         }
                                     }
-                                }
+                                    // Clear preview after move
+                                    laneChangePreview = nil
+                                },
+                                onClipLaneChangePreview: { clip, laneOffset in
+                                    guard let offset = laneOffset else {
+                                        // Clear preview
+                                        laneChangePreview = nil
+                                        return
+                                    }
+                                    let targetIndex = index + offset
+                                    guard targetIndex >= 0 && targetIndex < timeline.audioLanes.count else {
+                                        laneChangePreview = nil
+                                        return
+                                    }
+                                    let targetLane = timeline.audioLanes[targetIndex]
+                                    let isValid = !targetLane.hasOverlap(with: clip)
+                                    laneChangePreview = LaneChangePreview(
+                                        clipId: clip.id,
+                                        timelineStartFrame: clip.timelineStartFrame,
+                                        durationFrames: clip.durationFrames,
+                                        sourceLaneIndex: index,
+                                        targetLaneIndex: targetIndex,
+                                        isValidDrop: isValid
+                                    )
+                                },
+                                laneChangePreview: laneChangePreview
                             )
                             .frame(width: totalContentWidth, height: TimelineLayout.audioLaneHeight)
                             .overlay(alignment: .bottom) {

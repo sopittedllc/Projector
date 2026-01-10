@@ -9,6 +9,16 @@ struct LinkedDragPreview: Equatable {
     let toFrame: Int
 }
 
+/// Preview for vertical lane change drag (audio clip moving between lanes)
+struct LaneChangePreview: Equatable {
+    let clipId: UUID
+    let timelineStartFrame: Int
+    let durationFrames: Int
+    let sourceLaneIndex: Int
+    let targetLaneIndex: Int
+    let isValidDrop: Bool
+}
+
 /// Master timeline containing video reels and audio lanes
 struct Timeline: Codable, Equatable {
     /// Timeline configuration (start/end, frame rate)
