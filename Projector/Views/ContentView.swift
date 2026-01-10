@@ -149,7 +149,7 @@ struct ContentView: View {
     }
 
     // MARK: - UI State
-    @State private var showWelcomeOverlay = !AppSettings.shared.hasCompletedWelcome
+    @State private var showWelcomeOverlay = false
     @State private var showSettings = false
     @State private var isLoadingMedia = false
     @State private var loadError: String?
@@ -261,6 +261,11 @@ struct ContentView: View {
             setupTimelineCallbacks()
             restoreSettings()
             handleUITestImportIfNeeded()
+
+            // Show welcome overlay if user hasn't completed it
+            if !AppSettings.shared.hasCompletedWelcome {
+                showWelcomeOverlay = true
+            }
         }
         // Sync unsaved changes state with AppDelegate for quit confirmation
         .onReceive(projectDocument.$hasUnsavedChanges) { hasChanges in
