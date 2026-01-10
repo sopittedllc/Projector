@@ -114,7 +114,7 @@ struct VideoTrackView: View {
 
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity) // Ensure ZStack fills available space
-            .onDrop(of: [UTType.fileURL, UTType.url, UTType.projectorMediaItem], delegate: VideoTrackDropDelegate(
+            .onDrop(of: [UTType.fileURL, UTType.url, UTType.movie, UTType.video, UTType.mpeg4Movie, UTType.projectorMediaItem], delegate: VideoTrackDropDelegate(
                 isTargeted: $isDropTargeted,
                 pixelsPerFrame: pixelsPerFrame,
                 scrollOffset: scrollOffset,
@@ -407,23 +407,41 @@ struct VideoTrackView: View {
             completion(url)
         }
 
+        // Try loading as NSURL first (works for most Finder drops)
         provider.loadObject(ofClass: NSURL.self) { object, _ in
             if let url = object as? NSURL {
                 finish(url as URL)
                 return
             }
+            // Try file URL identifier
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
                 if let url = extractURL(from: item) {
                     finish(url)
                     return
                 }
-                provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
+                // Try movie type (for video files dragged from Finder)
+                provider.loadItem(forTypeIdentifier: UTType.movie.identifier, options: nil) { item, _ in
                     if let url = extractURL(from: item) {
                         finish(url)
                         return
                     }
-                    provider.loadDataRepresentation(forTypeIdentifier: UTType.projectorMediaItem.identifier) { data, _ in
-                        finish(extractProjectorMediaURL(from: data))
+                    // Try MPEG-4 movie type specifically
+                    provider.loadItem(forTypeIdentifier: UTType.mpeg4Movie.identifier, options: nil) { item, _ in
+                        if let url = extractURL(from: item) {
+                            finish(url)
+                            return
+                        }
+                        // Try generic URL
+                        provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
+                            if let url = extractURL(from: item) {
+                                finish(url)
+                                return
+                            }
+                            // Finally try our custom projector media item
+                            provider.loadDataRepresentation(forTypeIdentifier: UTType.projectorMediaItem.identifier) { data, _ in
+                                finish(extractProjectorMediaURL(from: data))
+                            }
+                        }
                     }
                 }
             }
@@ -480,7 +498,7 @@ private struct VideoTrackDropDelegate: DropDelegate {
     let updateHandler: (CGPoint) -> Void
     let enterHandler: ([NSItemProvider], CGPoint) -> Void
     let exitHandler: () -> Void
-    private let supportedTypes: [UTType] = [.fileURL, .url, .projectorMediaItem]
+    private let supportedTypes: [UTType] = [.fileURL, .url, .movie, .video, .mpeg4Movie, .projectorMediaItem]
 
     func validateDrop(info: DropInfo) -> Bool {
         !info.itemProviders(for: supportedTypes).isEmpty

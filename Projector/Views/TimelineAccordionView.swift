@@ -85,8 +85,8 @@ struct TimelineAccordionView: View {
                 .font(.system(size: 10))
                 .foregroundColor(.secondary.opacity(0.6))
                 .padding(.trailing, 12)
-                .padding(.bottom, 4)
         }
+        .padding(.vertical, 10)
     }
 
     // MARK: - Accordion Header
@@ -126,7 +126,7 @@ struct TimelineAccordionView: View {
             .buttonStyle(GlassActionButtonStyle(tint: .accentColor))
             .help("Add a new audio lane")
         }
-        .frame(height: 32)
+        .frame(height: 40)
         .padding(.horizontal, 12)
     }
 

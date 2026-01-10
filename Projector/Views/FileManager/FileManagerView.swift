@@ -221,7 +221,7 @@ struct FileManagerView: View {
                 .buttonStyle(GlassActionButtonStyle(tint: .accentColor))
             }
         }
-        .frame(height: 32)
+        .frame(height: 40)
         .padding(.horizontal, 12)
     }
 
