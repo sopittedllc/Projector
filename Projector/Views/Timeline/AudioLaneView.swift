@@ -30,6 +30,9 @@ struct AudioLaneView: View {
     let onClipMove: (UUID, Int) -> Void
     let onClipDragPreview: (AudioClip, Int?) -> Void
     let onLaneRename: (String) -> Void
+    /// Called when a video-linked clip is dragged vertically to change lanes
+    /// Parameters: clipId, laneOffset (+1 = next lane down, -1 = previous lane up)
+    let onClipLaneChangeRequested: ((UUID, Int) -> Void)?
 
     @State private var selectedClipId: UUID?
     @State private var isDropTargeted = false
@@ -44,6 +47,7 @@ struct AudioLaneView: View {
     @State private var draggingClipId: UUID?
     @State private var dragStartFrame: Int = 0
     @State private var dragOffsetFrames: Int = 0
+    @State private var dragVerticalOffset: CGFloat = 0
     @FocusState private var isNameFieldFocused: Bool
     @EnvironmentObject private var dragContext: DragContext
 
@@ -324,11 +328,24 @@ struct AudioLaneView: View {
                             draggingClipId = clip.id
                             dragStartFrame = clip.timelineStartFrame
                             dragOffsetFrames = 0
+                            dragVerticalOffset = 0
                             selectedClipId = clip.id
                             onClipSelected(clip.id)
                         }
-                        let deltaFrames = Int(round(value.translation.width / max(pixelsPerFrame, 0.001)))
-                        dragOffsetFrames = deltaFrames
+
+                        // Track vertical offset for lane changes
+                        dragVerticalOffset = value.translation.height
+
+                        // For video-linked clips, lock horizontal position
+                        if clip.sourceType == .videoTrack {
+                            // Don't allow horizontal movement - clip is locked to video
+                            dragOffsetFrames = 0
+                        } else {
+                            // Regular clips can move horizontally
+                            let deltaFrames = Int(round(value.translation.width / max(pixelsPerFrame, 0.001)))
+                            dragOffsetFrames = deltaFrames
+                        }
+
                         let desired = dragStartFrame + dragOffsetFrames
                         let allowedRange = allowedFrameRange(for: clip)
                         let previewFrame = min(max(desired, allowedRange.lowerBound), allowedRange.upperBound)
@@ -338,12 +355,28 @@ struct AudioLaneView: View {
                     }
                     .onEnded { _ in
                         guard draggingClipId == clip.id else { return }
-                        let unclamped = dragStartFrame + dragOffsetFrames
-                        let allowedRange = allowedFrameRange(for: clip)
-                        let newFrame = min(max(unclamped, allowedRange.lowerBound), allowedRange.upperBound)
+
+                        // Check for vertical lane change (threshold: half a lane height)
+                        let laneChangeThreshold: CGFloat = TimelineLayout.audioLaneHeight / 2
+                        let verticalOffset = dragVerticalOffset
+
+                        if clip.sourceType == .videoTrack && abs(verticalOffset) > laneChangeThreshold {
+                            // Video-linked clip dragged vertically - request lane change
+                            let laneOffset = verticalOffset > 0 ? 1 : -1
+                            onClipLaneChangeRequested?(clip.id, laneOffset)
+                            onClipDragPreview(clip, nil)
+                        } else if clip.sourceType != .videoTrack {
+                            // Regular clip - move horizontally
+                            let unclamped = dragStartFrame + dragOffsetFrames
+                            let allowedRange = allowedFrameRange(for: clip)
+                            let newFrame = min(max(unclamped, allowedRange.lowerBound), allowedRange.upperBound)
+                            onClipMove(clip.id, newFrame)
+                        }
+
                         draggingClipId = nil
                         dragOffsetFrames = 0
-                        onClipMove(clip.id, newFrame)
+                        dragVerticalOffset = 0
+
                         if clip.sourceType == .videoTrack {
                             onClipDragPreview(clip, nil)
                         }
@@ -354,7 +387,9 @@ struct AudioLaneView: View {
 
     private func clipOffset(for clip: AudioClip) -> CGFloat {
         let base = CGFloat(clip.timelineStartFrame) * pixelsPerFrame - scrollOffset
-        if draggingClipId == clip.id {
+
+        // Video-linked clips don't move horizontally when dragged
+        if draggingClipId == clip.id && clip.sourceType != .videoTrack {
             let desired = dragStartFrame + dragOffsetFrames
             let allowedRange = allowedFrameRange(for: clip)
             let clamped = min(max(desired, allowedRange.lowerBound), allowedRange.upperBound)
@@ -719,7 +754,8 @@ private struct AudioLaneDropDelegate: DropDelegate {
                 onClipDoubleClick: { _ in },
                 onClipMove: { _, _ in },
                 onClipDragPreview: { _, _ in },
-                onLaneRename: { _ in }
+                onLaneRename: { _ in },
+                onClipLaneChangeRequested: nil
             )
             .frame(width: 800)
             .background(Color(white: 0.15))

@@ -843,6 +843,24 @@ struct MultiTrackTimelineView: View {
                                 },
                                 onLaneRename: { newName in
                                     timelineManager.renameAudioLane(id: lane.id, name: newName)
+                                },
+                                onClipLaneChangeRequested: { clipId, laneOffset in
+                                    // Move video-linked audio clip to adjacent lane
+                                    let currentIndex = index
+                                    let targetIndex = currentIndex + laneOffset
+                                    guard targetIndex >= 0 && targetIndex < timeline.audioLanes.count else { return }
+                                    let targetLane = timeline.audioLanes[targetIndex]
+
+                                    // Check if clip would overlap in target lane
+                                    if let clip = lane.clips.first(where: { $0.id == clipId }) {
+                                        if !targetLane.hasOverlap(with: clip) {
+                                            timelineManager.moveAudioClipToLane(
+                                                clipId: clipId,
+                                                fromLane: lane.id,
+                                                toLane: targetLane.id
+                                            )
+                                        }
+                                    }
                                 }
                             )
                             .frame(width: totalContentWidth, height: TimelineLayout.audioLaneHeight)

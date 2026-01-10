@@ -1405,7 +1405,7 @@ struct ContentView: View {
         isLoadingMedia = true
 
         do {
-            // Detect video frame rate first
+            // Detect video frame rate and duration first
             let asset = AVAsset(url: url)
             let videoTracks = try await asset.loadTracks(withMediaType: .video)
             guard let videoTrack = videoTracks.first else {
@@ -1414,6 +1414,8 @@ struct ContentView: View {
 
             let nominalFrameRate = try await videoTrack.load(.nominalFrameRate)
             let videoFPS = closestTimecodeFrameRate(to: Double(nominalFrameRate))
+            let duration = try await asset.load(.duration)
+            let videoDurationFrames = Int(duration.seconds * videoFPS.fps)
 
             // Check for FPS conflict
             let hasExistingReels = !timelineManager.timeline.videoReels.isEmpty
@@ -1438,8 +1440,14 @@ struct ContentView: View {
                 timelineManager.updateConfig(config)
             }
 
-            // Actually add the video
-            let placementFrame = atFrame ?? (timelineManager.timeline.videoReels.map { $0.timelineEndFrame }.max() ?? 0)
+            // Calculate placement frame, avoiding overlaps with existing reels
+            var placementFrame = atFrame ?? (timelineManager.timeline.videoReels.map { $0.timelineEndFrame }.max() ?? 0)
+            placementFrame = findNonOverlappingPosition(
+                startFrame: placementFrame,
+                durationFrames: videoDurationFrames,
+                existingReels: timelineManager.timeline.videoReels
+            )
+
             await addVideoToTimelineUnchecked(url: url, at: placementFrame)
 
         } catch {
@@ -1447,6 +1455,31 @@ struct ContentView: View {
             loadError = error.localizedDescription
             showErrorAlert = true
         }
+    }
+
+    /// Find a position for a new video that doesn't overlap with existing reels
+    /// If the proposed position overlaps, places it immediately after the overlapping reel
+    private func findNonOverlappingPosition(startFrame: Int, durationFrames: Int, existingReels: [VideoReel]) -> Int {
+        var proposedStart = startFrame
+        let proposedEnd = proposedStart + durationFrames
+
+        // Sort reels by start frame
+        let sortedReels = existingReels.sorted { $0.timelineStartFrame < $1.timelineStartFrame }
+
+        // Check for overlaps and adjust position
+        for reel in sortedReels {
+            let reelStart = reel.timelineStartFrame
+            let reelEnd = reel.timelineEndFrame
+
+            // Check if proposed position overlaps with this reel
+            if proposedStart < reelEnd && proposedEnd > reelStart {
+                // Overlap detected - move to immediately after this reel
+                proposedStart = reelEnd
+                NSLog(">>> findNonOverlappingPosition: Overlap with '\(reel.displayName)', moving to frame \(proposedStart)")
+            }
+        }
+
+        return proposedStart
     }
 
     /// Add video without FPS checking (internal use after conflict resolution)
