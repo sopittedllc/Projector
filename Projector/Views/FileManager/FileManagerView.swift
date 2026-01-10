@@ -12,6 +12,13 @@ struct FileManagerView: View {
     let onAddToAudioLane: (MediaItem, Int) -> Void
     let onDeleteItems: ([MediaItem]) -> Void
     let onSaveProject: () -> Void
+    let onConsolidateMedia: () -> Void
+
+    /// Whether there are media files stored outside the project folder
+    private var hasExternalFiles: Bool {
+        guard let projectURL = projectDocument.fileURL else { return false }
+        return !mediaLibrary.externalMediaItems(projectURL: projectURL).isEmpty
+    }
     @EnvironmentObject private var dragContext: DragContext
 
     @State private var selectedItemIds: Set<UUID> = []
@@ -208,6 +215,12 @@ struct FileManagerView: View {
                 OptimizeMediaButton(
                     showSheet: $showOptimizationSheet,
                     hasUnoptimizedFiles: mediaLibrary.items.contains { !$0.isOptimized }
+                )
+
+                // Consolidate button (only show if there are external files)
+                ConsolidateMediaButton(
+                    hasExternalFiles: hasExternalFiles,
+                    action: onConsolidateMedia
                 )
 
                 // Import button
@@ -595,7 +608,8 @@ struct MediaGridCell: View {
                 onAddToVideoTrack: { _ in },
                 onAddToAudioLane: { _, _ in },
                 onDeleteItems: { _ in },
-                onSaveProject: { }
+                onSaveProject: { },
+                onConsolidateMedia: { }
             )
             .padding()
         }

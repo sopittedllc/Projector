@@ -195,6 +195,7 @@ struct ContentView: View {
     @State private var audioAlreadyInTimelineName: String = ""
     @State private var showDuplicateMediaAlert = false
     @State private var duplicateMediaNames: [String] = []
+    @State private var isPlaybackDropTargeted = false
 
     var body: some View {
         mainContent
@@ -345,9 +346,30 @@ struct ContentView: View {
                 overlayOpacity: settings.timecodeOverlayOpacity,
                 extraTrailingPadding: settings.timecodeOverlayPosition == .bottomRight ? 50 : 0
             )
-            .onDrop(of: [UTType.fileURL, UTType.url], isTargeted: nil) { providers in
+            .onDrop(of: [UTType.fileURL, UTType.url], isTargeted: $isPlaybackDropTargeted) { providers in
                 handleDrop(providers: providers)
             }
+            .overlay {
+                // Drop target overlay
+                if isPlaybackDropTargeted {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.accentColor.opacity(0.15))
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [8, 4]))
+                        VStack(spacing: 12) {
+                            Image(systemName: "arrow.down.doc.fill")
+                                .font(.system(size: 48))
+                                .foregroundColor(.accentColor)
+                            Text("Drop media to import")
+                                .font(.headline)
+                                .foregroundColor(.accentColor)
+                        }
+                    }
+                    .padding(8)
+                }
+            }
+            .animation(.easeInOut(duration: 0.15), value: isPlaybackDropTargeted)
             .frame(minWidth: 480, minHeight: 200)
             .frame(height: playbackHeight)
             .transaction { $0.animation = nil }
@@ -522,7 +544,8 @@ struct ContentView: View {
                             onAddToVideoTrack: handleAddToVideoTrack,
                             onAddToAudioLane: handleAddToAudioLane,
                             onDeleteItems: handleDeleteMediaItems,
-                            onSaveProject: { saveProjectAs() }
+                            onSaveProject: { saveProjectAs() },
+                            onConsolidateMedia: consolidateMedia
                         )
                         .padding(.horizontal, Spacing.lg)
                         .padding(.top, Spacing.sm)
