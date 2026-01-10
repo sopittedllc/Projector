@@ -47,18 +47,7 @@ struct FileManagerView: View {
         .frame(height: isExpanded ? FileManagerLayout.expandedHeight : FileManagerLayout.collapsedHeight, alignment: .top)
         .contentShape(Rectangle())
         .clipped()
-        .background(
-            ZStack {
-                VisualEffectView(material: .titlebar, blendingMode: .behindWindow, alphaValue: 1.0)
-                Color(red: 30.0 / 255.0, green: 30.0 / 255.0, blue: 30.0 / 255.0)
-                    .opacity(0.85)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-        )
+        .glassPanel()
         .onChange(of: mediaLibrary.items.count) { _, newCount in
             // Auto-expand when media is first imported
             if newCount > 0 && !isExpanded {
@@ -227,14 +216,9 @@ struct FileManagerView: View {
                         Iconoir.plus.asImage
                             .frame(width: 12, height: 12)
                         Text("Import")
-                            .font(.system(size: 11))
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.accentColor.opacity(0.1))
-                    .cornerRadius(4)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(GlassActionButtonStyle(tint: .accentColor))
             }
         }
         .frame(height: 32)

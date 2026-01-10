@@ -73,18 +73,7 @@ struct VitalControlsBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(
-            ZStack {
-                VisualEffectView(material: .titlebar, blendingMode: .behindWindow, alphaValue: 1.0)
-                Color(red: 30.0 / 255.0, green: 30.0 / 255.0, blue: 30.0 / 255.0)
-                    .opacity(0.85)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-        )
+        .glassPanel()
     }
 
     // MARK: - Start Timecode Control
@@ -122,14 +111,7 @@ struct VitalControlsBar: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(startTCBackground)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-        )
+        .glassControl(isHighlighted: isStartTCFocused)
         .onHover { hovering in
             isHoveringStartTC = hovering
         }
@@ -143,16 +125,6 @@ struct VitalControlsBar: View {
             DispatchQueue.main.async {
                 isStartTCFocused = false
             }
-        }
-    }
-
-    private var startTCBackground: Color {
-        if isStartTCFocused {
-            return Color(nsColor: .controlBackgroundColor)
-        } else if isHoveringStartTC {
-            return Color.white.opacity(0.1)
-        } else {
-            return Color(nsColor: .controlBackgroundColor)
         }
     }
 
@@ -191,14 +163,7 @@ struct VitalControlsBar: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(durationBackground)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-        )
+        .glassControl(isHighlighted: isDurationFocused)
         .onHover { hovering in
             isHoveringDuration = hovering
         }
@@ -217,16 +182,6 @@ struct VitalControlsBar: View {
         }
     }
 
-    private var durationBackground: Color {
-        if isDurationFocused {
-            return Color(nsColor: .controlBackgroundColor)
-        } else if isHoveringDuration {
-            return Color.white.opacity(0.1)
-        } else {
-            return Color(nsColor: .controlBackgroundColor)
-        }
-    }
-
     // MARK: - FPS Control
 
     private var fpsControl: some View {
@@ -242,14 +197,7 @@ struct VitalControlsBar: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-        )
+        .glassControl()
         .help("Frame rate is set by the video file")
     }
 
@@ -278,14 +226,7 @@ struct VitalControlsBar: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(.thinMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.white.opacity(0.15), lineWidth: 1)
-        )
+        .glassControl()
     }
 
     // MARK: - Zoom Controls

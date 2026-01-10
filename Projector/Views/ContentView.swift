@@ -235,13 +235,7 @@ struct ContentView: View {
             ))
             .frame(minWidth: 640, minHeight: 400)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(
-            ZStack {
-                VisualEffectView(material: .titlebar, blendingMode: .behindWindow, alphaValue: 1.0)
-                Color(red: 30.0 / 255.0, green: 30.0 / 255.0, blue: 30.0 / 255.0)
-                    .opacity(0.95)
-            }
-        )
+        .background(WindowGlassBackground())
         .navigationTitle("")
         .background(WindowTitleConfigurator(
             title: projectDocument.displayName,

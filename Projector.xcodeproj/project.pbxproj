@@ -67,6 +67,7 @@
 		C1TIMELINE00000025 /* MediaItemRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000022 /* MediaItemRow.swift */; };
 		C1TIMELINE00000026 /* FileManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000023 /* FileManagerView.swift */; };
 		C1TIMELINE0000002C /* ThumbnailStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000002B /* ThumbnailStrip.swift */; };
+		C1LIQUIDGLASS0001 /* LiquidGlassStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1LIQUIDGLASS0002 /* LiquidGlassStyles.swift */; };
 		C1VISUALFX0000001 /* VisualEffectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1VISUALFX0000002 /* VisualEffectView.swift */; };
 		C1WAVEFORM000003 /* DSWaveformImageViews in Frameworks */ = {isa = PBXBuildFile; productRef = C1WAVEFORM000002 /* DSWaveformImageViews */; };
 		C1WAVEFORM000005 /* DSWaveformImage in Frameworks */ = {isa = PBXBuildFile; productRef = C1WAVEFORM000004 /* DSWaveformImage */; };
@@ -182,6 +183,7 @@
 		C1TIMELINE00000023 /* FileManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileManagerView.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000002B /* ThumbnailStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailStrip.swift; sourceTree = "<group>"; };
 		C1VISUALFX0000002 /* VisualEffectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEffectView.swift; sourceTree = "<group>"; };
+		C1LIQUIDGLASS0002 /* LiquidGlassStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidGlassStyles.swift; sourceTree = "<group>"; };
 		FD5C2B42215FEBC92028DAE5 /* WaveformCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformCacheTests.swift; sourceTree = "<group>"; };
 		D2403C06D2294027B9140EB4 /* MediaOptimizationServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaOptimizationServiceProtocol.swift; sourceTree = "<group>"; };
 		F1CB65275AFE49C6AFD24B05 /* MediaOptimizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaOptimizationService.swift; sourceTree = "<group>"; };
@@ -333,6 +335,7 @@
 				A1000001227D3F0000000073 /* SettingsView.swift */,
 				B19B58C02F088CFF00FA33EC /* VitalControlsBar.swift */,
 				C1VISUALFX0000002 /* VisualEffectView.swift */,
+				C1LIQUIDGLASS0002 /* LiquidGlassStyles.swift */,
 				A1000001227D3F0000000089 /* Timeline */,
 				C1TIMELINE00000024 /* FileManager */,
 				648C405AE05C49199696C8C5 /* TimelineAccordionView.swift */,
@@ -698,6 +701,7 @@
 				C1TIMELINE00000025 /* MediaItemRow.swift in Sources */,
 				C1TIMELINE00000026 /* FileManagerView.swift in Sources */,
 				C1VISUALFX0000001 /* VisualEffectView.swift in Sources */,
+				C1LIQUIDGLASS0001 /* LiquidGlassStyles.swift in Sources */,
 				74EABBA338E34AE2882468C6 /* TimelineAccordionView.swift in Sources */,
 				0F78E7CD06BB4CCBA9AA1A36 /* WindowTitleConfigurator.swift in Sources */,
 				33E7262DBE394E3DA53FDE54 /* AccordionResizeHandle.swift in Sources */,

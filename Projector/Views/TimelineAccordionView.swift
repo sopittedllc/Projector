@@ -68,18 +68,7 @@ struct TimelineAccordionView: View {
         }
         .frame(height: timelineViewModel.currentHeight, alignment: .top)
         .clipped()
-        .background(
-            ZStack {
-                VisualEffectView(material: .titlebar, blendingMode: .behindWindow, alphaValue: 1.0)
-                Color(red: 30.0 / 255.0, green: 30.0 / 255.0, blue: 30.0 / 255.0)
-                    .opacity(0.85)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-        )
+        .glassPanel()
         .overlay(alignment: .bottom) {
             if timelineViewModel.isExpanded {
                 timelineResizeHandle
@@ -132,14 +121,9 @@ struct TimelineAccordionView: View {
                     Image(systemName: "plus")
                         .font(.system(size: 10, weight: .semibold))
                     Text("Audio Lane")
-                        .font(.system(size: 11))
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.accentColor.opacity(0.1))
-                .cornerRadius(4)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(GlassActionButtonStyle(tint: .accentColor))
             .help("Add a new audio lane")
         }
         .frame(height: 32)
