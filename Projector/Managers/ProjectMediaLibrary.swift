@@ -365,6 +365,113 @@ final class ProjectMediaLibrary: ObservableObject {
     func exportItems() -> [MediaItem] {
         items
     }
+
+    // MARK: - Media Consolidation
+
+    /// Result of a consolidation operation
+    struct ConsolidationResult {
+        let copiedCount: Int
+        let skippedCount: Int
+        let failedCount: Int
+        let errors: [String]
+    }
+
+    /// Find media items that are stored outside the project folder
+    func externalMediaItems(projectURL: URL) -> [MediaItem] {
+        let mediaFolder = projectURL.appendingPathComponent("Media")
+        return items.filter { item in
+            !item.url.path.hasPrefix(projectURL.path)
+        }
+    }
+
+    /// Consolidate all external media into the project's Media folder
+    ///
+    /// This copies files from external locations into the project package,
+    /// updating the media library references to point to the local copies.
+    ///
+    /// - Parameter projectURL: The URL of the .projector package
+    /// - Returns: A result summarizing what was consolidated
+    func consolidateMedia(projectURL: URL) async -> ConsolidationResult {
+        let mediaFolder = projectURL.appendingPathComponent("Media")
+        let fileManager = FileManager.default
+
+        // Create Media folder if needed
+        if !fileManager.fileExists(atPath: mediaFolder.path) {
+            do {
+                try fileManager.createDirectory(at: mediaFolder, withIntermediateDirectories: true)
+            } catch {
+                return ConsolidationResult(
+                    copiedCount: 0,
+                    skippedCount: 0,
+                    failedCount: items.count,
+                    errors: ["Failed to create Media folder: \(error.localizedDescription)"]
+                )
+            }
+        }
+
+        var copiedCount = 0
+        var skippedCount = 0
+        var failedCount = 0
+        var errors: [String] = []
+
+        for item in items {
+            // Skip if already inside project
+            if item.url.path.hasPrefix(projectURL.path) {
+                skippedCount += 1
+                continue
+            }
+
+            // Determine destination filename (handle duplicates)
+            let originalName = item.url.lastPathComponent
+            var destinationURL = mediaFolder.appendingPathComponent(originalName)
+            var counter = 1
+
+            while fileManager.fileExists(atPath: destinationURL.path) {
+                let nameWithoutExt = item.url.deletingPathExtension().lastPathComponent
+                let ext = item.url.pathExtension
+                destinationURL = mediaFolder.appendingPathComponent("\(nameWithoutExt)_\(counter).\(ext)")
+                counter += 1
+            }
+
+            do {
+                // Start security-scoped access to source
+                let didStartAccess = item.url.startAccessingSecurityScopedResource()
+                defer {
+                    if didStartAccess {
+                        item.url.stopAccessingSecurityScopedResource()
+                    }
+                }
+
+                // Copy the file
+                try fileManager.copyItem(at: item.url, to: destinationURL)
+
+                // Create new bookmark for the local copy
+                let newBookmark = try destinationURL.bookmarkData(
+                    options: .withSecurityScope,
+                    includingResourceValuesForKeys: nil,
+                    relativeTo: nil
+                )
+
+                // Update the media item
+                updateItemURL(id: item.id, newURL: destinationURL, newBookmark: newBookmark)
+
+                copiedCount += 1
+                NSLog(">>> Consolidated: \(originalName) -> \(destinationURL.lastPathComponent)")
+
+            } catch {
+                failedCount += 1
+                errors.append("\(item.displayName): \(error.localizedDescription)")
+                NSLog(">>> Failed to consolidate \(originalName): \(error)")
+            }
+        }
+
+        return ConsolidationResult(
+            copiedCount: copiedCount,
+            skippedCount: skippedCount,
+            failedCount: failedCount,
+            errors: errors
+        )
+    }
 }
 
 // MARK: - Errors

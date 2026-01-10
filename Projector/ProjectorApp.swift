@@ -182,6 +182,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
         newFileMenu.addItem(NSMenuItem.separator())
 
+        // Consolidate Media
+        let consolidateItem = NSMenuItem(
+            title: "Consolidate Media...",
+            action: #selector(consolidateMedia(_:)),
+            keyEquivalent: ""
+        )
+        consolidateItem.target = self
+        consolidateItem.isEnabled = true
+        newFileMenu.addItem(consolidateItem)
+
+        newFileMenu.addItem(NSMenuItem.separator())
+
         // Close All
         let closeAllItem = NSMenuItem(
             title: "Close All",
@@ -384,6 +396,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         NotificationCenter.default.post(name: .openProjectFromMenu, object: nil)
     }
 
+    @objc func consolidateMedia(_ sender: Any?) {
+        NSLog(">>> consolidateMedia called, posting notification")
+        NotificationCenter.default.post(name: .consolidateMedia, object: nil)
+    }
+
     // MARK: - Open Action
 
     private func openFile() {
@@ -412,6 +429,7 @@ extension Notification.Name {
     static let saveProject = Notification.Name("saveProject")
     static let saveProjectAs = Notification.Name("saveProjectAs")
     static let checkUnsavedChanges = Notification.Name("checkUnsavedChanges")
+    static let consolidateMedia = Notification.Name("consolidateMedia")
 }
 
 // MARK: - NSApplication Swizzling for CMD+S

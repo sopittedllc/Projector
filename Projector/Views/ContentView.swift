@@ -277,6 +277,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openProjectFromMenu)) { _ in
             showOpenProjectPanel()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .consolidateMedia)) { _ in
+            consolidateMedia()
+        }
         .onOpenURL { url in
             NSLog(">>> ContentView.onOpenURL: %@", url.path)
             if url.pathExtension.lowercased() == "projector" {
@@ -723,6 +726,66 @@ struct ContentView: View {
         }
     }
 
+    private func consolidateMedia() {
+        guard let projectURL = projectDocument.fileURL else {
+            // Project must be saved first
+            let alert = NSAlert()
+            alert.messageText = "Save Project First"
+            alert.informativeText = "Please save your project before consolidating media. This allows media files to be copied into the project folder."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        // Check if there are external files to consolidate
+        let externalItems = mediaLibrary.externalMediaItems(projectURL: projectURL)
+        if externalItems.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = "No External Media"
+            alert.informativeText = "All media files are already stored within the project folder."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        // Confirm consolidation
+        let alert = NSAlert()
+        alert.messageText = "Consolidate Media"
+        alert.informativeText = "This will copy \(externalItems.count) external media file(s) into the project folder. The original files will not be modified."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Consolidate")
+        alert.addButton(withTitle: "Cancel")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        // Perform consolidation
+        Task {
+            let result = await mediaLibrary.consolidateMedia(projectURL: projectURL)
+
+            // Show result
+            let resultAlert = NSAlert()
+            if result.failedCount == 0 {
+                resultAlert.messageText = "Consolidation Complete"
+                resultAlert.informativeText = "Copied \(result.copiedCount) file(s) to project folder.\n\(result.skippedCount) file(s) were already local."
+                resultAlert.alertStyle = .informational
+            } else {
+                resultAlert.messageText = "Consolidation Completed with Errors"
+                resultAlert.informativeText = "Copied \(result.copiedCount) file(s).\nFailed: \(result.failedCount)\n\nErrors:\n\(result.errors.joined(separator: "\n"))"
+                resultAlert.alertStyle = .warning
+            }
+            resultAlert.addButton(withTitle: "OK")
+            resultAlert.runModal()
+
+            // Save project to persist the updated paths
+            if result.copiedCount > 0 {
+                syncMediaLibraryToDocument()
+                saveProject()
+            }
+        }
+    }
+
     private func openProject(from url: URL) {
         do {
             try projectDocument.load(from: url)
@@ -830,14 +893,33 @@ struct ContentView: View {
         panel.message = "Please locate: \(URL(fileURLWithPath: info.originalPath).lastPathComponent)"
 
         if panel.runModal() == .OK, let newURL = panel.url {
+            // Check if we should offer to copy to project folder
+            var finalURL = newURL
+            if let projectURL = projectDocument.fileURL,
+               !newURL.path.hasPrefix(projectURL.path) {
+                // File is external - offer to consolidate
+                let consolidateAlert = NSAlert()
+                consolidateAlert.messageText = "Copy to Project Folder?"
+                consolidateAlert.informativeText = "Would you like to copy this file into the project folder? This ensures the project remains portable."
+                consolidateAlert.addButton(withTitle: "Copy to Project")
+                consolidateAlert.addButton(withTitle: "Keep External Reference")
+
+                if consolidateAlert.runModal() == .alertFirstButtonReturn {
+                    // Copy the file to project Media folder
+                    if let copiedURL = copyFileToProject(sourceURL: newURL, projectURL: projectURL) {
+                        finalURL = copiedURL
+                    }
+                }
+            }
+
             // Update the reference
             switch info.type {
             case .mediaItem:
-                mediaLibrary.updateItemURL(id: info.id, newURL: newURL)
+                mediaLibrary.updateItemURL(id: info.id, newURL: finalURL)
             case .videoReel:
-                timelineManager.updateVideoReelURL(id: info.id, newURL: newURL)
+                timelineManager.updateVideoReelURL(id: info.id, newURL: finalURL)
             case .audioClip(let laneId):
-                timelineManager.updateAudioClipURL(clipId: info.id, inLane: laneId, newURL: newURL)
+                timelineManager.updateAudioClipURL(clipId: info.id, inLane: laneId, newURL: finalURL)
             }
             projectDocument.markDirty()
         }
@@ -850,6 +932,51 @@ struct ContentView: View {
             // All missing files handled, now load reels
             missingFiles = []
             loadProjectReels()
+        }
+    }
+
+    /// Copy a file to the project's Media folder
+    private func copyFileToProject(sourceURL: URL, projectURL: URL) -> URL? {
+        let mediaFolder = projectURL.appendingPathComponent("Media")
+        let fileManager = FileManager.default
+
+        // Create Media folder if needed
+        if !fileManager.fileExists(atPath: mediaFolder.path) {
+            do {
+                try fileManager.createDirectory(at: mediaFolder, withIntermediateDirectories: true)
+            } catch {
+                NSLog(">>> Failed to create Media folder: \(error)")
+                return nil
+            }
+        }
+
+        // Determine destination (handle duplicates)
+        let originalName = sourceURL.lastPathComponent
+        var destinationURL = mediaFolder.appendingPathComponent(originalName)
+        var counter = 1
+
+        while fileManager.fileExists(atPath: destinationURL.path) {
+            let nameWithoutExt = sourceURL.deletingPathExtension().lastPathComponent
+            let ext = sourceURL.pathExtension
+            destinationURL = mediaFolder.appendingPathComponent("\(nameWithoutExt)_\(counter).\(ext)")
+            counter += 1
+        }
+
+        do {
+            // Start security-scoped access
+            let didStartAccess = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if didStartAccess {
+                    sourceURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+            NSLog(">>> Copied missing file to project: \(destinationURL.lastPathComponent)")
+            return destinationURL
+        } catch {
+            NSLog(">>> Failed to copy file to project: \(error)")
+            return nil
         }
     }
 
