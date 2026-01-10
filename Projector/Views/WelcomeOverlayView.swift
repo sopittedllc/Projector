@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Welcome overlay shown to first-time users
 struct WelcomeOverlayView: View {
@@ -17,10 +18,10 @@ struct WelcomeOverlayView: View {
             VStack(spacing: 0) {
                 // Logo and title
                 VStack(spacing: 16) {
-                    Image("TitlebarLogo")
+                    Image(nsImage: NSApp.applicationIconImage)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(height: 64)
+                        .frame(width: 80, height: 80)
 
                     Text("Welcome to Projector!")
                         .font(.system(size: 28, weight: .bold, design: .rounded))
