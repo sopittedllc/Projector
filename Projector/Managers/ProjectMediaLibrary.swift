@@ -154,6 +154,15 @@ final class ProjectMediaLibrary: ObservableObject {
             thumbnailData = await generateThumbnail(for: asset)
         }
 
+        // Calculate bitrate from file size and duration
+        var bitrate: Int?
+        if duration.seconds > 0 {
+            let fileAttributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+            if let fileSize = fileAttributes?[.size] as? UInt64 {
+                bitrate = Int((Double(fileSize) * 8) / duration.seconds)
+            }
+        }
+
         let item = MediaItem(
             url: url,
             bookmark: bookmark,
@@ -163,6 +172,7 @@ final class ProjectMediaLibrary: ObservableObject {
             videoSize: videoSize,
             channelCount: channelCount,
             sampleRate: sampleRate,
+            bitrate: bitrate,
             thumbnailData: thumbnailData
         )
 
@@ -235,6 +245,7 @@ final class ProjectMediaLibrary: ObservableObject {
             videoSize: item.videoSize,
             channelCount: item.channelCount,
             sampleRate: item.sampleRate,
+            bitrate: item.bitrate,
             importedAt: item.importedAt,
             isOptimized: newIsOptimized,
             thumbnailData: item.thumbnailData

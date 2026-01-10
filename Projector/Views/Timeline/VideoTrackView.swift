@@ -52,20 +52,49 @@ struct VideoTrackView: View {
         Color.clear
             .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.videoTrackHeight)
             .overlay(
-                VStack(spacing: 3) {
+                VStack(spacing: 2) {
                     Text("Video")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.primary)
 
-                    Iconoir.videoCamera.asImage
-                        .frame(width: 14, height: 14)
-                        .foregroundColor(.secondary)
+                    // Show metadata for first reel if available
+                    if let firstReel = timelineManager.timeline.videoReels.first {
+                        videoMetadataView(for: firstReel)
+                    } else {
+                        Iconoir.videoCamera.asImage
+                            .frame(width: 14, height: 14)
+                            .foregroundColor(.secondary)
 
-                    Text(timelineManager.timeline.videoReels.isEmpty ? "No reels" : "\(timelineManager.timeline.videoReels.count) reel\(timelineManager.timeline.videoReels.count == 1 ? "" : "s")")
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary.opacity(timelineManager.timeline.videoReels.isEmpty ? 0.5 : 1.0))
+                        Text("No reels")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary.opacity(0.5))
+                    }
                 }
             )
+    }
+
+    @ViewBuilder
+    private func videoMetadataView(for reel: VideoReel) -> some View {
+        // Frame rate from reel
+        Text(String(format: "%.2f fps", reel.sourceFrameRate.fps))
+            .font(.system(size: 9, design: .monospaced))
+            .foregroundColor(.secondary)
+
+        // Bitrate from linked MediaItem
+        if let mediaItemId = reel.mediaItemId,
+           let item = mediaLibrary.items.first(where: { $0.id == mediaItemId }),
+           let bitrate = item.formattedBitrate {
+            Text(bitrate)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.secondary)
+        }
+
+        // Reel count
+        if timelineManager.timeline.videoReels.count > 1 {
+            Text("\(timelineManager.timeline.videoReels.count) reels")
+                .font(.system(size: 8))
+                .foregroundColor(.secondary.opacity(0.7))
+        }
     }
 
     // MARK: - Reels Area

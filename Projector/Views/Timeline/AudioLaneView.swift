@@ -88,7 +88,7 @@ struct AudioLaneView: View {
         Color.clear
             .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
             .overlay(
-                VStack(spacing: 4) {
+                VStack(spacing: 2) {
                     // Lane name (editable on double-click)
                     if isEditingName {
                         TextField("", text: $editedName)
@@ -120,6 +120,9 @@ struct AudioLaneView: View {
                         )
                     }
 
+                    // Audio metadata from first clip
+                    audioMetadataView
+
                     // Output mapping dropdown (compact)
                     outputMappingPicker
 
@@ -142,6 +145,27 @@ struct AudioLaneView: View {
                 }
                 .padding(.horizontal, 6)
             )
+    }
+
+    @ViewBuilder
+    private var audioMetadataView: some View {
+        if let firstClip = lane.clips.first {
+            HStack(spacing: 4) {
+                // Sample rate
+                Text(String(format: "%.0fkHz", firstClip.sampleRate / 1000))
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundColor(.secondary)
+
+                // Bitrate from linked MediaItem
+                if let mediaItemId = firstClip.mediaItemId,
+                   let item = mediaLibrary.items.first(where: { $0.id == mediaItemId }),
+                   let bitrate = item.formattedBitrate {
+                    Text(bitrate)
+                        .font(.system(size: 8, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
     }
 
     private func startNameEdit() {

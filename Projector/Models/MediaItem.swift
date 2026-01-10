@@ -52,6 +52,9 @@ struct MediaItem: Identifiable, Codable, Equatable {
     /// Audio sample rate (for audio files, or first audio track of video)
     let sampleRate: Double?
 
+    /// Bitrate in bits per second (estimated from file size / duration)
+    let bitrate: Int?
+
     /// Date the file was imported
     let importedAt: Date
 
@@ -101,6 +104,18 @@ struct MediaItem: Identifiable, Codable, Equatable {
         }
     }
 
+    /// Formatted bitrate string (e.g., "4.5 Mbps", "320 kbps")
+    var formattedBitrate: String? {
+        guard let bps = bitrate else { return nil }
+        if bps >= 1_000_000 {
+            return String(format: "%.1f Mbps", Double(bps) / 1_000_000)
+        } else if bps >= 1_000 {
+            return String(format: "%d kbps", bps / 1_000)
+        } else {
+            return "\(bps) bps"
+        }
+    }
+
     init(
         id: UUID = UUID(),
         url: URL,
@@ -111,6 +126,7 @@ struct MediaItem: Identifiable, Codable, Equatable {
         videoSize: CGSize? = nil,
         channelCount: Int? = nil,
         sampleRate: Double? = nil,
+        bitrate: Int? = nil,
         importedAt: Date = Date(),
         isOptimized: Bool = false,
         thumbnailData: Data? = nil
@@ -124,6 +140,7 @@ struct MediaItem: Identifiable, Codable, Equatable {
         self.videoSize = videoSize
         self.channelCount = channelCount
         self.sampleRate = sampleRate
+        self.bitrate = bitrate
         self.importedAt = importedAt
         self.isOptimized = isOptimized
         self.thumbnailData = thumbnailData
@@ -144,6 +161,7 @@ extension MediaItem {
         case videoHeight
         case channelCount
         case sampleRate
+        case bitrate
         case importedAt
         case isOptimized
     }
@@ -168,6 +186,7 @@ extension MediaItem {
 
         channelCount = try container.decodeIfPresent(Int.self, forKey: .channelCount)
         sampleRate = try container.decodeIfPresent(Double.self, forKey: .sampleRate)
+        bitrate = try container.decodeIfPresent(Int.self, forKey: .bitrate)
         importedAt = try container.decode(Date.self, forKey: .importedAt)
         isOptimized = try container.decodeIfPresent(Bool.self, forKey: .isOptimized) ?? false
         thumbnailData = nil
@@ -186,6 +205,7 @@ extension MediaItem {
         try container.encodeIfPresent(videoSize?.height, forKey: .videoHeight)
         try container.encodeIfPresent(channelCount, forKey: .channelCount)
         try container.encodeIfPresent(sampleRate, forKey: .sampleRate)
+        try container.encodeIfPresent(bitrate, forKey: .bitrate)
         try container.encode(importedAt, forKey: .importedAt)
         try container.encode(isOptimized, forKey: .isOptimized)
     }

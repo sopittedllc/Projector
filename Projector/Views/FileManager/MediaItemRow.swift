@@ -170,13 +170,13 @@ struct MediaItemRow: View {
     private var additionalInfo: some View {
         switch item.type {
         case .video:
-            if let dims = item.dimensionsString {
-                Text(dims)
+            if let fps = item.frameRate {
+                Text(String(format: "%.2ffps", fps))
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
-            if let fps = item.frameRate {
-                Text(String(format: "%.2ffps", fps))
+            if let bitrate = item.formattedBitrate {
+                Text(bitrate)
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
@@ -188,6 +188,11 @@ struct MediaItemRow: View {
             }
             if let rate = item.sampleRate {
                 Text(String(format: "%.0fkHz", rate / 1000))
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            if let bitrate = item.formattedBitrate {
+                Text(bitrate)
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }

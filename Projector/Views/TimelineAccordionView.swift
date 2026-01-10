@@ -61,6 +61,9 @@ struct TimelineAccordionView: View {
             // Content (only when expanded)
             if timelineViewModel.isExpanded {
                 timelineContent
+
+                // Hint text
+                timelineHint
             }
         }
         .frame(height: timelineViewModel.currentHeight, alignment: .top)
@@ -81,6 +84,19 @@ struct TimelineAccordionView: View {
             if timelineViewModel.isExpanded {
                 timelineResizeHandle
             }
+        }
+    }
+
+    // MARK: - Timeline Hint
+
+    private var timelineHint: some View {
+        HStack {
+            Spacer()
+            Text("Double-click regions to set custom timecode")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary.opacity(0.6))
+                .padding(.trailing, 12)
+                .padding(.bottom, 4)
         }
     }
 
