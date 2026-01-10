@@ -204,7 +204,6 @@ struct ContentView: View {
                 showVideoInsertSheet: $showVideoInsertSheet,
                 showSaveProjectSheet: $showSaveProjectSheet,
                 settingsView: AnyView(SettingsView(
-                    midiSync: midiSyncViewModel,
                     audioManager: audioManager,
                     isPresented: $showSettings
                 )),

@@ -1,16 +1,14 @@
 import SwiftUI
 import AppKit
 
-/// Settings window for MIDI, audio, and display configuration
+/// Settings window for audio and display configuration
 struct SettingsView: View {
-    @ObservedObject var midiSync: MIDISyncViewModel
     @ObservedObject var audioManager: AudioOutputManager
     @ObservedObject var settings = AppSettings.shared
 
     @Binding var isPresented: Bool
 
     // Accordion section states - default to expanded
-    @State private var midiExpanded = true
     @State private var audioExpanded = true
     @State private var displayExpanded = true
 
@@ -34,13 +32,8 @@ struct SettingsView: View {
             // Content
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    accordionSection(
-                        title: "MIDI",
-                        icon: "pianokeys",
-                        isExpanded: $midiExpanded
-                    ) {
-                        midiSectionContent
-                    }
+                    // MIDI Info Blurb
+                    midiInfoSection
 
                     accordionSection(
                         title: "Audio",
@@ -139,64 +132,28 @@ struct SettingsView: View {
         )
     }
 
-    // MARK: - MIDI Section
+    // MARK: - MIDI Info Section
 
-    private var midiSectionContent: some View {
+    private var midiInfoSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Input Source")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+            Label("MIDI", systemImage: "pianokeys")
+                .font(.headline)
 
-                HStack(spacing: 8) {
-                    Picker("MIDI Input", selection: Binding(
-                        get: { midiSync.selectedInputName },
-                        set: { newValue in
-                            Task {
-                                await midiSync.selectInput(newValue)
-                                // Save to settings when user changes selection
-                                settings.selectedMIDIInput = newValue ?? ""
-                            }
-                        }
-                    )) {
-                        Text("None").tag(nil as String?)
-                        ForEach(midiSync.availableInputs, id: \.self) { input in
-                            Text(input).tag(input as String?)
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-
-                    RefreshIconButton(helpText: "Refresh Inputs") {
-                        Task {
-                            await midiSync.refreshInputs()
-                        }
-                    }
-                    Spacer()
-                }
-            }
-
-            // MTC Status
-            HStack {
-                Circle()
-                    .fill(midiSync.isReceivingMTC ? Color.green : Color.gray)
-                    .frame(width: 8, height: 8)
-                Text(midiSync.syncStatusText)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Spacer()
-
-                if midiSync.isReceivingMTC {
-                    Text(midiSync.timecodeString)
-                        .font(.caption.monospaced())
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Toggle("Respond to MMC Commands", isOn: $settings.respondToMMC)
+            Text("On launch, Projector creates a \"Projector In\" MIDI port. Within your DAW, send MTC and MMC to that port and you're good to go!")
                 .font(.subheadline)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+        )
     }
 
     // MARK: - Audio Section
@@ -230,14 +187,14 @@ struct SettingsView: View {
                     }
 
                     Spacer()
-
-                    Button("Map Interface") {
-                        showInterfaceMapping = true
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.accentColor)
-                    .disabled(audioManager.selectedDeviceChannelCount == 0)
                 }
+
+                Button("Map Interface") {
+                    showInterfaceMapping = true
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.accentColor)
+                .disabled(audioManager.selectedDeviceChannelCount == 0)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -712,22 +669,8 @@ private extension AudioOutputMappingView {
 }
 
 #Preview {
-    struct PreviewWrapper: View {
-        @StateObject var midiSync: MIDISyncViewModel
-
-        init() {
-            let actor = MIDISyncActor()
-            self._midiSync = StateObject(wrappedValue: MIDISyncViewModel(service: actor))
-        }
-
-        var body: some View {
-            SettingsView(
-                midiSync: midiSync,
-                audioManager: AudioOutputManager(),
-                isPresented: .constant(true)
-            )
-        }
-    }
-
-    return PreviewWrapper()
+    SettingsView(
+        audioManager: AudioOutputManager(),
+        isPresented: .constant(true)
+    )
 }
