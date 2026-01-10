@@ -278,9 +278,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openProjectFromMenu)) { _ in
             showOpenProjectPanel()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .consolidateMedia)) { _ in
-            consolidateMedia()
-        }
+        // Note: .consolidateMedia notification is handled by FileManagerView
         .onOpenURL { url in
             NSLog(">>> ContentView.onOpenURL: %@", url.path)
             if url.pathExtension.lowercased() == "projector" {
@@ -544,8 +542,7 @@ struct ContentView: View {
                             onAddToVideoTrack: handleAddToVideoTrack,
                             onAddToAudioLane: handleAddToAudioLane,
                             onDeleteItems: handleDeleteMediaItems,
-                            onSaveProject: { saveProjectAs() },
-                            onConsolidateMedia: consolidateMedia
+                            onSaveProject: { saveProjectAs() }
                         )
                         .padding(.horizontal, Spacing.lg)
                         .padding(.top, Spacing.sm)

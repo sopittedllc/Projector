@@ -9,12 +9,12 @@ import SwiftUI
 
 /// Button that triggers consolidation of external media files
 struct ConsolidateMediaButton: View {
+    @Binding var showSheet: Bool
     let hasExternalFiles: Bool
-    let action: () -> Void
 
     var body: some View {
         if hasExternalFiles {
-            Button(action: action) {
+            Button(action: { showSheet = true }) {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.down.doc")
                         .font(.system(size: 10))

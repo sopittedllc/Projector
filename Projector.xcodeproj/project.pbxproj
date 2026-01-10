@@ -67,6 +67,7 @@
 		C1TIMELINE00000025 /* MediaItemRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000022 /* MediaItemRow.swift */; };
 		C1TIMELINE00000026 /* FileManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000023 /* FileManagerView.swift */; };
 		C1CONSOLID0001 /* ConsolidateMediaButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1CONSOLID0002 /* ConsolidateMediaButton.swift */; };
+		C1CONSOLID0003 /* ConsolidationSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1CONSOLID0004 /* ConsolidationSheetView.swift */; };
 		C1TIMELINE0000002C /* ThumbnailStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000002B /* ThumbnailStrip.swift */; };
 		C1LIQUIDGLASS0001 /* LiquidGlassStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1LIQUIDGLASS0002 /* LiquidGlassStyles.swift */; };
 		C1VISUALFX0000001 /* VisualEffectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1VISUALFX0000002 /* VisualEffectView.swift */; };
@@ -183,6 +184,7 @@
 		C1TIMELINE00000022 /* MediaItemRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaItemRow.swift; sourceTree = "<group>"; };
 		C1TIMELINE00000023 /* FileManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileManagerView.swift; sourceTree = "<group>"; };
 		C1CONSOLID0002 /* ConsolidateMediaButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidateMediaButton.swift; sourceTree = "<group>"; };
+		C1CONSOLID0004 /* ConsolidationSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidationSheetView.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000002B /* ThumbnailStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailStrip.swift; sourceTree = "<group>"; };
 		C1VISUALFX0000002 /* VisualEffectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEffectView.swift; sourceTree = "<group>"; };
 		C1LIQUIDGLASS0002 /* LiquidGlassStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidGlassStyles.swift; sourceTree = "<group>"; };
@@ -439,6 +441,7 @@
 				C1TIMELINE00000022 /* MediaItemRow.swift */,
 				C1TIMELINE00000023 /* FileManagerView.swift */,
 				C1CONSOLID0002 /* ConsolidateMediaButton.swift */,
+				C1CONSOLID0004 /* ConsolidationSheetView.swift */,
 			);
 			path = FileManager;
 			sourceTree = "<group>";
@@ -704,6 +707,7 @@
 				C1TIMELINE00000025 /* MediaItemRow.swift in Sources */,
 				C1TIMELINE00000026 /* FileManagerView.swift in Sources */,
 				C1CONSOLID0001 /* ConsolidateMediaButton.swift in Sources */,
+				C1CONSOLID0003 /* ConsolidationSheetView.swift in Sources */,
 				C1VISUALFX0000001 /* VisualEffectView.swift in Sources */,
 				C1LIQUIDGLASS0001 /* LiquidGlassStyles.swift in Sources */,
 				74EABBA338E34AE2882468C6 /* TimelineAccordionView.swift in Sources */,

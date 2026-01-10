@@ -12,12 +12,19 @@ struct FileManagerView: View {
     let onAddToAudioLane: (MediaItem, Int) -> Void
     let onDeleteItems: ([MediaItem]) -> Void
     let onSaveProject: () -> Void
-    let onConsolidateMedia: () -> Void
 
     /// Whether there are media files stored outside the project folder
     private var hasExternalFiles: Bool {
         guard let projectURL = projectDocument.fileURL else { return false }
         return !mediaLibrary.externalMediaItems(projectURL: projectURL).isEmpty
+    }
+
+    /// True if there are external files OR project isn't saved yet (so user sees button and gets save prompt)
+    private var showConsolidateButton: Bool {
+        // Show button if there are items and either project isn't saved or there are external files
+        guard !mediaLibrary.items.isEmpty else { return false }
+        if projectDocument.fileURL == nil { return true }
+        return hasExternalFiles
     }
     @EnvironmentObject private var dragContext: DragContext
 
@@ -34,12 +41,16 @@ struct FileManagerView: View {
     @State private var showDuplicateImportAlert = false
     @State private var duplicateImportNames: [String] = []
     @State private var showOptimizationSheet = false
+    @State private var showConsolidationSheet = false
 
     /// ViewModel for optimization - stored in @State to persist across re-renders
     @State private var optimizationViewModel: OptimizationViewModel?
 
     /// Flag to re-open optimization sheet after project is saved
     @State private var pendingOptimizationAfterSave = false
+
+    /// Flag to re-open consolidation sheet after project is saved
+    @State private var pendingConsolidationAfterSave = false
 
     // Focus state for keyboard commands
     @FocusState private var isMediaListFocused: Bool
@@ -121,19 +132,41 @@ struct FileManagerView: View {
                 NSLog(">>> FileManagerView: created new OptimizationViewModel")
             }
         }
+        // Consolidation sheet
+        .sheet(isPresented: $showConsolidationSheet) {
+            ConsolidationSheetView(
+                mediaLibrary: mediaLibrary,
+                projectDocument: projectDocument,
+                onSaveProject: onSaveProject,
+                onRequestConsolidationAfterSave: {
+                    pendingConsolidationAfterSave = true
+                }
+            )
+        }
+        // Handle File menu consolidation trigger
+        .onReceive(NotificationCenter.default.publisher(for: .consolidateMedia)) { _ in
+            showConsolidationSheet = true
+        }
         // Take focus when an item is selected
         .onChange(of: selectedItemIds) { _, newValue in
             if !newValue.isEmpty {
                 isMediaListFocused = true
             }
         }
-        // Re-open optimization sheet after project is saved
+        // Re-open optimization or consolidation sheet after project is saved
         .onChange(of: projectDocument.fileURL) { oldURL, newURL in
-            if oldURL == nil && newURL != nil && pendingOptimizationAfterSave {
-                pendingOptimizationAfterSave = false
-                // Small delay to ensure UI is ready
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    showOptimizationSheet = true
+            if oldURL == nil && newURL != nil {
+                if pendingOptimizationAfterSave {
+                    pendingOptimizationAfterSave = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        showOptimizationSheet = true
+                    }
+                }
+                if pendingConsolidationAfterSave {
+                    pendingConsolidationAfterSave = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        showConsolidationSheet = true
+                    }
                 }
             }
         }
@@ -217,10 +250,10 @@ struct FileManagerView: View {
                     hasUnoptimizedFiles: mediaLibrary.items.contains { !$0.isOptimized }
                 )
 
-                // Consolidate button (only show if there are external files)
+                // Consolidate button (only show if there are external files or project unsaved)
                 ConsolidateMediaButton(
-                    hasExternalFiles: hasExternalFiles,
-                    action: onConsolidateMedia
+                    showSheet: $showConsolidationSheet,
+                    hasExternalFiles: showConsolidateButton
                 )
 
                 // Import button
@@ -608,8 +641,7 @@ struct MediaGridCell: View {
                 onAddToVideoTrack: { _ in },
                 onAddToAudioLane: { _, _ in },
                 onDeleteItems: { _ in },
-                onSaveProject: { },
-                onConsolidateMedia: { }
+                onSaveProject: { }
             )
             .padding()
         }
