@@ -84,9 +84,9 @@ struct TimelineAccordionView: View {
             Text("Double-click regions to set custom timecode")
                 .font(.system(size: 10))
                 .foregroundColor(.secondary.opacity(0.6))
-                .padding(.trailing, 12)
+                .padding(.trailing, Spacing.md)
         }
-        .padding(.vertical, 10)
+        .frame(height: PanelLayout.footerHeight)
     }
 
     // MARK: - Accordion Header
@@ -126,8 +126,8 @@ struct TimelineAccordionView: View {
             .buttonStyle(GlassActionButtonStyle(tint: .accentColor))
             .help("Add a new audio lane")
         }
-        .frame(height: 40)
-        .padding(.horizontal, 12)
+        .frame(height: PanelLayout.headerHeight)
+        .padding(.horizontal, Spacing.md)
     }
 
     // MARK: - Timeline Content
@@ -152,13 +152,8 @@ struct TimelineAccordionView: View {
     private var timelineResizeHandle: some View {
         Rectangle()
             .fill(Color.clear)
-            .frame(height: 10)
+            .frame(height: 12)
             .contentShape(Rectangle())
-            .overlay {
-                Rectangle()
-                    .fill(isResizingTimeline ? Color.accentColor : Color.white.opacity(0.25))
-                    .frame(height: 1)
-            }
             .onHover { hovering in
                 guard !isResizingTimeline else { return }
                 if hovering, !isHoveringTimelineResize {

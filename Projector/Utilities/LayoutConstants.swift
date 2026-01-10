@@ -50,6 +50,32 @@ enum TimelineLayout {
     static let playheadTriangleHeight: CGFloat = 8
 }
 
+// MARK: - Panel Layout Best Practices
+// Standard dimensions for collapsible panels (Timeline, Media, etc.)
+// These ensure consistent visual rhythm across the app
+
+/// Standard panel layout constants - USE THESE for all collapsible panels
+enum PanelLayout {
+    /// Standard header height for all collapsible panels
+    /// Provides enough vertical space for buttons without crowding
+    static let headerHeight: CGFloat = 44
+
+    /// Standard footer height for hint text or status bars
+    static let footerHeight: CGFloat = 32
+
+    /// Minimum content area height
+    static let minContentHeight: CGFloat = 80
+
+    /// Standard corner radius for panels
+    static let cornerRadius: CGFloat = 8
+
+    /// Standard border width
+    static let borderWidth: CGFloat = 1
+
+    /// Standard border opacity
+    static let borderOpacity: CGFloat = 0.2
+}
+
 /// Zoom control constants
 enum ZoomConstants {
     /// Minimum zoom level
@@ -65,10 +91,10 @@ enum ZoomConstants {
 /// File manager panel constants
 enum FileManagerLayout {
     /// Height when collapsed (header only)
-    static let collapsedHeight: CGFloat = 32
+    static let collapsedHeight: CGFloat = PanelLayout.headerHeight
 
     /// Height when expanded
-    static let expandedHeight: CGFloat = 125
+    static let expandedHeight: CGFloat = 140
 
     /// Grid cell thumbnail size
     static let gridThumbnailWidth: CGFloat = 64
@@ -83,7 +109,7 @@ enum FileManagerLayout {
 /// Timeline section constants (in ContentView)
 enum TimelineSectionLayout {
     /// Height when collapsed
-    static let collapsedHeight: CGFloat = 32
+    static let collapsedHeight: CGFloat = PanelLayout.headerHeight
 
     /// Minimum height when expanded
     static let minHeight: CGFloat = 100
@@ -107,19 +133,32 @@ enum TransportLayout {
     static let controlBoxHeight: CGFloat = 48
 }
 
-/// Common spacing and padding
+/// Common spacing and padding - Best Practices
+/// Follow the 4pt grid system (4, 8, 12, 16, 20, 24...)
 enum Spacing {
-    /// Standard content padding
-    static let contentPadding: CGFloat = 12
+    /// Extra small spacing (4pt) - between tightly related items
+    static let xs: CGFloat = 4
 
-    /// Small spacing between controls
-    static let controlSpacing: CGFloat = 4
+    /// Small spacing (8pt) - between related controls
+    static let sm: CGFloat = 8
 
-    /// Medium spacing
-    static let medium: CGFloat = 8
+    /// Medium spacing (12pt) - standard content padding
+    static let md: CGFloat = 12
 
-    /// Large spacing
-    static let large: CGFloat = 16
+    /// Large spacing (16pt) - between sections
+    static let lg: CGFloat = 16
+
+    /// Extra large spacing (20pt) - major section breaks
+    static let xl: CGFloat = 20
+
+    /// 2X large spacing (24pt) - panel margins
+    static let xxl: CGFloat = 24
+
+    // Legacy aliases (for backward compatibility)
+    static let contentPadding: CGFloat = md
+    static let controlSpacing: CGFloat = xs
+    static let medium: CGFloat = sm
+    static let large: CGFloat = lg
 }
 
 // MARK: - TimecodeFrameRate Extension

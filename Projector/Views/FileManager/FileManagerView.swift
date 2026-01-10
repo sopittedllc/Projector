@@ -221,8 +221,8 @@ struct FileManagerView: View {
                 .buttonStyle(GlassActionButtonStyle(tint: .accentColor))
             }
         }
-        .frame(height: 40)
-        .padding(.horizontal, 12)
+        .frame(height: PanelLayout.headerHeight)
+        .padding(.horizontal, Spacing.md)
     }
 
     // MARK: - Filter Buttons
@@ -263,13 +263,14 @@ struct FileManagerView: View {
                 dropOverlay
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
     }
 
     private var emptyStateView: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Spacing.sm) {
             Iconoir.mediaVideo.asImage
                 .frame(width: 32, height: 32)
                 .foregroundColor(.secondary.opacity(0.5))
