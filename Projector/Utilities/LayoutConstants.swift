@@ -117,9 +117,9 @@ enum TimelineSectionLayout {
     /// Maximum height when expanded
     static let maxHeight: CGFloat = 500
 
-    /// Default height - sized to show Video track + 1 Audio lane
-    /// Calculation: header(44) + ruler(24) + video(60) + divider(1) + audio(60) + divider(1) + footer(32) = 222
-    static let defaultHeight: CGFloat = 222
+    /// Default height - sized to show Video track + 1 Audio lane without scrolling
+    /// Calculation: header(44) + ruler(24) + divider(1) + scrollContent(4+60+1+60+8=133) + footer(32) = 234
+    static let defaultHeight: CGFloat = 234
 }
 
 /// Media panel constants
