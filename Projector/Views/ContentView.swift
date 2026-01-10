@@ -149,6 +149,7 @@ struct ContentView: View {
     }
 
     // MARK: - UI State
+    @State private var showWelcomeOverlay = !AppSettings.shared.hasCompletedWelcome
     @State private var showSettings = false
     @State private var isLoadingMedia = false
     @State private var loadError: String?
@@ -236,6 +237,11 @@ struct ContentView: View {
             .frame(minWidth: 640, minHeight: 400)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(WindowGlassBackground())
+        .overlay {
+            if showWelcomeOverlay {
+                WelcomeOverlayView(isPresented: $showWelcomeOverlay)
+            }
+        }
         .navigationTitle("")
         .background(WindowTitleConfigurator(
             title: projectDocument.displayName,

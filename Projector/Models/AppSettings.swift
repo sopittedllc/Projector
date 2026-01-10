@@ -8,6 +8,11 @@ final class AppSettings: ObservableObject {
 
     static let shared = AppSettings()
 
+    // MARK: - Onboarding
+
+    /// Whether the user has completed the welcome overlay
+    @AppStorage("hasCompletedWelcome") var hasCompletedWelcome: Bool = false
+
     // MARK: - MIDI Settings
 
     /// Selected MIDI input source name
