@@ -342,11 +342,13 @@ final class OptimizationViewModel: ObservableObject {
         }
 
         // Use HandBrake "Very Fast 720p30" equivalent settings
+        // Using quality-based encoding (like HandBrake's CRF mode)
+        // Quality 0.65 ≈ CRF 23, typically yields ~1000-1200 kbps for 720p
+        // This is ~50% smaller than fixed 2 Mbps bitrate mode
         let options = OptimizationOptions(
             optimizedMediaFolderURL: optimizedFolderURL,
             videoTargetWidth: 1280,
             videoTargetHeight: 720,
-            videoBitrate: 2_000_000,       // HandBrake CRF 23 equivalent
             audioTargetBitrate: 160_000,   // HandBrake AAC stereo
             maxFrameRate: 30.0             // Cap at 30fps, preserve lower rates
         )

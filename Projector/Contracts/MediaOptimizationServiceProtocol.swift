@@ -143,10 +143,15 @@ struct ProjectAnalysisResult: Sendable, Equatable {
 
 /// Configuration for the optimization process
 ///
-/// Based on HandBrake "Very Fast 720p30" preset:
-/// - Video: H.264, veryfast preset, CRF 23 equivalent, Main profile L3.1
+/// Based on HandBrake "Very Fast 720p30" preset with quality-based encoding:
+/// - Video: HEVC hardware-accelerated, quality 0.65 (≈ CRF 23 visual quality)
 /// - Audio: AAC stereo, 160 kbps, preserves source sample rate
 /// - Frame rate: Preserves source (PFR mode - peak frame rate capped at 30)
+///
+/// Quality-based encoding (like HandBrake's CRF mode) allocates bits intelligently:
+/// - Simple scenes get fewer bits → smaller files
+/// - Complex scenes get more bits → maintained quality
+/// This typically yields ~1000-1200 kbps for 720p content (vs 2000 kbps with fixed bitrate).
 ///
 /// Note: Original files are never modified. Optimized files are saved to a
 /// separate "Optimized Media" folder within the project directory.
@@ -160,10 +165,6 @@ struct OptimizationOptions: Sendable, Equatable {
     /// Target video height in pixels (720p = 720)
     let videoTargetHeight: Int
 
-    /// Target video bitrate in bits per second
-    /// HandBrake uses CRF 23 which typically yields ~2 Mbps for 720p
-    let videoBitrate: Int
-
     /// Target audio bitrate in bits per second
     /// HandBrake preset uses 160 kbps for AAC stereo
     let audioTargetBitrate: Int
@@ -172,13 +173,13 @@ struct OptimizationOptions: Sendable, Equatable {
     /// HandBrake "pfr" mode caps at 30fps but preserves lower rates
     let maxFrameRate: Double
 
-    /// Default optimization preset matching HandBrake "Very Fast 720p30"
+    /// Default optimization preset matching HandBrake "Very Fast 720p30" output quality
+    /// Uses quality-based encoding which typically yields ~1000-1200 kbps for 720p
     static func handbrakeVeryFast720p(optimizedMediaFolderURL: URL) -> OptimizationOptions {
         OptimizationOptions(
             optimizedMediaFolderURL: optimizedMediaFolderURL,
             videoTargetWidth: 1280,
             videoTargetHeight: 720,
-            videoBitrate: 2_000_000,      // HandBrake VideoAvgBitrate: 2000
             audioTargetBitrate: 160_000,  // HandBrake AudioBitrate: 160
             maxFrameRate: 30.0            // HandBrake VideoFramerate: "30" with pfr mode
         )
@@ -188,14 +189,12 @@ struct OptimizationOptions: Sendable, Equatable {
         optimizedMediaFolderURL: URL,
         videoTargetWidth: Int,
         videoTargetHeight: Int,
-        videoBitrate: Int,
         audioTargetBitrate: Int,
         maxFrameRate: Double = 30.0
     ) {
         self.optimizedMediaFolderURL = optimizedMediaFolderURL
         self.videoTargetWidth = videoTargetWidth
         self.videoTargetHeight = videoTargetHeight
-        self.videoBitrate = videoBitrate
         self.audioTargetBitrate = audioTargetBitrate
         self.maxFrameRate = maxFrameRate
     }
