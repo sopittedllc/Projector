@@ -10,8 +10,20 @@ final class LicenseManager: ObservableObject {
 
     // MARK: - Published Properties
 
-    /// Whether the app is currently licensed
+    /// Whether the app is currently licensed (full license or active trial)
     @Published private(set) var isLicensed = false
+
+    /// Whether the user has a full (non-trial) license
+    @Published private(set) var hasFullLicense = false
+
+    /// Whether the user is currently in a trial period
+    @Published private(set) var isTrialActive = false
+
+    /// Number of days remaining in trial (0 if not in trial or expired)
+    @Published private(set) var trialDaysRemaining = 0
+
+    /// Whether a trial has been used (prevents multiple trials)
+    @Published private(set) var trialUsed = false
 
     /// Current license status message
     @Published private(set) var statusMessage = ""
@@ -30,6 +42,9 @@ final class LicenseManager: ObservableObject {
     /// Your Lemon Squeezy Product ID - verify responses match this
     private let expectedProductId = 0  // TODO: Set your product ID
 
+    /// Trial duration in days
+    private let trialDurationDays = 7
+
     // MARK: - Private Properties
 
     private let license = LemonSqueezyLicense()
@@ -39,11 +54,16 @@ final class LicenseManager: ObservableObject {
     private enum KeychainKey {
         static let licenseKey = "com.projector.licenseKey"
         static let instanceId = "com.projector.instanceId"
+        static let trialStartDate = "com.projector.trialStartDate"
+        static let trialEmail = "com.projector.trialEmail"
     }
 
     // MARK: - Initialization
 
     private init() {
+        // Check trial status synchronously first (for UI state)
+        checkTrialStatus()
+
         // Check if we have stored credentials on init
         Task {
             await checkExistingLicense()
@@ -76,6 +96,8 @@ final class LicenseManager: ObservableObject {
                     keychain.save(key: instanceId, forKey: KeychainKey.instanceId)
                 }
 
+                hasFullLicense = true
+                isTrialActive = false
                 isLicensed = true
                 statusMessage = "License activated successfully"
                 isLoading = false
@@ -112,13 +134,16 @@ final class LicenseManager: ObservableObject {
             let response = try await license.validate(key: key, instanceId: instanceId)
 
             if response.valid {
+                hasFullLicense = true
+                isTrialActive = false
                 isLicensed = true
                 statusMessage = "License valid"
                 isLoading = false
                 return true
             } else {
                 // License is no longer valid
-                isLicensed = false
+                hasFullLicense = false
+                isLicensed = isTrialActive  // Keep licensed if trial still active
                 statusMessage = "License invalid or expired"
                 isLoading = false
                 return false
@@ -176,12 +201,98 @@ final class LicenseManager: ObservableObject {
         }
     }
 
+    // MARK: - Trial Methods
+
+    /// Start a 7-day trial with the user's email
+    /// - Parameter email: User's email address (for tracking and mailing list)
+    /// - Returns: True if trial started successfully
+    func startTrial(email: String) -> Bool {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedEmail.isEmpty else {
+            errorMessage = "Please enter your email address"
+            return false
+        }
+
+        guard isValidEmail(trimmedEmail) else {
+            errorMessage = "Please enter a valid email address"
+            return false
+        }
+
+        // Check if trial was already used
+        if keychain.retrieve(forKey: KeychainKey.trialStartDate) != nil {
+            errorMessage = "Trial has already been used on this device"
+            return false
+        }
+
+        // Store trial start date and email
+        let startDate = ISO8601DateFormatter().string(from: Date())
+        keychain.save(key: startDate, forKey: KeychainKey.trialStartDate)
+        keychain.save(key: trimmedEmail, forKey: KeychainKey.trialEmail)
+
+        // Update state
+        checkTrialStatus()
+
+        statusMessage = "Trial started - \(trialDaysRemaining) days remaining"
+        return true
+    }
+
+    /// Check current trial status and update published properties
+    func checkTrialStatus() {
+        // Check if trial was ever started
+        guard let startDateString = keychain.retrieve(forKey: KeychainKey.trialStartDate),
+              let startDate = ISO8601DateFormatter().date(from: startDateString) else {
+            trialUsed = false
+            isTrialActive = false
+            trialDaysRemaining = 0
+            return
+        }
+
+        // Trial was used at some point
+        trialUsed = true
+
+        // Calculate days remaining
+        let calendar = Calendar.current
+        let now = Date()
+        let daysSinceStart = calendar.dateComponents([.day], from: startDate, to: now).day ?? 0
+        let remaining = trialDurationDays - daysSinceStart
+
+        if remaining > 0 {
+            isTrialActive = true
+            trialDaysRemaining = remaining
+            isLicensed = true
+            statusMessage = "\(remaining) day\(remaining == 1 ? "" : "s") left in trial"
+        } else {
+            isTrialActive = false
+            trialDaysRemaining = 0
+            // Don't set isLicensed = false here, let checkExistingLicense handle full license check
+        }
+    }
+
+    /// Get the email used for trial (if any)
+    var trialEmail: String? {
+        keychain.retrieve(forKey: KeychainKey.trialEmail)
+    }
+
     // MARK: - Private Methods
+
+    /// Validate email format
+    private func isValidEmail(_ email: String) -> Bool {
+        let emailRegex = #"^[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
+        return email.range(of: emailRegex, options: .regularExpression) != nil
+    }
 
     /// Check if we have an existing license on app launch
     private func checkExistingLicense() async {
+        // First check trial status
+        checkTrialStatus()
+
+        // Then check for full license
         guard keychain.retrieve(forKey: KeychainKey.licenseKey) != nil else {
-            isLicensed = false
+            // No full license - isLicensed is already set by checkTrialStatus if trial is active
+            if !isTrialActive {
+                isLicensed = false
+            }
             return
         }
 
