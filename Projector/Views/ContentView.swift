@@ -272,11 +272,9 @@ struct ContentView: View {
             handleUITestImportIfNeeded()
 
             // Check license status
-            #if !DEBUG
             if !licenseManager.isLicensed {
                 showLicenseOverlay = true
             }
-            #endif
 
             // Show welcome overlay if user hasn't completed it (and is licensed)
             if !AppSettings.shared.hasCompletedWelcome && !showLicenseOverlay {
