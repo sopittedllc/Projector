@@ -148,7 +148,11 @@ struct ContentView: View {
         self._timelineViewModel = StateObject(wrappedValue: TimelineViewModel(manager: manager))
     }
 
+    // MARK: - License
+    @StateObject private var licenseManager = LicenseManager.shared
+
     // MARK: - UI State
+    @State private var showLicenseOverlay = false
     @State private var showWelcomeOverlay = false
     @State private var showSettings = false
     @State private var isLoadingMedia = false
@@ -238,7 +242,12 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(WindowGlassBackground())
         .overlay {
-            if showWelcomeOverlay {
+            if showLicenseOverlay {
+                LicenseOverlayView(isPresented: $showLicenseOverlay)
+            }
+        }
+        .overlay {
+            if showWelcomeOverlay && !showLicenseOverlay {
                 WelcomeOverlayView(isPresented: $showWelcomeOverlay)
             }
         }
@@ -262,9 +271,26 @@ struct ContentView: View {
             restoreSettings()
             handleUITestImportIfNeeded()
 
-            // Show welcome overlay if user hasn't completed it
-            if !AppSettings.shared.hasCompletedWelcome {
+            // Check license status
+            #if !DEBUG
+            if !licenseManager.isLicensed {
+                showLicenseOverlay = true
+            }
+            #endif
+
+            // Show welcome overlay if user hasn't completed it (and is licensed)
+            if !AppSettings.shared.hasCompletedWelcome && !showLicenseOverlay {
                 showWelcomeOverlay = true
+            }
+        }
+        // Update license overlay when license status changes
+        .onChange(of: licenseManager.isLicensed) { _, isLicensed in
+            if isLicensed {
+                showLicenseOverlay = false
+                // Show welcome after license activation if not completed
+                if !AppSettings.shared.hasCompletedWelcome {
+                    showWelcomeOverlay = true
+                }
             }
         }
         // Sync unsaved changes state with AppDelegate for quit confirmation

@@ -1,5 +1,5 @@
 {
-  "originHash" : "7735562229f151b0bef4e6d523ab53dd1d821d3372c68fcf2c9f7cf38c35c399",
+  "originHash" : "ce319ce95c10eab0a0b5117345f37211ebbdf97f0b7e3bf15e2d9a97ba62cc88",
   "pins" : [
     {
       "identity" : "dswaveformimage",
@@ -26,6 +26,15 @@
       "state" : {
         "revision" : "8af8007269daea0d0cb3788427e63acd04a31a3b",
         "version" : "0.10.7"
+      }
+    },
+    {
+      "identity" : "swift-lemon-squeezy-license",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/kevinhermawan/swift-lemon-squeezy-license",
+      "state" : {
+        "revision" : "fbdecdcbf5056a1d3c786441a2ad5af3e2e633d5",
+        "version" : "1.0.1"
       }
     },
     {
