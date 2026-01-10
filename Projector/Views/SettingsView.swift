@@ -139,7 +139,7 @@ struct SettingsView: View {
             Label("MIDI", systemImage: "pianokeys")
                 .font(.headline)
 
-            Text("On launch, Projector creates a \"Projector In\" MIDI port. Within your DAW, send MTC and MMC to that port and you're good to go!")
+            Text("On launch, Projector creates a \"Projector MIDI IN\" port. Within your DAW, send MTC and MMC to that port and you're good to go!")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
