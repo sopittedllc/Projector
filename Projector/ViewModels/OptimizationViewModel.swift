@@ -265,11 +265,11 @@ final class OptimizationViewModel: ObservableObject {
     /// Start analyzing the project's media files
     func analyze() {
         guard state == .idle || state == .ready || state.isError else {
-            NSLog(">>> OptimizationViewModel.analyze: skipped - current state: \(state)")
+            debugPrint("OptimizationViewModel.analyze: skipped - current state: \(state)")
             return
         }
 
-        NSLog(">>> OptimizationViewModel.analyze: starting analysis")
+        debugPrint("OptimizationViewModel.analyze: starting analysis")
         state = .analyzing
         analysisResult = .empty
         selectedItemIds = []
@@ -277,15 +277,15 @@ final class OptimizationViewModel: ObservableObject {
         Task {
             do {
                 let items = mediaLibrary.items
-                NSLog(">>> OptimizationViewModel.analyze: analyzing \(items.count) items")
+                debugPrint("OptimizationViewModel.analyze: analyzing \(items.count) items")
                 let result = try await service.analyzeProject(mediaItems: items)
                 self.analysisResult = result
                 // Auto-select all items that need optimization
                 self.selectedItemIds = Set(result.itemsNeedingOptimization.map { $0.id })
-                NSLog(">>> OptimizationViewModel.analyze: complete - \(result.itemsNeedingOptimization.count) items need optimization")
+                debugPrint("OptimizationViewModel.analyze: complete - \(result.itemsNeedingOptimization.count) items need optimization")
                 self.state = .ready
             } catch {
-                NSLog(">>> OptimizationViewModel.analyze: error - \(error.localizedDescription)")
+                debugPrint("OptimizationViewModel.analyze: error - \(error.localizedDescription)")
                 self.state = .error("Analysis failed: \(error.localizedDescription)")
             }
         }
@@ -318,22 +318,22 @@ final class OptimizationViewModel: ObservableObject {
     /// Start the optimization process
     func startOptimization() {
         guard canOptimize else {
-            NSLog(">>> OptimizationViewModel.startOptimization: cannot optimize - canOptimize=false")
+            debugPrint("OptimizationViewModel.startOptimization: cannot optimize - canOptimize=false")
             return
         }
 
-        NSLog(">>> OptimizationViewModel.startOptimization: starting optimization")
+        debugPrint("OptimizationViewModel.startOptimization: starting optimization")
         state = .optimizing
         progress = nil
         result = nil
         optimizationStartTime = Date()
 
         let itemsToOptimize = selectedItemsToOptimize
-        NSLog(">>> OptimizationViewModel.startOptimization: \(itemsToOptimize.count) items to optimize")
+        debugPrint("OptimizationViewModel.startOptimization: \(itemsToOptimize.count) items to optimize")
 
         // Ensure we have a valid optimized media folder URL
         guard let optimizedFolderURL = optimizedMediaFolderURL else {
-            NSLog(">>> OptimizationViewModel.startOptimization: cannot optimize - no optimizedMediaFolderURL")
+            debugPrint("OptimizationViewModel.startOptimization: cannot optimize - no optimizedMediaFolderURL")
             state = .error("Project must be saved before optimizing media")
             return
         }
@@ -362,24 +362,24 @@ final class OptimizationViewModel: ObservableObject {
                     }
                 )
 
-                NSLog(">>> OptimizationViewModel.startOptimization: optimization complete - updating references")
+                debugPrint("OptimizationViewModel.startOptimization: optimization complete - updating references")
                 // Update media library and timeline references
                 await updateReferences(from: result)
 
-                NSLog(">>> OptimizationViewModel.startOptimization: setting state to complete - optimized: \(result.optimizedCount), failed: \(result.failedCount)")
+                debugPrint("OptimizationViewModel.startOptimization: setting state to complete - optimized: \(result.optimizedCount), failed: \(result.failedCount)")
                 self.result = result
                 self.state = .complete
                 self.optimizationStartTime = nil
             } catch is CancellationError {
-                NSLog(">>> OptimizationViewModel.startOptimization: cancelled")
+                debugPrint("OptimizationViewModel.startOptimization: cancelled")
                 self.state = .idle
                 self.optimizationStartTime = nil
             } catch let error as MediaOptimizationError {
-                NSLog(">>> OptimizationViewModel.startOptimization: MediaOptimizationError - \(error.localizedDescription)")
+                debugPrint("OptimizationViewModel.startOptimization: MediaOptimizationError - \(error.localizedDescription)")
                 self.state = .error(error.localizedDescription)
                 self.optimizationStartTime = nil
             } catch {
-                NSLog(">>> OptimizationViewModel.startOptimization: error - \(error.localizedDescription)")
+                debugPrint("OptimizationViewModel.startOptimization: error - \(error.localizedDescription)")
                 self.state = .error("Optimization failed: \(error.localizedDescription)")
                 self.optimizationStartTime = nil
             }
@@ -388,8 +388,8 @@ final class OptimizationViewModel: ObservableObject {
 
     /// Cancel the current optimization
     func cancel() {
-        NSLog(">>> OptimizationViewModel.cancel: called")
-        NSLog(">>> OptimizationViewModel.cancel: stack trace: \(Thread.callStackSymbols.prefix(10).joined(separator: "\n"))")
+        debugPrint("OptimizationViewModel.cancel: called")
+        debugPrint("OptimizationViewModel.cancel: stack trace: \(Thread.callStackSymbols.prefix(10).joined(separator: "\n"))")
         optimizationTask?.cancel()
         optimizationTask = nil
         optimizationStartTime = nil
@@ -401,8 +401,8 @@ final class OptimizationViewModel: ObservableObject {
 
     /// Reset to initial state
     func reset() {
-        NSLog(">>> OptimizationViewModel.reset: called")
-        NSLog(">>> OptimizationViewModel.reset: stack trace: \(Thread.callStackSymbols.prefix(10).joined(separator: "\n"))")
+        debugPrint("OptimizationViewModel.reset: called")
+        debugPrint("OptimizationViewModel.reset: stack trace: \(Thread.callStackSymbols.prefix(10).joined(separator: "\n"))")
         cancel()
         state = .idle
         analysisResult = .empty
@@ -414,10 +414,10 @@ final class OptimizationViewModel: ObservableObject {
     // MARK: - Private Helpers
 
     private func updateReferences(from result: OptimizationResult) async {
-        NSLog(">>> OptimizationViewModel.updateReferences: updating \(result.successfulItems.count) items")
+        debugPrint("OptimizationViewModel.updateReferences: updating \(result.successfulItems.count) items")
         // Update media library URLs and mark as optimized
         for item in result.successfulItems {
-            NSLog(">>> OptimizationViewModel.updateReferences: updating mediaItemId=\(item.mediaItemId), newURL=\(item.optimizedURL.lastPathComponent)")
+            debugPrint("OptimizationViewModel.updateReferences: updating mediaItemId=\(item.mediaItemId), newURL=\(item.optimizedURL.lastPathComponent)")
             mediaLibrary.updateItemURL(
                 id: item.mediaItemId,
                 newURL: item.optimizedURL,
@@ -426,7 +426,7 @@ final class OptimizationViewModel: ObservableObject {
             )
             // Verify update
             if let updated = mediaLibrary.items.first(where: { $0.id == item.mediaItemId }) {
-                NSLog(">>> OptimizationViewModel.updateReferences: VERIFIED - mediaItemId=\(item.mediaItemId), isOptimized=\(updated.isOptimized)")
+                debugPrint("OptimizationViewModel.updateReferences: VERIFIED - mediaItemId=\(item.mediaItemId), isOptimized=\(updated.isOptimized)")
             }
         }
 

@@ -80,7 +80,7 @@ final class WaveformCache: ObservableObject {
                 self.pendingCount -= 1
                 self.updateGeneratingState()
             } catch {
-                NSLog(">>> WaveformCache: Failed to generate waveform for clip \(clipId): \(error)")
+                debugPrint("WaveformCache: Failed to generate waveform for clip \(clipId): \(error)")
                 self.generationTasks.removeValue(forKey: clipId)
                 self.pendingCount -= 1
                 self.updateGeneratingState()
@@ -284,7 +284,7 @@ final class WaveformCache: ObservableObject {
                     duration: durationSeconds
                 )
             } catch {
-                NSLog(">>> WaveformCache: Failed to generate waveform for track \(index): \(error)")
+                debugPrint("WaveformCache: Failed to generate waveform for track \(index): \(error)")
             }
 
             progress = Double(index + 1) * trackProgress

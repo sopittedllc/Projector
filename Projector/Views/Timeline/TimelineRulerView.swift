@@ -8,7 +8,7 @@ struct TimelineRulerView: View {
     let currentTime: Double
 
     /// Height of the ruler
-    private let rulerHeight: CGFloat = 24
+    private let rulerHeight: CGFloat = TimelineLayout.rulerHeight
 
     var body: some View {
         GeometryReader { geometry in
@@ -80,7 +80,7 @@ struct TimelineRulerView: View {
 
         // Choose interval based on available space
         // We want major labels roughly every 80-120 pixels
-        let targetPixelsPerMajor: CGFloat = 100
+        let targetPixelsPerMajor: CGFloat = TimelineLayout.targetPixelsPerMajor
 
         let idealInterval = Double(targetPixelsPerMajor / pixelsPerSecond)
 

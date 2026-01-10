@@ -228,12 +228,12 @@ final class ProjectMediaLibrary: ObservableObject {
     ///   - newBookmark: Optional pre-created bookmark (created if nil)
     func updateItemURL(id: UUID, newURL: URL, newBookmark: Data? = nil, isOptimized: Bool? = nil) {
         guard let index = items.firstIndex(where: { $0.id == id }) else {
-            NSLog(">>> ProjectMediaLibrary.updateItemURL: item not found for id=\(id)")
+            debugPrint("ProjectMediaLibrary.updateItemURL: item not found for id=\(id)")
             return
         }
         let item = items[index]
         let newIsOptimized = isOptimized ?? item.isOptimized
-        NSLog(">>> ProjectMediaLibrary.updateItemURL: id=\(id), oldURL=\(item.url.lastPathComponent), newURL=\(newURL.lastPathComponent), oldIsOptimized=\(item.isOptimized), newIsOptimized=\(newIsOptimized)")
+        debugPrint("ProjectMediaLibrary.updateItemURL: id=\(id), oldURL=\(item.url.lastPathComponent), newURL=\(newURL.lastPathComponent), oldIsOptimized=\(item.isOptimized), newIsOptimized=\(newIsOptimized)")
 
         let bookmark = newBookmark ?? (try? newURL.bookmarkData(options: .withSecurityScope))
 
@@ -252,7 +252,7 @@ final class ProjectMediaLibrary: ObservableObject {
             isOptimized: newIsOptimized,
             thumbnailData: item.thumbnailData
         )
-        NSLog(">>> ProjectMediaLibrary.updateItemURL: UPDATED - items[\(index)].isOptimized = \(items[index].isOptimized)")
+        debugPrint("ProjectMediaLibrary.updateItemURL: UPDATED - items[\(index)].isOptimized = \(items[index].isOptimized)")
         markDirty()
     }
 
@@ -281,7 +281,7 @@ final class ProjectMediaLibrary: ObservableObject {
                 return true
             }
         } catch {
-            NSLog(">>> ProjectMediaLibrary: Failed to refresh access: \(error)")
+            debugPrint("ProjectMediaLibrary: Failed to refresh access: \(error)")
         }
 
         return false
@@ -474,12 +474,12 @@ final class ProjectMediaLibrary: ObservableObject {
                 updateItemURL(id: item.id, newURL: destinationURL, newBookmark: newBookmark)
 
                 copiedCount += 1
-                NSLog(">>> Consolidated: \(originalName) -> \(destinationURL.lastPathComponent)")
+                debugPrint("Consolidated: \(originalName) -> \(destinationURL.lastPathComponent)")
 
             } catch {
                 failedCount += 1
                 errors.append("\(item.displayName): \(error.localizedDescription)")
-                NSLog(">>> Failed to consolidate \(originalName): \(error)")
+                debugPrint("Failed to consolidate \(originalName): \(error)")
             }
         }
 

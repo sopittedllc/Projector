@@ -174,7 +174,7 @@ final class ProjectDocument: ObservableObject {
     /// Save project to the specified URL (as a package directory)
     func save(to url: URL) throws {
         let data = try encode()
-        NSLog(">>> ProjectDocument.save: saving to %@", url.path)
+        debugPrint("ProjectDocument.save: saving to %@", url.path)
 
         // Create package directory if it doesn't exist
         let fileManager = FileManager.default
@@ -200,7 +200,7 @@ final class ProjectDocument: ObservableObject {
 
     /// Load project from the specified URL (package directory)
     func load(from url: URL) throws {
-        NSLog(">>> ProjectDocument.load: loading from %@", url.path)
+        debugPrint("ProjectDocument.load: loading from %@", url.path)
 
         // Read project data from inside the package
         let dataURL = url.appendingPathComponent(Self.projectDataFilename)

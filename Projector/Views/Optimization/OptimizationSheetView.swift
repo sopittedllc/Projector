@@ -56,21 +56,21 @@ struct OptimizationSheetView: View {
             }
         }
         .onAppear {
-            NSLog(">>> OptimizationSheetView: onAppear - projectURL: \(String(describing: projectDocument.fileURL)), isProjectSaved: \(viewModel.isProjectSaved), state: \(viewModel.state)")
-            NSLog(">>> OptimizationSheetView: media library has \(viewModel.analysisResult.items.count) items analyzed")
+            debugPrint("OptimizationSheetView: onAppear - projectURL: \(String(describing: projectDocument.fileURL)), isProjectSaved: \(viewModel.isProjectSaved), state: \(viewModel.state)")
+            debugPrint("OptimizationSheetView: media library has \(viewModel.analysisResult.items.count) items analyzed")
             // Only analyze if project is saved
             if viewModel.isProjectSaved && viewModel.state == .idle {
-                NSLog(">>> OptimizationSheetView: calling analyze()")
+                debugPrint("OptimizationSheetView: calling analyze()")
                 viewModel.analyze()
             } else {
-                NSLog(">>> OptimizationSheetView: NOT calling analyze() - isProjectSaved: \(viewModel.isProjectSaved), state: \(viewModel.state)")
+                debugPrint("OptimizationSheetView: NOT calling analyze() - isProjectSaved: \(viewModel.isProjectSaved), state: \(viewModel.state)")
             }
         }
         .onChange(of: viewModel.state) { oldState, newState in
-            NSLog(">>> OptimizationSheetView: state changed from \(oldState) to \(newState)")
+            debugPrint("OptimizationSheetView: state changed from \(oldState) to \(newState)")
         }
         .onChange(of: projectDocument.fileURL) { oldURL, newURL in
-            NSLog(">>> OptimizationSheetView: projectDocument.fileURL changed from \(String(describing: oldURL)) to \(String(describing: newURL))")
+            debugPrint("OptimizationSheetView: projectDocument.fileURL changed from \(String(describing: oldURL)) to \(String(describing: newURL))")
         }
     }
 
@@ -508,11 +508,11 @@ struct OptimizationSheetView: View {
         // Treat as directory (package)
         panel.treatsFilePackagesAsDirectories = false
 
-        NSLog(">>> OptimizationSheetView.showSavePanel: opening save panel")
+        debugPrint("OptimizationSheetView.showSavePanel: opening save panel")
 
         // Find the main application window (not the sheet)
         guard let mainWindow = NSApp.windows.first(where: { $0.isVisible && !$0.isSheet }) else {
-            NSLog(">>> OptimizationSheetView.showSavePanel: could not find main window, falling back to runModal")
+            debugPrint("OptimizationSheetView.showSavePanel: could not find main window, falling back to runModal")
             // Fallback to runModal if we can't find a window
             if panel.runModal() == .OK, let fileURL = panel.url {
                 saveProjectToURL(fileURL)
@@ -520,14 +520,14 @@ struct OptimizationSheetView: View {
             return
         }
 
-        NSLog(">>> OptimizationSheetView.showSavePanel: showing as sheet on main window")
+        debugPrint("OptimizationSheetView.showSavePanel: showing as sheet on main window")
 
         // Show as sheet on the main window - this grants sandbox permissions
         panel.beginSheetModal(for: mainWindow) { [weak projectDocument] response in
             if response == .OK, let fileURL = panel.url, let document = projectDocument {
                 Self.performSave(document: document, to: fileURL)
             } else {
-                NSLog(">>> OptimizationSheetView.showSavePanel: user cancelled")
+                debugPrint("OptimizationSheetView.showSavePanel: user cancelled")
             }
         }
     }
@@ -539,7 +539,7 @@ struct OptimizationSheetView: View {
 
     /// Static method to perform save (allows use from closure)
     private static func performSave(document: ProjectDocument, to fileURL: URL) {
-        NSLog(">>> OptimizationSheetView: saving to \(fileURL.path)")
+        debugPrint("OptimizationSheetView: saving to \(fileURL.path)")
 
         // Ensure the file has .projector extension
         var saveURL = fileURL
@@ -550,9 +550,9 @@ struct OptimizationSheetView: View {
         do {
             // Save the project to the selected location
             try document.save(to: saveURL)
-            NSLog(">>> OptimizationSheetView: project saved to \(saveURL.path)")
+            debugPrint("OptimizationSheetView: project saved to \(saveURL.path)")
         } catch {
-            NSLog(">>> OptimizationSheetView: save failed - \(error.localizedDescription)")
+            debugPrint("OptimizationSheetView: save failed - \(error.localizedDescription)")
         }
     }
 }

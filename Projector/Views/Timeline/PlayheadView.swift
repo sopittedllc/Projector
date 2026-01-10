@@ -8,11 +8,11 @@ struct PlayheadView: View {
     let totalHeight: CGFloat
 
     /// Header width - must match other timeline views
-    private let headerWidth: CGFloat = 80
+    private let headerWidth: CGFloat = TimelineLayout.playheadHeaderWidth
 
     /// Triangle dimensions
-    private let triangleWidth: CGFloat = 10
-    private let triangleHeight: CGFloat = 8
+    private let triangleWidth: CGFloat = TimelineLayout.playheadTriangleWidth
+    private let triangleHeight: CGFloat = TimelineLayout.playheadTriangleHeight
 
     var body: some View {
         let xPosition = CGFloat(currentFrame) * pixelsPerFrame - scrollOffset + headerWidth
@@ -51,7 +51,7 @@ struct PlayheadOverlayView: View {
     @State private var isDragging = false
 
     /// Header width - must match other timeline views
-    private let headerWidth: CGFloat = 80
+    private let headerWidth: CGFloat = TimelineLayout.playheadHeaderWidth
 
     var body: some View {
         ZStack(alignment: .leading) {

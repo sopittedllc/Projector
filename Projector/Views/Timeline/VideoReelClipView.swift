@@ -15,9 +15,9 @@ struct VideoReelClipView: View {
     let onDoubleClick: () -> Void
 
     /// Clip height (fits within 50px track with padding)
-    private let clipHeight: CGFloat = 42  // TODO: Use TimelineLayout.videoClipHeight after adding to Xcode project
+    private let clipHeight: CGFloat = TimelineLayout.videoClipHeight
     /// Width of each thumbnail in the filmstrip
-    private let thumbnailWidth: CGFloat = 48  // TODO: Use TimelineLayout.thumbnailWidth after adding to Xcode project
+    private let thumbnailWidth: CGFloat = TimelineLayout.thumbnailWidth
 
     var body: some View {
         let clipContent = ZStack(alignment: .leading) {

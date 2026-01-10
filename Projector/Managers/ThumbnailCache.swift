@@ -76,7 +76,7 @@ final class ThumbnailCache: ObservableObject {
                     self.generationTasks.removeValue(forKey: key)
                 }
             } catch {
-                NSLog(">>> ThumbnailCache: Failed to generate thumbnails for \(reel.id): \(error)")
+                debugPrint("ThumbnailCache: Failed to generate thumbnails for \(reel.id): \(error)")
                 await MainActor.run { () -> Void in
                     self.generationTasks.removeValue(forKey: key)
                 }

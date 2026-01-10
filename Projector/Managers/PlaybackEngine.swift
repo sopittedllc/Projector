@@ -108,6 +108,12 @@ final class PlaybackEngine: ObservableObject {
     /// Cached extracted audio files for video tracks
     private var extractedAudioCache: [AudioExtractionKey: URL] = [:]
 
+    /// Access order for LRU eviction of extracted audio cache
+    private var extractedAudioAccessOrder: [AudioExtractionKey] = []
+
+    /// Maximum number of extracted audio files to cache
+    private let maxExtractedAudioCacheSize = 10
+
     /// Pending audio extractions to prevent race conditions
     private var pendingExtractions: [AudioExtractionKey: Task<URL, Error>] = [:]
 
@@ -321,7 +327,7 @@ final class PlaybackEngine: ObservableObject {
         preloadPlayer?.audioOutputDeviceUniqueID = deviceUID
         updateAudioOutputDeviceSettings()
 
-        NSLog(">>> setAudioOutputDevice: UID=\(deviceUID ?? "nil"), DeviceID=\(audioOutputDeviceID ?? 0), Channels=\(audioOutputChannelCount)")
+        debugPrint("setAudioOutputDevice: UID=\(deviceUID ?? "nil"), DeviceID=\(audioOutputDeviceID ?? 0), Channels=\(audioOutputChannelCount)")
 
         reconfigureAudioEngineForOutputChange()
     }
@@ -337,7 +343,7 @@ final class PlaybackEngine: ObservableObject {
         }
 
         // Use source URL directly - security access is managed by TimelineManager
-        NSLog(">>> getAsset: using source URL for \(reel.displayName)")
+        debugPrint("getAsset: using source URL for \(reel.displayName)")
         let asset = AVAsset(url: reel.sourceURL)
         assetCache[reel.id] = asset
         return asset
@@ -404,7 +410,7 @@ final class PlaybackEngine: ObservableObject {
                     self.preloadPlayer = player
                 }
             } catch {
-                NSLog(">>> PlaybackEngine: Failed to preload reel: \(error)")
+                debugPrint("PlaybackEngine: Failed to preload reel: \(error)")
             }
         }
     }
@@ -494,15 +500,15 @@ final class PlaybackEngine: ObservableObject {
         let activeClips = timeline.activeAudioClips(at: currentFrame)
         let totalClips = timeline.audioLanes.flatMap { $0.clips }.count
 
-        NSLog(">>> startActiveAudioClips: frame=\(currentFrame), activeClips=\(activeClips.count), totalClips=\(totalClips), lanes=\(timeline.audioLanes.count)")
+        debugPrint("startActiveAudioClips: frame=\(currentFrame), activeClips=\(activeClips.count), totalClips=\(totalClips), lanes=\(timeline.audioLanes.count)")
 
         guard !activeClips.isEmpty else {
-            NSLog(">>> startActiveAudioClips: no active clips at current frame")
+            debugPrint("startActiveAudioClips: no active clips at current frame")
             return
         }
 
         for (lane, clip) in activeClips {
-            NSLog(">>> startActiveAudioClips: loading clip \(clip.id) from lane \(lane.name)")
+            debugPrint("startActiveAudioClips: loading clip \(clip.id) from lane \(lane.name)")
             if let playback = audioPlayers[clip.id] {
                 syncAudioPlayer(playback, for: clip, lane: lane, shouldPlay: isPlaying)
             } else {
@@ -530,7 +536,7 @@ final class PlaybackEngine: ObservableObject {
 
         loadingClipIds.insert(clip.id)
 
-        NSLog(">>> loadAudioClip: starting for clip \(clip.id), sourceType=\(clip.sourceType)")
+        debugPrint("loadAudioClip: starting for clip \(clip.id), sourceType=\(clip.sourceType)")
         let clipSnapshot = clip
         let laneSnapshot = lane
         Task.detached(priority: .userInitiated) { [weak self] in
@@ -541,11 +547,11 @@ final class PlaybackEngine: ObservableObject {
                     // Use pre-extracted audio if available (fast path)
                     if let extractedURL = clipSnapshot.extractedAudioURL,
                        FileManager.default.fileExists(atPath: extractedURL.path) {
-                        NSLog(">>> loadAudioClip: using pre-extracted audio at \(extractedURL.lastPathComponent)")
+                        debugPrint("loadAudioClip: using pre-extracted audio at \(extractedURL.lastPathComponent)")
                         sourceURL = extractedURL
                     } else {
                         // Fallback to extraction (slow path, may fail due to security context)
-                        NSLog(">>> loadAudioClip: extracting audio from video track (fallback)")
+                        debugPrint("loadAudioClip: extracting audio from video track (fallback)")
                         sourceURL = try await self.getExtractedAudioURL(for: clipSnapshot)
                     }
                 } else {
@@ -565,7 +571,7 @@ final class PlaybackEngine: ObservableObject {
                     )
                 }
             } catch {
-                NSLog(">>> PlaybackEngine: Failed to load audio clip: \(error)")
+                debugPrint("PlaybackEngine: Failed to load audio clip: \(error)")
                 await MainActor.run {
                     self.loadingClipIds.remove(clipSnapshot.id)
                     self.failedClipCooldowns[clipSnapshot.id] = Date() // Start cooldown
@@ -585,6 +591,8 @@ final class PlaybackEngine: ObservableObject {
         let taskToAwait: Task<URL, Error> = await MainActor.run {
             // Check cache first
             if let cached = self.extractedAudioCache[key] {
+                // Update LRU access order
+                self.updateExtractedAudioAccessOrder(key)
                 return Task { cached }
             }
 
@@ -604,7 +612,7 @@ final class PlaybackEngine: ObservableObject {
         do {
             let extractedURL = try await taskToAwait.value
             await MainActor.run {
-                self.extractedAudioCache[key] = extractedURL
+                self.addToExtractedAudioCache(key: key, url: extractedURL)
                 self.pendingExtractions.removeValue(forKey: key)
             }
             return extractedURL
@@ -614,6 +622,41 @@ final class PlaybackEngine: ObservableObject {
             }
             throw error
         }
+    }
+
+    /// Add to extracted audio cache with LRU eviction
+    private func addToExtractedAudioCache(key: AudioExtractionKey, url: URL) {
+        // Remove oldest entries if at capacity
+        while extractedAudioCache.count >= maxExtractedAudioCacheSize,
+              let oldestKey = extractedAudioAccessOrder.first {
+            evictExtractedAudioCacheEntry(oldestKey)
+        }
+
+        extractedAudioCache[key] = url
+        extractedAudioAccessOrder.append(key)
+    }
+
+    /// Update access order for LRU tracking
+    private func updateExtractedAudioAccessOrder(_ key: AudioExtractionKey) {
+        extractedAudioAccessOrder.removeAll { $0 == key }
+        extractedAudioAccessOrder.append(key)
+    }
+
+    /// Evict a single cache entry and delete its temp file
+    private func evictExtractedAudioCacheEntry(_ key: AudioExtractionKey) {
+        if let url = extractedAudioCache.removeValue(forKey: key) {
+            try? FileManager.default.removeItem(at: url)
+        }
+        extractedAudioAccessOrder.removeAll { $0 == key }
+    }
+
+    /// Clear all extracted audio cache entries and their temp files
+    private func clearExtractedAudioCache() {
+        for url in extractedAudioCache.values {
+            try? FileManager.default.removeItem(at: url)
+        }
+        extractedAudioCache.removeAll()
+        extractedAudioAccessOrder.removeAll()
     }
 
     /// Stop all audio clips
@@ -740,7 +783,7 @@ final class PlaybackEngine: ObservableObject {
         // Create multi-channel output format for MatrixMixer -> MainMixer connection
         // This must use the device's channel count to enable routing to outputs 3-6
         let desiredOutputChannels = AVAudioChannelCount(max(2, audioOutputChannelCount))
-        NSLog(">>> buildAudioPlayback: audioOutputChannelCount=\(audioOutputChannelCount), desiredOutputChannels=\(desiredOutputChannels), sourceSampleRate=\(sourceSampleRate)")
+        debugPrint("buildAudioPlayback: audioOutputChannelCount=\(audioOutputChannelCount), desiredOutputChannels=\(desiredOutputChannels), sourceSampleRate=\(sourceSampleRate)")
 
         // For >2 channels, AVAudioFormat requires a channel layout
         // Use Unknown layout tag for multi-output audio interfaces (DiscreteInOrder causes silent output)
@@ -751,16 +794,16 @@ final class PlaybackEngine: ObservableObject {
             if let channelLayout = AVAudioChannelLayout(layoutTag: layoutTag) {
                 let format = AVAudioFormat(standardFormatWithSampleRate: sourceSampleRate, channelLayout: channelLayout)
                 multiChannelOutputFormat = format
-                NSLog(">>> Created \(desiredOutputChannels)-channel format with Unknown layout at \(sourceSampleRate)Hz")
+                debugPrint("Created \(desiredOutputChannels)-channel format with Unknown layout at \(sourceSampleRate)Hz")
             } else {
                 // Fallback: try using the main mixer's output format
                 let mixerFormat = audioEngine.mainMixerNode.outputFormat(forBus: 0)
                 if mixerFormat.channelCount >= desiredOutputChannels {
                     multiChannelOutputFormat = mixerFormat
-                    NSLog(">>> Using mainMixerNode format: \(mixerFormat.channelCount) channels")
+                    debugPrint("Using mainMixerNode format: \(mixerFormat.channelCount) channels")
                 } else {
                     multiChannelOutputFormat = intermediateFormat
-                    NSLog(">>> WARNING: Falling back to intermediate format (\(intermediateFormat.channelCount) channels)")
+                    debugPrint("WARNING: Falling back to intermediate format (\(intermediateFormat.channelCount) channels)")
                 }
             }
         } else {
@@ -775,7 +818,7 @@ final class PlaybackEngine: ObservableObject {
         audioEngine.attach(matrixMixer)
 
         // Debug: log format information
-        NSLog(">>> Audio formats - Source: \(inputFormat.sampleRate)Hz/\(inputFormat.channelCount)ch, " +
+        debugPrint("Audio formats - Source: \(inputFormat.sampleRate)Hz/\(inputFormat.channelCount)ch, " +
               "Chain: \(intermediateFormat.sampleRate)Hz/\(intermediateFormat.channelCount)ch, " +
               "MultiCh: \(multiChannelOutputFormat.sampleRate)Hz/\(multiChannelOutputFormat.channelCount)ch")
 
@@ -863,25 +906,25 @@ final class PlaybackEngine: ObservableObject {
         let totalOutputChannels = max(2, audioOutputChannelCount)
         var status: OSStatus
 
-        NSLog(">>> configureMatrixMixerRouting: engine.isRunning=\(audioEngine.isRunning), inputs=\(inputChannelCount), outputs=\(totalOutputChannels)")
+        debugPrint("configureMatrixMixerRouting: engine.isRunning=\(audioEngine.isRunning), inputs=\(inputChannelCount), outputs=\(totalOutputChannels)")
 
         // Set global volume
         status = AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume,
                               kAudioUnitScope_Global, 0xFFFF_FFFF, 1.0, 0)
-        if status != noErr { NSLog(">>> MatrixMixer global volume error: \(status)") }
+        if status != noErr { debugPrint("MatrixMixer global volume error: \(status)") }
 
         // Set input channel volumes
         for i in 0..<inputChannelCount {
             status = AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume,
                                   kAudioUnitScope_Input, UInt32(i), 1.0, 0)
-            if status != noErr { NSLog(">>> MatrixMixer input[\(i)] volume error: \(status)") }
+            if status != noErr { debugPrint("MatrixMixer input[\(i)] volume error: \(status)") }
         }
 
         // Set output channel volumes
         for i in 0..<totalOutputChannels {
             status = AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume,
                                   kAudioUnitScope_Output, UInt32(i), 1.0, 0)
-            if status != noErr { NSLog(">>> MatrixMixer output[\(i)] volume error: \(status)") }
+            if status != noErr { debugPrint("MatrixMixer output[\(i)] volume error: \(status)") }
         }
 
         // Clear all crosspoints first (silence)
@@ -890,7 +933,7 @@ final class PlaybackEngine: ObservableObject {
                 let crossPoint = UInt32((inputCh << 16) | outputCh)
                 status = AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume,
                                       kAudioUnitScope_Global, crossPoint, 0.0, 0)
-                if status != noErr { NSLog(">>> MatrixMixer crosspoint[\(inputCh)->\(outputCh)] clear error: \(status)") }
+                if status != noErr { debugPrint("MatrixMixer crosspoint[\(inputCh)->\(outputCh)] clear error: \(status)") }
             }
         }
 
@@ -902,10 +945,10 @@ final class PlaybackEngine: ObservableObject {
             let crossPoint = UInt32((inputCh << 16) | outputCh)
             status = AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume,
                                   kAudioUnitScope_Global, crossPoint, 1.0, 0)
-            if status != noErr { NSLog(">>> MatrixMixer crosspoint[\(inputCh)->\(outputCh)] set error: \(status)") }
+            if status != noErr { debugPrint("MatrixMixer crosspoint[\(inputCh)->\(outputCh)] set error: \(status)") }
         }
 
-        NSLog(">>> MatrixMixer configured: \(inputChannelCount) inputs -> outputs \(outputOffset)-\(outputOffset + channelsToMap - 1)")
+        debugPrint("MatrixMixer configured: \(inputChannelCount) inputs -> outputs \(outputOffset)-\(outputOffset + channelsToMap - 1)")
     }
 
     private func configureAudioEngineIfNeeded() {
@@ -927,7 +970,7 @@ final class PlaybackEngine: ObservableObject {
         // Don't overwrite with node format - it may report 2ch even for 6ch devices
         audioOutputFormat = makeOutputFormat()
 
-        NSLog(">>> configureAudioEngineIfNeeded: Using \(audioOutputChannelCount) channels at \(audioOutputSampleRate)Hz")
+        debugPrint("configureAudioEngineIfNeeded: Using \(audioOutputChannelCount) channels at \(audioOutputSampleRate)Hz")
 
         audioEngine.disconnectNodeOutput(audioEngine.mainMixerNode)
         audioEngine.connect(audioEngine.mainMixerNode, to: outputNode, format: audioOutputFormat)
@@ -942,7 +985,7 @@ final class PlaybackEngine: ObservableObject {
             applyAudioOutputDevice()
             synchronizeOutputFormatIfNeeded()
         } catch {
-            NSLog(">>> PlaybackEngine: Failed to start audio engine: \(error)")
+            debugPrint("PlaybackEngine: Failed to start audio engine: \(error)")
         }
     }
 
@@ -966,7 +1009,7 @@ final class PlaybackEngine: ObservableObject {
             try audioEngine.start()
             applyAudioOutputDevice()
         } catch {
-            NSLog(">>> PlaybackEngine: Failed to restart audio engine: \(error)")
+            debugPrint("PlaybackEngine: Failed to restart audio engine: \(error)")
         }
     }
 
@@ -983,7 +1026,7 @@ final class PlaybackEngine: ObservableObject {
             UInt32(MemoryLayout<AudioDeviceID>.size)
         )
         if status != noErr {
-            NSLog(">>> PlaybackEngine: Failed to set output device: \(status)")
+            debugPrint("PlaybackEngine: Failed to set output device: \(status)")
         }
     }
 
@@ -997,15 +1040,15 @@ final class PlaybackEngine: ObservableObject {
             let layoutTag = kAudioChannelLayoutTag_Unknown | UInt32(channels)
             if let channelLayout = AVAudioChannelLayout(layoutTag: layoutTag) {
                 let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channelLayout: channelLayout)
-                NSLog(">>> makeOutputFormat: Created \(channels)-channel format with Unknown layout")
+                debugPrint("makeOutputFormat: Created \(channels)-channel format with Unknown layout")
                 return format
             }
-            NSLog(">>> WARNING: makeOutputFormat failed to create \(channels)-channel layout")
+            debugPrint("WARNING: makeOutputFormat failed to create \(channels)-channel layout")
         }
 
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: AVAudioChannelCount(channels))
             ?? AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
-        NSLog(">>> makeOutputFormat: Created \(format.channelCount)-channel standard format")
+        debugPrint("makeOutputFormat: Created \(format.channelCount)-channel standard format")
         return format
     }
 
@@ -1015,7 +1058,7 @@ final class PlaybackEngine: ObservableObject {
         } else {
             audioOutputDeviceID = defaultOutputDeviceID()
             if audioOutputDeviceUID != nil {
-                NSLog(">>> WARNING: Device '\(audioOutputDeviceUID!)' not found, using system default")
+                debugPrint("WARNING: Device '\(audioOutputDeviceUID!)' not found, using system default")
             }
         }
 
@@ -1023,11 +1066,11 @@ final class PlaybackEngine: ObservableObject {
             let queriedChannels = outputChannelCount(for: deviceID)
             audioOutputChannelCount = max(1, queriedChannels)
             audioOutputSampleRate = outputSampleRate(for: deviceID) ?? audioOutputSampleRate
-            NSLog(">>> updateAudioOutputDeviceSettings: DeviceID=\(deviceID), QueriedChannels=\(queriedChannels), FinalChannels=\(audioOutputChannelCount)")
+            debugPrint("updateAudioOutputDeviceSettings: DeviceID=\(deviceID), QueriedChannels=\(queriedChannels), FinalChannels=\(audioOutputChannelCount)")
         } else {
             audioOutputChannelCount = 2
             audioOutputSampleRate = 48000
-            NSLog(">>> updateAudioOutputDeviceSettings: No device, defaulting to 2 channels")
+            debugPrint("updateAudioOutputDeviceSettings: No device, defaulting to 2 channels")
         }
     }
 
@@ -1062,18 +1105,18 @@ final class PlaybackEngine: ObservableObject {
             ) {
                 accessURL = resolvedURL
                 didStartAccess = accessURL.startAccessingSecurityScopedResource()
-                NSLog(">>> extractAudioToTemporaryFile: resolved bookmark, startAccess=\(didStartAccess), stale=\(isStale), url=\(accessURL.lastPathComponent)")
+                debugPrint("extractAudioToTemporaryFile: resolved bookmark, startAccess=\(didStartAccess), stale=\(isStale), url=\(accessURL.lastPathComponent)")
             } else {
                 // Bookmark resolution failed, try direct URL
                 accessURL = clip.sourceURL
                 didStartAccess = accessURL.startAccessingSecurityScopedResource()
-                NSLog(">>> extractAudioToTemporaryFile: bookmark failed, trying direct, startAccess=\(didStartAccess), url=\(accessURL.lastPathComponent)")
+                debugPrint("extractAudioToTemporaryFile: bookmark failed, trying direct, startAccess=\(didStartAccess), url=\(accessURL.lastPathComponent)")
             }
         } else {
             // No bookmark, try direct URL access
             accessURL = clip.sourceURL
             didStartAccess = accessURL.startAccessingSecurityScopedResource()
-            NSLog(">>> extractAudioToTemporaryFile: no bookmark, startAccess=\(didStartAccess), url=\(accessURL.lastPathComponent)")
+            debugPrint("extractAudioToTemporaryFile: no bookmark, startAccess=\(didStartAccess), url=\(accessURL.lastPathComponent)")
         }
 
         defer {
@@ -1438,6 +1481,12 @@ final class PlaybackEngine: ObservableObject {
 
         // Stop and clean up audio engine
         audioEngine.stop()
+
+        // Clear caches and delete temp files
+        assetCache.removeAll()
+        clearExtractedAudioCache()
+        audioPlayers.removeAll()
+        failedClipCooldowns.removeAll()
     }
 
     deinit {

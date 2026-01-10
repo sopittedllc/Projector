@@ -39,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     static var hasUnsavedChanges = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSLog(">>> AppDelegate: applicationDidFinishLaunching")
+        debugPrint("AppDelegate: applicationDidFinishLaunching")
 
         // Swizzle NSApplication's sendEvent to intercept CMD+S
         swizzleSendEvent()
@@ -48,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
         // Setup menus after a delay to ensure SwiftUI has created them
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            NSLog(">>> AppDelegate: delayed setupMenus call")
+            debugPrint("AppDelegate: delayed setupMenus call")
             self?.setupMenus()
         }
 
@@ -58,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            NSLog(">>> AppDelegate: didBecomeActive")
+            debugPrint("AppDelegate: didBecomeActive")
             self?.setupMenus()
             self?.setupWindowDelegate()
         }
@@ -101,35 +101,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
         guard let originalMethod = class_getInstanceMethod(NSApplication.self, originalSelector),
               let swizzledMethod = class_getInstanceMethod(NSApplication.self, swizzledSelector) else {
-            NSLog(">>> Failed to swizzle sendEvent")
+            debugPrint("Failed to swizzle sendEvent")
             return
         }
 
         method_exchangeImplementations(originalMethod, swizzledMethod)
-        NSLog(">>> sendEvent swizzled successfully")
+        debugPrint("sendEvent swizzled successfully")
     }
 
     private func setupMenus() {
         guard !hasSetupMenus else {
-            NSLog(">>> setupMenus: already setup")
+            debugPrint("setupMenus: already setup")
             return
         }
 
         // Find the File menu (usually second after App menu)
         guard let mainMenu = NSApp.mainMenu else {
-            NSLog(">>> setupMenus: no mainMenu")
+            debugPrint("setupMenus: no mainMenu")
             return
         }
 
-        NSLog(">>> setupMenus: mainMenu has %d items: %@", mainMenu.items.count, mainMenu.items.map { $0.title })
+        debugPrint("setupMenus: mainMenu has %d items: %@", mainMenu.items.count, mainMenu.items.map { $0.title })
 
         guard mainMenu.items.count > 1 else {
-            NSLog(">>> setupMenus: not enough menu items")
+            debugPrint("setupMenus: not enough menu items")
             return
         }
 
         let fileMenuItem = mainMenu.items[1]
-        NSLog(">>> setupMenus: fileMenuItem title: %@", fileMenuItem.title)
+        debugPrint("setupMenus: fileMenuItem title: %@", fileMenuItem.title)
 
         hasSetupMenus = true
 
@@ -206,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         // Replace the submenu entirely
         fileMenuItem.submenu = newFileMenu
 
-        NSLog(">>> setupMenus: DONE. Replaced File menu with: %@", newFileMenu.items.map { $0.title })
+        debugPrint("setupMenus: DONE. Replaced File menu with: %@", newFileMenu.items.map { $0.title })
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -258,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         for window in NSApp.windows {
             if window.delegate == nil || !(window.delegate is AppDelegate) {
                 window.delegate = self
-                NSLog(">>> setupWindowDelegate: set delegate for window: %@", window.title)
+                debugPrint("setupWindowDelegate: set delegate for window: %@", window.title)
             }
 
             // Configure for Liquid Glass appearance
@@ -288,7 +288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
             toolbar.displayMode = .iconOnly
         }
 
-        NSLog(">>> configureWindowForLiquidGlass: configured window for Liquid Glass")
+        debugPrint("configureWindowForLiquidGlass: configured window for Liquid Glass")
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -331,7 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
     func application(_ sender: NSApplication, openFile filename: String) -> Bool {
         let url = URL(fileURLWithPath: filename)
-        NSLog(">>> AppDelegate.openFile: called with: %@", filename)
+        debugPrint("AppDelegate.openFile: called with: %@", filename)
 
         if url.pathExtension.lowercased() == "projector" {
             openProjectFile(url: url)
@@ -341,16 +341,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     }
 
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
-        NSLog(">>> AppDelegate.openFiles: called with %d files", filenames.count)
+        debugPrint("AppDelegate.openFiles: called with %d files", filenames.count)
         for filename in filenames {
             _ = application(sender, openFile: filename)
         }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        NSLog(">>> AppDelegate.open(urls:): called with %d URLs", urls.count)
+        debugPrint("AppDelegate.open(urls:): called with %d URLs", urls.count)
         for url in urls {
-            NSLog(">>> AppDelegate.open(urls:): processing %@", url.path)
+            debugPrint("AppDelegate.open(urls:): processing %@", url.path)
             if url.pathExtension.lowercased() == "projector" {
                 openProjectFile(url: url)
             }
@@ -358,11 +358,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     }
 
     private func openProjectFile(url: URL) {
-        NSLog(">>> AppDelegate.openProjectFile: %@", url.path)
+        debugPrint("AppDelegate.openProjectFile: %@", url.path)
 
         // Delay notification to ensure SwiftUI view is ready
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            NSLog(">>> AppDelegate.openProjectFile: posting notification")
+            debugPrint("AppDelegate.openProjectFile: posting notification")
             NotificationCenter.default.post(name: .openProjectFile, object: url)
         }
     }
@@ -381,23 +381,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     // MARK: - Save Actions (called via selector from menu commands)
 
     @objc func saveProject(_ sender: Any?) {
-        NSLog(">>> saveProject called, posting notification")
+        debugPrint("saveProject called, posting notification")
         NSSound.beep() // Audio feedback
         NotificationCenter.default.post(name: .saveProject, object: nil)
     }
 
     @objc func saveProjectAs(_ sender: Any?) {
-        NSLog(">>> saveProjectAs called, posting notification")
+        debugPrint("saveProjectAs called, posting notification")
         NotificationCenter.default.post(name: .saveProjectAs, object: nil)
     }
 
     @objc func openProjectMenu(_ sender: Any?) {
-        NSLog(">>> openProjectMenu called, posting notification")
+        debugPrint("openProjectMenu called, posting notification")
         NotificationCenter.default.post(name: .openProjectFromMenu, object: nil)
     }
 
     @objc func consolidateMedia(_ sender: Any?) {
-        NSLog(">>> consolidateMedia called, posting notification")
+        debugPrint("consolidateMedia called, posting notification")
         NotificationCenter.default.post(name: .consolidateMedia, object: nil)
     }
 
@@ -444,10 +444,10 @@ extension NSApplication {
                 // CMD+S / CMD+Shift+S - Save
                 if chars == "s" {
                     if flags.contains(.shift) {
-                        NSLog(">>> Swizzled sendEvent: CMD+Shift+S detected!")
+                        debugPrint("Swizzled sendEvent: CMD+Shift+S detected!")
                         NotificationCenter.default.post(name: .saveProjectAs, object: nil)
                     } else {
-                        NSLog(">>> Swizzled sendEvent: CMD+S detected!")
+                        debugPrint("Swizzled sendEvent: CMD+S detected!")
                         NotificationCenter.default.post(name: .saveProject, object: nil)
                     }
                     return
@@ -455,7 +455,7 @@ extension NSApplication {
 
                 // CMD+O - Open
                 if chars == "o" && !flags.contains(.shift) {
-                    NSLog(">>> Swizzled sendEvent: CMD+O detected!")
+                    debugPrint("Swizzled sendEvent: CMD+O detected!")
                     NotificationCenter.default.post(name: .openProjectFromMenu, object: nil)
                     return
                 }

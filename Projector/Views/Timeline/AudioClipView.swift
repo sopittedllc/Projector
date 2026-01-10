@@ -18,9 +18,9 @@ struct AudioClipView: View {
     let onDoubleClick: () -> Void
 
     /// Track height for audio clips
-    private let trackHeight: CGFloat = 50  // TODO: Use TimelineLayout.audioClipHeight after adding to Xcode project
+    private let trackHeight: CGFloat = TimelineLayout.audioClipHeight
     /// Header height for filename
-    private let headerHeight: CGFloat = 18  // TODO: Use TimelineLayout.audioClipHeaderHeight after adding to Xcode project
+    private let headerHeight: CGFloat = TimelineLayout.audioClipHeaderHeight
 
     var body: some View {
         let clipContent = ZStack(alignment: .topLeading) {

@@ -36,21 +36,21 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
     // MARK: - Analysis
 
     func analyzeProject(mediaItems: [MediaItem]) async throws -> ProjectAnalysisResult {
-        NSLog(">>> MediaOptimizationService.analyzeProject: analyzing \(mediaItems.count) items")
+        debugPrint("MediaOptimizationService.analyzeProject: analyzing \(mediaItems.count) items")
         var analysisItems: [MediaAnalysisItem] = []
         var totalOriginalSize: UInt64 = 0
         var totalEstimatedSize: UInt64 = 0
 
         for item in mediaItems {
-            NSLog(">>> MediaOptimizationService.analyzeProject: analyzing \(item.displayName) (type: \(item.type))")
+            debugPrint("MediaOptimizationService.analyzeProject: analyzing \(item.displayName) (type: \(item.type))")
             let analysis = try await analyzeMediaItem(item)
-            NSLog(">>> MediaOptimizationService.analyzeProject: \(item.displayName) - needsOptimization: \(analysis.needsOptimization), codec: \(analysis.currentCodec ?? "unknown")")
+            debugPrint("MediaOptimizationService.analyzeProject: \(item.displayName) - needsOptimization: \(analysis.needsOptimization), codec: \(analysis.currentCodec ?? "unknown")")
             analysisItems.append(analysis)
             totalOriginalSize += analysis.originalSize
             totalEstimatedSize += analysis.estimatedOptimizedSize
         }
 
-        NSLog(">>> MediaOptimizationService.analyzeProject: complete - \(analysisItems.count) items, \(analysisItems.filter { $0.needsOptimization }.count) need optimization")
+        debugPrint("MediaOptimizationService.analyzeProject: complete - \(analysisItems.count) items, \(analysisItems.filter { $0.needsOptimization }.count) need optimization")
         return ProjectAnalysisResult(
             items: analysisItems,
             totalOriginalSize: totalOriginalSize,
@@ -338,7 +338,7 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         // Create the "Optimized Media" folder
         let optimizedMediaFolder = options.optimizedMediaFolderURL
         try FileManager.default.createDirectory(at: optimizedMediaFolder, withIntermediateDirectories: true)
-        NSLog(">>> MediaOptimizationService: Created Optimized Media folder at \(optimizedMediaFolder.path)")
+        debugPrint("MediaOptimizationService: Created Optimized Media folder at \(optimizedMediaFolder.path)")
 
         for (index, item) in itemsToOptimize.enumerated() {
             if isCancelled {
@@ -387,7 +387,7 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                 failedCount += 1
                 // Create failed result
                 // Note: We need to get the original URL somehow - for now using a placeholder approach
-                NSLog(">>> MediaOptimizationService: Failed to optimize \(item.displayName): \(error)")
+                debugPrint("MediaOptimizationService: Failed to optimize \(item.displayName): \(error)")
             }
         }
 
@@ -448,8 +448,8 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             .appendingPathExtension(outputExtension)
 
         do {
-            NSLog(">>> MediaOptimizationService: Starting transcode for \(item.displayName)")
-            NSLog(">>> MediaOptimizationService: Output will be saved to \(outputURL.path)")
+            debugPrint("MediaOptimizationService: Starting transcode for \(item.displayName)")
+            debugPrint("MediaOptimizationService: Output will be saved to \(outputURL.path)")
 
             if item.isVideo {
                 try await transcodeVideo(
@@ -468,22 +468,22 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                 )
             }
 
-            NSLog(">>> MediaOptimizationService: Transcode complete, getting output size")
+            debugPrint("MediaOptimizationService: Transcode complete, getting output size")
 
             // Get actual output file size
             let outputAttributes = try FileManager.default.attributesOfItem(atPath: outputURL.path)
             let outputSize = outputAttributes[.size] as? UInt64 ?? 0
 
-            NSLog(">>> MediaOptimizationService: Output size: \(outputSize) bytes")
-            NSLog(">>> MediaOptimizationService: Original file left untouched at \(sourceURL.path)")
+            debugPrint("MediaOptimizationService: Output size: \(outputSize) bytes")
+            debugPrint("MediaOptimizationService: Original file left untouched at \(sourceURL.path)")
 
-            NSLog(">>> MediaOptimizationService: Verifying output file")
+            debugPrint("MediaOptimizationService: Verifying output file")
 
             // Verify preserved frame rate/sample rate from output file
             let verifiedFrameRate = item.isVideo ? try await getOutputFrameRate(url: outputURL) : nil
             let verifiedSampleRate = try await getOutputSampleRate(url: outputURL)
 
-            NSLog(">>> MediaOptimizationService: Verification complete - frameRate: \(String(describing: verifiedFrameRate)), sampleRate: \(String(describing: verifiedSampleRate))")
+            debugPrint("MediaOptimizationService: Verification complete - frameRate: \(String(describing: verifiedFrameRate)), sampleRate: \(String(describing: verifiedSampleRate))")
 
             return OptimizedItemResult(
                 mediaItemId: item.mediaItemId,
@@ -770,7 +770,7 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         // Check writer status - must be completed
         switch writer.status {
         case .completed:
-            NSLog(">>> MediaOptimizationService: Video transcoding completed successfully")
+            debugPrint("MediaOptimizationService: Video transcoding completed successfully")
         case .failed:
             throw MediaOptimizationError.transcodingFailed(
                 sourceURL,
@@ -810,7 +810,7 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         // CRITICAL: Preserve original sample rate by not resampling
         // AVAssetExportPresetAppleM4A preserves the source sample rate
 
-        NSLog(">>> MediaOptimizationService: Starting audio export for \(sourceURL.lastPathComponent)")
+        debugPrint("MediaOptimizationService: Starting audio export for \(sourceURL.lastPathComponent)")
 
         // Start export asynchronously and monitor progress
         exportSession.exportAsynchronously { }
@@ -830,7 +830,7 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         // Check final status
         switch exportSession.status {
         case .completed:
-            NSLog(">>> MediaOptimizationService: Audio export completed successfully")
+            debugPrint("MediaOptimizationService: Audio export completed successfully")
         case .failed:
             throw MediaOptimizationError.transcodingFailed(
                 sourceURL,

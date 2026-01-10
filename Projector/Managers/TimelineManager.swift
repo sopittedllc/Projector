@@ -149,7 +149,7 @@ final class TimelineManager: ObservableObject {
         let t0 = CFAbsoluteTimeGetCurrent()
         func elapsed() -> String { String(format: "%.3fs", CFAbsoluteTimeGetCurrent() - t0) }
 
-        NSLog(">>> addVideoReel: ENTRY [T+\(elapsed())] - \(url.lastPathComponent)")
+        debugPrint("addVideoReel: ENTRY [T+\(elapsed())] - \(url.lastPathComponent)")
 
         // For drop URLs, we have implicit sandbox access that expires after the drop operation.
         // We must create a bookmark AND immediately resolve it to get a persistent security-scoped URL.
@@ -160,7 +160,7 @@ final class TimelineManager: ObservableObject {
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
-        NSLog(">>> addVideoReel: Bookmark created [T+\(elapsed())]")
+        debugPrint("addVideoReel: Bookmark created [T+\(elapsed())]")
 
         // Immediately resolve the bookmark to get a security-scoped URL
         var isStale = false
@@ -170,24 +170,24 @@ final class TimelineManager: ObservableObject {
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         )
-        NSLog(">>> addVideoReel: Resolved URL [T+\(elapsed())] stale=\(isStale)")
+        debugPrint("addVideoReel: Resolved URL [T+\(elapsed())] stale=\(isStale)")
 
         // Start security-scoped access on the RESOLVED URL (not the drop URL)
         // This access persists until we explicitly stop it
         let accessStarted = resolvedURL.startAccessingSecurityScopedResource()
-        NSLog(">>> addVideoReel: Security access started=\(accessStarted) [T+\(elapsed())]")
+        debugPrint("addVideoReel: Security access started=\(accessStarted) [T+\(elapsed())]")
         guard accessStarted else {
-            NSLog(">>> addVideoReel: FAILED to start security access")
+            debugPrint("addVideoReel: FAILED to start security access")
             throw TimelineError.fileAccessDenied
         }
 
         // Get video metadata using the resolved URL
         let asset = AVURLAsset(url: resolvedURL)
         let duration = try await asset.load(.duration)
-        NSLog(">>> addVideoReel: Duration loaded [T+\(elapsed())]")
+        debugPrint("addVideoReel: Duration loaded [T+\(elapsed())]")
 
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
-        NSLog(">>> addVideoReel: Video tracks loaded [T+\(elapsed())]")
+        debugPrint("addVideoReel: Video tracks loaded [T+\(elapsed())]")
 
         // Determine frame rate from video
         var frameRate = timeline.config.frameRate
@@ -199,7 +199,7 @@ final class TimelineManager: ObservableObject {
                 frameRate = detectedRate
             }
         }
-        NSLog(">>> addVideoReel: Frame rate determined [T+\(elapsed())]")
+        debugPrint("addVideoReel: Frame rate determined [T+\(elapsed())]")
 
         let durationFrames = Int(duration.seconds * frameRate.fps)
 
@@ -218,7 +218,7 @@ final class TimelineManager: ObservableObject {
 
         timeline.addVideoReel(reel)
         extendTimelineIfNeeded(toEndFrame: reel.timelineEndFrame)
-        NSLog(">>> addVideoReel: COMPLETE [T+\(elapsed())]")
+        debugPrint("addVideoReel: COMPLETE [T+\(elapsed())]")
         return reel
     }
 

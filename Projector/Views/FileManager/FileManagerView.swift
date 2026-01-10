@@ -116,7 +116,7 @@ struct FileManagerView: View {
                 // This shouldn't happen since we create the ViewModel before showing
                 ProgressView("Loading...")
                     .onAppear {
-                        NSLog(">>> FileManagerView: ERROR - sheet shown without ViewModel")
+                        debugPrint("FileManagerView: ERROR - sheet shown without ViewModel")
                     }
             }
         }
@@ -129,7 +129,7 @@ struct FileManagerView: View {
                     projectDocument: projectDocument,
                     timelineManager: timelineManager
                 )
-                NSLog(">>> FileManagerView: created new OptimizationViewModel")
+                debugPrint("FileManagerView: created new OptimizationViewModel")
             }
         }
         // Consolidation sheet

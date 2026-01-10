@@ -269,9 +269,9 @@ struct ContentView: View {
             saveProjectAs()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openProjectFile)) { notification in
-            NSLog(">>> ContentView: received openProjectFile notification")
+            debugPrint("ContentView: received openProjectFile notification")
             if let url = notification.object as? URL {
-                NSLog(">>> ContentView: opening project from %@", url.path)
+                debugPrint("ContentView: opening project from %@", url.path)
                 openProject(from: url)
             }
         }
@@ -280,7 +280,7 @@ struct ContentView: View {
         }
         // Note: .consolidateMedia notification is handled by FileManagerView
         .onOpenURL { url in
-            NSLog(">>> ContentView.onOpenURL: %@", url.path)
+            debugPrint("ContentView.onOpenURL: %@", url.path)
             if url.pathExtension.lowercased() == "projector" {
                 openProject(from: url)
             }
@@ -824,7 +824,7 @@ struct ContentView: View {
                 loadProjectReels()
             }
 
-            NSLog(">>> openProject: loaded timeline with \(projectDocument.timeline.videoReels.count) reels")
+            debugPrint("openProject: loaded timeline with \(projectDocument.timeline.videoReels.count) reels")
         } catch {
             loadError = error.localizedDescription
             showErrorAlert = true
@@ -965,7 +965,7 @@ struct ContentView: View {
             do {
                 try fileManager.createDirectory(at: mediaFolder, withIntermediateDirectories: true)
             } catch {
-                NSLog(">>> Failed to create Media folder: \(error)")
+                debugPrint("Failed to create Media folder: \(error)")
                 return nil
             }
         }
@@ -992,10 +992,10 @@ struct ContentView: View {
             }
 
             try fileManager.copyItem(at: sourceURL, to: destinationURL)
-            NSLog(">>> Copied missing file to project: \(destinationURL.lastPathComponent)")
+            debugPrint("Copied missing file to project: \(destinationURL.lastPathComponent)")
             return destinationURL
         } catch {
-            NSLog(">>> Failed to copy file to project: \(error)")
+            debugPrint("Failed to copy file to project: \(error)")
             return nil
         }
     }
@@ -1171,7 +1171,7 @@ struct ContentView: View {
                 syncTimelineToPlaybackEngine()
                 uiTestImportState = "clip-added:\(uiTestClipCount)"
             } catch {
-                NSLog(">>> UI test import failed: \(error)")
+                debugPrint("UI test import failed: \(error)")
                 uiTestImportState = "clip-error:\(String(describing: error))"
             }
             timelineViewModel.expandIfNeeded()
@@ -1621,7 +1621,7 @@ struct ContentView: View {
             if proposedStart < reelEnd && proposedEnd > reelStart {
                 // Overlap detected - move to immediately after this reel
                 proposedStart = reelEnd
-                NSLog(">>> findNonOverlappingPosition: Overlap with '\(reel.displayName)', moving to frame \(proposedStart)")
+                debugPrint("findNonOverlappingPosition: Overlap with '\(reel.displayName)', moving to frame \(proposedStart)")
             }
         }
 
@@ -1633,35 +1633,35 @@ struct ContentView: View {
         let t0 = CFAbsoluteTimeGetCurrent()
         func elapsed() -> String { String(format: "%.3fs", CFAbsoluteTimeGetCurrent() - t0) }
 
-        NSLog(">>> addVideoToTimeline: ENTRY [T+\(elapsed())] - \(url.lastPathComponent)")
+        debugPrint("addVideoToTimeline: ENTRY [T+\(elapsed())] - \(url.lastPathComponent)")
 
         do {
             // Import to media library first (if not already there)
             let mediaItem = try await mediaLibrary.importFile(from: url)
-            NSLog(">>> addVideoToTimeline: Media library import done [T+\(elapsed())]")
+            debugPrint("addVideoToTimeline: Media library import done [T+\(elapsed())]")
 
             // Add the video reel with reference to the media item
             let reel = try await timelineManager.addVideoReel(from: url, at: timelineFrame, mediaItemId: mediaItem.id)
-            NSLog(">>> addVideoToTimeline: Reel added [T+\(elapsed())]")
+            debugPrint("addVideoToTimeline: Reel added [T+\(elapsed())]")
 
             // CRITICAL: Sync timeline and load reel IMMEDIATELY for instant playback
             // Don't block on thumbnail generation or audio extraction
             syncTimelineToPlaybackEngine()
-            NSLog(">>> addVideoToTimeline: Timeline synced [T+\(elapsed())]")
+            debugPrint("addVideoToTimeline: Timeline synced [T+\(elapsed())]")
 
             // If this is the first reel, load it right away
             if timelineManager.timeline.videoReels.count == 1 {
                 try await playbackEngine.loadReel(reel)
-                NSLog(">>> addVideoToTimeline: Reel loaded in playback engine [T+\(elapsed())]")
+                debugPrint("addVideoToTimeline: Reel loaded in playback engine [T+\(elapsed())]")
             }
 
             // Check for audio tracks and create lane + placeholder clip IMMEDIATELY
             // This ensures the audio region appears in UI right away, before extraction completes
             let audioResult = await prepareAudioLaneIfNeeded(for: reel)
-            NSLog(">>> addVideoToTimeline: Audio lane + clip prepared [T+\(elapsed())]")
+            debugPrint("addVideoToTimeline: Audio lane + clip prepared [T+\(elapsed())]")
 
             isLoadingMedia = false
-            NSLog(">>> addVideoToTimeline: READY FOR PLAYBACK [T+\(elapsed())]")
+            debugPrint("addVideoToTimeline: READY FOR PLAYBACK [T+\(elapsed())]")
 
             // Generate thumbnail in background (non-blocking)
             let thumbnailCacheRef = thumbnailCache
@@ -1676,7 +1676,7 @@ struct ContentView: View {
                 }
             }
         } catch {
-            NSLog(">>> addVideoToTimeline: FAILED [T+\(elapsed())] - \(error)")
+            debugPrint("addVideoToTimeline: FAILED [T+\(elapsed())] - \(error)")
             isLoadingMedia = false
             loadError = error.localizedDescription
             showErrorAlert = true
@@ -1746,7 +1746,7 @@ struct ContentView: View {
         do {
             let audioTracks = try await asset.loadTracks(withMediaType: .audio)
             guard !audioTracks.isEmpty else {
-                NSLog(">>> prepareAudioLaneIfNeeded: No audio tracks found")
+                debugPrint("prepareAudioLaneIfNeeded: No audio tracks found")
                 return nil
             }
 
@@ -1786,7 +1786,7 @@ struct ContentView: View {
             for lane in timelineManager.timeline.audioLanes {
                 if !lane.hasOverlap(with: clip) {
                     targetLane = lane
-                    NSLog(">>> prepareAudioLaneIfNeeded: Found existing lane '\(lane.name)' with no overlap")
+                    debugPrint("prepareAudioLaneIfNeeded: Found existing lane '\(lane.name)' with no overlap")
                     break
                 }
             }
@@ -1795,20 +1795,20 @@ struct ContentView: View {
             if targetLane == nil {
                 let laneNumber = timelineManager.timeline.audioLanes.count + 1
                 targetLane = timelineManager.addAudioLaneAtTop(name: "Audio \(laneNumber)")
-                NSLog(">>> prepareAudioLaneIfNeeded: Created new lane '\(targetLane!.name)'")
+                debugPrint("prepareAudioLaneIfNeeded: Created new lane '\(targetLane!.name)'")
             }
 
             guard let lane = targetLane else {
-                NSLog(">>> prepareAudioLaneIfNeeded: Failed to get target lane")
+                debugPrint("prepareAudioLaneIfNeeded: Failed to get target lane")
                 return nil
             }
 
             timelineManager.timeline.addClip(clip, toLane: lane.id)
 
-            NSLog(">>> prepareAudioLaneIfNeeded: Added clip to lane '\(lane.name)' with \(audioTracks.count) audio track(s)")
+            debugPrint("prepareAudioLaneIfNeeded: Added clip to lane '\(lane.name)' with \(audioTracks.count) audio track(s)")
             return (lane, clip.id)
         } catch {
-            NSLog(">>> prepareAudioLaneIfNeeded: Failed to check audio tracks - \(error)")
+            debugPrint("prepareAudioLaneIfNeeded: Failed to check audio tracks - \(error)")
             return nil
         }
     }
@@ -1818,21 +1818,21 @@ struct ContentView: View {
         let t0 = CFAbsoluteTimeGetCurrent()
         func elapsed() -> String { String(format: "%.3fs", CFAbsoluteTimeGetCurrent() - t0) }
 
-        NSLog(">>> extractAudioInBackground: ENTRY [T+\(elapsed())] - \(reel.displayName)")
+        debugPrint("extractAudioInBackground: ENTRY [T+\(elapsed())] - \(reel.displayName)")
 
         let asset = AVAsset(url: reel.sourceURL)
         do {
             // Do the slow extraction
             let extractedURL = try await extractAudioTrackToTemp(from: asset, trackIndex: 0, sourceURL: reel.sourceURL)
-            NSLog(">>> extractAudioInBackground: Export complete [T+\(elapsed())] -> \(extractedURL.lastPathComponent)")
+            debugPrint("extractAudioInBackground: Export complete [T+\(elapsed())] -> \(extractedURL.lastPathComponent)")
 
             // Update the existing clip with the extracted audio URL
             await MainActor.run {
                 timelineManager.updateExtractedAudioURL(clipId: clipId, inLane: laneId, extractedURL: extractedURL)
             }
-            NSLog(">>> extractAudioInBackground: COMPLETE [T+\(elapsed())]")
+            debugPrint("extractAudioInBackground: COMPLETE [T+\(elapsed())]")
         } catch {
-            NSLog(">>> extractAudioInBackground: FAILED [T+\(elapsed())] - \(error)")
+            debugPrint("extractAudioInBackground: FAILED [T+\(elapsed())] - \(error)")
         }
     }
 

@@ -3,7 +3,7 @@ import SwiftTimecodeCore
 import Iconoir
 
 /// Shared height for transport bar control boxes
-private let controlBoxHeight: CGFloat = 48
+private let controlBoxHeight: CGFloat = TransportLayout.controlBoxHeight
 
 /// Bottom transport bar with timecode display and controls
 struct TransportBarView: View {
