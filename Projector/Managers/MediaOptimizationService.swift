@@ -72,7 +72,7 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         )
 
         // Determine if optimization is needed
-        let needsOptimization = shouldOptimize(
+        let optimizationCheck = shouldOptimize(
             isVideo: item.type == .video,
             currentCodec: codecInfo.codec,
             currentResolution: item.videoSize,
@@ -85,9 +85,10 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             sourceBookmark: item.bookmark,
             displayName: item.displayName,
             originalSize: fileSize,
-            estimatedOptimizedSize: needsOptimization ? estimatedSize : fileSize,
+            estimatedOptimizedSize: optimizationCheck.needsOptimization ? estimatedSize : fileSize,
             isVideo: item.type == .video,
-            needsOptimization: needsOptimization,
+            needsOptimization: optimizationCheck.needsOptimization,
+            skipReason: optimizationCheck.skipReason,
             currentCodec: codecInfo.codec,
             currentResolution: item.videoSize,
             currentFrameRate: item.frameRate,
@@ -257,32 +258,54 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         }
     }
 
-    private func shouldOptimize(isVideo: Bool, currentCodec: String?, currentResolution: CGSize?, currentBitrate: Int?) -> Bool {
+    /// Result of optimization check
+    private struct OptimizationCheck {
+        let needsOptimization: Bool
+        let skipReason: String?
+    }
+
+    private func shouldOptimize(isVideo: Bool, currentCodec: String?, currentResolution: CGSize?, currentBitrate: Int?) -> OptimizationCheck {
         let codec = currentCodec?.lowercased() ?? ""
 
         if isVideo {
             // Skip if already H.264/HEVC at 720p or lower with reasonable bitrate
-            // Quality-based encoding at 0.65 typically yields ~1000-1500 kbps for 720p
-            // Skip optimization if already under 2 Mbps at 720p or smaller
             let skipBitrateThreshold = 2_000_000  // 2 Mbps
             if codec.contains("h.264") || codec.contains("avc") || codec.contains("hevc") {
                 if let resolution = currentResolution,
                    resolution.width <= CGFloat(TargetSpecs.videoWidth),
                    resolution.height <= CGFloat(TargetSpecs.videoHeight) {
                     if let bitrate = currentBitrate, bitrate <= skipBitrateThreshold {
-                        return false
+                        let codecName = codec.contains("hevc") ? "HEVC" : "H.264"
+                        let bitrateStr = formatBitrate(bitrate)
+                        return OptimizationCheck(
+                            needsOptimization: false,
+                            skipReason: "Already \(codecName) at \(Int(resolution.width))×\(Int(resolution.height)), \(bitrateStr)"
+                        )
                     }
                 }
             }
-            return true
+            return OptimizationCheck(needsOptimization: true, skipReason: nil)
         } else {
-            // Skip if already AAC with low bitrate
+            // Skip if already AAC/MP3 with low bitrate
             if codec == "aac" || codec == "mp3" {
                 if let bitrate = currentBitrate, bitrate <= TargetSpecs.audioBitrate * 2 {
-                    return false
+                    let codecName = codec.uppercased()
+                    let bitrateStr = formatBitrate(bitrate)
+                    return OptimizationCheck(
+                        needsOptimization: false,
+                        skipReason: "Already \(codecName) at \(bitrateStr)"
+                    )
                 }
             }
-            return true
+            return OptimizationCheck(needsOptimization: true, skipReason: nil)
+        }
+    }
+
+    private func formatBitrate(_ bitrate: Int) -> String {
+        if bitrate >= 1_000_000 {
+            return String(format: "%.1f Mbps", Double(bitrate) / 1_000_000)
+        } else {
+            return "\(bitrate / 1000) kbps"
         }
     }
 

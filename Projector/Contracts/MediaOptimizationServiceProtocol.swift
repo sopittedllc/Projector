@@ -41,6 +41,9 @@ struct MediaAnalysisItem: Sendable, Identifiable, Equatable {
     /// Whether this file needs optimization (false if already meets target specs)
     let needsOptimization: Bool
 
+    /// Reason why optimization was skipped (nil if needsOptimization is true)
+    let skipReason: String?
+
     /// Current codec (e.g., "ProRes 422", "H.264", "PCM")
     let currentCodec: String?
 
@@ -78,6 +81,7 @@ struct MediaAnalysisItem: Sendable, Identifiable, Equatable {
         estimatedOptimizedSize: UInt64,
         isVideo: Bool,
         needsOptimization: Bool,
+        skipReason: String? = nil,
         currentCodec: String? = nil,
         currentResolution: CGSize? = nil,
         currentFrameRate: Double? = nil,
@@ -93,6 +97,7 @@ struct MediaAnalysisItem: Sendable, Identifiable, Equatable {
         self.estimatedOptimizedSize = estimatedOptimizedSize
         self.isVideo = isVideo
         self.needsOptimization = needsOptimization
+        self.skipReason = skipReason
         self.currentCodec = currentCodec
         self.currentResolution = currentResolution
         self.currentFrameRate = currentFrameRate

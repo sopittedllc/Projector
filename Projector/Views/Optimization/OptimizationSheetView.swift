@@ -170,8 +170,8 @@ struct OptimizationSheetView: View {
                         .frame(width: 80, alignment: .trailing)
                     Text("Optimized")
                         .frame(width: 80, alignment: .trailing)
-                    Text("Savings")
-                        .frame(width: 100, alignment: .trailing)
+                    Text("Savings / Status")
+                        .frame(width: 140, alignment: .trailing)
                 }
                 .font(.caption.bold())
                 .foregroundColor(.secondary)
@@ -609,17 +609,19 @@ private struct FileAnalysisRow: View {
                 .frame(width: 80, alignment: .trailing)
                 .foregroundColor(item.needsOptimization ? .primary : .secondary)
 
-            // Savings
+            // Savings or skip reason
             if item.needsOptimization {
                 Text("\(formatBytes(item.estimatedSavings)) (\(Int(item.savingsPercentage * 100))%)")
                     .font(.system(.body, design: .monospaced))
-                    .frame(width: 100, alignment: .trailing)
+                    .frame(width: 140, alignment: .trailing)
                     .foregroundColor(.green)
             } else {
-                Text("Already optimized")
+                Text(item.skipReason ?? "Already optimized")
                     .font(.caption)
-                    .frame(width: 100, alignment: .trailing)
+                    .frame(width: 140, alignment: .trailing)
                     .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.trailing)
             }
         }
         .padding(.horizontal)
