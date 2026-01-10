@@ -39,14 +39,14 @@ struct WelcomeOverlayView: View {
                         icon: "square.and.arrow.down.on.square",
                         iconColor: .blue,
                         title: "Drag in your media",
-                        description: "Import video and audio files by dragging them into the media bin"
+                        description: "Import video and audio files — add multiple video reels to build your show"
                     )
 
                     welcomeStep(
-                        icon: "bolt.badge.checkmark",
+                        icon: "arrow.down.right.and.arrow.up.left",
                         iconColor: .green,
-                        title: "Optimize for performance",
-                        description: "Choose to transcode files for smoother playback and smaller file sizes"
+                        title: "Optimize your files",
+                        description: "Save disk space and shrink unwieldy large files with built-in transcoding"
                     )
 
                     welcomeStep(
