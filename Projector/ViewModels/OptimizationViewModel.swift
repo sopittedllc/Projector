@@ -220,7 +220,7 @@ final class OptimizationViewModel: ObservableObject {
         return remainingProgress / progressRate
     }
 
-    /// Formatted time remaining (e.g., "About 2 min remaining" or "About 45 sec remaining")
+    /// Formatted time remaining (e.g., "2:33 remaining" or "45s remaining")
     var timeRemainingFormatted: String? {
         guard let remaining = estimatedTimeRemaining else { return nil }
 
@@ -228,19 +228,16 @@ final class OptimizationViewModel: ObservableObject {
             return "Almost done..."
         } else if remaining < 60 {
             let seconds = Int(remaining)
-            return "About \(seconds) sec remaining"
+            return "\(seconds)s remaining"
         } else if remaining < 3600 {
             let minutes = Int(remaining / 60)
             let seconds = Int(remaining.truncatingRemainder(dividingBy: 60))
-            if seconds > 30 {
-                return "About \(minutes + 1) min remaining"
-            } else {
-                return "About \(minutes) min remaining"
-            }
+            return String(format: "%d:%02d remaining", minutes, seconds)
         } else {
             let hours = Int(remaining / 3600)
             let minutes = Int((remaining / 60).truncatingRemainder(dividingBy: 60))
-            return "About \(hours) hr \(minutes) min remaining"
+            let seconds = Int(remaining.truncatingRemainder(dividingBy: 60))
+            return String(format: "%d:%02d:%02d remaining", hours, minutes, seconds)
         }
     }
 

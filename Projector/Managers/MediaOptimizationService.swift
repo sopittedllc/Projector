@@ -20,25 +20,6 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
 
     private var isCancelled = false
 
-    /// Estimated compression ratios for different source formats
-    /// Now using HEVC which provides ~40% better compression than H.264
-    private enum CompressionEstimates {
-        /// ProRes files compress very well to HEVC
-        static let proResToHEVC: Double = 0.10  // ~40% smaller than H.264
-
-        /// Already-compressed H.264 to HEVC has moderate savings
-        static let h264ToHEVC: Double = 0.6  // HEVC is more efficient
-
-        /// Uncompressed/lossless to HEVC
-        static let uncompressedToHEVC: Double = 0.07  // ~40% smaller than H.264
-
-        /// PCM/WAV to AAC
-        static let pcmToAAC: Double = 0.10
-
-        /// Already compressed audio (MP3, AAC)
-        static let compressedAudioToAAC: Double = 0.9
-    }
-
     /// Target specs - HEVC 720p optimized for speed + quality
     /// Using hardware-accelerated HEVC encoding on Apple Silicon
     private enum TargetSpecs {
@@ -84,12 +65,10 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         // Get codec information
         let codecInfo = try await getCodecInfo(url: item.url, bookmark: item.bookmark, isVideo: item.type == .video)
 
-        // Estimate optimized size
+        // Estimate optimized size based on target bitrate and duration
         let estimatedSize = estimateOptimizedSize(
-            originalSize: fileSize,
-            isVideo: item.type == .video,
-            currentCodec: codecInfo.codec,
-            currentResolution: item.videoSize
+            duration: item.duration,
+            isVideo: item.type == .video
         )
 
         // Determine if optimization is needed
@@ -254,38 +233,27 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         }
     }
 
-    private func estimateOptimizedSize(originalSize: UInt64, isVideo: Bool, currentCodec: String?, currentResolution: CGSize?) -> UInt64 {
-        let codec = currentCodec?.lowercased() ?? ""
+    /// Estimate optimized file size based on target bitrate and duration
+    ///
+    /// This provides accurate estimates by calculating:
+    /// - Video: ~1000 kbps average (from quality 0.65 HEVC at 720p) × duration
+    /// - Audio: 160 kbps AAC stereo × duration
+    private func estimateOptimizedSize(duration: Double, isVideo: Bool) -> UInt64 {
+        guard duration > 0 else { return 0 }
 
         if isVideo {
-            // Determine compression ratio based on source codec
-            var ratio: Double
+            // HEVC at quality 0.65 averages ~1000 kbps for 720p content
+            // Add 160 kbps for audio track
+            let videoBitrate: Double = 1_000_000  // 1000 kbps
+            let audioBitrate: Double = Double(TargetSpecs.audioBitrate)  // 160 kbps
+            let totalBitrate = videoBitrate + audioBitrate
 
-            if codec.contains("prores") {
-                ratio = CompressionEstimates.proResToHEVC
-            } else if codec.contains("h.264") || codec.contains("avc") || codec.contains("hevc") {
-                ratio = CompressionEstimates.h264ToHEVC
-            } else {
-                ratio = CompressionEstimates.uncompressedToHEVC
-            }
-
-            // Adjust for resolution scaling if source is larger than 720p
-            if let resolution = currentResolution {
-                let sourcePixels = resolution.width * resolution.height
-                let targetPixels = CGFloat(TargetSpecs.videoWidth * TargetSpecs.videoHeight)
-                if sourcePixels > targetPixels {
-                    ratio *= (targetPixels / sourcePixels)
-                }
-            }
-
-            return UInt64(Double(originalSize) * ratio)
+            // Size = bitrate (bits/sec) × duration (sec) / 8 (bits to bytes)
+            return UInt64((totalBitrate * duration) / 8)
         } else {
-            // Audio compression estimate
-            if codec == "pcm" || codec.contains("wav") || codec.contains("aiff") || codec == "alac" || codec == "flac" {
-                return UInt64(Double(originalSize) * CompressionEstimates.pcmToAAC)
-            } else {
-                return UInt64(Double(originalSize) * CompressionEstimates.compressedAudioToAAC)
-            }
+            // Audio only: AAC stereo at 160 kbps
+            let audioBitrate: Double = Double(TargetSpecs.audioBitrate)
+            return UInt64((audioBitrate * duration) / 8)
         }
     }
 
