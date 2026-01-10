@@ -501,8 +501,8 @@ struct ContentView: View {
                             timelineViewModel.expandIfNeeded()
                         }
                     )
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.top, Spacing.sm)
                     .onChange(of: mediaLibrary.items.count) { _, newCount in
                         // Auto-expand timeline when media is first imported
                         if newCount > 0 && !timelineViewModel.isExpanded {
@@ -521,9 +521,9 @@ struct ContentView: View {
                             onDeleteItems: handleDeleteMediaItems,
                             onSaveProject: { saveProjectAs() }
                         )
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 16)
+                        .padding(.horizontal, Spacing.lg)
+                        .padding(.top, Spacing.sm)
+                        .padding(.bottom, Spacing.sm)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .top)
@@ -624,7 +624,7 @@ struct ContentView: View {
     }
 
     private var lowerPanelsMinHeight: CGFloat {
-        showFileManager ? 200 : 120
+        showFileManager ? 180 : 100
     }
 
     private func dismissTimecodeEditing() {
