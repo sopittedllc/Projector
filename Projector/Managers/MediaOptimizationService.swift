@@ -13,12 +13,55 @@ import Foundation
 import AVFoundation
 import VideoToolbox
 
+// MARK: - Sendable Wrappers for AVFoundation Types
+
+/// Thread-safe wrapper for AVAssetWriterInput used in requestMediaDataWhenReady closures.
+/// These closures run on dedicated dispatch queues where the wrapped object is used exclusively.
+private final class WriterInputBox: @unchecked Sendable {
+    let input: AVAssetWriterInput
+    init(_ input: AVAssetWriterInput) { self.input = input }
+}
+
+/// Thread-safe wrapper for AVAssetReaderTrackOutput used in requestMediaDataWhenReady closures.
+private final class ReaderOutputBox: @unchecked Sendable {
+    let output: AVAssetReaderTrackOutput
+    init(_ output: AVAssetReaderTrackOutput) { self.output = output }
+}
+
+/// Thread-safe cancellation flag accessible from Sendable closures.
+private final class CancellationFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _isCancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _isCancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        _isCancelled = true
+        lock.unlock()
+    }
+
+    func reset() {
+        lock.lock()
+        _isCancelled = false
+        lock.unlock()
+    }
+}
+
 /// Actor that handles media optimization (analysis and transcoding)
 actor MediaOptimizationService: MediaOptimizationServiceProtocol {
 
     // MARK: - Properties
 
-    private var isCancelled = false
+    private let cancellationFlag = CancellationFlag()
+
+    private var isCancelled: Bool {
+        get { cancellationFlag.isCancelled }
+    }
 
     /// Target specs - HEVC 720p optimized for speed + quality
     /// Using hardware-accelerated HEVC encoding on Apple Silicon
@@ -316,7 +359,7 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         options: OptimizationOptions,
         progressHandler: @escaping @Sendable (OptimizationProgress) async -> Void
     ) async throws -> OptimizationResult {
-        isCancelled = false
+        resetCancellation()
 
         let itemsToOptimize = items.filter { $0.needsOptimization }
         guard !itemsToOptimize.isEmpty else {
@@ -694,14 +737,20 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                 }
             }
 
-            // Video processing with requestMediaDataWhenReady (event-driven, not polling)
-            videoWriterInput.requestMediaDataWhenReady(on: videoQueue) { [weak self] in
-                guard let self = self else { return }
+            // Wrap AVFoundation objects for Sendable closure compatibility
+            let videoWriterBox = WriterInputBox(videoWriterInput)
+            let videoReaderBox = ReaderOutputBox(videoReaderOutput)
+            let cancelFlag = self.cancellationFlag
 
-                while videoWriterInput.isReadyForMoreMediaData {
+            // Video processing with requestMediaDataWhenReady (event-driven, not polling)
+            videoWriterInput.requestMediaDataWhenReady(on: videoQueue) {
+                let writerInput = videoWriterBox.input
+                let readerOutput = videoReaderBox.output
+
+                while writerInput.isReadyForMoreMediaData {
                     // Check cancellation
-                    if self.isCancelled {
-                        videoWriterInput.markAsFinished()
+                    if cancelFlag.isCancelled {
+                        writerInput.markAsFinished()
                         completionLock.lock()
                         videoFinished = true
                         completionLock.unlock()
@@ -709,9 +758,9 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                         return
                     }
 
-                    guard let sampleBuffer = videoReaderOutput.copyNextSampleBuffer() else {
+                    guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
                         // No more samples
-                        videoWriterInput.markAsFinished()
+                        writerInput.markAsFinished()
                         completionLock.lock()
                         videoFinished = true
                         completionLock.unlock()
@@ -735,23 +784,29 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                     }
 
                     // Append the sample buffer
-                    videoWriterInput.append(sampleBuffer)
+                    writerInput.append(sampleBuffer)
                 }
             }
 
             // Audio processing (if present) - also event-driven
             if let audioOutput = audioReaderOutput, let audioInput = audioWriterInput {
+                let audioWriterBox = WriterInputBox(audioInput)
+                let audioReaderBox = ReaderOutputBox(audioOutput)
+
                 audioInput.requestMediaDataWhenReady(on: audioQueue) {
-                    while audioInput.isReadyForMoreMediaData {
-                        guard let sampleBuffer = audioOutput.copyNextSampleBuffer() else {
-                            audioInput.markAsFinished()
+                    let writerInput = audioWriterBox.input
+                    let readerOutput = audioReaderBox.output
+
+                    while writerInput.isReadyForMoreMediaData {
+                        guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
+                            writerInput.markAsFinished()
                             completionLock.lock()
                             audioFinished = true
                             completionLock.unlock()
                             checkCompletion()
                             return
                         }
-                        audioInput.append(sampleBuffer)
+                        writerInput.append(sampleBuffer)
                     }
                 }
             }
@@ -880,6 +935,11 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
     // MARK: - Cancellation
 
     func cancel() async {
-        isCancelled = true
+        cancellationFlag.cancel()
+    }
+
+    /// Reset cancellation state for new optimization runs
+    private func resetCancellation() {
+        cancellationFlag.reset()
     }
 }

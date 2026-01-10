@@ -1881,13 +1881,21 @@ struct ContentView: View {
         } else {
             export.outputURL = tempURL
             export.outputFileType = .mov
+
+            // Wrapper to make AVAssetExportSession usable in Sendable closure
+            final class ExportBox: @unchecked Sendable {
+                let session: AVAssetExportSession
+                init(_ session: AVAssetExportSession) { self.session = session }
+            }
+            let exportBox = ExportBox(export)
+
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                export.exportAsynchronously {
-                    switch export.status {
+                exportBox.session.exportAsynchronously {
+                    switch exportBox.session.status {
                     case .completed:
                         continuation.resume(returning: ())
                     case .failed:
-                        continuation.resume(throwing: export.error ?? NSError(domain: "ContentView", code: -4, userInfo: nil))
+                        continuation.resume(throwing: exportBox.session.error ?? NSError(domain: "ContentView", code: -4, userInfo: nil))
                     default:
                         continuation.resume(throwing: NSError(domain: "ContentView", code: -5, userInfo: nil))
                     }

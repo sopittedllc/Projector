@@ -350,13 +350,14 @@ final class OptimizationViewModel: ObservableObject {
             maxFrameRate: 30.0             // Cap at 30fps, preserve lower rates
         )
 
-        optimizationTask = Task {
+        optimizationTask = Task { [weak self] in
+            guard let self = self else { return }
             do {
-                let result = try await service.optimizeMedia(
+                let result = try await self.service.optimizeMedia(
                     items: itemsToOptimize,
                     options: options,
-                    progressHandler: { [weak self] progress in
-                        await MainActor.run {
+                    progressHandler: { progress in
+                        await MainActor.run { [weak self] in
                             self?.progress = progress
                         }
                     }
