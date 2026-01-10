@@ -983,39 +983,50 @@ struct MultiTrackTimelineView: View {
         }
 
         return HStack(spacing: 0) {
-            // Header area - overlay centers content
+            // Header area - clearly show this is an empty state, not a lane
             Color.clear
                 .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
                 .overlay(
-                    VStack(spacing: 4) {
-                        Text("Audio")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.primary)
+                    VStack(spacing: 2) {
+                        Image(systemName: "speaker.slash")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary.opacity(0.4))
 
-                        Image(systemName: "waveform")
-                            .font(.system(size: 14))
-                            .foregroundColor(.secondary)
-
-                        Text("No lanes")
+                        Text("No audio")
                             .font(.system(size: 9))
-                            .foregroundColor(.secondary.opacity(0.5))
+                            .foregroundColor(.secondary.opacity(0.4))
+
+                        Text("lanes")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary.opacity(0.4))
                     }
-                    .padding(.bottom, 4)
                 )
 
             // Empty content area with drop prompt
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    DustyBackground()
+                    // Subtle striped pattern to indicate empty state
+                    Color.clear
+                        .background(
+                            Color(nsColor: .controlBackgroundColor).opacity(0.3)
+                        )
+                        .overlay(
+                            Rectangle()
+                                .stroke(
+                                    Color.secondary.opacity(0.1),
+                                    style: StrokeStyle(lineWidth: 1, dash: [4, 4])
+                                )
+                                .padding(4)
+                        )
 
-                    VStack(spacing: 4) {
-                        Image(systemName: "waveform.badge.plus")
-                            .font(.system(size: 20))
-                            .foregroundColor(.secondary.opacity(0.6))
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus.circle")
+                            .font(.system(size: 16))
+                            .foregroundColor(.secondary.opacity(0.4))
 
-                        Text("Drop audio files here")
+                        Text("Click \"+Audio Lane\" to add a lane, or drop audio files here")
                             .font(.system(size: 10))
-                            .foregroundColor(.secondary.opacity(0.6))
+                            .foregroundColor(.secondary.opacity(0.5))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .offset(x: -TimelineLayout.headerWidth / 2)
