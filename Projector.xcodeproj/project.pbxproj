@@ -10,6 +10,10 @@
 		0F78E7CD06BB4CCBA9AA1A36 /* WindowTitleConfigurator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04AA25E97254C758E8138F0 /* WindowTitleConfigurator.swift */; };
 		1218A8494ECAE07469982AFA /* TestAudioFileFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14506C8D8408E65D66372269 /* TestAudioFileFactory.swift */; };
 		2D32AFD4ED0B4C24B8B2504B /* MediaOptimizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1CB65275AFE49C6AFD24B05 /* MediaOptimizationService.swift */; };
+		AE01AUDIOEXTRACT001 /* AudioExtractionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE01AUDIOEXTRACT002 /* AudioExtractionService.swift */; };
+		MFRS001MISSINGFILE01 /* MissingFileResolutionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */; };
+		PPS001PERSISTENCE01 /* ProjectPersistenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = PPS002PERSISTENCE02 /* ProjectPersistenceService.swift */; };
+		MIC001MEDIAIMPORT01 /* MediaImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */; };
 		33E7262DBE394E3DA53FDE54 /* AccordionResizeHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A60EE069664A32A9209AF1 /* AccordionResizeHandle.swift */; };
 		52E6F25BE86C6D82F69255D4 /* UITestAudioFileFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 991D568ED3E77EA1C83F341A /* UITestAudioFileFactory.swift */; };
 		74EABBA338E34AE2882468C6 /* TimelineAccordionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 648C405AE05C49199696C8C5 /* TimelineAccordionView.swift */; };
@@ -31,6 +35,11 @@
 		A1000001227D3F0000000076 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000075 /* AppSettings.swift */; };
 		A1000001227D3F00000000B1 /* ProjectorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000011 /* ProjectorApp.swift */; };
 		A1000001227D3F00000000B2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000012 /* ContentView.swift */; };
+		SETUP002CONTENTVIEW /* ContentView+Setup.swift in Sources */ = {isa = PBXBuildFile; fileRef = SETUP001CONTENTVIEW /* ContentView+Setup.swift */; };
+		TIMELINE002CONTENTVIEW /* ContentView+Timeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = TIMELINE001CONTENTVIEW /* ContentView+Timeline.swift */; };
+		FILEHANDL002CONTENTVIEW /* ContentView+FileHandling.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEHANDL001CONTENTVIEW /* ContentView+FileHandling.swift */; };
+		HELPERS002CONTENTVIEW /* ContentView+Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = HELPERS001CONTENTVIEW /* ContentView+Helpers.swift */; };
+		MODIFIERS002CONTENTVIEW /* ContentViewModifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = MODIFIERS001CONTENTVIEW /* ContentViewModifiers.swift */; };
 		A1000001227D3F00000000B3 /* VideoPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000013 /* VideoPlayerView.swift */; };
 		A1000001227D3F00000000B4 /* TransportBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000014 /* TransportBarView.swift */; };
 		A1000001227D3F00000000B8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000018 /* Assets.xcassets */; };
@@ -83,6 +92,9 @@
 		CBA9B198D87A4901A984348F /* OptimizationSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF52682FA9954FFD8CCAD64E /* OptimizationSheetView.swift */; };
 		F587047D294B4B08BD7B94B1 /* OptimizationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE90E852077C43F9AE6F40DF /* OptimizationViewModel.swift */; };
 		SAVE0001PROJECTSHEET01 /* SaveProjectSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = SAVE0002PROJECTSHEET02 /* SaveProjectSheet.swift */; };
+		VINS0001VIDEOINSERT01 /* VideoInsertSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */; };
+		VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */; };
+		FSVV0001FULLSCREENVIDEO01 /* FullScreenVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -143,6 +155,11 @@
 		A1000001227D3F0000000010 /* Projector.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Projector.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000001227D3F0000000011 /* ProjectorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectorApp.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		SETUP001CONTENTVIEW /* ContentView+Setup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Setup.swift"; sourceTree = "<group>"; };
+		TIMELINE001CONTENTVIEW /* ContentView+Timeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Timeline.swift"; sourceTree = "<group>"; };
+		FILEHANDL001CONTENTVIEW /* ContentView+FileHandling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+FileHandling.swift"; sourceTree = "<group>"; };
+		HELPERS001CONTENTVIEW /* ContentView+Helpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Helpers.swift"; sourceTree = "<group>"; };
+		MODIFIERS001CONTENTVIEW /* ContentViewModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewModifiers.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000013 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000014 /* TransportBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportBarView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -200,8 +217,15 @@
 		D2403C06D2294027B9140EB4 /* MediaOptimizationServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaOptimizationServiceProtocol.swift; sourceTree = "<group>"; };
 		DE90E852077C43F9AE6F40DF /* OptimizationViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizationViewModel.swift; sourceTree = "<group>"; };
 		F1CB65275AFE49C6AFD24B05 /* MediaOptimizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaOptimizationService.swift; sourceTree = "<group>"; };
+		AE01AUDIOEXTRACT002 /* AudioExtractionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioExtractionService.swift; sourceTree = "<group>"; };
+		MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingFileResolutionService.swift; sourceTree = "<group>"; };
+		PPS002PERSISTENCE02 /* ProjectPersistenceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectPersistenceService.swift; sourceTree = "<group>"; };
+		MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaImportCoordinator.swift; sourceTree = "<group>"; };
 		FD5C2B42215FEBC92028DAE5 /* WaveformCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformCacheTests.swift; sourceTree = "<group>"; };
 		SAVE0002PROJECTSHEET02 /* SaveProjectSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveProjectSheet.swift; sourceTree = "<group>"; };
+		VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoInsertSheetView.swift; sourceTree = "<group>"; };
+		VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerOverlays.swift; sourceTree = "<group>"; };
+		FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullScreenVideoView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -331,6 +355,10 @@
 		A1000001227D3F0000000023 /* Managers */ = {
 			isa = PBXGroup;
 			children = (
+				AE01AUDIOEXTRACT002 /* AudioExtractionService.swift */,
+				MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */,
+				MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */,
+				PPS002PERSISTENCE02 /* ProjectPersistenceService.swift */,
 				F1CB65275AFE49C6AFD24B05 /* MediaOptimizationService.swift */,
 				B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */,
 				A1000001227D3F000000006F /* MIDIManager.swift */,
@@ -352,6 +380,11 @@
 			children = (
 				59F7937C1F65403C8FBC4921 /* Optimization */,
 				A1000001227D3F0000000012 /* ContentView.swift */,
+				SETUP001CONTENTVIEW /* ContentView+Setup.swift */,
+				TIMELINE001CONTENTVIEW /* ContentView+Timeline.swift */,
+				FILEHANDL001CONTENTVIEW /* ContentView+FileHandling.swift */,
+				HELPERS001CONTENTVIEW /* ContentView+Helpers.swift */,
+				MODIFIERS001CONTENTVIEW /* ContentViewModifiers.swift */,
 				A1000001227D3F0000000013 /* VideoPlayerView.swift */,
 				A1000001227D3F0000000014 /* TransportBarView.swift */,
 				A1000001227D3F0000000073 /* SettingsView.swift */,
@@ -366,6 +399,9 @@
 				A04AA25E97254C758E8138F0 /* WindowTitleConfigurator.swift */,
 				56A60EE069664A32A9209AF1 /* AccordionResizeHandle.swift */,
 				SAVE0002PROJECTSHEET02 /* SaveProjectSheet.swift */,
+				VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */,
+				VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */,
+				FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -674,6 +710,10 @@
 			files = (
 				753331FCF4CC4E1A8578392C /* MediaOptimizationServiceProtocol.swift in Sources */,
 				2D32AFD4ED0B4C24B8B2504B /* MediaOptimizationService.swift in Sources */,
+				AE01AUDIOEXTRACT001 /* AudioExtractionService.swift in Sources */,
+				MFRS001MISSINGFILE01 /* MissingFileResolutionService.swift in Sources */,
+				MIC001MEDIAIMPORT01 /* MediaImportCoordinator.swift in Sources */,
+				PPS001PERSISTENCE01 /* ProjectPersistenceService.swift in Sources */,
 				F587047D294B4B08BD7B94B1 /* OptimizationViewModel.swift in Sources */,
 				8FA4E4EA4DA645D395B3ACD7 /* OptimizeMediaButton.swift in Sources */,
 				CBA9B198D87A4901A984348F /* OptimizationSheetView.swift in Sources */,
@@ -685,6 +725,11 @@
 				B19B58BA2F0889F200FA33EC /* LayoutConstants.swift in Sources */,
 				B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */,
 				A1000001227D3F00000000B2 /* ContentView.swift in Sources */,
+				SETUP002CONTENTVIEW /* ContentView+Setup.swift in Sources */,
+				TIMELINE002CONTENTVIEW /* ContentView+Timeline.swift in Sources */,
+				FILEHANDL002CONTENTVIEW /* ContentView+FileHandling.swift in Sources */,
+				HELPERS002CONTENTVIEW /* ContentView+Helpers.swift in Sources */,
+				MODIFIERS002CONTENTVIEW /* ContentViewModifiers.swift in Sources */,
 				A1000001227D3F00000000B3 /* VideoPlayerView.swift in Sources */,
 				A1000001227D3F00000000B4 /* TransportBarView.swift in Sources */,
 				A1000001227D3F0000000070 /* MIDIManager.swift in Sources */,
@@ -729,6 +774,9 @@
 				0F78E7CD06BB4CCBA9AA1A36 /* WindowTitleConfigurator.swift in Sources */,
 				33E7262DBE394E3DA53FDE54 /* AccordionResizeHandle.swift in Sources */,
 				SAVE0001PROJECTSHEET01 /* SaveProjectSheet.swift in Sources */,
+				VINS0001VIDEOINSERT01 /* VideoInsertSheetView.swift in Sources */,
+				VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */,
+				FSVV0001FULLSCREENVIDEO01 /* FullScreenVideoView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

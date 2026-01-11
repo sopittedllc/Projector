@@ -16,7 +16,9 @@ import VideoToolbox
 // MARK: - Sendable Wrappers for AVFoundation Types
 
 /// Thread-safe wrapper for AVAssetWriterInput used in requestMediaDataWhenReady closures.
-/// These closures run on dedicated dispatch queues where the wrapped object is used exclusively.
+///
+/// AVAssetWriterInput is not Sendable, but we need to access it from dispatch queue callbacks.
+/// This wrapper is safe because the input is only accessed from the dedicated video/audio queues.
 private final class WriterInputBox: @unchecked Sendable {
     let input: AVAssetWriterInput
     init(_ input: AVAssetWriterInput) { self.input = input }
@@ -29,22 +31,27 @@ private final class ReaderOutputBox: @unchecked Sendable {
 }
 
 /// Thread-safe cancellation flag accessible from Sendable closures.
+///
+/// Uses NSLock for thread-safe access from both the actor and dispatch queue callbacks.
 private final class CancellationFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var _isCancelled = false
 
+    /// Whether cancellation has been requested.
     var isCancelled: Bool {
         lock.lock()
         defer { lock.unlock() }
         return _isCancelled
     }
 
+    /// Requests cancellation of the current operation.
     func cancel() {
         lock.lock()
         _isCancelled = true
         lock.unlock()
     }
 
+    /// Resets the cancellation flag for a new operation.
     func reset() {
         lock.lock()
         _isCancelled = false
@@ -52,7 +59,68 @@ private final class CancellationFlag: @unchecked Sendable {
     }
 }
 
-/// Actor that handles media optimization (analysis and transcoding)
+// MARK: - MediaOptimizationService
+
+/// Actor that handles media optimization (analysis and transcoding).
+///
+/// `MediaOptimizationService` analyzes media files to determine if optimization is needed,
+/// then transcodes them to efficient formats. It uses hardware-accelerated HEVC encoding
+/// on Apple Silicon for fast, high-quality results.
+///
+/// ## Architecture
+///
+/// ```
+/// ┌─────────────────────────────────────────────────────────────────┐
+/// │                  OptimizeMediaView (UI)                         │
+/// │  (shows progress, handles cancellation)                         │
+/// └─────────────────────────────────────────────────────────────────┘
+///                               │
+///                               ▼
+/// ┌─────────────────────────────────────────────────────────────────┐
+/// │          MediaOptimizationService (this file)                   │
+/// │  - Analyzes media for optimization needs                        │
+/// │  - Transcodes video to HEVC 720p using hardware acceleration    │
+/// │  - Transcodes audio to AAC stereo                               │
+/// │  - Preserves original frame rates and sample rates              │
+/// └─────────────────────────────────────────────────────────────────┘
+///                               │
+///                               ▼
+/// ┌─────────────────────────────────────────────────────────────────┐
+/// │  AVAssetReader/Writer + VideoToolbox (hardware encoding)        │
+/// └─────────────────────────────────────────────────────────────────┘
+/// ```
+///
+/// ## Encoding Strategy
+///
+/// Video is transcoded using quality-based encoding (similar to CRF mode in HandBrake):
+/// - **Codec**: HEVC (H.265) for ~40% better compression than H.264
+/// - **Resolution**: 720p (1280×720)
+/// - **Quality**: 0.65 (~CRF 23 equivalent, typically yields ~1000-1200 kbps)
+/// - **Hardware**: Uses Apple Silicon Media Engine via VideoToolbox
+///
+/// Audio is transcoded to AAC stereo at 160 kbps, preserving the original sample rate.
+///
+/// ## Usage
+///
+/// ```swift
+/// let service = MediaOptimizationService()
+///
+/// // Analyze project media
+/// let analysis = try await service.analyzeProject(mediaItems: items)
+///
+/// // Optimize files that need it
+/// let result = try await service.optimizeMedia(
+///     items: analysis.items,
+///     options: options
+/// ) { progress in
+///     print("Progress: \(progress.overallProgress * 100)%")
+/// }
+/// ```
+///
+/// ## Thread Safety
+///
+/// This is a Swift Actor, so all state is isolated. Transcoding uses dedicated
+/// dispatch queues for video and audio processing via `requestMediaDataWhenReady`.
 actor MediaOptimizationService: MediaOptimizationServiceProtocol {
 
     // MARK: - Properties
@@ -63,21 +131,40 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         get { cancellationFlag.isCancelled }
     }
 
-    /// Target specs - HEVC 720p optimized for speed + quality
-    /// Using hardware-accelerated HEVC encoding on Apple Silicon
+    /// Target encoding specifications for optimized media.
+    ///
+    /// These values are tuned for a balance of quality, file size, and encoding speed.
+    /// Matches HandBrake's "Very Fast 720p30" preset quality.
     private enum TargetSpecs {
+        /// Target video width (720p).
         static let videoWidth = 1280
+
+        /// Target video height (720p).
         static let videoHeight = 720
-        /// Quality-based encoding value (0.0-1.0 scale)
-        /// 0.65 ≈ CRF 23 equivalent visual quality, results in ~1000-1200 kbps for 720p
-        /// This matches HandBrake's "Very Fast 720p30" output quality
+
+        /// Quality-based encoding value (0.0-1.0 scale).
+        ///
+        /// 0.65 ≈ CRF 23 equivalent visual quality, results in ~1000-1200 kbps for 720p.
+        /// This matches HandBrake's "Very Fast 720p30" output quality.
         static let videoQuality: Float = 0.65
-        static let audioBitrate = 160_000    // AAC stereo
-        static let maxFrameRate = 30.0       // Peak frame rate (preserves lower)
+
+        /// Target audio bitrate in bits per second (160 kbps AAC stereo).
+        static let audioBitrate = 160_000
+
+        /// Maximum frame rate (preserves lower rates).
+        static let maxFrameRate = 30.0
     }
 
     // MARK: - Analysis
 
+    /// Analyzes all media items in a project to determine optimization needs.
+    ///
+    /// Examines each item's codec, resolution, and bitrate to determine if transcoding
+    /// would reduce file size. Files already in efficient formats are skipped.
+    ///
+    /// - Parameter mediaItems: Array of media items to analyze.
+    /// - Returns: Analysis result with per-item details and size estimates.
+    /// - Throws: Errors from file access or AVFoundation asset loading.
     func analyzeProject(mediaItems: [MediaItem]) async throws -> ProjectAnalysisResult {
         debugPrint("MediaOptimizationService.analyzeProject: analyzing \(mediaItems.count) items")
         var analysisItems: [MediaAnalysisItem] = []
@@ -354,6 +441,18 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
 
     // MARK: - Optimization (Transcoding)
 
+    /// Optimizes media files by transcoding to efficient formats.
+    ///
+    /// Transcodes video to HEVC 720p and audio to AAC stereo. Files are written
+    /// to the "Optimized Media" folder within the project package.
+    ///
+    /// - Parameters:
+    ///   - items: Analysis items indicating which files need optimization.
+    ///   - options: Configuration including output folder and quality settings.
+    ///   - progressHandler: Async callback for progress updates.
+    /// - Returns: Result containing per-item outcomes and summary statistics.
+    /// - Throws: ``MediaOptimizationError.cancelled`` if user cancels.
+    ///           ``MediaOptimizationError.insufficientDiskSpace`` if not enough space.
     func optimizeMedia(
         items: [MediaAnalysisItem],
         options: OptimizationOptions,
@@ -934,11 +1033,15 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
 
     // MARK: - Cancellation
 
+    /// Requests cancellation of the current optimization operation.
+    ///
+    /// The running transcode will stop at the next safe point and throw
+    /// ``MediaOptimizationError.cancelled``. Partial output files are cleaned up.
     func cancel() async {
         cancellationFlag.cancel()
     }
 
-    /// Reset cancellation state for new optimization runs
+    /// Resets the cancellation flag for a new optimization run.
     private func resetCancellation() {
         cancellationFlag.reset()
     }

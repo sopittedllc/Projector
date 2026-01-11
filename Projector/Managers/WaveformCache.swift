@@ -2,46 +2,143 @@ import Foundation
 import AVFoundation
 import DSWaveformImage
 
-/// Caches and generates waveform data for audio clips and tracks
+// MARK: - WaveformCache
+
+/// A multi-resolution waveform cache for audio clips with lazy generation.
+///
+/// `WaveformCache` generates and caches waveform amplitude data for audio clips,
+/// supporting multiple resolution levels for efficient rendering at different zoom levels.
+/// It uses DSWaveformImage for analysis and provides:
+/// - **Multi-resolution levels**: 256 to 16384 samples per waveform
+/// - **Lazy generation**: Waveforms are generated on-demand in background tasks
+/// - **Clip-based caching**: Keyed by AudioClip ID for efficient lookup
+/// - **Legacy track support**: Backward compatibility with track-indexed waveforms
+///
+/// ## Architecture
+///
+/// ```
+/// ┌─────────────────────────────────────────────────────────────────┐
+/// │                     WaveformCache                                │
+/// │  ┌─────────────────────────────────────────────────────────────┐│
+/// │  │ clipAtlases: [UUID: WaveformAtlas]                          ││
+/// │  │   └── WaveformAtlas                                         ││
+/// │  │         ├── level[256]: WaveformLevel (min/max/rms)         ││
+/// │  │         ├── level[512]: WaveformLevel                       ││
+/// │  │         ├── level[1024]: WaveformLevel                      ││
+/// │  │         └── ...                                              ││
+/// │  └─────────────────────────────────────────────────────────────┘│
+/// │  ┌─────────────────────────────────────────────────────────────┐│
+/// │  │ generationTasks: [UUID: Task]                               ││
+/// │  │   └── Tracks in-flight generation to prevent duplicates    ││
+/// │  └─────────────────────────────────────────────────────────────┘│
+/// └─────────────────────────────────────────────────────────────────┘
+/// ```
+///
+/// ## Thread Safety
+///
+/// - The cache is `@MainActor` isolated for safe SwiftUI observation
+/// - Waveform generation runs on detached tasks for concurrent processing
+/// - Static generation methods are `nonisolated` for background execution
+///
+/// ## Usage
+///
+/// ```swift
+/// @StateObject var waveformCache = WaveformCache()
+///
+/// // Get render data for a clip at a target width
+/// if let data = waveformCache.renderData(for: clip, targetWidth: 500) {
+///     // Use data.level.max for peak visualization
+/// }
+///
+/// // Check if still generating
+/// if waveformCache.isLoading(for: clip) {
+///     ProgressView()
+/// }
+///
+/// // Clean up when clip is removed
+/// waveformCache.removeCachedWaveform(for: clip.id)
+/// ```
 @MainActor
 final class WaveformCache: ObservableObject {
+
     // MARK: - Published Properties
 
-    /// Generated waveform atlases keyed by clip ID
+    /// Multi-resolution waveform atlases keyed by audio clip ID.
+    ///
+    /// Each atlas contains multiple resolution levels (WaveformLevels) for a single clip.
+    /// Published to allow SwiftUI views to observe changes and re-render when new
+    /// waveforms become available.
     @Published private(set) var clipAtlases: [UUID: WaveformAtlas] = [:]
 
-    /// Generated waveforms keyed by track index (legacy mode)
+    /// Legacy waveforms keyed by track index.
+    ///
+    /// Used for track-based waveform generation mode (deprecated in favor of clip-based).
+    /// Each WaveformData contains raw samples at a fixed resolution.
     @Published private(set) var trackWaveforms: [Int: WaveformData] = [:]
 
-    /// Whether waveform generation is in progress
+    /// Whether any waveform generation is currently in progress.
+    ///
+    /// `true` when at least one clip is being processed.
     @Published private(set) var isGenerating = false
 
-    /// Progress of current generation (0...1)
+    /// Overall progress of current generation operations (0.0 to 1.0).
+    ///
+    /// Only meaningful for legacy track-based generation mode.
     @Published private(set) var progress: Double = 0
 
-    /// Number of pending generation tasks
+    /// Number of pending generation tasks.
+    ///
+    /// Used to track how many clips are queued for processing.
     @Published private(set) var pendingCount: Int = 0
 
     // MARK: - Configuration
 
-    /// Samples per second for the waveform (higher = more detail, more memory)
-    /// 200 samples/sec provides good visual detail for typical zoom levels
+    /// Number of waveform samples to generate per second of audio.
+    ///
+    /// Higher values provide more visual detail but consume more memory:
+    /// - 100: Low detail, fast generation
+    /// - 200: Good balance (default)
+    /// - 400: High detail, slower generation
     var samplesPerSecond: Int = 200
 
     // MARK: - Private State
 
-    /// Generation tasks in progress
+    /// In-flight generation tasks keyed by clip ID.
+    ///
+    /// Prevents duplicate generation requests for the same clip.
     private var generationTasks: [UUID: Task<Void, Never>] = [:]
 
-    /// Shared waveform analyzer instance
+    /// DSWaveformImage analyzer for legacy track-based mode.
     private let analyzer = WaveformAnalyzer()
 
-    /// Bucket counts used for atlas levels.
+    /// Predefined bucket counts for atlas resolution levels.
+    ///
+    /// These values represent the number of samples at each resolution level.
+    /// Higher counts provide more detail for zoomed-in views.
     private let atlasBucketCounts: [Int] = [256, 512, 1024, 2048, 4096, 8192, 16384]
 
     // MARK: - Clip-Based Waveform Methods
 
-    /// Get or generate waveform render data for a clip at a target width.
+    /// Returns waveform render data for an audio clip, triggering generation if needed.
+    ///
+    /// This is the primary method for retrieving waveform data. It:
+    /// 1. Checks if a cached atlas exists for the clip
+    /// 2. Finds the best resolution level for the target width
+    /// 3. If not cached, triggers background generation
+    ///
+    /// - Parameters:
+    ///   - clip: The audio clip to get waveform data for
+    ///   - targetWidth: Desired rendering width in pixels (used to select resolution)
+    /// - Returns: Waveform render data if available, `nil` if still generating
+    ///
+    /// ## Example
+    /// ```swift
+    /// if let data = cache.renderData(for: clip, targetWidth: viewWidth) {
+    ///     drawWaveform(using: data.level.max)
+    /// } else {
+    ///     showLoadingIndicator()
+    /// }
+    /// ```
     func renderData(for clip: AudioClip, targetWidth: Int) -> WaveformRenderData? {
         if let atlas = clipAtlases[clip.id] {
             let bucketCount = closestBucketCount(for: targetWidth)
@@ -57,7 +154,14 @@ final class WaveformCache: ObservableObject {
         return nil
     }
 
-    /// Generate waveform for a clip asynchronously
+    /// Starts asynchronous waveform generation for an audio clip.
+    ///
+    /// Spawns a detached task to generate a multi-resolution atlas for the clip.
+    /// Upon completion, the atlas is stored in `clipAtlases` and published.
+    ///
+    /// - Parameter clip: The audio clip to generate waveforms for
+    ///
+    /// - Note: This method is idempotent - duplicate calls for the same clip are ignored.
     private func startGeneration(for clip: AudioClip) {
         let clipId = clip.id
         let sps = samplesPerSecond
@@ -91,7 +195,22 @@ final class WaveformCache: ObservableObject {
         updateGeneratingState()
     }
 
-    /// Generate waveform atlas for a specific clip.
+    /// Generates a multi-resolution waveform atlas for an audio clip.
+    ///
+    /// This method:
+    /// 1. Loads the audio asset from the clip's source URL
+    /// 2. Reads audio samples using AVAssetReader
+    /// 3. Normalizes and processes samples
+    /// 4. Builds multiple resolution levels
+    ///
+    /// - Parameters:
+    ///   - clip: The audio clip to analyze
+    ///   - samplesPerSecond: Target sample density
+    ///   - bucketCounts: Resolution levels to generate
+    /// - Returns: A WaveformAtlas containing all resolution levels
+    /// - Throws: `WaveformCacheError` if the audio cannot be read
+    ///
+    /// - Note: This method is `nonisolated static` for background execution.
     private nonisolated static func generateAtlasForClip(
         clip: AudioClip,
         samplesPerSecond: Int,
@@ -147,6 +266,18 @@ final class WaveformCache: ObservableObject {
         return WaveformAtlas(duration: durationSeconds, levels: levels)
     }
 
+    /// Reads audio samples from an asset using AVAssetReader.
+    ///
+    /// Configures the reader to output mono 16-bit PCM audio, then processes
+    /// the samples to extract peak values at the target sample rate.
+    ///
+    /// - Parameters:
+    ///   - asset: The AVAsset to read from
+    ///   - track: The specific audio track to process
+    ///   - samplesPerSecond: Target output sample rate
+    ///   - durationSeconds: Duration for capacity estimation
+    /// - Returns: Array of normalized peak amplitude values (0.0 to 1.0)
+    /// - Throws: `WaveformCacheError.failedToStartReading` if reader fails
     private nonisolated static func samplesUsingAssetReader(
         asset: AVAsset,
         track: AVAssetTrack,
@@ -228,12 +359,17 @@ final class WaveformCache: ObservableObject {
         return samples
     }
 
-    /// Check if waveform is currently being generated for a clip
+    /// Returns whether waveform generation is in progress for a clip.
+    ///
+    /// - Parameter clip: The audio clip to check
+    /// - Returns: `true` if a generation task is running, `false` otherwise
     func isLoading(for clip: AudioClip) -> Bool {
         generationTasks[clip.id] != nil
     }
 
-    /// Cancel generation for a clip
+    /// Cancels any pending waveform generation for a clip.
+    ///
+    /// - Parameter clipId: The UUID of the clip to cancel
     func cancelGeneration(for clipId: UUID) {
         if let task = generationTasks.removeValue(forKey: clipId) {
             task.cancel()
@@ -242,14 +378,26 @@ final class WaveformCache: ObservableObject {
         }
     }
 
-    /// Remove cached waveform for a clip
+    /// Removes cached waveform data for a clip.
+    ///
+    /// Call this when a clip is removed from the timeline to free memory.
+    ///
+    /// - Parameter clipId: The UUID of the clip to remove
     func removeCachedWaveform(for clipId: UUID) {
         clipAtlases.removeValue(forKey: clipId)
     }
 
     // MARK: - Track-Based Waveform Methods (Legacy)
 
-    /// Generate waveforms for all audio tracks in an asset (legacy mode)
+    /// Generates waveforms for all audio tracks in an asset.
+    ///
+    /// This is the legacy track-based generation mode, superseded by clip-based
+    /// generation. Use `renderData(for:targetWidth:)` for new code.
+    ///
+    /// - Parameter url: URL of the audio/video file
+    /// - Throws: If the asset cannot be loaded
+    ///
+    /// - Note: Updates `progress` as tracks are processed.
     func generateWaveforms(from url: URL) async throws {
         isGenerating = true
         progress = 0
@@ -294,18 +442,24 @@ final class WaveformCache: ObservableObject {
         progress = 1.0
     }
 
-    /// Get waveform for a track by index (legacy mode)
+    /// Returns waveform data for a track by index (legacy mode).
+    ///
+    /// - Parameter trackIndex: The audio track index
+    /// - Returns: Waveform data if available, `nil` otherwise
     func waveform(forTrack trackIndex: Int) -> WaveformData? {
         trackWaveforms[trackIndex]
     }
 
     // MARK: - State Management
 
+    /// Updates the isGenerating flag based on pending task count.
     private func updateGeneratingState() {
         isGenerating = pendingCount > 0
     }
 
-    /// Clear all cached waveforms
+    /// Clears all cached waveforms and cancels pending tasks.
+    ///
+    /// Removes both clip-based and legacy track-based waveforms.
     func clearAll() {
         // Cancel all pending tasks
         for (id, task) in generationTasks {
@@ -320,7 +474,9 @@ final class WaveformCache: ObservableObject {
         progress = 0
     }
 
-    /// Clear only clip waveforms (keep legacy track waveforms)
+    /// Clears clip-based waveforms only.
+    ///
+    /// Keeps legacy track waveforms intact.
     func clearClipWaveforms() {
         for (id, task) in generationTasks {
             task.cancel()
@@ -332,16 +488,26 @@ final class WaveformCache: ObservableObject {
         updateGeneratingState()
     }
 
-    /// Clear legacy track waveforms
+    /// Clears legacy track waveforms only.
     func clearTrackWaveforms() {
         trackWaveforms.removeAll()
     }
 
+    // MARK: - Private Helpers
+
+    /// Finds the closest predefined bucket count for a target width.
+    ///
+    /// - Parameter targetWidth: Desired rendering width in pixels
+    /// - Returns: The nearest bucket count from `atlasBucketCounts`
     private func closestBucketCount(for targetWidth: Int) -> Int {
         let clampedTarget = max(1, targetWidth)
         return atlasBucketCounts.min(by: { abs($0 - clampedTarget) < abs($1 - clampedTarget) }) ?? atlasBucketCounts.last ?? 512
     }
 
+    /// Normalizes samples to have a peak of 1.0.
+    ///
+    /// - Parameter samples: Raw amplitude samples
+    /// - Returns: Normalized samples (0.0 to 1.0)
     private nonisolated static func normalize(samples: [Float]) -> [Float] {
         guard let peak = samples.map({ abs($0) }).max(), peak > 0 else {
             return samples.map { abs($0) }
@@ -350,6 +516,16 @@ final class WaveformCache: ObservableObject {
         return samples.map { abs($0) * scale }
     }
 
+    /// Applies track timing offset and pads samples to expected length.
+    ///
+    /// Handles cases where audio tracks start after video start (e.g., delayed audio).
+    ///
+    /// - Parameters:
+    ///   - samples: Raw samples from the track
+    ///   - expectedSamples: Target sample count
+    ///   - trackStartSeconds: When the track starts relative to asset start
+    ///   - durationSeconds: Total duration of the asset
+    /// - Returns: Padded/trimmed samples matching expected length
     private nonisolated static func applyTrackOffset(
         samples: [Float],
         expectedSamples: Int,
@@ -374,6 +550,12 @@ final class WaveformCache: ObservableObject {
         return output
     }
 
+    /// Builds multiple resolution levels from normalized samples.
+    ///
+    /// - Parameters:
+    ///   - samples: Normalized amplitude samples
+    ///   - bucketCounts: Array of target bucket counts for each level
+    /// - Returns: Dictionary mapping bucket count to WaveformLevel
     private nonisolated static func buildLevels(from samples: [Float], bucketCounts: [Int]) -> [Int: WaveformLevel] {
         var levels: [Int: WaveformLevel] = [:]
         for bucketCount in bucketCounts {
@@ -382,6 +564,14 @@ final class WaveformCache: ObservableObject {
         return levels
     }
 
+    /// Builds a single resolution level by downsampling.
+    ///
+    /// Divides samples into buckets and computes min, max, and RMS for each.
+    ///
+    /// - Parameters:
+    ///   - samples: Normalized amplitude samples
+    ///   - bucketCount: Target number of buckets (output samples)
+    /// - Returns: WaveformLevel with min/max/rms arrays
     private nonisolated static func buildLevel(samples: [Float], bucketCount: Int) -> WaveformLevel {
         let safeBucketCount = max(1, bucketCount)
         var minValues = Array(repeating: Float(0), count: safeBucketCount)
@@ -420,9 +610,15 @@ final class WaveformCache: ObservableObject {
 
 // MARK: - Errors
 
+/// Errors that can occur during waveform generation.
 enum WaveformCacheError: LocalizedError {
+    /// AVAssetReader failed to start reading the audio track.
     case failedToStartReading
+
+    /// The media file contains no audio tracks.
     case noAudioTracks
+
+    /// The requested track index is out of bounds.
     case invalidTrackIndex
 
     var errorDescription: String? {

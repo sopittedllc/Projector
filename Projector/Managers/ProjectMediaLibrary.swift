@@ -5,7 +5,62 @@ import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 
-/// Manages the project's media library - importing, organizing, and providing filtered views
+// MARK: - ProjectMediaLibrary
+
+/// Manages the project's media library - importing, organizing, and providing filtered views.
+///
+/// `ProjectMediaLibrary` is the central repository for all media assets in a Projector project.
+/// It handles importing files from disk, maintaining security-scoped bookmarks for sandbox access,
+/// and providing filtered views of the library contents.
+///
+/// ## Architecture
+///
+/// ```
+/// ┌─────────────────────────────────────────────────────────────────┐
+/// │                    ProjectDocument                              │
+/// │  (owns and persists ProjectMediaLibrary)                        │
+/// └─────────────────────────────────────────────────────────────────┘
+///                               │
+///                               ▼
+/// ┌─────────────────────────────────────────────────────────────────┐
+/// │              ProjectMediaLibrary (this file)                    │
+/// │  - Imports media files with metadata extraction                 │
+/// │  - Maintains security-scoped bookmarks                          │
+/// │  - Provides filtered views (video/audio, search)                │
+/// │  - Supports media consolidation into project package            │
+/// └─────────────────────────────────────────────────────────────────┘
+///                               │
+///                               ▼
+/// ┌─────────────────────────────────────────────────────────────────┐
+/// │                       MediaItem                                 │
+/// │  (Codable model with URL, bookmark, metadata)                   │
+/// └─────────────────────────────────────────────────────────────────┘
+/// ```
+///
+/// ## Thread Safety
+///
+/// This class is confined to `@MainActor` for safe UI observation via `@Published` properties.
+/// All file I/O operations use `async` methods that don't block the main thread.
+///
+/// ## Usage
+///
+/// ```swift
+/// let library = ProjectMediaLibrary()
+///
+/// // Import a video file
+/// let item = try await library.importFile(from: videoURL)
+///
+/// // Search the library
+/// let results = library.search(query: "interview")
+///
+/// // Filter by type
+/// let videos = library.videoItems
+/// ```
+///
+/// ## Security-Scoped Access
+///
+/// When files are imported, security-scoped bookmarks are created to maintain sandbox access
+/// across app launches. Use ``refreshAccess(for:)`` to re-establish access when needed.
 @MainActor
 final class ProjectMediaLibrary: ObservableObject {
     // MARK: - Published Properties
@@ -38,21 +93,31 @@ final class ProjectMediaLibrary: ObservableObject {
 
     // MARK: - Callbacks
 
+    /// Callback invoked when the library contents change.
+    ///
+    /// Used by `ProjectDocument` to trigger auto-save when media is added or removed.
     var onLibraryChanged: (() -> Void)?
 
     // MARK: - Initialization
 
+    /// Creates a new media library with optional initial items.
+    ///
+    /// - Parameter items: Initial media items to populate the library (default empty).
     init(items: [MediaItem] = []) {
         self.items = items
     }
 
     // MARK: - Change Tracking
 
+    /// Marks the library as having unsaved changes.
+    ///
+    /// Triggers the ``onLibraryChanged`` callback for auto-save.
     private func markDirty() {
         hasChanges = true
         onLibraryChanged?()
     }
 
+    /// Clears the unsaved changes flag after successful save.
     func markClean() {
         hasChanges = false
     }
@@ -192,7 +257,13 @@ final class ProjectMediaLibrary: ObservableObject {
         }
     }
 
-    /// Import multiple files
+    /// Imports multiple media files into the library.
+    ///
+    /// Processes each URL sequentially and collects results. Failed imports don't prevent
+    /// other files from being imported.
+    ///
+    /// - Parameter urls: Array of file URLs to import.
+    /// - Returns: Array of results, one per URL, indicating success or failure.
     func importFiles(from urls: [URL]) async -> [Result<MediaItem, Error>] {
         var results: [Result<MediaItem, Error>] = []
 
@@ -208,13 +279,19 @@ final class ProjectMediaLibrary: ObservableObject {
         return results
     }
 
-    /// Remove a media item from the library
+    /// Removes a media item from the library.
+    ///
+    /// - Parameter id: The unique identifier of the item to remove.
+    /// - Note: This does not delete the source file from disk.
     func removeItem(id: UUID) {
         items.removeAll { $0.id == id }
         markDirty()
     }
 
-    /// Remove multiple items
+    /// Removes multiple items from the library.
+    ///
+    /// - Parameter ids: Set of unique identifiers for items to remove.
+    /// - Note: This does not delete source files from disk.
     func removeItems(ids: Set<UUID>) {
         items.removeAll { ids.contains($0.id) }
         markDirty()
@@ -256,12 +333,22 @@ final class ProjectMediaLibrary: ObservableObject {
         markDirty()
     }
 
-    /// Get an item by ID
+    /// Retrieves a media item by its unique identifier.
+    ///
+    /// - Parameter id: The unique identifier of the item to retrieve.
+    /// - Returns: The matching `MediaItem`, or `nil` if not found.
     func item(withId id: UUID) -> MediaItem? {
         items.first { $0.id == id }
     }
 
-    /// Refresh file access for an item using its bookmark
+    /// Refreshes file access for an item using its security-scoped bookmark.
+    ///
+    /// Call this method to re-establish sandbox access to a file that was previously imported.
+    /// The bookmark is stored with the media item and can survive app relaunches.
+    ///
+    /// - Parameter itemId: The unique identifier of the item to refresh.
+    /// - Returns: `true` if access was successfully restored, `false` otherwise.
+    /// - Note: Returns `false` if the item doesn't exist, has no bookmark, or the file was moved.
     func refreshAccess(for itemId: UUID) -> Bool {
         guard let index = items.firstIndex(where: { $0.id == itemId }),
               let bookmark = items[index].bookmark else {
@@ -289,8 +376,14 @@ final class ProjectMediaLibrary: ObservableObject {
 
     // MARK: - Thumbnail Generation
 
-    /// Generate a thumbnail image for a video asset (returns PNG data)
-    /// Uses CoreGraphics/ImageIO to avoid AppKit dependency in the Logic layer
+    /// Generates a thumbnail image for a video asset.
+    ///
+    /// Extracts a frame at 1 second into the video and encodes it as PNG data.
+    /// Uses CoreGraphics/ImageIO to avoid AppKit dependency in the Logic layer.
+    ///
+    /// - Parameter asset: The AVAsset to extract a thumbnail from.
+    /// - Returns: PNG-encoded image data, or `nil` if extraction fails.
+    /// - Note: Maximum thumbnail size is 640×360 pixels.
     private func generateThumbnail(for asset: AVAsset) async -> Data? {
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
@@ -322,8 +415,14 @@ final class ProjectMediaLibrary: ObservableObject {
         }
     }
 
-    /// Get thumbnail data for an item (loads from cache or generates)
-    /// Returns raw PNG data - the View layer converts to NSImage/Image
+    /// Retrieves thumbnail data for a media item.
+    ///
+    /// Returns cached thumbnail data if available, otherwise generates a new thumbnail
+    /// for video items. Audio items return `nil`.
+    ///
+    /// - Parameter itemId: The unique identifier of the media item.
+    /// - Returns: PNG-encoded thumbnail data, or `nil` if unavailable.
+    /// - Note: The View layer is responsible for converting Data to NSImage/Image.
     func thumbnailData(for itemId: UUID) async -> Data? {
         guard let item = item(withId: itemId) else { return nil }
 
@@ -374,28 +473,49 @@ final class ProjectMediaLibrary: ObservableObject {
 
     // MARK: - Serialization
 
-    /// Load library from array of items
+    /// Loads the library from a persisted array of items.
+    ///
+    /// Replaces all current items and clears the unsaved changes flag.
+    /// Used by `ProjectDocument` when loading a saved project.
+    ///
+    /// - Parameter items: Array of `MediaItem` objects from saved data.
     func load(items: [MediaItem]) {
         self.items = items
         hasChanges = false
     }
 
-    /// Export items for serialization
+    /// Exports all items for persistence.
+    ///
+    /// - Returns: Array of all `MediaItem` objects in the library.
     func exportItems() -> [MediaItem] {
         items
     }
 
     // MARK: - Media Consolidation
 
-    /// Result of a consolidation operation
+    /// Result of a media consolidation operation.
+    ///
+    /// Summarizes the outcome of copying external media files into the project package.
     struct ConsolidationResult {
+        /// Number of files successfully copied into the project.
         let copiedCount: Int
+
+        /// Number of files skipped (already inside project).
         let skippedCount: Int
+
+        /// Number of files that failed to copy.
         let failedCount: Int
+
+        /// Error messages for failed copies.
         let errors: [String]
     }
 
-    /// Find media items that are stored outside the project folder
+    /// Finds media items stored outside the project folder.
+    ///
+    /// Use this to identify which files need consolidation before sharing a project.
+    ///
+    /// - Parameter projectURL: The URL of the `.projector` package.
+    /// - Returns: Array of `MediaItem` objects with external file references.
     func externalMediaItems(projectURL: URL) -> [MediaItem] {
         return items.filter { item in
             !item.url.path.hasPrefix(projectURL.path)
@@ -494,9 +614,15 @@ final class ProjectMediaLibrary: ObservableObject {
 
 // MARK: - Errors
 
+/// Errors that can occur during media library operations.
 enum MediaLibraryError: LocalizedError {
+    /// The file format is not in the list of supported extensions.
     case unsupportedFormat
+
+    /// The file could not be located on disk.
     case fileNotFound
+
+    /// Import failed with a specific reason.
     case importFailed(String)
 
     var errorDescription: String? {

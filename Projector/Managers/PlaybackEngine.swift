@@ -4,8 +4,76 @@ import Combine
 import SwiftTimecodeCore
 import AudioToolbox
 
-/// Multi-reel playback engine with timeline support
-/// Manages seamless video reel switching and multiple audio clip playback
+// MARK: - PlaybackEngine
+
+/// Multi-reel playback engine with timeline support.
+///
+/// `PlaybackEngine` manages seamless video reel switching and multiple audio clip playback
+/// across a unified timeline. It handles the complexity of multi-asset playback including
+/// gap handling, preloading, and audio routing through a matrix mixer.
+///
+/// ## Architecture
+///
+/// ```
+/// ┌─────────────────────────────────────────────────────────────────┐
+/// │                    TransportActor                               │
+/// │  (bridges PlaybackEngine to TransportServiceProtocol)           │
+/// └─────────────────────────────────────────────────────────────────┘
+///                               │
+///                               ▼
+/// ┌─────────────────────────────────────────────────────────────────┐
+/// │              PlaybackEngine (this file)                         │
+/// │  - Multi-reel video playback with seamless transitions          │
+/// │  - Gap handling (timer-based frame advancement)                 │
+/// │  - Audio routing via AVAudioEngine + MatrixMixer                │
+/// │  - Preloading for smooth reel transitions                       │
+/// └─────────────────────────────────────────────────────────────────┘
+///                               │
+///                 ┌─────────────┼─────────────┐
+///                 ▼             ▼             ▼
+/// ┌───────────────────┐ ┌────────────┐ ┌──────────────┐
+/// │     AVPlayer      │ │ AVAudioEngine│ │   Timeline  │
+/// │ (video playback)  │ │ (audio routing) │ │  (data model)│
+/// └───────────────────┘ └────────────┘ └──────────────┘
+/// ```
+///
+/// ## Thread Safety
+///
+/// This class is `@MainActor`-isolated for safe SwiftUI observation. Heavy operations
+/// like audio extraction run on background queues. The audio engine uses its own
+/// internal dispatch queues for buffer processing.
+///
+/// ## Video Playback
+///
+/// Video reels are loaded from the timeline and played via AVPlayer. When approaching
+/// a reel boundary (within 5 seconds), the next reel is preloaded for seamless transition.
+/// Gaps between reels are handled by a timer that advances the frame counter.
+///
+/// ## Audio Routing
+///
+/// Audio clips are played through an AVAudioEngine graph:
+/// ```
+/// PlayerNode -> RateConverter -> MatrixMixer -> MainMixer -> OutputNode
+/// ```
+///
+/// The MatrixMixer allows flexible channel routing (e.g., mono to specific outputs,
+/// stereo to channels 3-4, etc.) for multi-channel audio interfaces.
+///
+/// ## Usage
+///
+/// ```swift
+/// let engine = PlaybackEngine(timeline: project.timeline)
+///
+/// // Load and play
+/// try await engine.loadReel(videoReel)
+/// engine.play()
+///
+/// // Seek to timecode
+/// engine.seekToFrame(1000)
+///
+/// // Configure audio output
+/// engine.setAudioOutputDevice(deviceUID)
+/// ```
 @MainActor
 final class PlaybackEngine: ObservableObject {
     // MARK: - Published Properties
@@ -134,15 +202,22 @@ final class PlaybackEngine: ObservableObject {
     /// Seconds before reel boundary to start preloading
     private let preloadThreshold: Double = 5.0
 
+    /// Key for caching extracted audio from video files.
     private struct AudioExtractionKey: Hashable {
+        /// Source video URL.
         let url: URL
+        /// Audio track index within the video.
         let trackIndex: Int
     }
 
+    /// Sendable wrapper for AVAssetExportSession used in legacy export.
     private struct ExportSessionBox: @unchecked Sendable {
         let session: AVAssetExportSession
     }
 
+    /// State container for an actively playing audio clip.
+    ///
+    /// Holds references to the audio graph nodes and scheduling state for a single clip.
     private final class AudioClipPlayback {
         let clipId: UUID
         let player: AVAudioPlayerNode
@@ -182,6 +257,12 @@ final class PlaybackEngine: ObservableObject {
 
     // MARK: - Initialization
 
+    /// Creates a new playback engine for the given timeline.
+    ///
+    /// Initializes the audio engine and configures output settings immediately
+    /// for responsive playback when play is first pressed.
+    ///
+    /// - Parameter timeline: The timeline to play back (default is empty).
     init(timeline: Timeline = .empty) {
         self.timeline = timeline
         self.currentTimecode = timeline.config.startTimecode
@@ -194,7 +275,13 @@ final class PlaybackEngine: ObservableObject {
 
     // MARK: - Public Methods
 
-    /// Load a video reel and prepare for playback
+    /// Loads a video reel and prepares it for playback.
+    ///
+    /// Creates an AVPlayer for the reel, caches the asset, and sets up time observation.
+    /// The previous player (if any) is paused and its observer removed.
+    ///
+    /// - Parameter reel: The video reel to load.
+    /// - Throws: ``PlaybackEngineError.notPlayable`` if the asset cannot be played.
     func loadReel(_ reel: VideoReel) async throws {
         // Get or create asset
         let asset = try await getAsset(for: reel)
@@ -226,7 +313,11 @@ final class PlaybackEngine: ObservableObject {
         setupTimeObserver()
     }
 
-    /// Start playback
+    /// Starts playback from the current position.
+    ///
+    /// If the playhead is on a video reel, that reel is loaded (if needed) and playback begins.
+    /// If the playhead is in a gap, a timer advances the frame counter at the timeline's frame rate.
+    /// Active audio clips are also started and synchronized.
     func play() {
         guard hasContent else { return }
         resetSeekState()
@@ -257,7 +348,9 @@ final class PlaybackEngine: ObservableObject {
         startActiveAudioClips()
     }
 
-    /// Pause playback
+    /// Pauses playback at the current position.
+    ///
+    /// Pauses video playback, stops gap timer, and stops all audio clips.
     func pause() {
         currentPlayer?.pause()
         isPlaying = false
@@ -266,7 +359,7 @@ final class PlaybackEngine: ObservableObject {
         stopAllAudioClips()
     }
 
-    /// Toggle play/pause
+    /// Toggles between play and pause states.
     func togglePlayback() {
         if isPlaying {
             pause()
@@ -275,7 +368,7 @@ final class PlaybackEngine: ObservableObject {
         }
     }
 
-    /// Stop playback and return to start
+    /// Stops playback and returns to the start of the timeline.
     func stop() {
         pause()
         seekToFrame(0)
@@ -286,7 +379,12 @@ final class PlaybackEngine: ObservableObject {
         pendingSeekFrame = nil
     }
 
-    /// Seek to a specific timeline frame
+    /// Seeks to a specific timeline frame.
+    ///
+    /// The frame is clamped to valid range. If playing, playback resumes after the seek completes.
+    /// Rapid seek requests are coalesced to avoid overwhelming the player.
+    ///
+    /// - Parameter frame: Target frame number (0-based).
     func seekToFrame(_ frame: Int) {
         let clampedFrame = max(0, min(frame, durationFrames - 1))
         currentFrame = clampedFrame
@@ -295,13 +393,22 @@ final class PlaybackEngine: ObservableObject {
         performPendingSeekIfNeeded()
     }
 
-    /// Seek to a specific timecode
+    /// Seeks to a specific timecode.
+    ///
+    /// Converts the timecode to a frame number using the timeline configuration.
+    ///
+    /// - Parameter timecode: Target timecode.
     func seekToTimecode(_ timecode: Timecode) {
         let frame = timeline.config.frame(for: timecode)
         seekToFrame(frame)
     }
 
-    /// Seek to MTC timecode (for external sync)
+    /// Seeks to an MTC timecode received from external sync.
+    ///
+    /// Only seeks if the timecode is within the timeline bounds.
+    /// Used by the MIDI sync system to chase incoming MTC.
+    ///
+    /// - Parameter timecode: MTC timecode from external source.
     func seekToMTC(_ timecode: Timecode) {
         // Only seek if timecode is within timeline bounds
         let frame = timeline.config.frame(for: timecode)
@@ -310,17 +417,22 @@ final class PlaybackEngine: ObservableObject {
         }
     }
 
-    /// Step forward by one frame
+    /// Steps forward by one frame.
     func stepForward() {
         seekToFrame(currentFrame + 1)
     }
 
-    /// Step backward by one frame
+    /// Steps backward by one frame.
     func stepBackward() {
         seekToFrame(currentFrame - 1)
     }
 
-    /// Set the audio output device
+    /// Sets the audio output device for both video and audio playback.
+    ///
+    /// Updates the AVPlayer audio device and reconfigures the audio engine
+    /// to use the specified device's channel count and sample rate.
+    ///
+    /// - Parameter deviceUID: CoreAudio device UID, or `nil` for system default.
     func setAudioOutputDevice(_ deviceUID: String?) {
         audioOutputDeviceUID = deviceUID
         currentPlayer?.audioOutputDeviceUniqueID = deviceUID
@@ -1466,8 +1578,13 @@ final class PlaybackEngine: ObservableObject {
 
     // MARK: - Cleanup
 
-    /// Cleanup method to be called before the engine is deallocated.
-    /// Call this from the owning class's cleanup to ensure resources are released properly.
+    /// Cleans up all resources before deallocation.
+    ///
+    /// Stops all playback, releases audio engine resources, clears caches,
+    /// and deletes temporary audio extraction files.
+    ///
+    /// - Important: Call this method before the engine is deallocated to ensure
+    ///   proper resource cleanup. The `deinit` cannot access `@MainActor` properties.
     func cleanup() {
         // Stop gap timer
         gapTimer?.invalidate()
@@ -1498,12 +1615,24 @@ final class PlaybackEngine: ObservableObject {
 
 // MARK: - Errors
 
+/// Errors that can occur during playback operations.
 enum PlaybackEngineError: LocalizedError {
+    /// The video asset cannot be played (corrupt or unsupported format).
     case notPlayable
+
+    /// The requested video reel was not found in the timeline.
     case reelNotFound
+
+    /// Seek operation failed to complete.
     case seekFailed
+
+    /// No audio track exists at the specified index.
     case noAudioTrack
+
+    /// Failed to extract audio from a video file to a temporary file.
     case audioExtractionFailed
+
+    /// Failed to instantiate an Audio Unit (e.g., MatrixMixer).
     case audioUnitInstantiationFailed
 
     var errorDescription: String? {

@@ -3,7 +3,63 @@ import AVFoundation
 import Vision
 import CoreImage
 
-/// Manages detection of burned-in timecode from video frames using OCR
+// MARK: - TimecodeOCRManager
+
+/// Manages detection of burned-in timecode from video frames using OCR.
+///
+/// `TimecodeOCRManager` uses the Vision framework to detect timecode text that is
+/// "burned in" (visually rendered) to video frames. This is useful for detecting
+/// discrepancies between metadata timecode and the visible timecode on screen.
+///
+/// ## Architecture
+///
+/// ```
+/// ┌─────────────────────────────────────────────────────────────────┐
+/// │              Video Reel Inspector (UI)                          │
+/// │  (calls detectBurnedInTimecode when user requests)              │
+/// └─────────────────────────────────────────────────────────────────┘
+///                               │
+///                               ▼
+/// ┌─────────────────────────────────────────────────────────────────┐
+/// │           TimecodeOCRManager (this file)                        │
+/// │  - Extracts frames from video at sample times                   │
+/// │  - Runs Vision OCR to detect text                               │
+/// │  - Matches timecode patterns (HH:MM:SS:FF)                      │
+/// │  - Compares with metadata timecode                              │
+/// └─────────────────────────────────────────────────────────────────┘
+///                               │
+///                               ▼
+/// ┌─────────────────────────────────────────────────────────────────┐
+/// │              Vision Framework (VNRecognizeTextRequest)          │
+/// └─────────────────────────────────────────────────────────────────┘
+/// ```
+///
+/// ## Detection Strategy
+///
+/// Frames are sampled at multiple positions (0.5s, 1s, 2s, 5s) to increase the
+/// chance of finding burned-in timecode. The detector prefers timecodes in the
+/// upper portion of the frame (Y > 0.7 in Vision coordinates) where SEQ TC and
+/// record-run timecodes are typically burned in.
+///
+/// ## Usage
+///
+/// ```swift
+/// let manager = TimecodeOCRManager()
+///
+/// if let result = await manager.detectBurnedInTimecode(
+///     from: videoURL,
+///     metadataTimecodeSeconds: 3600.0,  // 01:00:00:00
+///     frameRate: 24.0
+/// ) {
+///     print("Burned-in TC: \(result.burnedInTimecode)")
+///     print("Difference: \(result.formattedDifference)")
+/// }
+/// ```
+///
+/// ## Thread Safety
+///
+/// This class is `@MainActor`-isolated for safe UI observation. Vision processing
+/// runs on a background queue internally.
 @MainActor
 final class TimecodeOCRManager: ObservableObject {
     // MARK: - Published Properties
@@ -16,18 +72,32 @@ final class TimecodeOCRManager: ObservableObject {
 
     // MARK: - Detection Result
 
+    /// Result of burned-in timecode detection.
+    ///
+    /// Contains the detected timecode, the comparison with metadata timecode,
+    /// and the calculated difference.
     struct DetectionResult {
+        /// The burned-in timecode string as detected by OCR (e.g., "01:23:45:12").
         let burnedInTimecode: String
+
+        /// The burned-in timecode converted to seconds.
         let burnedInSeconds: Double
+
+        /// The metadata timecode in seconds (for comparison).
         let metadataSeconds: Double
+
+        /// Difference between burned-in and metadata in seconds.
         let differenceSeconds: Double
+
+        /// Video frame rate used for frame calculations.
         let frameRate: Double
 
+        /// The offset to add to metadata TC to match burned-in TC.
         var suggestedOffset: Double {
-            // The offset to add to metadata TC to match burned-in TC
             return burnedInSeconds - metadataSeconds
         }
 
+        /// Human-readable difference in frames (e.g., "+24 frames").
         var formattedDifference: String {
             let frames = Int(abs(differenceSeconds) * frameRate)
             let sign = differenceSeconds >= 0 ? "+" : "-"
@@ -37,12 +107,18 @@ final class TimecodeOCRManager: ObservableObject {
 
     // MARK: - Public Methods
 
-    /// Detect burned-in timecode from a video and compare with metadata
+    /// Detects burned-in timecode from a video and compares with metadata.
+    ///
+    /// Samples multiple frames from the video and uses Vision OCR to detect
+    /// timecode patterns. Returns a result only if the detected timecode differs
+    /// significantly (>1 second) from the metadata timecode.
+    ///
     /// - Parameters:
-    ///   - url: Video file URL
-    ///   - metadataTimecodeSeconds: Current timecode offset from metadata (in seconds)
-    ///   - frameRate: Video frame rate
-    /// - Returns: Detection result if burned-in TC differs significantly from metadata
+    ///   - url: Video file URL to analyze.
+    ///   - metadataTimecodeSeconds: Current timecode offset from metadata (in seconds).
+    ///   - frameRate: Video frame rate for frame-to-time conversion.
+    /// - Returns: Detection result if burned-in TC differs from metadata, or `nil` if
+    ///            no timecode was found or they match.
     func detectBurnedInTimecode(
         from url: URL,
         metadataTimecodeSeconds: Double,
@@ -85,7 +161,12 @@ final class TimecodeOCRManager: ObservableObject {
 
     // MARK: - Private Methods
 
-    /// Extract a single frame from video at specified time
+    /// Extracts a single frame from video at the specified time.
+    ///
+    /// - Parameters:
+    ///   - url: Video file URL.
+    ///   - timeSeconds: Time offset in seconds to extract.
+    /// - Returns: The extracted frame as a CGImage, or `nil` if extraction fails.
     private func extractFrame(from url: URL, at timeSeconds: Double) async -> CGImage? {
         let asset = AVAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
@@ -104,7 +185,14 @@ final class TimecodeOCRManager: ObservableObject {
         }
     }
 
-    /// Use Vision OCR to detect timecode text in image
+    /// Uses Vision OCR to detect timecode text in an image.
+    ///
+    /// Runs a VNRecognizeTextRequest on the image and searches for timecode patterns.
+    /// Prefers timecodes in the upper portion of the frame (Y > 0.7) where burn-in
+    /// timecodes are typically placed.
+    ///
+    /// - Parameter image: The video frame to analyze.
+    /// - Returns: The detected timecode string (normalized to HH:MM:SS:FF), or `nil`.
     private func detectTimecodeInImage(_ image: CGImage) async -> String? {
         return await withCheckedContinuation { continuation in
             let request = VNRecognizeTextRequest { request, error in
@@ -161,8 +249,13 @@ final class TimecodeOCRManager: ObservableObject {
         }
     }
 
-    /// Extract timecode pattern from OCR text
-    /// Matches patterns like: 01:02:03:04, 01:02:03;04, 01:02:03.04
+    /// Extracts a timecode pattern from OCR text.
+    ///
+    /// Matches common timecode patterns including non-drop (`:`) and drop-frame (`;`) separators.
+    /// Supported patterns: `01:02:03:04`, `01:02:03;04`, `01:02:03.04`
+    ///
+    /// - Parameter text: Raw text from OCR detection.
+    /// - Returns: Normalized timecode string (HH:MM:SS:FF), or `nil` if no pattern found.
     private func extractTimecodeFromText(_ text: String) -> String? {
         // Common timecode patterns:
         // HH:MM:SS:FF (non-drop)
@@ -197,7 +290,12 @@ final class TimecodeOCRManager: ObservableObject {
         return nil
     }
 
-    /// Normalize various timecode formats to HH:MM:SS:FF
+    /// Normalizes various timecode formats to HH:MM:SS:FF.
+    ///
+    /// Replaces alternate separators (`;`, `.`) with colons and zero-pads components.
+    ///
+    /// - Parameter tc: Raw timecode string from pattern matching.
+    /// - Returns: Normalized timecode with colon separators and zero-padded components.
     private func normalizeTimecode(_ tc: String) -> String {
         // Replace various separators with colons
         let cleaned = tc.replacingOccurrences(of: ";", with: ":")
@@ -216,7 +314,15 @@ final class TimecodeOCRManager: ObservableObject {
         return cleaned
     }
 
-    /// Parse timecode string to seconds
+    /// Parses a timecode string to total seconds.
+    ///
+    /// Converts HH:MM:SS:FF format to a floating-point seconds value using
+    /// the provided frame rate for the frame component.
+    ///
+    /// - Parameters:
+    ///   - tc: Normalized timecode string (HH:MM:SS:FF).
+    ///   - frameRate: Frame rate for converting frames to fractional seconds.
+    /// - Returns: Total seconds, or `nil` if the timecode format is invalid.
     private func parseTimecodeToSeconds(_ tc: String, frameRate: Double) -> Double? {
         let components = tc.split(separator: ":")
         guard components.count == 4,
