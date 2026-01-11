@@ -149,10 +149,6 @@ struct LicenseEntryView: View {
                 .frame(width: 400)
                 .disabled(licenseManager.isLoading)
 
-            Text("Your email is stored locally for trial tracking only.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
             if let error = licenseManager.errorMessage {
                 Text(error)
                     .font(.caption)
