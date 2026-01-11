@@ -10,10 +10,6 @@
 		0F78E7CD06BB4CCBA9AA1A36 /* WindowTitleConfigurator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04AA25E97254C758E8138F0 /* WindowTitleConfigurator.swift */; };
 		1218A8494ECAE07469982AFA /* TestAudioFileFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14506C8D8408E65D66372269 /* TestAudioFileFactory.swift */; };
 		2D32AFD4ED0B4C24B8B2504B /* MediaOptimizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1CB65275AFE49C6AFD24B05 /* MediaOptimizationService.swift */; };
-		AE01AUDIOEXTRACT001 /* AudioExtractionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE01AUDIOEXTRACT002 /* AudioExtractionService.swift */; };
-		MFRS001MISSINGFILE01 /* MissingFileResolutionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */; };
-		PPS001PERSISTENCE01 /* ProjectPersistenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = PPS002PERSISTENCE02 /* ProjectPersistenceService.swift */; };
-		MIC001MEDIAIMPORT01 /* MediaImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */; };
 		33E7262DBE394E3DA53FDE54 /* AccordionResizeHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A60EE069664A32A9209AF1 /* AccordionResizeHandle.swift */; };
 		52E6F25BE86C6D82F69255D4 /* UITestAudioFileFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 991D568ED3E77EA1C83F341A /* UITestAudioFileFactory.swift */; };
 		74EABBA338E34AE2882468C6 /* TimelineAccordionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 648C405AE05C49199696C8C5 /* TimelineAccordionView.swift */; };
@@ -21,6 +17,7 @@
 		864AAC5C94DAF8054F840B27 /* WaveformCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD5C2B42215FEBC92028DAE5 /* WaveformCacheTests.swift */; };
 		8FA4E4EA4DA645D395B3ACD7 /* OptimizeMediaButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020DEC73914C4FCDB4106B0D /* OptimizeMediaButton.swift */; };
 		98D24F6557F4656E904E4EBD /* ProjectorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B265A5FDB2959F2C1FF24BC /* ProjectorUITests.swift */; };
+		A06C07CF5E2F4619BBD1F685 /* WelcomeOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BDAFB14BA0E492A986FE676 /* WelcomeOverlayView.swift */; };
 		A1000001227D3F0000000060 /* MIDIKitIO in Frameworks */ = {isa = PBXBuildFile; productRef = A1000001227D3F000000005F /* MIDIKitIO */; };
 		A1000001227D3F0000000062 /* MIDIKitSync in Frameworks */ = {isa = PBXBuildFile; productRef = A1000001227D3F0000000061 /* MIDIKitSync */; };
 		A1000001227D3F0000000064 /* SwiftTimecodeCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1000001227D3F0000000063 /* SwiftTimecodeCore */; };
@@ -28,18 +25,10 @@
 		A1000001227D3F0000000068 /* SwiftTimecodeUI in Frameworks */ = {isa = PBXBuildFile; productRef = A1000001227D3F0000000067 /* SwiftTimecodeUI */; };
 		A1000001227D3F0000000070 /* MIDIManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F000000006F /* MIDIManager.swift */; };
 		A1000001227D3F0000000072 /* AudioOutputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000071 /* AudioOutputManager.swift */; };
-		LSQLICENSE000011 /* LicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = LSQLICENSE000010 /* LicenseManager.swift */; };
 		A1000001227D3F0000000074 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000073 /* SettingsView.swift */; };
-		A06C07CF5E2F4619BBD1F685 /* WelcomeOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BDAFB14BA0E492A986FE676 /* WelcomeOverlayView.swift */; };
-		LSQLICENSE000021 /* LicenseEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LSQLICENSE000020 /* LicenseEntryView.swift */; };
 		A1000001227D3F0000000076 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000075 /* AppSettings.swift */; };
 		A1000001227D3F00000000B1 /* ProjectorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000011 /* ProjectorApp.swift */; };
 		A1000001227D3F00000000B2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000012 /* ContentView.swift */; };
-		SETUP002CONTENTVIEW /* ContentView+Setup.swift in Sources */ = {isa = PBXBuildFile; fileRef = SETUP001CONTENTVIEW /* ContentView+Setup.swift */; };
-		TIMELINE002CONTENTVIEW /* ContentView+Timeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = TIMELINE001CONTENTVIEW /* ContentView+Timeline.swift */; };
-		FILEHANDL002CONTENTVIEW /* ContentView+FileHandling.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEHANDL001CONTENTVIEW /* ContentView+FileHandling.swift */; };
-		HELPERS002CONTENTVIEW /* ContentView+Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = HELPERS001CONTENTVIEW /* ContentView+Helpers.swift */; };
-		MODIFIERS002CONTENTVIEW /* ContentViewModifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = MODIFIERS001CONTENTVIEW /* ContentViewModifiers.swift */; };
 		A1000001227D3F00000000B3 /* VideoPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000013 /* VideoPlayerView.swift */; };
 		A1000001227D3F00000000B4 /* TransportBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000014 /* TransportBarView.swift */; };
 		A1000001227D3F00000000B8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000018 /* Assets.xcassets */; };
@@ -51,6 +40,7 @@
 		A1000001227D3F00000000C9 /* TimecodeOCRManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000090 /* TimecodeOCRManager.swift */; };
 		A1000001227D3F00000000D0 /* ProjectDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000D1 /* ProjectDocument.swift */; };
 		A1000001227D3F00000000E2 /* DocumentIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000E3 /* DocumentIcon.icns */; };
+		AE01AUDIOEXTRACT001 /* AudioExtractionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE01AUDIOEXTRACT002 /* AudioExtractionService.swift */; };
 		B149C5462F0722DA001F9C85 /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B149C5452F0722DA001F9C85 /* Quartz.framework */; };
 		B149C5522F0722DB001F9C85 /* ProjectorQuickLook.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B149C5432F0722DA001F9C85 /* ProjectorQuickLook.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B149C5582F07238C001F9C85 /* DocumentIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000E3 /* DocumentIcon.icns */; };
@@ -88,13 +78,23 @@
 		C1VISUALFX0000001 /* VisualEffectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1VISUALFX0000002 /* VisualEffectView.swift */; };
 		C1WAVEFORM000003 /* DSWaveformImageViews in Frameworks */ = {isa = PBXBuildFile; productRef = C1WAVEFORM000002 /* DSWaveformImageViews */; };
 		C1WAVEFORM000005 /* DSWaveformImage in Frameworks */ = {isa = PBXBuildFile; productRef = C1WAVEFORM000004 /* DSWaveformImage */; };
-		LSQLICENSE000003 /* LemonSqueezyLicense in Frameworks */ = {isa = PBXBuildFile; productRef = LSQLICENSE000002 /* LemonSqueezyLicense */; };
 		CBA9B198D87A4901A984348F /* OptimizationSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF52682FA9954FFD8CCAD64E /* OptimizationSheetView.swift */; };
 		F587047D294B4B08BD7B94B1 /* OptimizationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE90E852077C43F9AE6F40DF /* OptimizationViewModel.swift */; };
+		FILEHANDL002CONTENTVIEW /* ContentView+FileHandling.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEHANDL001CONTENTVIEW /* ContentView+FileHandling.swift */; };
+		FSVV0001FULLSCREENVIDEO01 /* FullScreenVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */; };
+		HELPERS002CONTENTVIEW /* ContentView+Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = HELPERS001CONTENTVIEW /* ContentView+Helpers.swift */; };
+		LSQLICENSE000003 /* LemonSqueezyLicense in Frameworks */ = {isa = PBXBuildFile; productRef = LSQLICENSE000002 /* LemonSqueezyLicense */; };
+		LSQLICENSE000011 /* LicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = LSQLICENSE000010 /* LicenseManager.swift */; };
+		LSQLICENSE000021 /* LicenseEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LSQLICENSE000020 /* LicenseEntryView.swift */; };
+		MFRS001MISSINGFILE01 /* MissingFileResolutionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */; };
+		MIC001MEDIAIMPORT01 /* MediaImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */; };
+		MODIFIERS002CONTENTVIEW /* ContentViewModifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = MODIFIERS001CONTENTVIEW /* ContentViewModifiers.swift */; };
+		PPS001PERSISTENCE01 /* ProjectPersistenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = PPS002PERSISTENCE02 /* ProjectPersistenceService.swift */; };
 		SAVE0001PROJECTSHEET01 /* SaveProjectSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = SAVE0002PROJECTSHEET02 /* SaveProjectSheet.swift */; };
+		SETUP002CONTENTVIEW /* ContentView+Setup.swift in Sources */ = {isa = PBXBuildFile; fileRef = SETUP001CONTENTVIEW /* ContentView+Setup.swift */; };
+		TIMELINE002CONTENTVIEW /* ContentView+Timeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = TIMELINE001CONTENTVIEW /* ContentView+Timeline.swift */; };
 		VINS0001VIDEOINSERT01 /* VideoInsertSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */; };
 		VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */; };
-		FSVV0001FULLSCREENVIDEO01 /* FullScreenVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -149,17 +149,13 @@
 		14506C8D8408E65D66372269 /* TestAudioFileFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestAudioFileFactory.swift; sourceTree = "<group>"; };
 		2B265A5FDB2959F2C1FF24BC /* ProjectorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectorUITests.swift; sourceTree = "<group>"; };
 		56A60EE069664A32A9209AF1 /* AccordionResizeHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccordionResizeHandle.swift; sourceTree = "<group>"; };
+		5BDAFB14BA0E492A986FE676 /* WelcomeOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeOverlayView.swift; sourceTree = "<group>"; };
 		648C405AE05C49199696C8C5 /* TimelineAccordionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineAccordionView.swift; sourceTree = "<group>"; };
 		991D568ED3E77EA1C83F341A /* UITestAudioFileFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestAudioFileFactory.swift; sourceTree = "<group>"; };
 		A04AA25E97254C758E8138F0 /* WindowTitleConfigurator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTitleConfigurator.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000010 /* Projector.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Projector.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000001227D3F0000000011 /* ProjectorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectorApp.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		SETUP001CONTENTVIEW /* ContentView+Setup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Setup.swift"; sourceTree = "<group>"; };
-		TIMELINE001CONTENTVIEW /* ContentView+Timeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Timeline.swift"; sourceTree = "<group>"; };
-		FILEHANDL001CONTENTVIEW /* ContentView+FileHandling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+FileHandling.swift"; sourceTree = "<group>"; };
-		HELPERS001CONTENTVIEW /* ContentView+Helpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Helpers.swift"; sourceTree = "<group>"; };
-		MODIFIERS001CONTENTVIEW /* ContentViewModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewModifiers.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000013 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000014 /* TransportBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportBarView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -167,10 +163,7 @@
 		A1000001227D3F000000001A /* Projector.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Projector.entitlements; sourceTree = "<group>"; };
 		A1000001227D3F000000006F /* MIDIManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDIManager.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000071 /* AudioOutputManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioOutputManager.swift; sourceTree = "<group>"; };
-		LSQLICENSE000010 /* LicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseManager.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000073 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		5BDAFB14BA0E492A986FE676 /* WelcomeOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeOverlayView.swift; sourceTree = "<group>"; };
-		LSQLICENSE000020 /* LicenseEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseEntryView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000075 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000082 /* WaveformData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformData.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000083 /* WaveformGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformGenerator.swift; sourceTree = "<group>"; };
@@ -180,6 +173,7 @@
 		A1000001227D3F00000000D1 /* ProjectDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDocument.swift; sourceTree = "<group>"; };
 		A1000001227D3F00000000E1 /* Credits.rtfd */ = {isa = PBXFileReference; lastKnownFileType = wrapper.rtfd; path = Credits.rtfd; sourceTree = "<group>"; };
 		A1000001227D3F00000000E3 /* DocumentIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = DocumentIcon.icns; sourceTree = "<group>"; };
+		AE01AUDIOEXTRACT002 /* AudioExtractionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioExtractionService.swift; sourceTree = "<group>"; };
 		B149C5432F0722DA001F9C85 /* ProjectorQuickLook.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ProjectorQuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B149C5452F0722DA001F9C85 /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
 		B19B58B12F0889F200FA33EC /* MIDISyncServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncServiceProtocol.swift; sourceTree = "<group>"; };
@@ -217,15 +211,21 @@
 		D2403C06D2294027B9140EB4 /* MediaOptimizationServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaOptimizationServiceProtocol.swift; sourceTree = "<group>"; };
 		DE90E852077C43F9AE6F40DF /* OptimizationViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizationViewModel.swift; sourceTree = "<group>"; };
 		F1CB65275AFE49C6AFD24B05 /* MediaOptimizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaOptimizationService.swift; sourceTree = "<group>"; };
-		AE01AUDIOEXTRACT002 /* AudioExtractionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioExtractionService.swift; sourceTree = "<group>"; };
-		MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingFileResolutionService.swift; sourceTree = "<group>"; };
-		PPS002PERSISTENCE02 /* ProjectPersistenceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectPersistenceService.swift; sourceTree = "<group>"; };
-		MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaImportCoordinator.swift; sourceTree = "<group>"; };
 		FD5C2B42215FEBC92028DAE5 /* WaveformCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformCacheTests.swift; sourceTree = "<group>"; };
+		FILEHANDL001CONTENTVIEW /* ContentView+FileHandling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+FileHandling.swift"; sourceTree = "<group>"; };
+		FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullScreenVideoView.swift; sourceTree = "<group>"; };
+		HELPERS001CONTENTVIEW /* ContentView+Helpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Helpers.swift"; sourceTree = "<group>"; };
+		LSQLICENSE000010 /* LicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseManager.swift; sourceTree = "<group>"; };
+		LSQLICENSE000020 /* LicenseEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseEntryView.swift; sourceTree = "<group>"; };
+		MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingFileResolutionService.swift; sourceTree = "<group>"; };
+		MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaImportCoordinator.swift; sourceTree = "<group>"; };
+		MODIFIERS001CONTENTVIEW /* ContentViewModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewModifiers.swift; sourceTree = "<group>"; };
+		PPS002PERSISTENCE02 /* ProjectPersistenceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectPersistenceService.swift; sourceTree = "<group>"; };
 		SAVE0002PROJECTSHEET02 /* SaveProjectSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveProjectSheet.swift; sourceTree = "<group>"; };
+		SETUP001CONTENTVIEW /* ContentView+Setup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Setup.swift"; sourceTree = "<group>"; };
+		TIMELINE001CONTENTVIEW /* ContentView+Timeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Timeline.swift"; sourceTree = "<group>"; };
 		VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoInsertSheetView.swift; sourceTree = "<group>"; };
 		VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerOverlays.swift; sourceTree = "<group>"; };
-		FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullScreenVideoView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -973,7 +973,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 1.2;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = G398H44H6X;
 				ENABLE_APP_SANDBOX = YES;
@@ -988,7 +988,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.projector.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1004,7 +1004,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 1.2;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = G398H44H6X;
 				ENABLE_APP_SANDBOX = YES;
@@ -1019,7 +1019,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.projector.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1033,7 +1033,7 @@
 				CODE_SIGN_ENTITLEMENTS = ProjectorQuickLook/ProjectorQuickLook.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 1.2;
 				DEVELOPMENT_TEAM = G398H44H6X;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1048,7 +1048,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.projector.app.ProjectorQuickLook;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1066,7 +1066,7 @@
 				CODE_SIGN_ENTITLEMENTS = ProjectorQuickLook/ProjectorQuickLook.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 1.2;
 				DEVELOPMENT_TEAM = G398H44H6X;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1081,7 +1081,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.projector.app.ProjectorQuickLook;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
