@@ -248,7 +248,10 @@ final class LicenseManager: ObservableObject {
     }
 
     /// Add email subscriber to Lemon Squeezy mailing list
-    private func addSubscriberToLemonSqueezy(email: String) async {
+    /// - Parameters:
+    ///   - email: Subscriber email address
+    ///   - source: Source tag to identify where the subscriber came from (e.g., "Trial User")
+    private func addSubscriberToLemonSqueezy(email: String, source: String = "Trial User") async {
         let urlString = "https://\(storeSlug).lemonsqueezy.com/email-subscribe/external"
         guard let url = URL(string: urlString) else {
             debugPrint("LicenseManager: Invalid Lemon Squeezy URL")
@@ -259,7 +262,10 @@ final class LicenseManager: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
-        let bodyString = "email=\(email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? email)"
+        // Use the name field to tag the subscriber source for easy filtering in dashboard
+        let encodedEmail = email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? email
+        let encodedName = source.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? source
+        let bodyString = "email=\(encodedEmail)&name=\(encodedName)"
         request.httpBody = bodyString.data(using: .utf8)
 
         do {
