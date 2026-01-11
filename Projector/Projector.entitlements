@@ -8,5 +8,8 @@
 	<!-- Bookmarks: Persist access to user-selected files across launches -->
 	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>
+	<!-- Network: Allow outgoing connections for license validation -->
+	<key>com.apple.security.network.client</key>
+	<true/>
 </dict>
 </plist>
