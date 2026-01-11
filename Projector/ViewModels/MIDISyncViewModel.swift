@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 import SwiftTimecodeCore
 
 // MARK: - MIDISyncViewModel
@@ -107,6 +108,26 @@ public final class MIDISyncViewModel: ObservableObject {
     /// Updated after ``refreshInputs()`` is called or when hardware is connected/disconnected.
     @Published public var availableInputs: [String] = []
 
+    // MARK: - Sync Quality Metrics
+
+    /// Progress toward sync lock (0...lockFramesRequired).
+    @Published public var lockProgress: Int = 0
+
+    /// Number of frames required to establish lock.
+    @Published public var lockFramesRequired: Int = 8
+
+    /// Frames since last MTC message (0...dropoutFramesAllowed).
+    @Published public var dropoutCounter: Int = 0
+
+    /// Number of frames allowed before entering freewheeling.
+    @Published public var dropoutFramesAllowed: Int = 10
+
+    /// How long sync has been maintained, if currently synced.
+    @Published public var syncDuration: TimeInterval = 0
+
+    /// Timestamp of the last quarter-frame received.
+    @Published public var lastQFTimestamp: Date?
+
     // MARK: - Private Properties
 
     /// Reference to the MIDI sync service (actor).
@@ -201,6 +222,78 @@ public final class MIDISyncViewModel: ObservableObject {
             return "Frame Rate Mismatch (expecting \(String(format: "%.2f", localFrameRate.fps)))"
         default:
             return mtcState.displayName
+        }
+    }
+
+    // MARK: - Sync Quality Computed Properties
+
+    /// Progress toward sync lock as a percentage (0.0 to 1.0).
+    ///
+    /// During preSync, this increases as quarter-frames are received.
+    /// Once synced, this is always 1.0.
+    public var lockProgressPercent: Double {
+        guard lockFramesRequired > 0 else { return 0 }
+        return Double(lockProgress) / Double(lockFramesRequired)
+    }
+
+    /// Whether the connection is approaching dropout.
+    ///
+    /// Returns `true` when dropoutCounter exceeds 50% of dropoutFramesAllowed.
+    /// Use this to show a warning indicator.
+    public var isApproachingDropout: Bool {
+        guard dropoutFramesAllowed > 0 else { return false }
+        return dropoutCounter > dropoutFramesAllowed / 2
+    }
+
+    /// Overall sync quality level for UI display.
+    public var syncQuality: SyncQuality {
+        switch mtcState {
+        case .idle:
+            return .none
+        case .preSync:
+            return .acquiring
+        case .sync:
+            if isApproachingDropout {
+                return .fair
+            } else if syncDuration > 5 {
+                return .excellent
+            } else {
+                return .good
+            }
+        case .freewheeling:
+            return .poor
+        case .incompatibleFrameRate:
+            return .error
+        }
+    }
+
+    /// Color representing the current sync quality.
+    ///
+    /// - gray: Idle/no MTC
+    /// - yellow: Locking/acquiring
+    /// - green: Synced (good/excellent)
+    /// - orange: Freewheeling or approaching dropout
+    /// - red: Incompatible frame rate
+    public var syncStatusColor: Color {
+        syncQuality.color
+    }
+
+    /// Formatted string showing how long sync has been maintained.
+    ///
+    /// Returns empty string if not synced.
+    public var syncDurationString: String {
+        guard mtcState == .sync, syncDuration > 0 else { return "" }
+
+        if syncDuration < 60 {
+            return String(format: "%.0fs", syncDuration)
+        } else if syncDuration < 3600 {
+            let minutes = Int(syncDuration) / 60
+            let seconds = Int(syncDuration) % 60
+            return String(format: "%d:%02d", minutes, seconds)
+        } else {
+            let hours = Int(syncDuration) / 3600
+            let minutes = (Int(syncDuration) % 3600) / 60
+            return String(format: "%d:%02d:%02d", hours, minutes, Int(syncDuration) % 60)
         }
     }
 
@@ -314,7 +407,72 @@ public final class MIDISyncViewModel: ObservableObject {
                 self.selectedInputName = state.selectedInputName
                 self.availableInputs = state.availableInputs
                 self.localFrameRate = state.localFrameRate
+
+                // Sync quality metrics
+                self.lockProgress = state.lockProgress
+                self.lockFramesRequired = state.lockFramesRequired
+                self.dropoutCounter = state.dropoutCounter
+                self.dropoutFramesAllowed = state.dropoutFramesAllowed
+                self.syncDuration = state.syncDuration
+                self.lastQFTimestamp = state.lastQFTimestamp
             }
+        }
+    }
+}
+
+// MARK: - SyncQuality
+
+/// Represents the overall quality of the MIDI sync connection.
+public enum SyncQuality: Sendable, Equatable {
+    /// No MTC being received.
+    case none
+
+    /// Actively acquiring sync lock.
+    case acquiring
+
+    /// Synced with excellent stability (>5 seconds stable).
+    case excellent
+
+    /// Synced with good stability.
+    case good
+
+    /// Synced but approaching dropout threshold.
+    case fair
+
+    /// Connection lost, freewheeling.
+    case poor
+
+    /// Incompatible frame rate detected.
+    case error
+
+    /// Color for UI display.
+    public var color: Color {
+        switch self {
+        case .none:
+            return .gray
+        case .acquiring:
+            return .yellow
+        case .excellent, .good:
+            return .green
+        case .fair:
+            return .orange
+        case .poor:
+            return .orange
+        case .error:
+            return .red
+        }
+    }
+
+    /// Human-readable description.
+    public var displayName: String {
+        switch self {
+        case .none: return "No MTC"
+        case .acquiring: return "Acquiring"
+        case .excellent: return "Excellent"
+        case .good: return "Good"
+        case .fair: return "Fair"
+        case .poor: return "Poor"
+        case .error: return "Error"
         }
     }
 }

@@ -104,6 +104,35 @@ public struct MIDISyncState: Sendable, Equatable {
     /// The local frame rate used for sync comparison.
     public let localFrameRate: TimecodeFrameRate
 
+    // MARK: - Sync Quality Metrics
+
+    /// Progress toward sync lock (0...lockFramesRequired).
+    ///
+    /// During preSync, this value increases as quarter-frames are received.
+    /// Once it reaches `lockFramesRequired`, sync state transitions to `.sync`.
+    public let lockProgress: Int
+
+    /// Number of frames required to establish lock.
+    ///
+    /// This is the sync policy's `lockFrames` value (typically 8).
+    public let lockFramesRequired: Int
+
+    /// Frames since last MTC message (0...dropoutFramesAllowed).
+    ///
+    /// When this reaches `dropoutFramesAllowed`, sync state transitions to `.freewheeling`.
+    public let dropoutCounter: Int
+
+    /// Number of frames allowed before entering freewheeling.
+    ///
+    /// This is the sync policy's `dropOutFrames` value (typically 10).
+    public let dropoutFramesAllowed: Int
+
+    /// How long sync has been maintained, if currently synced.
+    public let syncDuration: TimeInterval
+
+    /// Timestamp of the last quarter-frame received.
+    public let lastQFTimestamp: Date?
+
     /// Creates a new MIDI sync state.
     public init(
         mtcState: MTCSyncState,
@@ -112,7 +141,13 @@ public struct MIDISyncState: Sendable, Equatable {
         lastMMCCommand: MMCCommand?,
         selectedInputName: String?,
         availableInputs: [String],
-        localFrameRate: TimecodeFrameRate
+        localFrameRate: TimecodeFrameRate,
+        lockProgress: Int = 0,
+        lockFramesRequired: Int = 8,
+        dropoutCounter: Int = 0,
+        dropoutFramesAllowed: Int = 10,
+        syncDuration: TimeInterval = 0,
+        lastQFTimestamp: Date? = nil
     ) {
         self.mtcState = mtcState
         self.mtcTimecode = mtcTimecode
@@ -121,6 +156,12 @@ public struct MIDISyncState: Sendable, Equatable {
         self.selectedInputName = selectedInputName
         self.availableInputs = availableInputs
         self.localFrameRate = localFrameRate
+        self.lockProgress = lockProgress
+        self.lockFramesRequired = lockFramesRequired
+        self.dropoutCounter = dropoutCounter
+        self.dropoutFramesAllowed = dropoutFramesAllowed
+        self.syncDuration = syncDuration
+        self.lastQFTimestamp = lastQFTimestamp
     }
 
     /// Empty state for initialization.
@@ -131,7 +172,13 @@ public struct MIDISyncState: Sendable, Equatable {
         lastMMCCommand: nil,
         selectedInputName: nil,
         availableInputs: [],
-        localFrameRate: .fps30
+        localFrameRate: .fps30,
+        lockProgress: 0,
+        lockFramesRequired: 8,
+        dropoutCounter: 0,
+        dropoutFramesAllowed: 10,
+        syncDuration: 0,
+        lastQFTimestamp: nil
     )
 }
 

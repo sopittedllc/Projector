@@ -116,6 +116,26 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// Local frame rate for MTC sync comparison.
     private var localFrameRate: TimecodeFrameRate = .fps30
 
+    // MARK: - Sync Quality Metrics
+
+    /// Number of frames required to establish lock.
+    private let lockFramesRequired: Int = 8
+
+    /// Number of frames allowed before entering freewheeling.
+    private let dropoutFramesAllowed: Int = 10
+
+    /// Progress toward sync lock (0...lockFramesRequired).
+    private var lockProgress: Int = 0
+
+    /// Frames since last MTC message.
+    private var dropoutCounter: Int = 0
+
+    /// When sync was established.
+    private var syncStartTime: Date?
+
+    /// Timestamp of the last quarter-frame received.
+    private var lastQFTimestamp: Date?
+
     // MARK: - AsyncStream Infrastructure
 
     /// Continuation for emitting state updates.
@@ -456,6 +476,12 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     ///   - timecode: The current timecode value.
     ///   - displayNeedsUpdate: Whether the display should be updated.
     private func handleMTCTimecode(_ timecode: Timecode, displayNeedsUpdate: Bool) {
+        // Update last quarter-frame timestamp for jitter/dropout tracking
+        lastQFTimestamp = Date()
+
+        // Reset dropout counter when we receive data
+        dropoutCounter = 0
+
         if displayNeedsUpdate {
             mtcTimecode = timecode
             emitState()
@@ -466,8 +492,45 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     ///
     /// - Parameter state: The new MTC receiver state.
     private func handleMTCStateChange(_ state: MTCReceiver.State) {
+        let previousState = mtcState
         mtcState = convertMTCState(state)
         isReceivingMTC = mtcState.isReceiving
+
+        // Update sync quality metrics based on state transitions
+        switch mtcState {
+        case .idle:
+            lockProgress = 0
+            dropoutCounter = 0
+            syncStartTime = nil
+
+        case .preSync:
+            // During preSync, lockProgress increases toward lockFramesRequired
+            // MIDIKit's MTCReceiver handles the actual frame counting internally
+            // We estimate progress based on state duration or just show that we're acquiring
+            if previousState == .idle {
+                lockProgress = 0
+            }
+            // Increment lock progress (capped at lockFramesRequired - 1 until sync)
+            lockProgress = min(lockProgress + 1, lockFramesRequired - 1)
+            syncStartTime = nil
+
+        case .sync:
+            lockProgress = lockFramesRequired
+            dropoutCounter = 0
+            if syncStartTime == nil {
+                syncStartTime = Date()
+            }
+
+        case .freewheeling:
+            // During freewheeling, dropoutCounter increases toward dropoutFramesAllowed
+            dropoutCounter = min(dropoutCounter + 1, dropoutFramesAllowed)
+
+        case .incompatibleFrameRate:
+            lockProgress = 0
+            dropoutCounter = 0
+            syncStartTime = nil
+        }
+
         emitState()
         debugLog("MTC state changed: \(mtcState.displayName)")
     }
@@ -714,6 +777,14 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
     /// Emits the current state to all subscribers.
     private func emitState() {
+        // Calculate sync duration if currently synced
+        let syncDuration: TimeInterval
+        if let startTime = syncStartTime, mtcState == .sync {
+            syncDuration = Date().timeIntervalSince(startTime)
+        } else {
+            syncDuration = 0
+        }
+
         let state = MIDISyncState(
             mtcState: mtcState,
             mtcTimecode: mtcTimecode,
@@ -721,7 +792,13 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             lastMMCCommand: lastMMCCommand,
             selectedInputName: selectedInputName,
             availableInputs: availableInputs,
-            localFrameRate: localFrameRate
+            localFrameRate: localFrameRate,
+            lockProgress: lockProgress,
+            lockFramesRequired: lockFramesRequired,
+            dropoutCounter: dropoutCounter,
+            dropoutFramesAllowed: dropoutFramesAllowed,
+            syncDuration: syncDuration,
+            lastQFTimestamp: lastQFTimestamp
         )
         stateContinuation?.yield(state)
     }

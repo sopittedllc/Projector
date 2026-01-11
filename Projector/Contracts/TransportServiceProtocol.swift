@@ -52,6 +52,15 @@ public struct TransportState: Sendable, Equatable {
     /// Whether any content is loaded.
     public let hasContent: Bool
 
+    /// ID of the currently active video reel, if any.
+    public let activeReelId: UUID?
+
+    /// Display name of the currently active video reel, if any.
+    public let activeReelName: String?
+
+    /// Current loading state of the transport.
+    public let loadingState: TransportLoadingState
+
     /// Creates a new transport state snapshot.
     ///
     /// - Parameters:
@@ -62,6 +71,9 @@ public struct TransportState: Sendable, Equatable {
     ///   - frameRate: Timeline frame rate
     ///   - isInGap: Whether playhead is in a video gap
     ///   - hasContent: Whether timeline has content
+    ///   - activeReelId: ID of the active video reel
+    ///   - activeReelName: Display name of the active video reel
+    ///   - loadingState: Current loading state
     public init(
         isPlaying: Bool,
         currentTimecode: Timecode,
@@ -69,7 +81,10 @@ public struct TransportState: Sendable, Equatable {
         durationFrames: Int,
         frameRate: TimecodeFrameRate,
         isInGap: Bool,
-        hasContent: Bool
+        hasContent: Bool,
+        activeReelId: UUID? = nil,
+        activeReelName: String? = nil,
+        loadingState: TransportLoadingState = .idle
     ) {
         self.isPlaying = isPlaying
         self.currentTimecode = currentTimecode
@@ -78,6 +93,9 @@ public struct TransportState: Sendable, Equatable {
         self.frameRate = frameRate
         self.isInGap = isInGap
         self.hasContent = hasContent
+        self.activeReelId = activeReelId
+        self.activeReelName = activeReelName
+        self.loadingState = loadingState
     }
 
     /// An empty state representing no content loaded.
@@ -88,8 +106,37 @@ public struct TransportState: Sendable, Equatable {
         durationFrames: 0,
         frameRate: .fps24,
         isInGap: false,
-        hasContent: false
+        hasContent: false,
+        activeReelId: nil,
+        activeReelName: nil,
+        loadingState: .idle
     )
+}
+
+/// Represents the loading state of the transport.
+public enum TransportLoadingState: Sendable, Equatable, Hashable {
+    /// Transport is idle, not loading anything.
+    case idle
+
+    /// Transport is seeking to a new position.
+    case seeking
+
+    /// Transport is loading a video reel.
+    case loadingReel
+
+    /// Human-readable description for UI display.
+    public var displayName: String {
+        switch self {
+        case .idle: return ""
+        case .seeking: return "Seeking..."
+        case .loadingReel: return "Loading..."
+        }
+    }
+
+    /// Whether the transport is currently busy.
+    public var isBusy: Bool {
+        self != .idle
+    }
 }
 
 // MARK: - MIDI Sync State Types
