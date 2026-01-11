@@ -80,7 +80,7 @@ struct LicenseEntryView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
 
-                        Link("Purchase here", destination: URL(string: "https://musiquela.com/projector")!)
+                        Link("Purchase here", destination: URL(string: "https://www.musiquela.com/projector")!)
                             .font(.caption)
                     }
                 }
