@@ -178,7 +178,9 @@ struct LicenseEntryView: View {
     }
 
     private func startTrial() {
-        _ = licenseManager.startTrial(email: trialEmail)
+        Task {
+            _ = await licenseManager.startTrial(email: trialEmail)
+        }
     }
 }
 

@@ -42,6 +42,9 @@ final class LicenseManager: ObservableObject {
     /// Your Lemon Squeezy Product ID - verify responses match this
     private let expectedProductId = 0  // TODO: Set your product ID
 
+    /// Your Lemon Squeezy store slug (from your store URL)
+    private let storeSlug = "your-store"  // TODO: Set your store slug (e.g., "musiquela")
+
     /// Trial duration in days
     private let trialDurationDays = 7
 
@@ -206,7 +209,7 @@ final class LicenseManager: ObservableObject {
     /// Start a 7-day trial with the user's email
     /// - Parameter email: User's email address (for tracking and mailing list)
     /// - Returns: True if trial started successfully
-    func startTrial(email: String) -> Bool {
+    func startTrial(email: String) async -> Bool {
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedEmail.isEmpty else {
@@ -225,6 +228,12 @@ final class LicenseManager: ObservableObject {
             return false
         }
 
+        isLoading = true
+        statusMessage = "Starting trial..."
+
+        // Add subscriber to Lemon Squeezy mailing list
+        await addSubscriberToLemonSqueezy(email: trimmedEmail)
+
         // Store trial start date and email
         let startDate = ISO8601DateFormatter().string(from: Date())
         keychain.save(key: startDate, forKey: KeychainKey.trialStartDate)
@@ -233,8 +242,35 @@ final class LicenseManager: ObservableObject {
         // Update state
         checkTrialStatus()
 
+        isLoading = false
         statusMessage = "Trial started - \(trialDaysRemaining) days remaining"
         return true
+    }
+
+    /// Add email subscriber to Lemon Squeezy mailing list
+    private func addSubscriberToLemonSqueezy(email: String) async {
+        let urlString = "https://\(storeSlug).lemonsqueezy.com/email-subscribe/external"
+        guard let url = URL(string: urlString) else {
+            debugPrint("LicenseManager: Invalid Lemon Squeezy URL")
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+
+        let bodyString = "email=\(email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? email)"
+        request.httpBody = bodyString.data(using: .utf8)
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse {
+                debugPrint("LicenseManager: Subscriber added to Lemon Squeezy (status: \(httpResponse.statusCode))")
+            }
+        } catch {
+            // Don't fail the trial if subscriber add fails - just log it
+            debugPrint("LicenseManager: Failed to add subscriber to Lemon Squeezy: \(error.localizedDescription)")
+        }
     }
 
     /// Check current trial status and update published properties
