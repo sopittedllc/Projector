@@ -37,7 +37,7 @@ final class LicenseManager: ObservableObject {
     // MARK: - Configuration
 
     /// Your Gumroad Product ID - found on product edit page under "License key" section
-    private let gumroadProductId = ""  // TODO: Set your Gumroad product ID (e.g., "abc123XYZ")
+    private let gumroadProductId = "XsgvPVSBpikK-Q1Q2vLNSQ=="
 
     /// Trial duration in days
     private let trialDurationDays = 7
