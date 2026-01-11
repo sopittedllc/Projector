@@ -83,7 +83,6 @@
 		FILEHANDL002CONTENTVIEW /* ContentView+FileHandling.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEHANDL001CONTENTVIEW /* ContentView+FileHandling.swift */; };
 		FSVV0001FULLSCREENVIDEO01 /* FullScreenVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */; };
 		HELPERS002CONTENTVIEW /* ContentView+Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = HELPERS001CONTENTVIEW /* ContentView+Helpers.swift */; };
-		LSQLICENSE000003 /* LemonSqueezyLicense in Frameworks */ = {isa = PBXBuildFile; productRef = LSQLICENSE000002 /* LemonSqueezyLicense */; };
 		LSQLICENSE000011 /* LicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = LSQLICENSE000010 /* LicenseManager.swift */; };
 		LSQLICENSE000021 /* LicenseEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LSQLICENSE000020 /* LicenseEntryView.swift */; };
 		MFRS001MISSINGFILE01 /* MissingFileResolutionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */; };
@@ -269,7 +268,6 @@
 				B1ICONOIR000000001 /* Iconoir in Frameworks */,
 				C1WAVEFORM000003 /* DSWaveformImageViews in Frameworks */,
 				C1WAVEFORM000005 /* DSWaveformImage in Frameworks */,
-				LSQLICENSE000003 /* LemonSqueezyLicense in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -550,7 +548,6 @@
 				B1ICONOIR000000002 /* Iconoir */,
 				C1WAVEFORM000002 /* DSWaveformImageViews */,
 				C1WAVEFORM000004 /* DSWaveformImage */,
-				LSQLICENSE000002 /* LemonSqueezyLicense */,
 			);
 			productName = Projector;
 			productReference = A1000001227D3F0000000010 /* Projector.app */;
@@ -636,7 +633,6 @@
 				A1000001227D3F000000005E /* XCRemoteSwiftPackageReference "swift-timecode" */,
 				B1ICONOIR000000003 /* XCRemoteSwiftPackageReference "iconoir-swift" */,
 				C1WAVEFORM000001 /* XCRemoteSwiftPackageReference "DSWaveformImage" */,
-				LSQLICENSE000001 /* XCRemoteSwiftPackageReference "swift-lemon-squeezy-license" */,
 			);
 			productRefGroup = A1000001227D3F000000002F /* Products */;
 			projectDirPath = "";
@@ -1218,14 +1214,6 @@
 				minimumVersion = 14.0.0;
 			};
 		};
-		LSQLICENSE000001 /* XCRemoteSwiftPackageReference "swift-lemon-squeezy-license" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/kevinhermawan/swift-lemon-squeezy-license";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.0;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1268,11 +1256,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C1WAVEFORM000001 /* XCRemoteSwiftPackageReference "DSWaveformImage" */;
 			productName = DSWaveformImage;
-		};
-		LSQLICENSE000002 /* LemonSqueezyLicense */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = LSQLICENSE000001 /* XCRemoteSwiftPackageReference "swift-lemon-squeezy-license" */;
-			productName = LemonSqueezyLicense;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

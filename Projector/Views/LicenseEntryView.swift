@@ -149,7 +149,7 @@ struct LicenseEntryView: View {
                 .frame(width: 400)
                 .disabled(licenseManager.isLoading)
 
-            Text("We'll send you tips and updates. Unsubscribe anytime.")
+            Text("Your email is stored locally for trial tracking only.")
                 .font(.caption)
                 .foregroundColor(.secondary)
 

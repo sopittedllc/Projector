@@ -29,15 +29,6 @@
       }
     },
     {
-      "identity" : "swift-lemon-squeezy-license",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/kevinhermawan/swift-lemon-squeezy-license",
-      "state" : {
-        "revision" : "fbdecdcbf5056a1d3c786441a2ad5af3e2e633d5",
-        "version" : "1.0.1"
-      }
-    },
-    {
       "identity" : "swift-timecode",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/orchetect/swift-timecode",

@@ -1,7 +1,7 @@
 import Foundation
-import LemonSqueezyLicense
 
 /// Manages license activation, validation, and persistence for Projector
+/// Uses Gumroad's license verification API
 @MainActor
 final class LicenseManager: ObservableObject {
     // MARK: - Singleton
@@ -36,27 +36,23 @@ final class LicenseManager: ObservableObject {
 
     // MARK: - Configuration
 
-    /// Your Lemon Squeezy Store ID - verify responses match this
-    private let expectedStoreId = 0  // TODO: Set your store ID
-
-    /// Your Lemon Squeezy Product ID - verify responses match this
-    private let expectedProductId = 0  // TODO: Set your product ID
-
-    /// Your Lemon Squeezy store slug (from your store URL)
-    private let storeSlug = "your-store"  // TODO: Set your store slug (e.g., "musiquela")
+    /// Your Gumroad Product ID - found on product edit page under "License key" section
+    private let gumroadProductId = ""  // TODO: Set your Gumroad product ID (e.g., "abc123XYZ")
 
     /// Trial duration in days
     private let trialDurationDays = 7
 
+    /// Gumroad API base URL
+    private let gumroadAPIBaseURL = "https://api.gumroad.com/v2"
+
     // MARK: - Private Properties
 
-    private let license = LemonSqueezyLicense()
     private let keychain = KeychainHelper.shared
 
     // Keychain keys
     private enum KeychainKey {
         static let licenseKey = "com.projector.licenseKey"
-        static let instanceId = "com.projector.instanceId"
+        static let purchaseEmail = "com.projector.purchaseEmail"
         static let trialStartDate = "com.projector.trialStartDate"
         static let trialEmail = "com.projector.trialEmail"
     }
@@ -76,7 +72,7 @@ final class LicenseManager: ObservableObject {
     // MARK: - Public Methods
 
     /// Activate a new license key
-    /// - Parameter key: The license key from Lemon Squeezy
+    /// - Parameter key: The license key from Gumroad
     /// - Returns: True if activation succeeded
     func activate(key: String) async -> Bool {
         guard !key.isEmpty else {
@@ -88,34 +84,26 @@ final class LicenseManager: ObservableObject {
         errorMessage = nil
         statusMessage = "Activating license..."
 
-        do {
-            let instanceName = Host.current().localizedName ?? "Mac"
-            let response = try await license.activate(key: key, instanceName: instanceName)
+        // Verify with Gumroad, incrementing use count (first activation)
+        let result = await verifyLicenseWithGumroad(key: key, incrementUses: true)
 
-            if response.activated {
-                // Store credentials securely
-                if let instanceId = response.instance?.id {
-                    keychain.save(key: key, forKey: KeychainKey.licenseKey)
-                    keychain.save(key: instanceId, forKey: KeychainKey.instanceId)
-                }
-
-                hasFullLicense = true
-                isTrialActive = false
-                isLicensed = true
-                statusMessage = "License activated successfully"
-                isLoading = false
-                return true
-            } else {
-                errorMessage = "Activation failed - please check your license key"
-                isLoading = false
-                return false
+        switch result {
+        case .success(let response):
+            // Store credentials securely
+            keychain.save(key: key, forKey: KeychainKey.licenseKey)
+            if let email = response.purchase?.email {
+                keychain.save(key: email, forKey: KeychainKey.purchaseEmail)
             }
-        } catch let error as LemonSqueezyLicenseError {
-            handleLicenseError(error)
+
+            hasFullLicense = true
+            isTrialActive = false
+            isLicensed = true
+            statusMessage = "License activated successfully"
             isLoading = false
-            return false
-        } catch {
-            errorMessage = "Network error: \(error.localizedDescription)"
+            return true
+
+        case .failure(let error):
+            errorMessage = error.userMessage
             isLoading = false
             return false
         }
@@ -124,90 +112,72 @@ final class LicenseManager: ObservableObject {
     /// Validate the current license
     /// - Returns: True if the license is valid
     func validate() async -> Bool {
-        guard let key = keychain.retrieve(forKey: KeychainKey.licenseKey),
-              let instanceId = keychain.retrieve(forKey: KeychainKey.instanceId) else {
-            isLicensed = false
-            return false
+        guard let key = keychain.retrieve(forKey: KeychainKey.licenseKey) else {
+            isLicensed = isTrialActive
+            return isTrialActive
         }
 
         isLoading = true
         statusMessage = "Validating license..."
 
-        do {
-            let response = try await license.validate(key: key, instanceId: instanceId)
+        // Verify with Gumroad without incrementing use count
+        let result = await verifyLicenseWithGumroad(key: key, incrementUses: false)
 
-            if response.valid {
-                hasFullLicense = true
-                isTrialActive = false
-                isLicensed = true
-                statusMessage = "License valid"
-                isLoading = false
-                return true
-            } else {
-                // License is no longer valid
+        switch result {
+        case .success(let response):
+            // Check if the license is still valid (not refunded or chargedback)
+            if response.purchase?.refunded == true || response.purchase?.chargedback == true {
                 hasFullLicense = false
-                isLicensed = isTrialActive  // Keep licensed if trial still active
-                statusMessage = "License invalid or expired"
+                isLicensed = isTrialActive
+                statusMessage = "License has been refunded"
                 isLoading = false
                 return false
             }
-        } catch let error as LemonSqueezyLicenseError {
-            handleLicenseError(error)
-            // Don't immediately revoke on network errors - be graceful
-            if case .badServerResponse = error {
-                // Network issue, keep current state
+
+            hasFullLicense = true
+            isTrialActive = false
+            isLicensed = true
+            statusMessage = "License valid"
+            isLoading = false
+            return true
+
+        case .failure(let error):
+            // Be graceful on network errors - keep current state
+            if case .networkError = error {
+                statusMessage = "Could not validate - working offline"
                 isLoading = false
                 return isLicensed
             }
-            isLicensed = false
+
+            hasFullLicense = false
+            isLicensed = isTrialActive
+            statusMessage = error.userMessage
             isLoading = false
             return false
-        } catch {
-            // Network error - be graceful, keep current state
-            statusMessage = "Could not validate - working offline"
-            isLoading = false
-            return isLicensed
         }
     }
 
-    /// Deactivate the current license (e.g., when user wants to move to another machine)
+    /// Deactivate the current license (clears local credentials)
+    /// Note: Gumroad doesn't support remote deactivation, this only clears local storage
     func deactivate() async -> Bool {
-        guard let key = keychain.retrieve(forKey: KeychainKey.licenseKey),
-              let instanceId = keychain.retrieve(forKey: KeychainKey.instanceId) else {
-            return false
-        }
-
         isLoading = true
         statusMessage = "Deactivating license..."
 
-        do {
-            let response = try await license.deactivate(key: key, instanceId: instanceId)
+        // Clear stored credentials
+        keychain.delete(forKey: KeychainKey.licenseKey)
+        keychain.delete(forKey: KeychainKey.purchaseEmail)
 
-            if response.deactivated {
-                // Clear stored credentials
-                keychain.delete(forKey: KeychainKey.licenseKey)
-                keychain.delete(forKey: KeychainKey.instanceId)
-
-                isLicensed = false
-                statusMessage = "License deactivated"
-                isLoading = false
-                return true
-            } else {
-                errorMessage = "Deactivation failed"
-                isLoading = false
-                return false
-            }
-        } catch {
-            errorMessage = "Failed to deactivate: \(error.localizedDescription)"
-            isLoading = false
-            return false
-        }
+        hasFullLicense = false
+        isLicensed = isTrialActive
+        statusMessage = "License deactivated"
+        isLoading = false
+        return true
     }
 
     // MARK: - Trial Methods
 
     /// Start a 7-day trial with the user's email
-    /// - Parameter email: User's email address (for tracking and mailing list)
+    /// - Parameter email: User's email address (for tracking)
     /// - Returns: True if trial started successfully
     func startTrial(email: String) async -> Bool {
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -231,9 +201,6 @@ final class LicenseManager: ObservableObject {
         isLoading = true
         statusMessage = "Starting trial..."
 
-        // Add subscriber to Lemon Squeezy mailing list
-        await addSubscriberToLemonSqueezy(email: trimmedEmail)
-
         // Store trial start date and email
         let startDate = ISO8601DateFormatter().string(from: Date())
         keychain.save(key: startDate, forKey: KeychainKey.trialStartDate)
@@ -245,38 +212,6 @@ final class LicenseManager: ObservableObject {
         isLoading = false
         statusMessage = "Trial started - \(trialDaysRemaining) days remaining"
         return true
-    }
-
-    /// Add email subscriber to Lemon Squeezy mailing list
-    /// - Parameters:
-    ///   - email: Subscriber email address
-    ///   - source: Source tag to identify where the subscriber came from (e.g., "Trial User")
-    private func addSubscriberToLemonSqueezy(email: String, source: String = "Trial User") async {
-        let urlString = "https://\(storeSlug).lemonsqueezy.com/email-subscribe/external"
-        guard let url = URL(string: urlString) else {
-            debugPrint("LicenseManager: Invalid Lemon Squeezy URL")
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-
-        // Use the name field to tag the subscriber source for easy filtering in dashboard
-        let encodedEmail = email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? email
-        let encodedName = source.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? source
-        let bodyString = "email=\(encodedEmail)&name=\(encodedName)"
-        request.httpBody = bodyString.data(using: .utf8)
-
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            if let httpResponse = response as? HTTPURLResponse {
-                debugPrint("LicenseManager: Subscriber added to Lemon Squeezy (status: \(httpResponse.statusCode))")
-            }
-        } catch {
-            // Don't fail the trial if subscriber add fails - just log it
-            debugPrint("LicenseManager: Failed to add subscriber to Lemon Squeezy: \(error.localizedDescription)")
-        }
     }
 
     /// Check current trial status and update published properties
@@ -342,19 +277,115 @@ final class LicenseManager: ObservableObject {
         _ = await validate()
     }
 
-    /// Handle license-specific errors
-    private func handleLicenseError(_ error: LemonSqueezyLicenseError) {
-        switch error {
-        case .badServerResponse:
-            errorMessage = "Could not connect to license server"
-        case .serverError(let statusCode, let message):
-            if statusCode == 404 {
-                errorMessage = "License key not found"
-            } else if statusCode == 400 {
-                errorMessage = message ?? "Invalid license key"
-            } else {
-                errorMessage = message ?? "Server error (\(statusCode))"
+    // MARK: - Gumroad API
+
+    /// Gumroad license verification response
+    private struct GumroadResponse: Codable {
+        let success: Bool
+        let uses: Int?
+        let purchase: Purchase?
+        let message: String?
+
+        struct Purchase: Codable {
+            let email: String?
+            let refunded: Bool?
+            let chargedback: Bool?
+            let subscriptionEndedAt: String?
+            let subscriptionCancelledAt: String?
+            let subscriptionFailedAt: String?
+
+            enum CodingKeys: String, CodingKey {
+                case email, refunded, chargedback
+                case subscriptionEndedAt = "subscription_ended_at"
+                case subscriptionCancelledAt = "subscription_cancelled_at"
+                case subscriptionFailedAt = "subscription_failed_at"
             }
+        }
+    }
+
+    /// Gumroad license verification errors
+    private enum GumroadError: Error {
+        case invalidLicenseKey
+        case productNotFound
+        case networkError(Error)
+        case invalidResponse
+        case serverError(String)
+
+        var userMessage: String {
+            switch self {
+            case .invalidLicenseKey:
+                return "Invalid license key"
+            case .productNotFound:
+                return "Product not found"
+            case .networkError:
+                return "Could not connect to license server"
+            case .invalidResponse:
+                return "Invalid response from license server"
+            case .serverError(let message):
+                return message
+            }
+        }
+    }
+
+    /// Verify a license key with Gumroad's API
+    /// - Parameters:
+    ///   - key: The license key to verify
+    ///   - incrementUses: Whether to increment the use count (true for activation, false for validation)
+    /// - Returns: Result with response or error
+    private func verifyLicenseWithGumroad(key: String, incrementUses: Bool) async -> Result<GumroadResponse, GumroadError> {
+        guard let url = URL(string: "\(gumroadAPIBaseURL)/licenses/verify") else {
+            return .failure(.invalidResponse)
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+
+        // Build form data
+        var components = URLComponents()
+        components.queryItems = [
+            URLQueryItem(name: "product_id", value: gumroadProductId),
+            URLQueryItem(name: "license_key", value: key),
+            URLQueryItem(name: "increment_uses_count", value: incrementUses ? "true" : "false")
+        ]
+        request.httpBody = components.query?.data(using: .utf8)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return .failure(.invalidResponse)
+            }
+
+            // Gumroad returns 404 for invalid license keys
+            if httpResponse.statusCode == 404 {
+                // Try to parse error message
+                if let errorResponse = try? JSONDecoder().decode(GumroadResponse.self, from: data),
+                   let message = errorResponse.message {
+                    return .failure(.serverError(message))
+                }
+                return .failure(.invalidLicenseKey)
+            }
+
+            guard httpResponse.statusCode == 200 else {
+                return .failure(.serverError("Server error (\(httpResponse.statusCode))"))
+            }
+
+            let gumroadResponse = try JSONDecoder().decode(GumroadResponse.self, from: data)
+
+            if gumroadResponse.success {
+                return .success(gumroadResponse)
+            } else {
+                let message = gumroadResponse.message ?? "License verification failed"
+                return .failure(.serverError(message))
+            }
+
+        } catch let error as DecodingError {
+            debugPrint("LicenseManager: Decoding error: \(error)")
+            return .failure(.invalidResponse)
+        } catch {
+            debugPrint("LicenseManager: Network error: \(error)")
+            return .failure(.networkError(error))
         }
     }
 }
