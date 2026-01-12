@@ -38,6 +38,15 @@ extension ContentView {
                     insertFrame = clip.timelineEndFrame
                 }
             }
+
+            // Final verification - log ALL lanes and clips
+            debugPrint("handleAudioDropOnTimeline: FINAL STATE - \(timelineManager.timeline.audioLanes.count) lanes total")
+            for (idx, verifyLane) in timelineManager.timeline.audioLanes.enumerated() {
+                debugPrint("handleAudioDropOnTimeline: FINAL - lane[\(idx)] id=\(verifyLane.id.uuidString) '\(verifyLane.name)' has \(verifyLane.clips.count) clips")
+                for clip in verifyLane.clips {
+                    debugPrint("handleAudioDropOnTimeline: FINAL -   clip id=\(clip.id.uuidString) at frame \(clip.timelineStartFrame)")
+                }
+            }
             debugPrint("handleAudioDropOnTimeline: DONE")
         }
     }
@@ -344,7 +353,16 @@ extension ContentView {
 
             // Sync timeline to playback engine
             syncTimelineToPlaybackEngine()
-            debugPrint("addAudioToTimeline: SUCCESS - returning clip")
+
+            // Verify clip is actually in the timeline
+            let verifyLane = timelineManager.timeline.audioLanes.first { $0.id == laneId }
+            let clipInLane = verifyLane?.clips.contains(where: { $0.id == clip.id }) ?? false
+            debugPrint("addAudioToTimeline: SUCCESS - clip.id=\(clip.id.uuidString)")
+            debugPrint("addAudioToTimeline: VERIFY - lane '\(verifyLane?.name ?? "NIL")' contains clip: \(clipInLane)")
+            debugPrint("addAudioToTimeline: VERIFY - total lanes: \(timelineManager.timeline.audioLanes.count)")
+            for (idx, lane) in timelineManager.timeline.audioLanes.enumerated() {
+                debugPrint("addAudioToTimeline: VERIFY - lane[\(idx)] '\(lane.name)' has \(lane.clips.count) clips")
+            }
             return clip
         } catch {
             debugPrint("addAudioToTimeline: ERROR - \(error.localizedDescription)")

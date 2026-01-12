@@ -12,6 +12,8 @@
 import Foundation
 import AVFoundation
 import CoreMedia
+import SwiftTimecodeAV
+import SwiftTimecodeCore
 
 /// Actor that detects embedded timecode from media files.
 ///
@@ -72,8 +74,15 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
         let asset = AVURLAsset(url: accessingURL)
 
         // Try each source in order of reliability
-        // 1. QuickTime timecode track (most reliable)
-        debugPrint("EmbeddedTimecodeService: Checking QuickTime timecode track...")
+        // 0. SwiftTimecodeAV library (most reliable - handles all QuickTime formats)
+        debugPrint("EmbeddedTimecodeService: Trying SwiftTimecodeAV library...")
+        if let result = await detectUsingSwiftTimecodeAV(asset: asset) {
+            debugPrint("EmbeddedTimecodeService: Found timecode via SwiftTimecodeAV: \(result.formattedTimecode)")
+            return result
+        }
+
+        // 1. QuickTime timecode track (fallback with detailed logging)
+        debugPrint("EmbeddedTimecodeService: Checking QuickTime timecode track (fallback)...")
         if let result = await detectFromTimecodeTrack(asset: asset) {
             debugPrint("EmbeddedTimecodeService: Found timecode in QT track: \(result.formattedTimecode)")
             return result
@@ -104,6 +113,43 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
         return nil
     }
 
+    // MARK: - SwiftTimecodeAV Detection
+
+    /// Detect timecode using the SwiftTimecodeAV library.
+    ///
+    /// This is the most reliable method as it handles all QuickTime timecode formats
+    /// including edge cases with empty sample data.
+    @available(macOS 12, iOS 15, tvOS 15, watchOS 8, *)
+    private func detectUsingSwiftTimecodeAV(asset: AVAsset) async -> EmbeddedTimecodeResult? {
+        do {
+            // Try to get start timecode using SwiftTimecodeAV's built-in method
+            guard let startTimecode = try await asset.startTimecode() else {
+                debugPrint("EmbeddedTimecodeService: SwiftTimecodeAV returned nil for startTimecode")
+                return nil
+            }
+
+            debugPrint("EmbeddedTimecodeService: SwiftTimecodeAV found start timecode: \(startTimecode)")
+
+            // Get the frame rate
+            let frameRate = startTimecode.frameRate
+
+            // Convert to our result format
+            let formatted = startTimecode.stringValue(format: .default())
+            let isDropFrame = frameRate.isDrop
+
+            return EmbeddedTimecodeResult(
+                timecodeFrames: startTimecode.frameCount.wholeFrames,
+                formattedTimecode: formatted,
+                source: .quickTimeTrack,
+                frameRate: frameRate.fps,
+                isDropFrame: isDropFrame
+            )
+        } catch {
+            debugPrint("EmbeddedTimecodeService: SwiftTimecodeAV error: \(error)")
+            return nil
+        }
+    }
+
     // MARK: - QuickTime Timecode Track Detection
 
     /// Detect timecode from QuickTime timecode track.
@@ -131,7 +177,27 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
             let frameQuanta = CMTimeCodeFormatDescriptionGetFrameQuanta(formatDesc)
             let tcFlags = CMTimeCodeFormatDescriptionGetTimeCodeFlags(formatDesc)
             let isDropFrame = (tcFlags & kCMTimeCodeFlag_DropFrame) != 0
-            debugPrint("EmbeddedTimecodeService: frameQuanta=\(frameQuanta), flags=\(tcFlags), dropFrame=\(isDropFrame)")
+            let mediaSubType = CMFormatDescriptionGetMediaSubType(formatDesc)
+            let is64Bit = mediaSubType == kCMTimeCodeFormatType_TimeCode64
+            debugPrint("EmbeddedTimecodeService: frameQuanta=\(frameQuanta), flags=\(tcFlags), dropFrame=\(isDropFrame), is64bit=\(is64Bit), subType=\(mediaSubType)")
+
+            // Check for TimeCodeSourceReferenceName extension (reel name with timecode info)
+            if let extensions = CMFormatDescriptionGetExtensions(formatDesc) as? [String: Any] {
+                debugPrint("EmbeddedTimecodeService: Format description has \(extensions.count) extensions")
+
+                // Look for source reference name which may contain timecode
+                if let sourceRef = extensions["SourceReferenceName"] as? [String: Any] {
+                    debugPrint("EmbeddedTimecodeService: SourceReferenceName = \(sourceRef)")
+                }
+
+                // Log all extension keys
+                for key in extensions.keys.sorted() {
+                    let val = extensions[key]
+                    if key != "VerbatimSampleDescription" {
+                        debugPrint("EmbeddedTimecodeService: Extension '\(key)' = \(val ?? "nil")")
+                    }
+                }
+            }
 
             // Read the first timecode sample
             let reader = try AVAssetReader(asset: asset)
@@ -324,19 +390,49 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
                 // In some QuickTime files, the timecode is stored as the track's
                 // start time in the movie's time coordinate system
                 let trackSegment = try await track.load(.segments)
-                if let firstSegment = trackSegment.first {
-                    let startTime = firstSegment.timeMapping.target.start
-                    let mediaStartTime = firstSegment.timeMapping.source.start
+                debugPrint("EmbeddedTimecodeService: Track has \(trackSegment.count) segments")
 
-                    debugPrint("EmbeddedTimecodeService: Track segment - target start: \(startTime.seconds)s, media start: \(mediaStartTime.seconds)s")
+                for (idx, segment) in trackSegment.enumerated() {
+                    let targetStart = segment.timeMapping.target.start
+                    let targetDuration = segment.timeMapping.target.duration
+                    let sourceStart = segment.timeMapping.source.start
+                    let sourceDuration = segment.timeMapping.source.duration
 
-                    // The media start time in frames is often the timecode
-                    if mediaStartTime.isValid && mediaStartTime.timescale > 0 {
-                        let mediaFrames = Int(CMTimeGetSeconds(mediaStartTime) * Double(frameQuanta))
-                        if mediaFrames >= 0 {
-                            frameCount = UInt32(mediaFrames)
+                    debugPrint("EmbeddedTimecodeService: Segment[\(idx)] - target: \(targetStart.seconds)s-\(CMTimeAdd(targetStart, targetDuration).seconds)s, source: \(sourceStart.seconds)s-\(CMTimeAdd(sourceStart, sourceDuration).seconds)s")
+                    debugPrint("EmbeddedTimecodeService: Segment[\(idx)] - target timescale: \(targetStart.timescale), source timescale: \(sourceStart.timescale)")
+
+                    // The source start time represents the timecode origin
+                    // The timescale should match the frame rate * some multiplier
+                    if !gotTimecode && sourceStart.isValid && sourceStart.timescale > 0 {
+                        // Convert source start to frames using the format's frame quanta
+                        let sourceSeconds = CMTimeGetSeconds(sourceStart)
+                        let sourceFrames = Int(sourceSeconds * Double(frameQuanta))
+
+                        debugPrint("EmbeddedTimecodeService: Source start in frames (using frameQuanta \(frameQuanta)): \(sourceFrames)")
+
+                        // Also try using the source timescale directly
+                        // If timescale is (fps * 100), then value / 100 = frame number
+                        let rawSourceValue = sourceStart.value
+                        let rawTimescale = Int64(sourceStart.timescale)
+
+                        debugPrint("EmbeddedTimecodeService: Source raw value: \(rawSourceValue), timescale: \(rawTimescale)")
+
+                        // Check if timescale represents frames (e.g., 2400 = 24fps * 100)
+                        let possibleFPS = rawTimescale / 100
+                        if possibleFPS == Int64(frameQuanta) {
+                            let derivedFrames = rawSourceValue / 100
+                            debugPrint("EmbeddedTimecodeService: Derived frame count from timescale: \(derivedFrames)")
+                            if derivedFrames > 0 {
+                                frameCount = UInt32(derivedFrames)
+                                gotTimecode = true
+                            }
+                        }
+
+                        // If frame count still 0, try the direct seconds conversion
+                        if !gotTimecode && sourceFrames > 0 {
+                            frameCount = UInt32(sourceFrames)
                             gotTimecode = true
-                            debugPrint("EmbeddedTimecodeService: Got frame count from media start time: \(frameCount)")
+                            debugPrint("EmbeddedTimecodeService: Got frame count from segment source: \(frameCount)")
                         }
                     }
                 }
