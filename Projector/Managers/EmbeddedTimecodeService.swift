@@ -388,10 +388,20 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
                 }
             }
 
-            guard gotTimecode else {
+            // If we didn't get any timecode data, or the frame count is 0 with empty sample data,
+            // return nil to let other detection methods try
+            if !gotTimecode {
                 debugPrint("EmbeddedTimecodeService: Failed to extract timecode value from sample buffer after all attempts")
                 return nil
             }
+
+            // If sample data was empty and frame count is 0, this is likely not a real timecode
+            // Let other detection methods try to find the actual timecode
+            if sampleSize == 0 && frameCount == 0 {
+                debugPrint("EmbeddedTimecodeService: Sample data empty and frame count is 0 - continuing to check other sources")
+                return nil
+            }
+
             debugPrint("EmbeddedTimecodeService: Final frame count = \(frameCount)")
 
             let frameRate = Double(frameQuanta)
