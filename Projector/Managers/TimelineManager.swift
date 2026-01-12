@@ -139,6 +139,15 @@ final class TimelineManager: ObservableObject {
         }
     }
 
+    /// Extend the timeline to at least the specified end frame.
+    ///
+    /// Use this to add padding after clips so users have room to drop more media.
+    ///
+    /// - Parameter endFrame: The minimum end frame (relative to timeline start)
+    func extendTimeline(toEndFrame endFrame: Int) {
+        extendTimelineIfNeeded(toEndFrame: endFrame)
+    }
+
     // MARK: - Video Reel Operations
 
     /// Active security-scoped URLs that should not be released until reel removal
@@ -444,8 +453,11 @@ final class TimelineManager: ObservableObject {
             sampleRate: sampleRate
         )
 
+        // Explicitly notify observers before mutation to ensure SwiftUI sees the change
+        objectWillChange.send()
         timeline.addClip(clip, toLane: laneId)
         extendTimelineIfNeeded(toEndFrame: clip.timelineEndFrame)
+        debugPrint("TimelineManager.addAudioClip: Added clip to lane, timeline now has \(timeline.audioLanes.map { "\($0.name):\($0.clips.count)" })")
         return clip
     }
 

@@ -19,23 +19,33 @@ extension ContentView {
     /// Handle audio files dropped on a specific audio lane
     func handleAudioDropOnTimeline(_ laneIndex: Int, _ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
         debugPrint("handleAudioDropOnTimeline: ENTRY - laneIndex=\(laneIndex), urls=\(urls.map { $0.lastPathComponent }), atFrame=\(atFrame)")
-        Task {
-            // Ensure the lane exists
+        Task { @MainActor in
+            // Ensure the lane exists - create lanes until we have enough
             while timelineManager.timeline.audioLanes.count <= laneIndex {
+                debugPrint("handleAudioDropOnTimeline: Creating lane - current count: \(timelineManager.timeline.audioLanes.count), need index: \(laneIndex)")
                 _ = timelineManager.addAudioLane()
             }
 
+            // Verify lane was created
+            guard laneIndex < timelineManager.timeline.audioLanes.count else {
+                debugPrint("handleAudioDropOnTimeline: ERROR - lane index \(laneIndex) still out of bounds after creation")
+                return
+            }
+
             let lane = timelineManager.timeline.audioLanes[laneIndex]
-            debugPrint("handleAudioDropOnTimeline: using lane '\(lane.name)' with id=\(lane.id)")
+            debugPrint("handleAudioDropOnTimeline: using lane '\(lane.name)' with id=\(lane.id.uuidString)")
             var insertFrame = max(0, atFrame)
 
             for url in urls {
-                debugPrint("handleAudioDropOnTimeline: calling addAudioToTimeline for \(url.lastPathComponent)")
+                debugPrint("handleAudioDropOnTimeline: calling addAudioToTimeline for \(url.lastPathComponent) at frame \(insertFrame)")
                 // addAudioToTimeline now handles embedded timecode detection
                 let clip = await addAudioToTimeline(url: url, laneId: lane.id, atFrame: insertFrame)
-                debugPrint("handleAudioDropOnTimeline: addAudioToTimeline returned clip=\(clip?.id.uuidString ?? "nil")")
                 if let clip = clip {
+                    debugPrint("handleAudioDropOnTimeline: SUCCESS - clip created at frame \(clip.timelineStartFrame), duration \(clip.durationFrames), end \(clip.timelineEndFrame)")
+                    debugPrint("handleAudioDropOnTimeline: Timeline duration is \(timelineManager.timeline.config.durationFrames) frames")
                     insertFrame = clip.timelineEndFrame
+                } else {
+                    debugPrint("handleAudioDropOnTimeline: FAILED - addAudioToTimeline returned nil")
                 }
             }
 
@@ -601,9 +611,23 @@ extension ContentView {
             if isVideo {
                 // Pass checkTimecode: false to skip re-checking after user choice
                 await addVideoToTimeline(url: url, atFrame: targetFrame, checkTimecode: false)
+
+                // Add padding after the clip so users can easily drop more files
+                // Add 30 seconds of padding at the timeline frame rate
+                let paddingFrames = Int(30.0 * timelineManager.timeline.config.frameRate.fps)
+                if let lastReel = timelineManager.timeline.videoReels.last {
+                    timelineManager.extendTimeline(toEndFrame: lastReel.timelineEndFrame + paddingFrames)
+                }
             } else if let laneId = laneId {
                 // Pass checkTimecode: false to skip re-checking after user choice
                 _ = await addAudioToTimeline(url: url, laneId: laneId, atFrame: targetFrame, checkTimecode: false)
+
+                // Add padding after the clip
+                let paddingFrames = Int(30.0 * timelineManager.timeline.config.frameRate.fps)
+                if let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
+                   let lastClip = lane.clips.last {
+                    timelineManager.extendTimeline(toEndFrame: lastClip.timelineEndFrame + paddingFrames)
+                }
             }
 
             await MainActor.run {
