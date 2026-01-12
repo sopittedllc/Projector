@@ -538,6 +538,9 @@ struct AudioLaneView: View {
         let targetFrame = dropFrame(for: location)
         let isInternalDrag = isInternalMediaDrag(providers)
 
+        // Capture dragContext item before async operations
+        let internalItem = dragContext.mediaItem
+
         for provider in providers {
             group.enter()
             loadURL(from: provider) { url in
@@ -549,6 +552,11 @@ struct AudioLaneView: View {
         }
 
         group.notify(queue: .main) {
+            // Fallback to dragContext item URL if async loading didn't get URLs
+            if urls.isEmpty, let item = internalItem, item.type == .audio {
+                urls.append(item.url)
+            }
+
             let audioURLs = urls.filter { isAudioFile($0) }
             if !audioURLs.isEmpty {
                 onDropMedia(audioURLs, targetFrame, isInternalDrag)
@@ -586,6 +594,14 @@ struct AudioLaneView: View {
         }
         isLoadingDropPreview = true
         isDropAllowed = false
+
+        // Check dragContext first for internal Media panel drags
+        if let item = dragContext.mediaItem, item.type == .audio {
+            isDropAllowed = true
+            dropPreviewDurationFrames = max(1, Int(item.duration * frameRate.fps))
+            isLoadingDropPreview = false
+            return
+        }
 
         if let quickType = quickMediaType(from: providers) {
             guard quickType == .audio else {
