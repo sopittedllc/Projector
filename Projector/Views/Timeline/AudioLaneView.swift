@@ -3,6 +3,7 @@ import Foundation
 import UniformTypeIdentifiers
 import SwiftTimecodeCore
 import AVFoundation
+import AppKit
 import Iconoir
 
 /// Audio lane container showing clips and lane controls
@@ -270,25 +271,24 @@ struct AudioLaneView: View {
 
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity) // Ensure ZStack fills available space
-            .onDrop(of: [UTType.fileURL, UTType.url, UTType.projectorMediaItem], delegate: AudioLaneDropDelegate(
-                isTargeted: $isDropTargeted,
-                pixelsPerFrame: pixelsPerFrame,
-                scrollOffset: scrollOffset,
-                durationFrames: timelineDurationFrames,
-                dropOperation: { (isDropAllowed || isLoadingDropPreview) ? .copy : .cancel },
-                dropHandler: { providers, location in
-                    handleDrop(providers: providers, at: location)
-                },
-                updateHandler: { location in
-                    updateDropPreview(location: location)
-                },
-                enterHandler: { providers, location in
-                    beginDropPreview(with: providers, at: location)
-                },
-                exitHandler: {
-                    clearDropPreview()
-                }
-            ))
+            .contentShape(Rectangle())
+            .overlay {
+                AudioLaneDragCaptureView(
+                    onEntered: { info, location in
+                        beginDropPreviewNative(info: info, at: location)
+                    },
+                    onUpdated: { info, location in
+                        updateDropPreview(location: location)
+                        return (isDropAllowed || isLoadingDropPreview) ? .copy : []
+                    },
+                    onExited: {
+                        clearDropPreview()
+                    },
+                    onPerform: { info, location in
+                        handleDropNative(info: info, at: location)
+                    }
+                )
+            }
         }
     }
 
@@ -645,6 +645,91 @@ struct AudioLaneView: View {
         isDropAllowed = false
     }
 
+    // MARK: - Native Drop Handling (AppKit)
+
+    /// Get audio candidate from NSDraggingInfo, checking dragContext first for internal drags
+    private func audioCandidate(from info: NSDraggingInfo) -> (urls: [URL], duration: Double?, isInternal: Bool) {
+        // Check dragContext first for internal Media panel drags
+        if let item = dragContext.mediaItem, item.type == .audio {
+            return ([item.url], item.duration, true)
+        }
+
+        // Fall back to pasteboard for Finder drags
+        let pasteboard = info.draggingPasteboard
+        let urls = (pasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true
+        ]) as? [URL] ?? []).filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
+
+        return (urls, nil, false)
+    }
+
+    private func beginDropPreviewNative(info: NSDraggingInfo, at location: CGPoint) {
+        updateDropPreview(location: location)
+
+        if dropPreviewDurationFrames != nil || isLoadingDropPreview {
+            return
+        }
+
+        isLoadingDropPreview = true
+        isDropAllowed = false
+
+        let candidate = audioCandidate(from: info)
+        guard !candidate.urls.isEmpty else {
+            isLoadingDropPreview = false
+            clearDropPreview()
+            return
+        }
+
+        isDropAllowed = true
+
+        // Use duration from dragContext if available (internal drag)
+        if let duration = candidate.duration {
+            dropPreviewDurationFrames = max(1, Int(duration * frameRate.fps))
+            isLoadingDropPreview = false
+            return
+        }
+
+        // Load duration async for Finder drags
+        if let url = candidate.urls.first {
+            Task {
+                let asset = AVAsset(url: url)
+                do {
+                    let duration = try await asset.load(.duration)
+                    let frames = max(1, Int(duration.seconds * frameRate.fps))
+                    await MainActor.run {
+                        dropPreviewDurationFrames = frames
+                        isLoadingDropPreview = false
+                    }
+                } catch {
+                    await MainActor.run {
+                        dropPreviewDurationFrames = nil
+                        isLoadingDropPreview = false
+                    }
+                }
+            }
+        } else {
+            isLoadingDropPreview = false
+        }
+    }
+
+    private func handleDropNative(info: NSDraggingInfo, at location: CGPoint) -> Bool {
+        let candidate = audioCandidate(from: info)
+        guard !candidate.urls.isEmpty else {
+            clearDropPreview()
+            return false
+        }
+
+        let targetFrame = dropFrame(for: location)
+        onDropMedia(candidate.urls, targetFrame, candidate.isInternal)
+
+        if candidate.isInternal {
+            dragContext.end()
+        }
+
+        clearDropPreview()
+        return true
+    }
+
     private func loadFirstURL(from providers: [NSItemProvider], completion: @escaping (URL?) -> Void) {
         guard let provider = providers.first else {
             completion(nil)
@@ -745,43 +830,85 @@ struct AudioLaneView: View {
     }
 }
 
-private struct AudioLaneDropDelegate: DropDelegate {
-    @Binding var isTargeted: Bool
-    let pixelsPerFrame: CGFloat
-    let scrollOffset: CGFloat
-    let durationFrames: Int
-    let dropOperation: () -> DropOperation
-    let dropHandler: ([NSItemProvider], CGPoint) -> Bool
-    let updateHandler: (CGPoint) -> Void
-    let enterHandler: ([NSItemProvider], CGPoint) -> Void
-    let exitHandler: () -> Void
-    private let supportedTypes: [UTType] = [.fileURL, .url, .projectorMediaItem]
+// MARK: - Native Drag Capture View (AppKit)
 
-    func validateDrop(info: DropInfo) -> Bool {
-        !info.itemProviders(for: supportedTypes).isEmpty
+/// SwiftUI wrapper for native AppKit drag handling, enabling synchronous access to dragContext
+private struct AudioLaneDragCaptureView: NSViewRepresentable {
+    var onEntered: (NSDraggingInfo, CGPoint) -> Void
+    var onUpdated: (NSDraggingInfo, CGPoint) -> NSDragOperation
+    var onExited: () -> Void
+    var onPerform: (NSDraggingInfo, CGPoint) -> Bool
+
+    func makeNSView(context: Context) -> AudioLaneDragCaptureNSView {
+        let view = AudioLaneDragCaptureNSView()
+        view.onEntered = onEntered
+        view.onUpdated = onUpdated
+        view.onExited = onExited
+        view.onPerform = onPerform
+        return view
     }
 
-    func dropEntered(info: DropInfo) {
-        isTargeted = true
-        let providers = info.itemProviders(for: supportedTypes)
-        enterHandler(providers, info.location)
+    func updateNSView(_ nsView: AudioLaneDragCaptureNSView, context: Context) {
+        nsView.onEntered = onEntered
+        nsView.onUpdated = onUpdated
+        nsView.onExited = onExited
+        nsView.onPerform = onPerform
+    }
+}
+
+private final class AudioLaneDragCaptureNSView: NSView {
+    var onEntered: ((NSDraggingInfo, CGPoint) -> Void)?
+    var onUpdated: ((NSDraggingInfo, CGPoint) -> NSDragOperation)?
+    var onExited: (() -> Void)?
+    var onPerform: ((NSDraggingInfo, CGPoint) -> Bool)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes([
+            .fileURL,
+            .URL,
+            NSPasteboard.PasteboardType("com.projector.media-item"),
+            NSPasteboard.PasteboardType("public.item")
+        ])
     }
 
-    func dropExited(info: DropInfo) {
-        isTargeted = false
-        exitHandler()
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        registerForDraggedTypes([
+            .fileURL,
+            .URL,
+            NSPasteboard.PasteboardType("com.projector.media-item"),
+            NSPasteboard.PasteboardType("public.item")
+        ])
     }
 
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        updateHandler(info.location)
-        return DropProposal(operation: dropOperation())
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        onEntered?(sender, localLocation(for: sender))
+        return .copy
     }
 
-    func performDrop(info: DropInfo) -> Bool {
-        isTargeted = false
-        exitHandler()
-        let providers = info.itemProviders(for: supportedTypes)
-        return dropHandler(providers, info.location)
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        onUpdated?(sender, localLocation(for: sender)) ?? []
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        onExited?()
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        true
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        onPerform?(sender, localLocation(for: sender)) ?? false
+    }
+
+    override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+        onExited?()
+    }
+
+    private func localLocation(for info: NSDraggingInfo) -> CGPoint {
+        convert(info.draggingLocation, from: nil)
     }
 }
 

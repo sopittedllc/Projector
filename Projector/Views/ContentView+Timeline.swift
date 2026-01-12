@@ -19,45 +19,50 @@ extension ContentView {
     /// Handle audio files dropped on a specific audio lane
     func handleAudioDropOnTimeline(_ laneIndex: Int, _ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
         debugPrint("handleAudioDropOnTimeline: ENTRY - laneIndex=\(laneIndex), urls=\(urls.map { $0.lastPathComponent }), atFrame=\(atFrame)")
-        Task { @MainActor in
-            // Ensure the lane exists - create lanes until we have enough
-            while timelineManager.timeline.audioLanes.count <= laneIndex {
-                debugPrint("handleAudioDropOnTimeline: Creating lane - current count: \(timelineManager.timeline.audioLanes.count), need index: \(laneIndex)")
-                _ = timelineManager.addAudioLane()
-            }
 
-            // Verify lane was created
-            guard laneIndex < timelineManager.timeline.audioLanes.count else {
-                debugPrint("handleAudioDropOnTimeline: ERROR - lane index \(laneIndex) still out of bounds after creation")
-                return
-            }
-
-            let lane = timelineManager.timeline.audioLanes[laneIndex]
-            debugPrint("handleAudioDropOnTimeline: using lane '\(lane.name)' with id=\(lane.id.uuidString)")
-            var insertFrame = max(0, atFrame)
-
-            for url in urls {
-                debugPrint("handleAudioDropOnTimeline: calling addAudioToTimeline for \(url.lastPathComponent) at frame \(insertFrame)")
-                // addAudioToTimeline now handles embedded timecode detection
-                let clip = await addAudioToTimeline(url: url, laneId: lane.id, atFrame: insertFrame)
-                if let clip = clip {
-                    debugPrint("handleAudioDropOnTimeline: SUCCESS - clip created at frame \(clip.timelineStartFrame), duration \(clip.durationFrames), end \(clip.timelineEndFrame)")
-                    debugPrint("handleAudioDropOnTimeline: Timeline duration is \(timelineManager.timeline.config.durationFrames) frames")
-                    insertFrame = clip.timelineEndFrame
-                } else {
-                    debugPrint("handleAudioDropOnTimeline: FAILED - addAudioToTimeline returned nil")
+        // Defer state changes to avoid "Publishing changes from within view updates"
+        DispatchQueue.main.async {
+            Task { @MainActor in
+                // Ensure the lane exists - create lanes until we have enough
+                while self.timelineManager.timeline.audioLanes.count <= laneIndex {
+                    debugPrint("handleAudioDropOnTimeline: Creating lane - current count: \(self.timelineManager.timeline.audioLanes.count), need index: \(laneIndex)")
+                    _ = self.timelineManager.addAudioLane()
                 }
-            }
 
-            // Final verification - log ALL lanes and clips
-            debugPrint("handleAudioDropOnTimeline: FINAL STATE - \(timelineManager.timeline.audioLanes.count) lanes total")
-            for (idx, verifyLane) in timelineManager.timeline.audioLanes.enumerated() {
-                debugPrint("handleAudioDropOnTimeline: FINAL - lane[\(idx)] id=\(verifyLane.id.uuidString) '\(verifyLane.name)' has \(verifyLane.clips.count) clips")
-                for clip in verifyLane.clips {
-                    debugPrint("handleAudioDropOnTimeline: FINAL -   clip id=\(clip.id.uuidString) at frame \(clip.timelineStartFrame)")
+                // Verify lane was created
+                guard laneIndex < self.timelineManager.timeline.audioLanes.count else {
+                    debugPrint("handleAudioDropOnTimeline: ERROR - lane index \(laneIndex) still out of bounds after creation")
+                    return
                 }
+
+                let lane = self.timelineManager.timeline.audioLanes[laneIndex]
+                debugPrint("handleAudioDropOnTimeline: using lane '\(lane.name)' with id=\(lane.id.uuidString)")
+                var insertFrame = max(0, atFrame)
+
+                for url in urls {
+                    debugPrint("handleAudioDropOnTimeline: calling addAudioToTimeline for \(url.lastPathComponent) at frame \(insertFrame)")
+                    // addAudioToTimeline now handles embedded timecode detection
+                    let clip = await self.addAudioToTimeline(url: url, laneId: lane.id, atFrame: insertFrame)
+                    if let clip = clip {
+                        debugPrint("handleAudioDropOnTimeline: SUCCESS - clip created at frame \(clip.timelineStartFrame), duration \(clip.durationFrames), end \(clip.timelineEndFrame)")
+                        insertFrame = clip.timelineEndFrame
+
+                        // Add 30 seconds of padding after the clip so users can drop more files
+                        let paddingFrames = Int(30.0 * self.timelineManager.timeline.config.frameRate.fps)
+                        self.timelineManager.extendTimeline(toEndFrame: clip.timelineEndFrame + paddingFrames)
+                        debugPrint("handleAudioDropOnTimeline: Extended timeline to \(self.timelineManager.timeline.config.durationFrames) frames (with 30s padding)")
+                    } else {
+                        debugPrint("handleAudioDropOnTimeline: FAILED - addAudioToTimeline returned nil")
+                    }
+                }
+
+                // Final verification
+                debugPrint("handleAudioDropOnTimeline: FINAL STATE - \(self.timelineManager.timeline.audioLanes.count) lanes total")
+                for (idx, verifyLane) in self.timelineManager.timeline.audioLanes.enumerated() {
+                    debugPrint("handleAudioDropOnTimeline: FINAL - lane[\(idx)] '\(verifyLane.name)' has \(verifyLane.clips.count) clips")
+                }
+                debugPrint("handleAudioDropOnTimeline: DONE")
             }
-            debugPrint("handleAudioDropOnTimeline: DONE")
         }
     }
 
