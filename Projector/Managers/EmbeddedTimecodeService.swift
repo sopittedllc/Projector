@@ -114,24 +114,40 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
 
             // Get format description for timecode parameters
             let formatDescriptions = try await track.load(.formatDescriptions)
-            guard let formatDesc = formatDescriptions.first else { return nil }
+            debugPrint("EmbeddedTimecodeService: Found \(formatDescriptions.count) format descriptions")
+            guard let formatDesc = formatDescriptions.first else {
+                debugPrint("EmbeddedTimecodeService: No format description found")
+                return nil
+            }
 
             // Extract timecode parameters from format description
             let frameQuanta = CMTimeCodeFormatDescriptionGetFrameQuanta(formatDesc)
             let tcFlags = CMTimeCodeFormatDescriptionGetTimeCodeFlags(formatDesc)
             let isDropFrame = (tcFlags & kCMTimeCodeFlag_DropFrame) != 0
+            debugPrint("EmbeddedTimecodeService: frameQuanta=\(frameQuanta), flags=\(tcFlags), dropFrame=\(isDropFrame)")
 
             // Read the first timecode sample
             let reader = try AVAssetReader(asset: asset)
             let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
             reader.add(output)
 
-            guard reader.startReading() else { return nil }
-
-            guard let sampleBuffer = output.copyNextSampleBuffer(),
-                  let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else {
+            guard reader.startReading() else {
+                debugPrint("EmbeddedTimecodeService: Failed to start reading - status: \(reader.status.rawValue), error: \(reader.error?.localizedDescription ?? "nil")")
                 return nil
             }
+            debugPrint("EmbeddedTimecodeService: AVAssetReader started reading")
+
+            guard let sampleBuffer = output.copyNextSampleBuffer() else {
+                debugPrint("EmbeddedTimecodeService: No sample buffer returned")
+                return nil
+            }
+            debugPrint("EmbeddedTimecodeService: Got sample buffer")
+
+            guard let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else {
+                debugPrint("EmbeddedTimecodeService: No data buffer in sample")
+                return nil
+            }
+            debugPrint("EmbeddedTimecodeService: Got data buffer")
 
             // Parse timecode value from data buffer
             var length = 0
@@ -143,13 +159,18 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
                 totalLengthOut: &length,
                 dataPointerOut: &dataPointer
             )
+            debugPrint("EmbeddedTimecodeService: CMBlockBufferGetDataPointer status=\(status), length=\(length)")
 
-            guard status == noErr, let ptr = dataPointer, length >= 4 else { return nil }
+            guard status == noErr, let ptr = dataPointer, length >= 4 else {
+                debugPrint("EmbeddedTimecodeService: Failed to get data pointer or insufficient length")
+                return nil
+            }
 
             // Timecode is stored as big-endian 32-bit frame count
             let frameCount = ptr.withMemoryRebound(to: UInt32.self, capacity: 1) { pointer in
                 UInt32(bigEndian: pointer.pointee)
             }
+            debugPrint("EmbeddedTimecodeService: Raw frame count = \(frameCount)")
 
             let frameRate = Double(frameQuanta)
             let formatted = formatTimecode(
@@ -157,6 +178,7 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
                 frameRate: frameRate,
                 dropFrame: isDropFrame
             )
+            debugPrint("EmbeddedTimecodeService: Formatted timecode = \(formatted) at \(frameRate) fps")
 
             return EmbeddedTimecodeResult(
                 timecodeFrames: Int(frameCount),
@@ -166,6 +188,7 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
                 isDropFrame: isDropFrame
             )
         } catch {
+            debugPrint("EmbeddedTimecodeService: Exception in detectFromTimecodeTrack: \(error)")
             return nil
         }
     }
