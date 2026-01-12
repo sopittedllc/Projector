@@ -44,6 +44,8 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
     ///   - bookmark: Optional security-scoped bookmark for sandbox access
     /// - Returns: Detected timecode result, or `nil` if no timecode found
     func detectTimecode(from url: URL, bookmark: Data?) async -> EmbeddedTimecodeResult? {
+        debugPrint("EmbeddedTimecodeService: detectTimecode ENTRY - \(url.lastPathComponent)")
+
         // Resolve security-scoped access if bookmark provided
         var accessingURL = url
         var didStartAccess = false
@@ -71,20 +73,27 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
 
         // Try each source in order of reliability
         // 1. QuickTime timecode track (most reliable)
+        debugPrint("EmbeddedTimecodeService: Checking QuickTime timecode track...")
         if let result = await detectFromTimecodeTrack(asset: asset) {
+            debugPrint("EmbeddedTimecodeService: Found timecode in QT track: \(result.formattedTimecode)")
             return result
         }
 
         // 2. XMP metadata
+        debugPrint("EmbeddedTimecodeService: Checking XMP metadata...")
         if let result = await detectFromXMPMetadata(asset: asset) {
+            debugPrint("EmbeddedTimecodeService: Found timecode in XMP: \(result.formattedTimecode)")
             return result
         }
 
         // 3. ProRes metadata in video track
+        debugPrint("EmbeddedTimecodeService: Checking ProRes metadata...")
         if let result = await detectFromProResMetadata(asset: asset) {
+            debugPrint("EmbeddedTimecodeService: Found timecode in ProRes: \(result.formattedTimecode)")
             return result
         }
 
+        debugPrint("EmbeddedTimecodeService: No embedded timecode found in \(url.lastPathComponent)")
         return nil
     }
 
@@ -97,7 +106,11 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
     private func detectFromTimecodeTrack(asset: AVAsset) async -> EmbeddedTimecodeResult? {
         do {
             let timecodeTracks = try await asset.loadTracks(withMediaType: .timecode)
-            guard let track = timecodeTracks.first else { return nil }
+            debugPrint("EmbeddedTimecodeService: Found \(timecodeTracks.count) timecode track(s)")
+            guard let track = timecodeTracks.first else {
+                debugPrint("EmbeddedTimecodeService: No timecode track found")
+                return nil
+            }
 
             // Get format description for timecode parameters
             let formatDescriptions = try await track.load(.formatDescriptions)
@@ -165,6 +178,14 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
     private func detectFromXMPMetadata(asset: AVAsset) async -> EmbeddedTimecodeResult? {
         do {
             let metadata = try await asset.load(.metadata)
+            debugPrint("EmbeddedTimecodeService: Found \(metadata.count) metadata items")
+
+            // Log all metadata keys for debugging
+            for item in metadata {
+                let key = item.commonKey?.rawValue ?? item.key as? String ?? "unknown"
+                let value = try? await item.load(.stringValue)
+                debugPrint("EmbeddedTimecodeService: Metadata key='\(key)' value='\(value ?? "nil")'")
+            }
 
             // Look for timecode-related metadata keys
             for item in metadata {
@@ -177,6 +198,7 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
                    keyLower.contains("start_timecode") {
                     if let value = try await item.load(.stringValue),
                        let result = parseTimecodeString(value, source: .xmpMetadata) {
+                        debugPrint("EmbeddedTimecodeService: Found timecode in metadata key '\(key)'")
                         return result
                     }
                 }
@@ -184,6 +206,7 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
 
             // Also check format-specific metadata
             let formatMetadata = try await asset.load(.commonMetadata)
+            debugPrint("EmbeddedTimecodeService: Found \(formatMetadata.count) common metadata items")
             for item in formatMetadata {
                 guard let key = item.commonKey?.rawValue ?? item.key as? String else { continue }
                 let keyLower = key.lowercased()
@@ -196,8 +219,10 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
                 }
             }
 
+            debugPrint("EmbeddedTimecodeService: No timecode found in metadata")
             return nil
         } catch {
+            debugPrint("EmbeddedTimecodeService: XMP metadata error: \(error)")
             return nil
         }
     }

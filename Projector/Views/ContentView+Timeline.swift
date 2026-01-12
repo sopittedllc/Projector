@@ -10,22 +10,7 @@ extension ContentView {
     func handleVideoDropOnTimeline(_ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
         Task {
             for url in urls {
-                // Check for embedded timecode in the media file
-                if let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
-                    // Found embedded timecode - store pending state and show alert
-                    await MainActor.run {
-                        pendingTimecodeResult = result
-                        pendingTimecodeURL = url
-                        pendingTimecodeDropFrame = atFrame
-                        pendingTimecodeIsVideo = true
-                        pendingTimecodeLaneId = nil
-                        showEmbeddedTimecodeAlert = true
-                    }
-                    // Handle one file at a time when timecode is found
-                    return
-                }
-
-                // No timecode found - place normally at drop location
+                // addVideoToTimeline now handles embedded timecode detection
                 await addVideoToTimeline(url: url, atFrame: atFrame)
             }
         }
@@ -43,22 +28,7 @@ extension ContentView {
             var insertFrame = max(0, atFrame)
 
             for url in urls {
-                // Check for embedded timecode in the media file
-                if let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
-                    // Found embedded timecode - store pending state and show alert
-                    await MainActor.run {
-                        pendingTimecodeResult = result
-                        pendingTimecodeURL = url
-                        pendingTimecodeDropFrame = insertFrame
-                        pendingTimecodeIsVideo = false
-                        pendingTimecodeLaneId = lane.id
-                        showEmbeddedTimecodeAlert = true
-                    }
-                    // Handle one file at a time when timecode is found
-                    return
-                }
-
-                // No timecode found - place normally at drop location
+                // addAudioToTimeline now handles embedded timecode detection
                 let clip = await addAudioToTimeline(url: url, laneId: lane.id, atFrame: insertFrame)
                 if let clip = clip {
                     insertFrame = clip.timelineEndFrame
@@ -108,6 +78,26 @@ extension ContentView {
 
     /// Add a video file to the timeline
     func addVideoToTimeline(url: URL, atFrame: Int?) async {
+        debugPrint("addVideoToTimeline: Checking for embedded timecode in \(url.lastPathComponent)")
+
+        // Check for embedded timecode in the media file (unless we already have a specific frame from user choice)
+        if !showEmbeddedTimecodeAlert, pendingTimecodeURL == nil {
+            if let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
+                debugPrint("addVideoToTimeline: Found embedded timecode! \(result.formattedTimecode)")
+                // Found embedded timecode - store pending state and show alert
+                await MainActor.run {
+                    pendingTimecodeResult = result
+                    pendingTimecodeURL = url
+                    pendingTimecodeDropFrame = atFrame ?? 0
+                    pendingTimecodeIsVideo = true
+                    pendingTimecodeLaneId = nil
+                    showEmbeddedTimecodeAlert = true
+                }
+                return
+            }
+            debugPrint("addVideoToTimeline: No embedded timecode found")
+        }
+
         isLoadingMedia = true
 
         do {
@@ -302,6 +292,23 @@ extension ContentView {
 
     /// Add an audio file to the timeline
     func addAudioToTimeline(url: URL, laneId: UUID, atFrame: Int?) async -> AudioClip? {
+        // Check for embedded timecode in the audio file (unless we already have a specific frame from user choice)
+        if !showEmbeddedTimecodeAlert, pendingTimecodeURL == nil {
+            if let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
+                debugPrint("addAudioToTimeline: Found embedded timecode! \(result.formattedTimecode)")
+                // Found embedded timecode - store pending state and show alert
+                await MainActor.run {
+                    pendingTimecodeResult = result
+                    pendingTimecodeURL = url
+                    pendingTimecodeDropFrame = atFrame ?? 0
+                    pendingTimecodeIsVideo = false
+                    pendingTimecodeLaneId = laneId
+                    showEmbeddedTimecodeAlert = true
+                }
+                return nil
+            }
+        }
+
         do {
             // Import to media library first (if not already there)
             _ = try await mediaLibrary.importFile(from: url)
