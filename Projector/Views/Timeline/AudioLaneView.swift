@@ -882,6 +882,34 @@ private final class AudioLaneDragCaptureNSView: NSView {
         ])
     }
 
+    // CRITICAL: Pass through all mouse events to underlying SwiftUI views
+    // This view only handles drag-and-drop operations from external sources
+    // We override hitTest to return nil for regular mouse events,
+    // but drag-and-drop uses a separate registration system that bypasses hitTest
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // Return nil so clicks/drags pass through to SwiftUI clips underneath
+        // Drag-and-drop events still work because they use registerForDraggedTypes
+        nil
+    }
+
+    // Ensure mouse events pass through to SwiftUI views underneath
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        false
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        // Pass through to next responder (SwiftUI views underneath)
+        nextResponder?.mouseDown(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        nextResponder?.mouseDragged(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        nextResponder?.mouseUp(with: event)
+    }
+
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         onEntered?(sender, localLocation(for: sender))
         return .copy
