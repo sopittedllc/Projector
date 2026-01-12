@@ -76,15 +76,16 @@ extension ContentView {
 
     // MARK: - Video Timeline Operations
 
-    /// Add a video file to the timeline
-    func addVideoToTimeline(url: URL, atFrame: Int?) async {
-        debugPrint("addVideoToTimeline: Checking for embedded timecode in \(url.lastPathComponent)")
-
-        // Check for embedded timecode in the media file (unless we already have a specific frame from user choice)
-        if !showEmbeddedTimecodeAlert, pendingTimecodeURL == nil {
+    /// Add a video file to the timeline with optional timecode check
+    /// - Parameters:
+    ///   - url: Video file URL
+    ///   - atFrame: Target frame position (nil = auto-place at end)
+    ///   - checkTimecode: Whether to check for embedded timecode and prompt user
+    func addVideoToTimeline(url: URL, atFrame: Int?, checkTimecode: Bool = true) async {
+        // Check for embedded timecode if requested and not already handling a pending choice
+        if checkTimecode, !showEmbeddedTimecodeAlert, pendingTimecodeURL == nil {
             if let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
                 debugPrint("addVideoToTimeline: Found embedded timecode! \(result.formattedTimecode)")
-                // Found embedded timecode - store pending state and show alert
                 await MainActor.run {
                     pendingTimecodeResult = result
                     pendingTimecodeURL = url
@@ -95,7 +96,6 @@ extension ContentView {
                 }
                 return
             }
-            debugPrint("addVideoToTimeline: No embedded timecode found")
         }
 
         isLoadingMedia = true
@@ -290,10 +290,16 @@ extension ContentView {
 
     // MARK: - Audio Timeline Operations
 
-    /// Add an audio file to the timeline
-    func addAudioToTimeline(url: URL, laneId: UUID, atFrame: Int?) async -> AudioClip? {
-        // Check for embedded timecode in the audio file (unless we already have a specific frame from user choice)
-        if !showEmbeddedTimecodeAlert, pendingTimecodeURL == nil {
+    /// Add an audio file to the timeline with optional timecode check
+    /// - Parameters:
+    ///   - url: Audio file URL
+    ///   - laneId: Target audio lane ID
+    ///   - atFrame: Target frame position (nil = auto-place at end)
+    ///   - checkTimecode: Whether to check for embedded timecode and prompt user
+    /// - Returns: The created AudioClip, or nil if timecode alert shown or error occurred
+    func addAudioToTimeline(url: URL, laneId: UUID, atFrame: Int?, checkTimecode: Bool = true) async -> AudioClip? {
+        // Check for embedded timecode if requested and not already handling a pending choice
+        if checkTimecode, !showEmbeddedTimecodeAlert, pendingTimecodeURL == nil {
             if let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
                 debugPrint("addAudioToTimeline: Found embedded timecode! \(result.formattedTimecode)")
                 // Found embedded timecode - store pending state and show alert
@@ -539,21 +545,29 @@ extension ContentView {
             return
         }
 
+        // Capture pending state before clearing
+        let isVideo = pendingTimecodeIsVideo
+        let laneId = pendingTimecodeLaneId
+        let result = pendingTimecodeResult
+        let dropFrame = pendingTimecodeDropFrame
+
         Task {
             let targetFrame: Int
-            if useEmbeddedTimecode, let result = pendingTimecodeResult {
+            if useEmbeddedTimecode, let result = result {
                 // Convert source timecode frames to timeline frames
                 let timelineFPS = timelineManager.timeline.config.frameRate.fps
                 targetFrame = result.convertedFrames(to: timelineFPS)
             } else {
                 // Use original drop location
-                targetFrame = pendingTimecodeDropFrame ?? 0
+                targetFrame = dropFrame ?? 0
             }
 
-            if pendingTimecodeIsVideo {
-                await addVideoToTimeline(url: url, atFrame: targetFrame)
-            } else if let laneId = pendingTimecodeLaneId {
-                _ = await addAudioToTimeline(url: url, laneId: laneId, atFrame: targetFrame)
+            if isVideo {
+                // Pass checkTimecode: false to skip re-checking after user choice
+                await addVideoToTimeline(url: url, atFrame: targetFrame, checkTimecode: false)
+            } else if let laneId = laneId {
+                // Pass checkTimecode: false to skip re-checking after user choice
+                _ = await addAudioToTimeline(url: url, laneId: laneId, atFrame: targetFrame, checkTimecode: false)
             }
 
             await MainActor.run {

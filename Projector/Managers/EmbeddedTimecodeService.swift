@@ -143,11 +143,15 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
             }
             debugPrint("EmbeddedTimecodeService: Got sample buffer")
 
+            // Get sample size to know how much data we're dealing with
+            let sampleSize = CMSampleBufferGetTotalSampleSize(sampleBuffer)
+            debugPrint("EmbeddedTimecodeService: Sample size = \(sampleSize) bytes")
+
             // Try multiple approaches to get the timecode data
             var frameCount: UInt32 = 0
             var gotTimecode = false
 
-            // Approach 1: Try CMSampleBufferGetDataBuffer
+            // Approach 1: Try CMSampleBufferGetDataBuffer with direct pointer access
             if let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) {
                 debugPrint("EmbeddedTimecodeService: Got data buffer via GetDataBuffer")
                 var length = 0
@@ -166,7 +170,7 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
                 }
             }
 
-            // Approach 2: Try getting data via CMBlockBufferCopyDataBytes
+            // Approach 2: Try CMBlockBufferCopyDataBytes (works even if pointer access fails)
             if !gotTimecode, let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) {
                 var bytes = [UInt8](repeating: 0, count: 4)
                 let status = CMBlockBufferCopyDataBytes(dataBuffer, atOffset: 0, dataLength: 4, destination: &bytes)
@@ -177,34 +181,162 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
                 }
             }
 
-            // Approach 3: Try reading image buffer (timecode can be stored there in some formats)
-            if !gotTimecode, let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
-                debugPrint("EmbeddedTimecodeService: Found image buffer instead of data buffer")
-                CVPixelBufferLockBaseAddress(imageBuffer, .readOnly)
-                defer { CVPixelBufferUnlockBaseAddress(imageBuffer, .readOnly) }
+            // Approach 3: Try reading directly into buffer if CMBlockBuffer methods fail
+            if !gotTimecode, sampleSize >= 4 {
+                debugPrint("EmbeddedTimecodeService: Trying direct sample data read approach")
 
-                if let baseAddress = CVPixelBufferGetBaseAddress(imageBuffer) {
-                    let ptr = baseAddress.assumingMemoryBound(to: UInt32.self)
-                    frameCount = ptr.pointee.bigEndian
-                    gotTimecode = true
-                    debugPrint("EmbeddedTimecodeService: Got frame count via image buffer: \(frameCount)")
+                // Use CMSampleBufferGetDataBuffer with forced contiguous access
+                if let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) {
+                    // Try to make the block buffer contiguous
+                    var contiguousBuffer: CMBlockBuffer?
+                    let makeContiguous = CMBlockBufferCreateContiguous(
+                        allocator: kCFAllocatorDefault,
+                        sourceBuffer: dataBuffer,
+                        blockAllocator: kCFAllocatorDefault,
+                        customBlockSource: nil,
+                        offsetToData: 0,
+                        dataLength: sampleSize,
+                        flags: 0,
+                        blockBufferOut: &contiguousBuffer
+                    )
+
+                    if makeContiguous == noErr, let contiguous = contiguousBuffer {
+                        var length = 0
+                        var ptr: UnsafeMutablePointer<Int8>?
+                        let status = CMBlockBufferGetDataPointer(
+                            contiguous,
+                            atOffset: 0,
+                            lengthAtOffsetOut: nil,
+                            totalLengthOut: &length,
+                            dataPointerOut: &ptr
+                        )
+                        if status == noErr, let dataPtr = ptr, length >= 4 {
+                            frameCount = dataPtr.withMemoryRebound(to: UInt32.self, capacity: 1) { $0.pointee.bigEndian }
+                            gotTimecode = true
+                            debugPrint("EmbeddedTimecodeService: Got frame count from contiguous buffer (approach 3): \(frameCount)")
+                        }
+                    }
                 }
             }
 
-            // Approach 4: Calculate from presentation timestamp
+            // Approach 4: Look for timecode in format description extensions
             if !gotTimecode {
-                let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                if pts.isValid && pts.timescale > 0 {
-                    // The PTS might represent the timecode offset
-                    let seconds = CMTimeGetSeconds(pts)
-                    frameCount = UInt32(seconds * Double(frameQuanta))
-                    gotTimecode = true
-                    debugPrint("EmbeddedTimecodeService: Got frame count from PTS: \(frameCount) (seconds=\(seconds))")
+                debugPrint("EmbeddedTimecodeService: Checking format description extensions...")
+                if let extensions = CMFormatDescriptionGetExtensions(formatDesc) as? [String: Any] {
+                    debugPrint("EmbeddedTimecodeService: Format extensions: \(extensions.keys)")
+
+                    // Check for CleanAperture or other extensions that might have timecode
+                    for (key, value) in extensions {
+                        debugPrint("EmbeddedTimecodeService: Extension '\(key)' = \(value)")
+                    }
+                }
+            }
+
+            // Approach 5: Use sample timing info to compute timecode
+            // For timecode tracks, the sample's DTS/PTS relative to the track's media time
+            // combined with the format description's frame quanta gives us the timecode
+            if !gotTimecode {
+                debugPrint("EmbeddedTimecodeService: Trying sample timing approach...")
+
+                // Get timing info for the sample
+                var timingInfo = CMSampleTimingInfo()
+                let timingStatus = CMSampleBufferGetSampleTimingInfo(sampleBuffer, at: 0, timingInfoOut: &timingInfo)
+
+                if timingStatus == noErr {
+                    debugPrint("EmbeddedTimecodeService: Timing - PTS: \(timingInfo.presentationTimeStamp.seconds), DTS: \(timingInfo.decodeTimeStamp.seconds), Duration: \(timingInfo.duration.seconds)")
+
+                    // The timecode track's sample timing should indicate the starting frame
+                    // Some QuickTime files encode the frame number in the sample's media data
+                    // but store it as timing relative to the track's timescale
+                    let trackTimeScale = try await track.load(.naturalTimeScale)
+                    debugPrint("EmbeddedTimecodeService: Track time scale: \(trackTimeScale)")
+
+                    // If the timecode data is stored as the sample number in the track's time scale
+                    // we can compute it from the sample's decode time
+                    if timingInfo.decodeTimeStamp.isValid && timingInfo.decodeTimeStamp != CMTime.invalid {
+                        let dtsSamples = Int64(CMTimeGetSeconds(timingInfo.decodeTimeStamp) * Double(frameQuanta))
+                        if dtsSamples > 0 {
+                            frameCount = UInt32(dtsSamples)
+                            gotTimecode = true
+                            debugPrint("EmbeddedTimecodeService: Got frame count from DTS: \(frameCount)")
+                        }
+                    }
+                }
+            }
+
+            // Approach 6: Read the track's first sample time as the timecode origin
+            if !gotTimecode {
+                debugPrint("EmbeddedTimecodeService: Trying track sample time approach...")
+
+                // In some QuickTime files, the timecode is stored as the track's
+                // start time in the movie's time coordinate system
+                let trackSegment = try await track.load(.segments)
+                if let firstSegment = trackSegment.first {
+                    let startTime = firstSegment.timeMapping.target.start
+                    let mediaStartTime = firstSegment.timeMapping.source.start
+
+                    debugPrint("EmbeddedTimecodeService: Track segment - target start: \(startTime.seconds)s, media start: \(mediaStartTime.seconds)s")
+
+                    // The media start time in frames is often the timecode
+                    if mediaStartTime.isValid && mediaStartTime.timescale > 0 {
+                        let mediaFrames = Int(CMTimeGetSeconds(mediaStartTime) * Double(frameQuanta))
+                        if mediaFrames >= 0 {
+                            frameCount = UInt32(mediaFrames)
+                            gotTimecode = true
+                            debugPrint("EmbeddedTimecodeService: Got frame count from media start time: \(frameCount)")
+                        }
+                    }
+                }
+            }
+
+            // Approach 7: If sample has data, try direct byte access with different offsets
+            if !gotTimecode && sampleSize >= 4 {
+                debugPrint("EmbeddedTimecodeService: Trying raw sample data extraction...")
+
+                // Create a mutable block buffer to copy data into
+                var outputBlockBuffer: CMBlockBuffer?
+                let createStatus = CMBlockBufferCreateEmpty(
+                    allocator: kCFAllocatorDefault,
+                    capacity: UInt32(sampleSize),
+                    flags: 0,
+                    blockBufferOut: &outputBlockBuffer
+                )
+
+                if createStatus == noErr, let sourceBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) {
+                    // Make it contiguous
+                    var contiguousBuffer: CMBlockBuffer?
+                    CMBlockBufferCreateContiguous(
+                        allocator: kCFAllocatorDefault,
+                        sourceBuffer: sourceBuffer,
+                        blockAllocator: kCFAllocatorDefault,
+                        customBlockSource: nil,
+                        offsetToData: 0,
+                        dataLength: sampleSize,
+                        flags: 0,
+                        blockBufferOut: &contiguousBuffer
+                    )
+
+                    if let contiguous = contiguousBuffer {
+                        var length = 0
+                        var dataPointer: UnsafeMutablePointer<Int8>?
+                        let ptrStatus = CMBlockBufferGetDataPointer(
+                            contiguous,
+                            atOffset: 0,
+                            lengthAtOffsetOut: nil,
+                            totalLengthOut: &length,
+                            dataPointerOut: &dataPointer
+                        )
+                        if ptrStatus == noErr, let ptr = dataPointer, length >= 4 {
+                            frameCount = ptr.withMemoryRebound(to: UInt32.self, capacity: 1) { $0.pointee.bigEndian }
+                            gotTimecode = true
+                            debugPrint("EmbeddedTimecodeService: Got frame count from contiguous buffer: \(frameCount)")
+                        }
+                    }
                 }
             }
 
             guard gotTimecode else {
-                debugPrint("EmbeddedTimecodeService: Failed to extract timecode value from sample buffer")
+                debugPrint("EmbeddedTimecodeService: Failed to extract timecode value from sample buffer after all attempts")
                 return nil
             }
             debugPrint("EmbeddedTimecodeService: Final frame count = \(frameCount)")
