@@ -143,34 +143,71 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
             }
             debugPrint("EmbeddedTimecodeService: Got sample buffer")
 
-            guard let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else {
-                debugPrint("EmbeddedTimecodeService: No data buffer in sample")
+            // Try multiple approaches to get the timecode data
+            var frameCount: UInt32 = 0
+            var gotTimecode = false
+
+            // Approach 1: Try CMSampleBufferGetDataBuffer
+            if let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) {
+                debugPrint("EmbeddedTimecodeService: Got data buffer via GetDataBuffer")
+                var length = 0
+                var dataPointer: UnsafeMutablePointer<Int8>?
+                let status = CMBlockBufferGetDataPointer(
+                    dataBuffer,
+                    atOffset: 0,
+                    lengthAtOffsetOut: nil,
+                    totalLengthOut: &length,
+                    dataPointerOut: &dataPointer
+                )
+                if status == noErr, let ptr = dataPointer, length >= 4 {
+                    frameCount = ptr.withMemoryRebound(to: UInt32.self, capacity: 1) { $0.pointee.bigEndian }
+                    gotTimecode = true
+                    debugPrint("EmbeddedTimecodeService: Got frame count via data pointer: \(frameCount)")
+                }
+            }
+
+            // Approach 2: Try getting data via CMBlockBufferCopyDataBytes
+            if !gotTimecode, let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) {
+                var bytes = [UInt8](repeating: 0, count: 4)
+                let status = CMBlockBufferCopyDataBytes(dataBuffer, atOffset: 0, dataLength: 4, destination: &bytes)
+                if status == noErr {
+                    frameCount = UInt32(bytes[0]) << 24 | UInt32(bytes[1]) << 16 | UInt32(bytes[2]) << 8 | UInt32(bytes[3])
+                    gotTimecode = true
+                    debugPrint("EmbeddedTimecodeService: Got frame count via CopyDataBytes: \(frameCount)")
+                }
+            }
+
+            // Approach 3: Try reading image buffer (timecode can be stored there in some formats)
+            if !gotTimecode, let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+                debugPrint("EmbeddedTimecodeService: Found image buffer instead of data buffer")
+                CVPixelBufferLockBaseAddress(imageBuffer, .readOnly)
+                defer { CVPixelBufferUnlockBaseAddress(imageBuffer, .readOnly) }
+
+                if let baseAddress = CVPixelBufferGetBaseAddress(imageBuffer) {
+                    let ptr = baseAddress.assumingMemoryBound(to: UInt32.self)
+                    frameCount = ptr.pointee.bigEndian
+                    gotTimecode = true
+                    debugPrint("EmbeddedTimecodeService: Got frame count via image buffer: \(frameCount)")
+                }
+            }
+
+            // Approach 4: Calculate from presentation timestamp
+            if !gotTimecode {
+                let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                if pts.isValid && pts.timescale > 0 {
+                    // The PTS might represent the timecode offset
+                    let seconds = CMTimeGetSeconds(pts)
+                    frameCount = UInt32(seconds * Double(frameQuanta))
+                    gotTimecode = true
+                    debugPrint("EmbeddedTimecodeService: Got frame count from PTS: \(frameCount) (seconds=\(seconds))")
+                }
+            }
+
+            guard gotTimecode else {
+                debugPrint("EmbeddedTimecodeService: Failed to extract timecode value from sample buffer")
                 return nil
             }
-            debugPrint("EmbeddedTimecodeService: Got data buffer")
-
-            // Parse timecode value from data buffer
-            var length = 0
-            var dataPointer: UnsafeMutablePointer<Int8>?
-            let status = CMBlockBufferGetDataPointer(
-                dataBuffer,
-                atOffset: 0,
-                lengthAtOffsetOut: nil,
-                totalLengthOut: &length,
-                dataPointerOut: &dataPointer
-            )
-            debugPrint("EmbeddedTimecodeService: CMBlockBufferGetDataPointer status=\(status), length=\(length)")
-
-            guard status == noErr, let ptr = dataPointer, length >= 4 else {
-                debugPrint("EmbeddedTimecodeService: Failed to get data pointer or insufficient length")
-                return nil
-            }
-
-            // Timecode is stored as big-endian 32-bit frame count
-            let frameCount = ptr.withMemoryRebound(to: UInt32.self, capacity: 1) { pointer in
-                UInt32(bigEndian: pointer.pointee)
-            }
-            debugPrint("EmbeddedTimecodeService: Raw frame count = \(frameCount)")
+            debugPrint("EmbeddedTimecodeService: Final frame count = \(frameCount)")
 
             let frameRate = Double(frameQuanta)
             let formatted = formatTimecode(
