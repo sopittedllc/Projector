@@ -219,14 +219,60 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
                 }
             }
 
-            // Approach 4: Look for timecode in format description extensions
+            // Approach 4: Look for timecode in format description extensions (VerbatimSampleDescription)
             if !gotTimecode {
                 debugPrint("EmbeddedTimecodeService: Checking format description extensions...")
                 if let extensions = CMFormatDescriptionGetExtensions(formatDesc) as? [String: Any] {
                     debugPrint("EmbeddedTimecodeService: Format extensions: \(extensions.keys)")
 
-                    // Check for CleanAperture or other extensions that might have timecode
-                    for (key, value) in extensions {
+                    // Check VerbatimSampleDescription - contains the raw tmcd atom data
+                    if let verbatimData = extensions["VerbatimSampleDescription"] as? Data {
+                        debugPrint("EmbeddedTimecodeService: VerbatimSampleDescription has \(verbatimData.count) bytes")
+
+                        // Try to parse timecode from the sample description
+                        // QuickTime timecode sample description format (after size+type):
+                        // Bytes 0-3: size, 4-7: 'tmcd', 8-13: reserved, 14-15: data ref index
+                        // 16-19: reserved, 20-23: flags, 24-27: time scale, 28-31: frame duration
+                        // 32: number of frames, 33: reserved
+                        // After this may come additional data including source reference name
+
+                        if verbatimData.count >= 34 {
+                            let bytes = [UInt8](verbatimData)
+
+                            // Extract time scale (offset 24-27, big-endian)
+                            let timeScale = UInt32(bytes[24]) << 24 | UInt32(bytes[25]) << 16 |
+                                            UInt32(bytes[26]) << 8 | UInt32(bytes[27])
+
+                            // Extract frame duration (offset 28-31, big-endian)
+                            let frameDuration = UInt32(bytes[28]) << 24 | UInt32(bytes[29]) << 16 |
+                                                UInt32(bytes[30]) << 8 | UInt32(bytes[31])
+
+                            // Extract number of frames per second (offset 32)
+                            let framesPerSecond = bytes[32]
+
+                            debugPrint("EmbeddedTimecodeService: VerbatimSampleDescription - timeScale=\(timeScale), frameDuration=\(frameDuration), fps=\(framesPerSecond)")
+
+                            // Some files store an initial frame count after the standard fields
+                            // Check if there's extra data that could be the starting frame
+                            if verbatimData.count >= 38 {
+                                // Try reading bytes 34-37 as potential frame count
+                                let potentialFrameCount = UInt32(bytes[34]) << 24 | UInt32(bytes[35]) << 16 |
+                                                          UInt32(bytes[36]) << 8 | UInt32(bytes[37])
+                                debugPrint("EmbeddedTimecodeService: Potential frame count at offset 34: \(potentialFrameCount)")
+
+                                // Sanity check - frame count should be reasonable (less than 24 hours at given fps)
+                                let maxReasonableFrames = UInt32(framesPerSecond) * 24 * 60 * 60
+                                if potentialFrameCount > 0 && potentialFrameCount < maxReasonableFrames {
+                                    frameCount = potentialFrameCount
+                                    gotTimecode = true
+                                    debugPrint("EmbeddedTimecodeService: Got frame count from VerbatimSampleDescription: \(frameCount)")
+                                }
+                            }
+                        }
+                    }
+
+                    // Log other extensions for debugging
+                    for (key, value) in extensions where key != "VerbatimSampleDescription" {
                         debugPrint("EmbeddedTimecodeService: Extension '\(key)' = \(value)")
                     }
                 }

@@ -18,6 +18,7 @@ extension ContentView {
 
     /// Handle audio files dropped on a specific audio lane
     func handleAudioDropOnTimeline(_ laneIndex: Int, _ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
+        debugPrint("handleAudioDropOnTimeline: ENTRY - laneIndex=\(laneIndex), urls=\(urls.map { $0.lastPathComponent }), atFrame=\(atFrame)")
         Task {
             // Ensure the lane exists
             while timelineManager.timeline.audioLanes.count <= laneIndex {
@@ -25,15 +26,19 @@ extension ContentView {
             }
 
             let lane = timelineManager.timeline.audioLanes[laneIndex]
+            debugPrint("handleAudioDropOnTimeline: using lane '\(lane.name)' with id=\(lane.id)")
             var insertFrame = max(0, atFrame)
 
             for url in urls {
+                debugPrint("handleAudioDropOnTimeline: calling addAudioToTimeline for \(url.lastPathComponent)")
                 // addAudioToTimeline now handles embedded timecode detection
                 let clip = await addAudioToTimeline(url: url, laneId: lane.id, atFrame: insertFrame)
+                debugPrint("handleAudioDropOnTimeline: addAudioToTimeline returned clip=\(clip?.id.uuidString ?? "nil")")
                 if let clip = clip {
                     insertFrame = clip.timelineEndFrame
                 }
             }
+            debugPrint("handleAudioDropOnTimeline: DONE")
         }
     }
 
@@ -298,8 +303,10 @@ extension ContentView {
     ///   - checkTimecode: Whether to check for embedded timecode and prompt user
     /// - Returns: The created AudioClip, or nil if timecode alert shown or error occurred
     func addAudioToTimeline(url: URL, laneId: UUID, atFrame: Int?, checkTimecode: Bool = true) async -> AudioClip? {
+        debugPrint("addAudioToTimeline: ENTRY - \(url.lastPathComponent), laneId=\(laneId), atFrame=\(atFrame ?? -1), checkTimecode=\(checkTimecode)")
         // Check for embedded timecode if requested and not already handling a pending choice
         if checkTimecode, !showEmbeddedTimecodeAlert, pendingTimecodeURL == nil {
+            debugPrint("addAudioToTimeline: checking for embedded timecode...")
             if let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
                 debugPrint("addAudioToTimeline: Found embedded timecode! \(result.formattedTimecode)")
                 // Found embedded timecode - store pending state and show alert
@@ -313,23 +320,34 @@ extension ContentView {
                 }
                 return nil
             }
+            debugPrint("addAudioToTimeline: no embedded timecode found, proceeding with add")
+        } else {
+            debugPrint("addAudioToTimeline: skipping timecode check (checkTimecode=\(checkTimecode), showAlert=\(showEmbeddedTimecodeAlert), pendingURL=\(pendingTimecodeURL?.lastPathComponent ?? "nil"))")
         }
 
         do {
             // Import to media library first (if not already there)
+            debugPrint("addAudioToTimeline: importing to media library...")
             _ = try await mediaLibrary.importFile(from: url)
 
             // Calculate where to place the new clip (at end of existing clips in lane)
             let lane = timelineManager.timeline.audioLanes.first { $0.id == laneId }
             let placementFrame = atFrame ?? (lane?.clips.map { $0.timelineEndFrame }.max() ?? 0)
+            debugPrint("addAudioToTimeline: lane found=\(lane != nil), placementFrame=\(placementFrame)")
 
             // Add the audio clip
-            let clip = try await timelineManager.addAudioClip(from: url, toLane: laneId, at: placementFrame)
+            guard let clip = try await timelineManager.addAudioClip(from: url, toLane: laneId, at: placementFrame) else {
+                debugPrint("addAudioToTimeline: addAudioClip returned nil (lane not found?)")
+                return nil
+            }
+            debugPrint("addAudioToTimeline: clip created id=\(clip.id.uuidString)")
 
             // Sync timeline to playback engine
             syncTimelineToPlaybackEngine()
+            debugPrint("addAudioToTimeline: SUCCESS - returning clip")
             return clip
         } catch {
+            debugPrint("addAudioToTimeline: ERROR - \(error.localizedDescription)")
             loadError = error.localizedDescription
             showErrorAlert = true
             return nil
