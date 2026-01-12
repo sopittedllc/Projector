@@ -47,6 +47,7 @@ struct AlertsModifier: ViewModifier {
     @Binding var showDuplicateMediaAlert: Bool
     @Binding var showMissingFilesAlert: Bool
     @Binding var showFPSConflictAlert: Bool
+    @Binding var showEmbeddedTimecodeAlert: Bool
 
     let loadError: String?
     let videoAlreadyInTimelineName: String
@@ -54,12 +55,17 @@ struct AlertsModifier: ViewModifier {
     let duplicateMediaAlertMessage: String
     let missingFileMessage: String
     let fpsConflictMessage: String
+    let embeddedTimecodeMessage: String
+    let embeddedTimecodeButtonLabel: String
 
     let onLocateMissingFile: () -> Void
     let onSkipMissingFile: () -> Void
     let onSkipAllMissingFiles: () -> Void
     let onChangeProjectFPS: () -> Void
     let onCancelFPSConflict: () -> Void
+    let onPlaceAtTimecode: () -> Void
+    let onPlaceAtDropLocation: () -> Void
+    let onCancelTimecode: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -95,6 +101,13 @@ struct AlertsModifier: ViewModifier {
                 Button("Cancel", role: .cancel) { onCancelFPSConflict() }
             } message: {
                 Text(fpsConflictMessage)
+            }
+            .alert("Embedded Timecode Detected", isPresented: $showEmbeddedTimecodeAlert) {
+                Button(embeddedTimecodeButtonLabel) { onPlaceAtTimecode() }
+                Button("Place at Drop Location") { onPlaceAtDropLocation() }
+                Button("Cancel", role: .cancel) { onCancelTimecode() }
+            } message: {
+                Text(embeddedTimecodeMessage)
             }
     }
 }

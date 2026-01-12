@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */; };
+		67053C082F0B787BAEF7B06D /* EmbeddedTimecodeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECA2DAB208F6AEF41EA14F6 /* EmbeddedTimecodeService.swift */; };
 		0F78E7CD06BB4CCBA9AA1A36 /* WindowTitleConfigurator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04AA25E97254C758E8138F0 /* WindowTitleConfigurator.swift */; };
 		1218A8494ECAE07469982AFA /* TestAudioFileFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14506C8D8408E65D66372269 /* TestAudioFileFactory.swift */; };
 		2D32AFD4ED0B4C24B8B2504B /* MediaOptimizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1CB65275AFE49C6AFD24B05 /* MediaOptimizationService.swift */; };
@@ -142,6 +144,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeServiceProtocol.swift; sourceTree = "<group>"; };
+		CECA2DAB208F6AEF41EA14F6 /* EmbeddedTimecodeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeService.swift; sourceTree = "<group>"; };
 		020DEC73914C4FCDB4106B0D /* OptimizeMediaButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizeMediaButton.swift; sourceTree = "<group>"; };
 		09CB2A043A720DB7314125A0 /* ProjectorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ProjectorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0D049757BEF1EE1D4B8B48BD /* ProjectorUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ProjectorUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -359,6 +363,7 @@
 				PPS002PERSISTENCE02 /* ProjectPersistenceService.swift */,
 				F1CB65275AFE49C6AFD24B05 /* MediaOptimizationService.swift */,
 				B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */,
+				CECA2DAB208F6AEF41EA14F6 /* EmbeddedTimecodeService.swift */,
 				A1000001227D3F000000006F /* MIDIManager.swift */,
 				A1000001227D3F0000000071 /* AudioOutputManager.swift */,
 				LSQLICENSE000010 /* LicenseManager.swift */,
@@ -454,6 +459,7 @@
 				D2403C06D2294027B9140EB4 /* MediaOptimizationServiceProtocol.swift */,
 				B19B58B12F0889F200FA33EC /* MIDISyncServiceProtocol.swift */,
 				B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */,
+				F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */,
 			);
 			path = Contracts;
 			sourceTree = "<group>";
@@ -720,6 +726,8 @@
 				B19B58B92F0889F200FA33EC /* MIDISyncServiceProtocol.swift in Sources */,
 				B19B58BA2F0889F200FA33EC /* LayoutConstants.swift in Sources */,
 				B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */,
+				BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */,
+				67053C082F0B787BAEF7B06D /* EmbeddedTimecodeService.swift in Sources */,
 				A1000001227D3F00000000B2 /* ContentView.swift in Sources */,
 				SETUP002CONTENTVIEW /* ContentView+Setup.swift in Sources */,
 				TIMELINE002CONTENTVIEW /* ContentView+Timeline.swift in Sources */,

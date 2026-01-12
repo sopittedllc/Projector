@@ -130,6 +130,17 @@ struct ContentView: View {
     @State var audioAlreadyInTimelineName: String = ""
     @State private var isPlaybackDropTargeted = false
 
+    // Embedded timecode detection state (internal for ContentView+Timeline.swift extension)
+    @State var showEmbeddedTimecodeAlert = false
+    @State var pendingTimecodeResult: EmbeddedTimecodeResult?
+    @State var pendingTimecodeURL: URL?
+    @State var pendingTimecodeDropFrame: Int?
+    @State var pendingTimecodeIsVideo = true
+    @State var pendingTimecodeLaneId: UUID?
+
+    /// Service for detecting embedded timecode from media files
+    let embeddedTimecodeService = EmbeddedTimecodeService()
+
     var body: some View {
         mainContent
             .modifier(SheetsModifier(
@@ -157,12 +168,15 @@ struct ContentView: View {
                 showDuplicateMediaAlert: $mediaImportCoordinator.showDuplicateMediaAlert,
                 showMissingFilesAlert: $missingFileService.showAlert,
                 showFPSConflictAlert: $showFPSConflictAlert,
+                showEmbeddedTimecodeAlert: $showEmbeddedTimecodeAlert,
                 loadError: loadError,
                 videoAlreadyInTimelineName: videoAlreadyInTimelineName,
                 audioAlreadyInTimelineName: audioAlreadyInTimelineName,
                 duplicateMediaAlertMessage: mediaImportCoordinator.duplicateMediaAlertMessage,
                 missingFileMessage: missingFileService.currentMissingFileMessage,
                 fpsConflictMessage: fpsConflictMessage,
+                embeddedTimecodeMessage: embeddedTimecodeMessage,
+                embeddedTimecodeButtonLabel: embeddedTimecodeButtonLabel,
                 onLocateMissingFile: { missingFileService.locateMissingFile() },
                 onSkipMissingFile: { missingFileService.skipMissingFile() },
                 onSkipAllMissingFiles: { missingFileService.skipAllMissingFiles() },
@@ -171,7 +185,10 @@ struct ContentView: View {
                     pendingVideoURL = nil
                     pendingVideoFPS = nil
                     pendingVideoInsertFrame = nil
-                }
+                },
+                onPlaceAtTimecode: { handleTimecodeChoice(useEmbeddedTimecode: true) },
+                onPlaceAtDropLocation: { handleTimecodeChoice(useEmbeddedTimecode: false) },
+                onCancelTimecode: { clearPendingTimecode() }
             ))
             .frame(minWidth: 640, minHeight: 400)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

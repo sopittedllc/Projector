@@ -10,6 +10,22 @@ extension ContentView {
     func handleVideoDropOnTimeline(_ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
         Task {
             for url in urls {
+                // Check for embedded timecode in the media file
+                if let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
+                    // Found embedded timecode - store pending state and show alert
+                    await MainActor.run {
+                        pendingTimecodeResult = result
+                        pendingTimecodeURL = url
+                        pendingTimecodeDropFrame = atFrame
+                        pendingTimecodeIsVideo = true
+                        pendingTimecodeLaneId = nil
+                        showEmbeddedTimecodeAlert = true
+                    }
+                    // Handle one file at a time when timecode is found
+                    return
+                }
+
+                // No timecode found - place normally at drop location
                 await addVideoToTimeline(url: url, atFrame: atFrame)
             }
         }
@@ -27,6 +43,22 @@ extension ContentView {
             var insertFrame = max(0, atFrame)
 
             for url in urls {
+                // Check for embedded timecode in the media file
+                if let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
+                    // Found embedded timecode - store pending state and show alert
+                    await MainActor.run {
+                        pendingTimecodeResult = result
+                        pendingTimecodeURL = url
+                        pendingTimecodeDropFrame = insertFrame
+                        pendingTimecodeIsVideo = false
+                        pendingTimecodeLaneId = lane.id
+                        showEmbeddedTimecodeAlert = true
+                    }
+                    // Handle one file at a time when timecode is found
+                    return
+                }
+
+                // No timecode found - place normally at drop location
                 let clip = await addAudioToTimeline(url: url, laneId: lane.id, atFrame: insertFrame)
                 if let clip = clip {
                     insertFrame = clip.timelineEndFrame
@@ -473,5 +505,62 @@ extension ContentView {
         }
 
         return tempURL
+    }
+
+    // MARK: - Embedded Timecode Detection
+
+    /// Message for the embedded timecode detection alert
+    var embeddedTimecodeMessage: String {
+        guard let result = pendingTimecodeResult else {
+            return "This file contains embedded timecode. Where would you like to place it?"
+        }
+        return "This file contains embedded timecode (\(result.formattedTimecode)) from \(result.source.rawValue). Where would you like to place it?"
+    }
+
+    /// Button label showing the detected timecode
+    var embeddedTimecodeButtonLabel: String {
+        guard let result = pendingTimecodeResult else {
+            return "Place at Timecode"
+        }
+        return "Place at \(result.formattedTimecode)"
+    }
+
+    /// Handle user's choice for embedded timecode placement
+    func handleTimecodeChoice(useEmbeddedTimecode: Bool) {
+        guard let url = pendingTimecodeURL else {
+            clearPendingTimecode()
+            return
+        }
+
+        Task {
+            let targetFrame: Int
+            if useEmbeddedTimecode, let result = pendingTimecodeResult {
+                // Convert source timecode frames to timeline frames
+                let timelineFPS = timelineManager.timeline.config.frameRate.fps
+                targetFrame = result.convertedFrames(to: timelineFPS)
+            } else {
+                // Use original drop location
+                targetFrame = pendingTimecodeDropFrame ?? 0
+            }
+
+            if pendingTimecodeIsVideo {
+                await addVideoToTimeline(url: url, atFrame: targetFrame)
+            } else if let laneId = pendingTimecodeLaneId {
+                _ = await addAudioToTimeline(url: url, laneId: laneId, atFrame: targetFrame)
+            }
+
+            await MainActor.run {
+                clearPendingTimecode()
+            }
+        }
+    }
+
+    /// Clear all pending timecode detection state
+    func clearPendingTimecode() {
+        pendingTimecodeResult = nil
+        pendingTimecodeURL = nil
+        pendingTimecodeDropFrame = nil
+        pendingTimecodeIsVideo = true
+        pendingTimecodeLaneId = nil
     }
 }
