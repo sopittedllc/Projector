@@ -79,14 +79,21 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
             return result
         }
 
-        // 2. XMP metadata
+        // 2. QuickTime metadata (com.apple.quicktime.timecode.time)
+        debugPrint("EmbeddedTimecodeService: Checking QuickTime metadata...")
+        if let result = await detectFromQuickTimeMetadata(asset: asset) {
+            debugPrint("EmbeddedTimecodeService: Found timecode in QT metadata: \(result.formattedTimecode)")
+            return result
+        }
+
+        // 3. XMP metadata
         debugPrint("EmbeddedTimecodeService: Checking XMP metadata...")
         if let result = await detectFromXMPMetadata(asset: asset) {
             debugPrint("EmbeddedTimecodeService: Found timecode in XMP: \(result.formattedTimecode)")
             return result
         }
 
-        // 3. ProRes metadata in video track
+        // 4. ProRes metadata in video track
         debugPrint("EmbeddedTimecodeService: Checking ProRes metadata...")
         if let result = await detectFromProResMetadata(asset: asset) {
             debugPrint("EmbeddedTimecodeService: Found timecode in ProRes: \(result.formattedTimecode)")
@@ -404,6 +411,100 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
             )
         } catch {
             debugPrint("EmbeddedTimecodeService: Exception in detectFromTimecodeTrack: \(error)")
+            return nil
+        }
+    }
+
+    // MARK: - QuickTime Metadata Detection
+
+    /// Detect timecode from QuickTime-specific metadata.
+    ///
+    /// QuickTime files can store timecode in metadata fields like
+    /// `com.apple.quicktime.timecode.time` or as a formatted string.
+    private func detectFromQuickTimeMetadata(asset: AVAsset) async -> EmbeddedTimecodeResult? {
+        do {
+            // Load all metadata
+            let allMetadata = try await asset.load(.metadata)
+            debugPrint("EmbeddedTimecodeService: QuickTime metadata has \(allMetadata.count) items")
+
+            // Also try loading metadata from the timecode track format
+            let timecodeTracks = try await asset.loadTracks(withMediaType: .timecode)
+            var videoFrameRate: Double = 24.0
+
+            // Get frame rate from video track for reference
+            let videoTracks = try await asset.loadTracks(withMediaType: .video)
+            if let videoTrack = videoTracks.first {
+                let nominalRate = try await videoTrack.load(.nominalFrameRate)
+                videoFrameRate = Double(nominalRate)
+                debugPrint("EmbeddedTimecodeService: Video frame rate = \(videoFrameRate)")
+            }
+
+            // Look for QuickTime timecode metadata identifiers
+            for item in allMetadata {
+                let identifier = item.identifier?.rawValue ?? ""
+                let key = item.key as? String ?? item.commonKey?.rawValue ?? ""
+
+                // Try to load value as string first
+                if let stringValue = try? await item.load(.stringValue) {
+                    debugPrint("EmbeddedTimecodeService: QT metadata '\(identifier)' / '\(key)' = '\(stringValue)'")
+
+                    // Check if this looks like a timecode string
+                    if let result = parseTimecodeString(stringValue, source: .xmpMetadata) {
+                        debugPrint("EmbeddedTimecodeService: Parsed timecode from metadata: \(result.formattedTimecode)")
+                        return result
+                    }
+                }
+
+                // Try as data value
+                if let dataValue = try? await item.load(.dataValue) {
+                    debugPrint("EmbeddedTimecodeService: QT metadata '\(identifier)' / '\(key)' has \(dataValue.count) bytes of data")
+
+                    // Check if this is a 4-byte frame count
+                    if dataValue.count == 4 {
+                        let frameCount = dataValue.withUnsafeBytes { ptr -> UInt32 in
+                            ptr.load(as: UInt32.self).bigEndian
+                        }
+                        // Sanity check - should be less than 24 hours of frames
+                        let maxFrames = UInt32(videoFrameRate * 24 * 60 * 60)
+                        if frameCount > 0 && frameCount < maxFrames {
+                            let formatted = formatTimecode(frames: Int(frameCount), frameRate: videoFrameRate, dropFrame: false)
+                            debugPrint("EmbeddedTimecodeService: Found frame count in metadata: \(frameCount) -> \(formatted)")
+                            return EmbeddedTimecodeResult(
+                                timecodeFrames: Int(frameCount),
+                                formattedTimecode: formatted,
+                                source: .xmpMetadata,
+                                frameRate: videoFrameRate,
+                                isDropFrame: false
+                            )
+                        }
+                    }
+
+                    // Check if it might be a timecode string as data
+                    if let string = String(data: dataValue, encoding: .utf8),
+                       let result = parseTimecodeString(string, source: .xmpMetadata) {
+                        return result
+                    }
+                }
+            }
+
+            // If we have a timecode track, try to get the timecode from track references
+            if let timecodeTrack = timecodeTracks.first {
+                // Try reading the track's user data or sample description extensions
+                let formatDescriptions = try await timecodeTrack.load(.formatDescriptions)
+                if let formatDesc = formatDescriptions.first {
+                    // The timecode might be stored in the format description's extensions
+                    // under different keys depending on the authoring tool
+                    if let extensions = CMFormatDescriptionGetExtensions(formatDesc) as? [String: Any] {
+                        for (key, value) in extensions {
+                            debugPrint("EmbeddedTimecodeService: Timecode track extension '\(key)' = \(value)")
+                        }
+                    }
+                }
+            }
+
+            return nil
+        } catch {
+            debugPrint("EmbeddedTimecodeService: QuickTime metadata error: \(error)")
             return nil
         }
     }
