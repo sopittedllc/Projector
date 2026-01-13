@@ -175,8 +175,6 @@ struct ContentView: View {
                 duplicateMediaAlertMessage: mediaImportCoordinator.duplicateMediaAlertMessage,
                 missingFileMessage: missingFileService.currentMissingFileMessage,
                 fpsConflictMessage: fpsConflictMessage,
-                embeddedTimecodeMessage: embeddedTimecodeMessage,
-                embeddedTimecodeButtonLabel: embeddedTimecodeButtonLabel,
                 onLocateMissingFile: { missingFileService.locateMissingFile() },
                 onSkipMissingFile: { missingFileService.skipMissingFile() },
                 onSkipAllMissingFiles: { missingFileService.skipAllMissingFiles() },
@@ -186,9 +184,12 @@ struct ContentView: View {
                     pendingVideoFPS = nil
                     pendingVideoInsertFrame = nil
                 },
-                onPlaceAtTimecode: { handleTimecodeChoice(useEmbeddedTimecode: true) },
-                onPlaceAtDropLocation: { handleTimecodeChoice(useEmbeddedTimecode: false) },
-                onCancelTimecode: { clearPendingTimecode() }
+                onPlaceAtTimecode: { setTimelineStart in
+                    handleTimecodeChoice(useEmbeddedTimecode: true, setTimelineStart: setTimelineStart)
+                },
+                onPlaceAtDropLocation: { handleTimecodeChoice(useEmbeddedTimecode: false, setTimelineStart: false) },
+                onCancelTimecode: { clearPendingTimecode() },
+                pendingTimecodeResult: pendingTimecodeResult
             ))
             .frame(minWidth: 640, minHeight: 400)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

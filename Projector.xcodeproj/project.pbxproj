@@ -95,6 +95,7 @@
 		SETUP002CONTENTVIEW /* ContentView+Setup.swift in Sources */ = {isa = PBXBuildFile; fileRef = SETUP001CONTENTVIEW /* ContentView+Setup.swift */; };
 		TIMELINE002CONTENTVIEW /* ContentView+Timeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = TIMELINE001CONTENTVIEW /* ContentView+Timeline.swift */; };
 		VINS0001VIDEOINSERT01 /* VideoInsertSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */; };
+		ETCS0001EMBEDDEDSHEET01 /* EmbeddedTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */; };
 		VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */; };
 /* End PBXBuildFile section */
 
@@ -228,6 +229,7 @@
 		SETUP001CONTENTVIEW /* ContentView+Setup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Setup.swift"; sourceTree = "<group>"; };
 		TIMELINE001CONTENTVIEW /* ContentView+Timeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Timeline.swift"; sourceTree = "<group>"; };
 		VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoInsertSheetView.swift; sourceTree = "<group>"; };
+		ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeSheetView.swift; sourceTree = "<group>"; };
 		VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerOverlays.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -403,6 +405,7 @@
 				56A60EE069664A32A9209AF1 /* AccordionResizeHandle.swift */,
 				SAVE0002PROJECTSHEET02 /* SaveProjectSheet.swift */,
 				VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */,
+				ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */,
 				VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */,
 				FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */,
 			);
@@ -779,6 +782,7 @@
 				33E7262DBE394E3DA53FDE54 /* AccordionResizeHandle.swift in Sources */,
 				SAVE0001PROJECTSHEET01 /* SaveProjectSheet.swift in Sources */,
 				VINS0001VIDEOINSERT01 /* VideoInsertSheetView.swift in Sources */,
+				ETCS0001EMBEDDEDSHEET01 /* EmbeddedTimecodeSheetView.swift in Sources */,
 				VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */,
 				FSVV0001FULLSCREENVIDEO01 /* FullScreenVideoView.swift in Sources */,
 			);

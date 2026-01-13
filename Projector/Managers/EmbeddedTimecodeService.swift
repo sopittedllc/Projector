@@ -710,6 +710,27 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
         }
     }
 
+    // MARK: - Safe Byte Reading Helpers
+
+    /// Safely read a UInt32 from Data at a given offset (little-endian).
+    /// Avoids misaligned memory access crashes.
+    private func readUInt32LE(from data: Data, at offset: Int) -> UInt32 {
+        guard offset + 4 <= data.count else { return 0 }
+        let bytes = [data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]
+        return UInt32(bytes[0]) | UInt32(bytes[1]) << 8 | UInt32(bytes[2]) << 16 | UInt32(bytes[3]) << 24
+    }
+
+    /// Safely read a UInt64 from Data at a given offset (little-endian).
+    /// Avoids misaligned memory access crashes.
+    private func readUInt64LE(from data: Data, at offset: Int) -> UInt64 {
+        guard offset + 8 <= data.count else { return 0 }
+        var result: UInt64 = 0
+        for i in 0..<8 {
+            result |= UInt64(data[offset + i]) << (i * 8)
+        }
+        return result
+    }
+
     // MARK: - BWF (Broadcast Wave Format) Detection
 
     /// Detect timecode from BWF bext chunk in WAV files.
@@ -752,7 +773,8 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
 
         while let chunkHeader = try? fileHandle.read(upToCount: 8), chunkHeader.count == 8 {
             let chunkId = String(data: chunkHeader[0..<4], encoding: .ascii)
-            let chunkSize = chunkHeader[4..<8].withUnsafeBytes { $0.load(as: UInt32.self) }
+            // Safe unaligned read for chunk size
+            let chunkSize = readUInt32LE(from: chunkHeader, at: 4)
 
             debugPrint("EmbeddedTimecodeService: Found chunk '\(chunkId ?? "nil")' size \(chunkSize)")
 
@@ -763,7 +785,7 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
             } else if chunkId == "fmt " {
                 // Get sample rate from fmt chunk
                 if let fmtData = try? fileHandle.read(upToCount: Int(chunkSize)), fmtData.count >= 8 {
-                    sampleRate = fmtData[4..<8].withUnsafeBytes { $0.load(as: UInt32.self) }
+                    sampleRate = readUInt32LE(from: fmtData, at: 4)
                     debugPrint("EmbeddedTimecodeService: Sample rate from fmt chunk: \(sampleRate)")
                 }
             } else {
@@ -795,8 +817,8 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
         // Offset 330-337: OriginationTime (8 bytes) "HH:MM:SS"
         // Offset 338-345: TimeReference (8 bytes) - 64-bit sample count since midnight
 
-        // Try to parse TimeReference (primary timecode source)
-        let timeReference = bext[338..<346].withUnsafeBytes { $0.load(as: UInt64.self) }
+        // Try to parse TimeReference (primary timecode source) - safe unaligned read
+        let timeReference = readUInt64LE(from: bext, at: 338)
         debugPrint("EmbeddedTimecodeService: BWF TimeReference = \(timeReference) samples")
 
         if timeReference > 0 {

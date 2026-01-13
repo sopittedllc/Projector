@@ -55,17 +55,16 @@ struct AlertsModifier: ViewModifier {
     let duplicateMediaAlertMessage: String
     let missingFileMessage: String
     let fpsConflictMessage: String
-    let embeddedTimecodeMessage: String
-    let embeddedTimecodeButtonLabel: String
 
     let onLocateMissingFile: () -> Void
     let onSkipMissingFile: () -> Void
     let onSkipAllMissingFiles: () -> Void
     let onChangeProjectFPS: () -> Void
     let onCancelFPSConflict: () -> Void
-    let onPlaceAtTimecode: () -> Void
+    let onPlaceAtTimecode: (Bool) -> Void  // Bool = setTimelineStart
     let onPlaceAtDropLocation: () -> Void
     let onCancelTimecode: () -> Void
+    let pendingTimecodeResult: EmbeddedTimecodeResult?
 
     func body(content: Content) -> some View {
         content
@@ -102,12 +101,16 @@ struct AlertsModifier: ViewModifier {
             } message: {
                 Text(fpsConflictMessage)
             }
-            .alert("Embedded Timecode Detected", isPresented: $showEmbeddedTimecodeAlert) {
-                Button(embeddedTimecodeButtonLabel) { onPlaceAtTimecode() }
-                Button("Place at Drop Location") { onPlaceAtDropLocation() }
-                Button("Cancel", role: .cancel) { onCancelTimecode() }
-            } message: {
-                Text(embeddedTimecodeMessage)
+            .sheet(isPresented: $showEmbeddedTimecodeAlert) {
+                EmbeddedTimecodeSheetView(
+                    formattedTimecode: pendingTimecodeResult?.formattedTimecode ?? "Unknown",
+                    sourceDescription: pendingTimecodeResult?.source.rawValue ?? "unknown source",
+                    onPlaceAtTimecode: { setTimelineStart in
+                        onPlaceAtTimecode(setTimelineStart)
+                    },
+                    onPlaceAtDropLocation: onPlaceAtDropLocation,
+                    onCancel: onCancelTimecode
+                )
             }
     }
 }

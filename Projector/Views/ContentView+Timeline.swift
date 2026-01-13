@@ -47,10 +47,10 @@ extension ContentView {
                         debugPrint("handleAudioDropOnTimeline: SUCCESS - clip created at frame \(clip.timelineStartFrame), duration \(clip.durationFrames), end \(clip.timelineEndFrame)")
                         insertFrame = clip.timelineEndFrame
 
-                        // Add 30 seconds of padding after the clip so users can drop more files
-                        let paddingFrames = Int(30.0 * self.timelineManager.timeline.config.frameRate.fps)
+                        // Add 20 minutes of padding after the clip so users can drop more files
+                        let paddingFrames = Int(20.0 * 60.0 * self.timelineManager.timeline.config.frameRate.fps)
                         self.timelineManager.extendTimeline(toEndFrame: clip.timelineEndFrame + paddingFrames)
-                        debugPrint("handleAudioDropOnTimeline: Extended timeline to \(self.timelineManager.timeline.config.durationFrames) frames (with 30s padding)")
+                        debugPrint("handleAudioDropOnTimeline: Extended timeline to \(self.timelineManager.timeline.config.durationFrames) frames (with 20min padding)")
                     } else {
                         debugPrint("handleAudioDropOnTimeline: FAILED - addAudioToTimeline returned nil")
                     }
@@ -590,7 +590,10 @@ extension ContentView {
     }
 
     /// Handle user's choice for embedded timecode placement
-    func handleTimecodeChoice(useEmbeddedTimecode: Bool) {
+    /// - Parameters:
+    ///   - useEmbeddedTimecode: If true, place at the detected timecode position
+    ///   - setTimelineStart: If true, also set the timeline's start timecode to match
+    func handleTimecodeChoice(useEmbeddedTimecode: Bool, setTimelineStart: Bool) {
         guard let url = pendingTimecodeURL else {
             clearPendingTimecode()
             return
@@ -608,6 +611,21 @@ extension ContentView {
                 // Convert source timecode frames to timeline frames
                 let timelineFPS = timelineManager.timeline.config.frameRate.fps
                 targetFrame = result.convertedFrames(to: timelineFPS)
+
+                // If user wants to set timeline start, update the config
+                if setTimelineStart {
+                    await MainActor.run {
+                        var config = timelineManager.timeline.config
+                        // Create a new start timecode matching the detected timecode
+                        let startTC = Timecode(.frames(result.timecodeFrames), at: config.frameRate, by: .clamping)
+                        config.startTimecode = startTC
+                        // Adjust end timecode to maintain duration
+                        let durationFrames = config.durationFrames
+                        config.endTimecode = Timecode(.frames(result.timecodeFrames + durationFrames), at: config.frameRate, by: .clamping)
+                        timelineManager.updateConfig(config)
+                        debugPrint("handleTimecodeChoice: Set timeline start timecode to \(startTC.stringValue())")
+                    }
+                }
             } else {
                 // Use original drop location
                 targetFrame = dropFrame ?? 0
@@ -618,8 +636,8 @@ extension ContentView {
                 await addVideoToTimeline(url: url, atFrame: targetFrame, checkTimecode: false)
 
                 // Add padding after the clip so users can easily drop more files
-                // Add 30 seconds of padding at the timeline frame rate
-                let paddingFrames = Int(30.0 * timelineManager.timeline.config.frameRate.fps)
+                // Add 20 minutes of padding at the timeline frame rate
+                let paddingFrames = Int(20.0 * 60.0 * timelineManager.timeline.config.frameRate.fps)
                 if let lastReel = timelineManager.timeline.videoReels.last {
                     timelineManager.extendTimeline(toEndFrame: lastReel.timelineEndFrame + paddingFrames)
                 }
@@ -628,7 +646,7 @@ extension ContentView {
                 _ = await addAudioToTimeline(url: url, laneId: laneId, atFrame: targetFrame, checkTimecode: false)
 
                 // Add padding after the clip
-                let paddingFrames = Int(30.0 * timelineManager.timeline.config.frameRate.fps)
+                let paddingFrames = Int(20.0 * 60.0 * timelineManager.timeline.config.frameRate.fps)
                 if let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
                    let lastClip = lane.clips.last {
                     timelineManager.extendTimeline(toEndFrame: lastClip.timelineEndFrame + paddingFrames)
