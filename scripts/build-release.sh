@@ -108,11 +108,18 @@ echo ""
 echo "[7/8] Creating, signing, and notarizing DMG..."
 DMG_PATH="${BUILD_DIR}/${DMG_FILENAME}"
 
+# Create staging directory with app and Applications alias
+# create-dmg copies the CONTENTS of the source folder, so we need a staging dir
+STAGING_DIR="${BUILD_DIR}/dmg_staging"
+rm -rf "${STAGING_DIR}"
+mkdir -p "${STAGING_DIR}"
+
+# Copy the notarized app to staging
+cp -a "${EXPORT_PATH}/${APP_NAME}" "${STAGING_DIR}/"
+
 # Create a proper Finder alias to /Applications (not a symlink)
 # Symlinks show as broken icons; Finder aliases display the proper folder icon
-ALIAS_DIR="${BUILD_DIR}/alias_temp"
-mkdir -p "${ALIAS_DIR}"
-osascript -e "tell application \"Finder\" to make new alias file at POSIX file \"${ALIAS_DIR}\" to POSIX file \"/Applications\" with properties {name:\"Applications\"}"
+osascript -e "tell application \"Finder\" to make new alias file at POSIX file \"${STAGING_DIR}\" to POSIX file \"/Applications\" with properties {name:\"Applications\"}"
 
 /opt/homebrew/bin/create-dmg \
     --volname "${DMG_NAME}" \
@@ -123,14 +130,14 @@ osascript -e "tell application \"Finder\" to make new alias file at POSIX file \
     --icon-size 128 \
     --icon "${APP_NAME}" 180 200 \
     --hide-extension "${APP_NAME}" \
-    --add-file "Applications" "${ALIAS_DIR}/Applications" 480 200 \
+    --icon "Applications" 480 200 \
     --codesign "${DEVELOPER_ID}" \
     --notarize "${NOTARY_PROFILE}" \
     "${DMG_PATH}" \
-    "${EXPORT_PATH}/${APP_NAME}"
+    "${STAGING_DIR}"
 
-# Cleanup alias temp directory
-rm -rf "${ALIAS_DIR}"
+# Cleanup staging directory
+rm -rf "${STAGING_DIR}"
 
 echo "DMG created, signed, and notarized: ${DMG_PATH}"
 
