@@ -225,9 +225,9 @@ struct VideoTrackView: View {
                         draggingReelId = nil
                         dragOffsetFrames = 0
 
-                        // Only move if it doesn't overlap with other reels
-                        let wouldOverlap = videoReelsOverlap(startFrame: newFrame, durationFrames: reel.durationFrames, excluding: reel.id)
-                        if !wouldOverlap {
+                        // Only move if new position is not inside another reel
+                        let isOverExisting = isFrameInsideExistingReel(newFrame, excluding: reel.id)
+                        if !isOverExisting {
                             onReelMove(reel.id, newFrame)
                         }
                         onReelDragPreview(reel, nil)
@@ -305,10 +305,10 @@ struct VideoTrackView: View {
         let frame = dropFrame(for: location)
         dropPreviewFrame = frame
 
-        // Re-check overlap as user moves drop location
-        if let durationFrames = dropPreviewDurationFrames {
-            let wouldOverlap = videoReelsOverlap(startFrame: frame, durationFrames: durationFrames)
-            isDropAllowed = !wouldOverlap
+        // Disallow drop if cursor is over an existing reel
+        if dropPreviewDurationFrames != nil {
+            let isOverExisting = isFrameInsideExistingReel(frame)
+            isDropAllowed = !isOverExisting
         }
     }
 
@@ -354,10 +354,10 @@ struct VideoTrackView: View {
                     let frames = max(1, Int(duration.seconds * timelineManager.timeline.config.frameRate.fps))
                     dropPreviewDurationFrames = frames
 
-                    // Check if drop would overlap with existing reels
+                    // Disallow drop if cursor is over an existing reel
                     let targetFrame = dropFrame(for: latestDropLocation ?? location)
-                    let wouldOverlap = videoReelsOverlap(startFrame: targetFrame, durationFrames: frames)
-                    isDropAllowed = !wouldOverlap
+                    let isOverExisting = isFrameInsideExistingReel(targetFrame)
+                    isDropAllowed = !isOverExisting
                 } catch {
                     dropPreviewDurationFrames = nil
                     isDropAllowed = false
@@ -367,16 +367,12 @@ struct VideoTrackView: View {
         }
     }
 
-    /// Check if a new video reel at the given position would overlap with existing reels
-    private func videoReelsOverlap(startFrame: Int, durationFrames: Int, excluding reelId: UUID? = nil) -> Bool {
-        let newEnd = startFrame + durationFrames
+    /// Check if a frame position is within any existing video reel
+    private func isFrameInsideExistingReel(_ frame: Int, excluding reelId: UUID? = nil) -> Bool {
         for reel in timelineManager.timeline.videoReels {
             if reel.id == reelId { continue }
 
-            let existingStart = reel.timelineStartFrame
-            let existingEnd = reel.timelineEndFrame
-
-            if startFrame < existingEnd && newEnd > existingStart {
+            if frame >= reel.timelineStartFrame && frame < reel.timelineEndFrame {
                 return true
             }
         }
