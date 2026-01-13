@@ -664,9 +664,11 @@ struct AudioLaneView: View {
     }
 
     private func beginDropPreviewNative(info: NSDraggingInfo, at location: CGPoint) {
+        debugPrint("AudioLaneView[\(lane.name)]: beginDropPreviewNative at \(location), clips in lane: \(lane.clips.count)")
         updateDropPreview(location: location)
 
         if dropPreviewDurationFrames != nil || isLoadingDropPreview {
+            debugPrint("AudioLaneView[\(lane.name)]: Already loading preview, skipping")
             return
         }
 
@@ -674,13 +676,16 @@ struct AudioLaneView: View {
         isDropAllowed = false
 
         let candidate = audioCandidate(from: info)
+        debugPrint("AudioLaneView[\(lane.name)]: audioCandidate urls=\(candidate.urls.count), isInternal=\(candidate.isInternal)")
         guard !candidate.urls.isEmpty else {
+            debugPrint("AudioLaneView[\(lane.name)]: No URLs, clearing preview")
             isLoadingDropPreview = false
             clearDropPreview()
             return
         }
 
         isDropAllowed = true
+        debugPrint("AudioLaneView[\(lane.name)]: Drop allowed, isDropAllowed=\(isDropAllowed)")
 
         // Use duration from dragContext if available (internal drag)
         if let duration = candidate.duration {
@@ -911,6 +916,7 @@ private final class AudioLaneDragCaptureNSView: NSView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        debugPrint("AudioLaneDragCaptureNSView: draggingEntered at \(localLocation(for: sender))")
         onEntered?(sender, localLocation(for: sender))
         return .copy
     }

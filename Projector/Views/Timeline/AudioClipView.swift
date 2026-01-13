@@ -29,8 +29,14 @@ struct AudioClipView: View {
                 .fill(backgroundFill)
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
-                        .stroke(borderColor, lineWidth: isSelected ? 2 : 1)
+                        .stroke(borderColor, lineWidth: isSelected ? 3 : 1)
                 )
+                .overlay(
+                    // Selection highlight overlay - bright glow when selected
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.white.opacity(isSelected ? 0.15 : 0))
+                )
+                .shadow(color: isSelected ? Color.white.opacity(0.5) : Color.clear, radius: 4)
 
             VStack(spacing: 0) {
                 // Header with filename
@@ -153,7 +159,7 @@ struct AudioClipView: View {
 
     private var borderColor: Color {
         if isSelected {
-            return .white
+            return .yellow  // Bright yellow selection border
         }
         if isActive {
             return .white.opacity(0.3)

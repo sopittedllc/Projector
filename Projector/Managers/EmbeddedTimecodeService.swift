@@ -109,6 +109,13 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
             return result
         }
 
+        // 5. BWF (Broadcast Wave Format) bext chunk for WAV files
+        debugPrint("EmbeddedTimecodeService: Checking BWF bext chunk...")
+        if let result = detectFromBWFBextChunk(url: accessingURL) {
+            debugPrint("EmbeddedTimecodeService: Found timecode in BWF bext: \(result.formattedTimecode)")
+            return result
+        }
+
         debugPrint("EmbeddedTimecodeService: No embedded timecode found in \(url.lastPathComponent)")
         return nil
     }
@@ -701,6 +708,131 @@ actor EmbeddedTimecodeService: EmbeddedTimecodeServiceProtocol {
         } catch {
             return nil
         }
+    }
+
+    // MARK: - BWF (Broadcast Wave Format) Detection
+
+    /// Detect timecode from BWF bext chunk in WAV files.
+    ///
+    /// BWF files contain a "bext" chunk with broadcast audio extension data,
+    /// including TimeReference (64-bit sample count since midnight) and
+    /// OriginationTime (HH:MM:SS text string).
+    private func detectFromBWFBextChunk(url: URL) -> EmbeddedTimecodeResult? {
+        // Only check WAV files
+        let ext = url.pathExtension.lowercased()
+        guard ext == "wav" || ext == "wave" || ext == "bwf" else {
+            debugPrint("EmbeddedTimecodeService: Not a WAV file, skipping BWF check")
+            return nil
+        }
+
+        guard let fileHandle = try? FileHandle(forReadingFrom: url) else {
+            debugPrint("EmbeddedTimecodeService: Failed to open file for BWF check")
+            return nil
+        }
+        defer { try? fileHandle.close() }
+
+        // Read RIFF header
+        guard let riffHeader = try? fileHandle.read(upToCount: 12),
+              riffHeader.count == 12 else {
+            debugPrint("EmbeddedTimecodeService: Failed to read RIFF header")
+            return nil
+        }
+
+        let riffMarker = String(data: riffHeader[0..<4], encoding: .ascii)
+        let waveMarker = String(data: riffHeader[8..<12], encoding: .ascii)
+
+        guard riffMarker == "RIFF" && waveMarker == "WAVE" else {
+            debugPrint("EmbeddedTimecodeService: Not a valid RIFF/WAVE file")
+            return nil
+        }
+
+        // Search for bext chunk
+        var bextData: Data?
+        var sampleRate: UInt32 = 48000  // Default
+
+        while let chunkHeader = try? fileHandle.read(upToCount: 8), chunkHeader.count == 8 {
+            let chunkId = String(data: chunkHeader[0..<4], encoding: .ascii)
+            let chunkSize = chunkHeader[4..<8].withUnsafeBytes { $0.load(as: UInt32.self) }
+
+            debugPrint("EmbeddedTimecodeService: Found chunk '\(chunkId ?? "nil")' size \(chunkSize)")
+
+            if chunkId == "bext" {
+                // Found bext chunk
+                bextData = try? fileHandle.read(upToCount: Int(chunkSize))
+                debugPrint("EmbeddedTimecodeService: Found bext chunk with \(bextData?.count ?? 0) bytes")
+            } else if chunkId == "fmt " {
+                // Get sample rate from fmt chunk
+                if let fmtData = try? fileHandle.read(upToCount: Int(chunkSize)), fmtData.count >= 8 {
+                    sampleRate = fmtData[4..<8].withUnsafeBytes { $0.load(as: UInt32.self) }
+                    debugPrint("EmbeddedTimecodeService: Sample rate from fmt chunk: \(sampleRate)")
+                }
+            } else {
+                // Skip this chunk
+                try? fileHandle.seek(toOffset: fileHandle.offsetInFile + UInt64(chunkSize))
+            }
+
+            // Handle odd chunk sizes (RIFF chunks are word-aligned)
+            if chunkSize % 2 != 0 {
+                try? fileHandle.seek(toOffset: fileHandle.offsetInFile + 1)
+            }
+
+            // If we found bext, we can stop searching
+            if bextData != nil && sampleRate != 48000 {
+                break
+            }
+        }
+
+        guard let bext = bextData, bext.count >= 346 else {
+            debugPrint("EmbeddedTimecodeService: No valid bext chunk found (need at least 346 bytes)")
+            return nil
+        }
+
+        // BWF bext chunk structure:
+        // Offset 0-255: Description (256 bytes)
+        // Offset 256-287: Originator (32 bytes)
+        // Offset 288-319: OriginatorReference (32 bytes)
+        // Offset 320-329: OriginationDate (10 bytes) "YYYY-MM-DD"
+        // Offset 330-337: OriginationTime (8 bytes) "HH:MM:SS"
+        // Offset 338-345: TimeReference (8 bytes) - 64-bit sample count since midnight
+
+        // Try to parse TimeReference (primary timecode source)
+        let timeReference = bext[338..<346].withUnsafeBytes { $0.load(as: UInt64.self) }
+        debugPrint("EmbeddedTimecodeService: BWF TimeReference = \(timeReference) samples")
+
+        if timeReference > 0 {
+            // Convert samples to timecode
+            // TimeReference is sample count since midnight
+            let secondsSinceMidnight = Double(timeReference) / Double(sampleRate)
+
+            // Assume 24fps for timecode display (common for audio production)
+            // TODO: Could check for video track to get actual frame rate
+            let frameRate: Double = 24.0
+            let totalFrames = Int(secondsSinceMidnight * frameRate)
+
+            let formatted = formatTimecode(frames: totalFrames, frameRate: frameRate, dropFrame: false)
+            debugPrint("EmbeddedTimecodeService: BWF timecode = \(formatted) (\(totalFrames) frames at \(frameRate) fps)")
+
+            return EmbeddedTimecodeResult(
+                timecodeFrames: totalFrames,
+                formattedTimecode: formatted,
+                source: .xmpMetadata,  // Using xmpMetadata as closest source type
+                frameRate: frameRate,
+                isDropFrame: false
+            )
+        }
+
+        // Fallback: Try to parse OriginationTime text
+        if let originationTime = String(data: bext[330..<338], encoding: .ascii),
+           originationTime.count == 8 {
+            debugPrint("EmbeddedTimecodeService: BWF OriginationTime = '\(originationTime)'")
+
+            // Parse HH:MM:SS format
+            if let result = parseTimecodeString(originationTime + ":00", source: .xmpMetadata) {
+                return result
+            }
+        }
+
+        return nil
     }
 
     // MARK: - Timecode Parsing Helpers
