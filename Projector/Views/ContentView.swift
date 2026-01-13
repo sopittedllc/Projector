@@ -189,7 +189,8 @@ struct ContentView: View {
                 },
                 onPlaceAtDropLocation: { handleTimecodeChoice(useEmbeddedTimecode: false, setTimelineStart: false) },
                 onCancelTimecode: { clearPendingTimecode() },
-                pendingTimecodeResult: pendingTimecodeResult
+                pendingTimecodeResult: pendingTimecodeResult,
+                showSetTimelineStartOption: pendingTimecodeIsVideo && timelineManager.timeline.videoReels.isEmpty
             ))
             .frame(minWidth: 640, minHeight: 400)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

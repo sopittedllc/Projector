@@ -609,7 +609,7 @@ extension ContentView {
         showEmbeddedTimecodeAlert = false
 
         Task {
-            let targetFrame: Int
+            var targetFrame: Int
             if useEmbeddedTimecode, let result = result {
                 // Convert source timecode frames to timeline frames
                 let timelineFPS = timelineManager.timeline.config.frameRate.fps
@@ -628,6 +628,8 @@ extension ContentView {
                         timelineManager.updateConfig(config)
                         debugPrint("handleTimecodeChoice: Set timeline start timecode to \(startTC.stringValue())")
                     }
+                    // Place clip at frame 0 (timeline start) since timeline now starts at embedded timecode
+                    targetFrame = 0
                 }
             } else {
                 // Use original drop location

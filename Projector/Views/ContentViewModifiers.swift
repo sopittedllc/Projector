@@ -65,6 +65,7 @@ struct AlertsModifier: ViewModifier {
     let onPlaceAtDropLocation: () -> Void
     let onCancelTimecode: () -> Void
     let pendingTimecodeResult: EmbeddedTimecodeResult?
+    let showSetTimelineStartOption: Bool
 
     func body(content: Content) -> some View {
         content
@@ -105,6 +106,7 @@ struct AlertsModifier: ViewModifier {
                 EmbeddedTimecodeSheetView(
                     formattedTimecode: pendingTimecodeResult?.formattedTimecode ?? "Unknown",
                     sourceDescription: pendingTimecodeResult?.source.rawValue ?? "unknown source",
+                    showSetTimelineStartOption: showSetTimelineStartOption,
                     onPlaceAtTimecode: { setTimelineStart in
                         onPlaceAtTimecode(setTimelineStart)
                     },

@@ -4,6 +4,7 @@ import SwiftUI
 struct EmbeddedTimecodeSheetView: View {
     let formattedTimecode: String
     let sourceDescription: String
+    let showSetTimelineStartOption: Bool
     let onPlaceAtTimecode: (Bool) -> Void  // Bool = setTimelineStart
     let onPlaceAtDropLocation: () -> Void
     let onCancel: () -> Void
@@ -32,20 +33,22 @@ struct EmbeddedTimecodeSheetView: View {
 
             Divider()
 
-            // Checkbox for setting timeline start
-            Toggle(isOn: $setTimelineStart) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Set timeline start to this timecode")
-                        .font(.body)
-                    Text("The timeline will begin at \(formattedTimecode)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+            // Checkbox for setting timeline start (only for first video)
+            if showSetTimelineStartOption {
+                Toggle(isOn: $setTimelineStart) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Set timeline start to this timecode")
+                            .font(.body)
+                        Text("The timeline will begin at \(formattedTimecode)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
-            }
-            .toggleStyle(.checkbox)
-            .padding(.horizontal)
+                .toggleStyle(.checkbox)
+                .padding(.horizontal)
 
-            Divider()
+                Divider()
+            }
 
             // Buttons
             HStack(spacing: 12) {
@@ -75,6 +78,7 @@ struct EmbeddedTimecodeSheetView: View {
     EmbeddedTimecodeSheetView(
         formattedTimecode: "00:59:55:00",
         sourceDescription: "QuickTime timecode track",
+        showSetTimelineStartOption: true,
         onPlaceAtTimecode: { setStart in
             print("Place at timecode, setStart: \(setStart)")
         },
