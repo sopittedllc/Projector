@@ -46,6 +46,7 @@ playground.xcworkspace
 
 # Build artifacts
 build/
+release-build/
 
 # Local screenshots
 screenshots/

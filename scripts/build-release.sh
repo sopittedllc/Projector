@@ -103,41 +103,32 @@ echo "Verifying notarization..."
 spctl --assess --type exec --verbose "${EXPORT_PATH}/${APP_NAME}"
 echo "App notarization verified!"
 
-# Create DMG using create-dmg
+# Create DMG using create-dmg (Homebrew version)
 echo ""
-echo "[7/8] Creating DMG with create-dmg..."
+echo "[7/8] Creating, signing, and notarizing DMG..."
 DMG_PATH="${BUILD_DIR}/${DMG_FILENAME}"
 
-create-dmg \
+# Use Homebrew create-dmg explicitly (npm version has different syntax)
+/opt/homebrew/bin/create-dmg \
     --volname "${DMG_NAME}" \
     --volicon "${EXPORT_PATH}/${APP_NAME}/Contents/Resources/AppIcon.icns" \
+    --background "${SCRIPTS_DIR}/dmg-background.png" \
     --window-pos 200 120 \
     --window-size 660 400 \
-    --icon-size 100 \
-    --icon "${APP_NAME}" 180 170 \
+    --icon-size 128 \
+    --icon "${APP_NAME}" 180 200 \
     --hide-extension "${APP_NAME}" \
-    --app-drop-link 480 170 \
+    --app-drop-link 480 200 \
     --codesign "${DEVELOPER_ID}" \
+    --notarize "${NOTARY_PROFILE}" \
     "${DMG_PATH}" \
     "${EXPORT_PATH}/${APP_NAME}"
 
-echo "DMG created and signed: ${DMG_PATH}"
-
-# Notarize the DMG
-echo ""
-echo "[8/8] Notarizing DMG..."
-xcrun notarytool submit "${DMG_PATH}" \
-    --keychain-profile "${NOTARY_PROFILE}" \
-    --wait
-
-# Staple the DMG
-echo ""
-echo "Stapling notarization ticket to DMG..."
-xcrun stapler staple "${DMG_PATH}"
+echo "DMG created, signed, and notarized: ${DMG_PATH}"
 
 # Verify DMG
 echo ""
-echo "Verifying DMG..."
+echo "[8/8] Verifying DMG..."
 spctl --assess --type open --context context:primary-signature --verbose "${DMG_PATH}"
 
 # Cleanup
