@@ -605,6 +605,9 @@ extension ContentView {
         let result = pendingTimecodeResult
         let dropFrame = pendingTimecodeDropFrame
 
+        // Dismiss the sheet immediately so user doesn't see stale state
+        showEmbeddedTimecodeAlert = false
+
         Task {
             let targetFrame: Int
             if useEmbeddedTimecode, let result = result {
@@ -659,8 +662,9 @@ extension ContentView {
         }
     }
 
-    /// Clear all pending timecode detection state
+    /// Clear all pending timecode detection state and dismiss the sheet
     func clearPendingTimecode() {
+        showEmbeddedTimecodeAlert = false
         pendingTimecodeResult = nil
         pendingTimecodeURL = nil
         pendingTimecodeDropFrame = nil
