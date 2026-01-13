@@ -1,6 +1,6 @@
 # Projector Knowledge Base
 
-> **Last Updated**: 2026-01-08 (GP-015, GP-016, GP-017 added)
+> **Last Updated**: 2026-01-13 (GP-018 added - DMG Distribution Build)
 > **Maintainer**: The Librarian Agent
 >
 > This document captures institutional knowledge extracted from the Projector codebase.
@@ -857,6 +857,81 @@ self.availableOutputChannels = deviceChannelCount
 
 #### Related Files
 - `Projector/Managers/PlaybackEngine.swift`
+
+---
+
+### GP-018: DMG Distribution Build with Finder Alias
+**Added**: 2026-01-13
+**Source**: `scripts/build-release.sh`
+**Category**: Distribution / Build
+
+#### Problem
+Creating professional macOS DMG installers requires:
+1. Proper code signing and notarization
+2. Styled Finder window with background and positioned icons
+3. Applications folder shortcut that displays correct icon
+
+Standard approaches fail:
+- `create-dmg --app-drop-link` creates a **symlink** that shows as broken/placeholder icon
+- Finder aliases work but their icons **vanish** on macOS Sonoma/Sequoia due to Apple bug
+
+#### Solution
+Use three-part approach: Finder alias + custom icon + staging directory
+
+```bash
+# 1. Create staging directory (create-dmg copies CONTENTS of source)
+STAGING_DIR="${BUILD_DIR}/dmg_staging"
+mkdir -p "${STAGING_DIR}"
+cp -a "${EXPORT_PATH}/${APP_NAME}" "${STAGING_DIR}/"
+
+# 2. Create Finder alias (NOT symlink - symlinks show broken icons)
+osascript -e "tell application \"Finder\" to make new alias file at POSIX file \"${STAGING_DIR}\" to POSIX file \"/Applications\" with properties {name:\"Applications\"}"
+
+# 3. Set custom icon to prevent macOS alias icon vanishing bug
+fileicon set "${STAGING_DIR}/Applications" "${SCRIPTS_DIR}/ApplicationsFolderIcon.icns"
+
+# 4. Create DMG from staging directory
+create-dmg \
+    --volname "AppName" \
+    --background "dmg-background.png" \
+    --window-size 660 400 \
+    --icon-size 128 \
+    --icon "AppName.app" 180 200 \
+    --icon "Applications" 480 200 \
+    --codesign "Developer ID Application: ..." \
+    --notarize "notary-profile" \
+    "output.dmg" \
+    "${STAGING_DIR}"
+```
+
+#### Why It Works
+1. **Finder alias vs symlink**: Symlinks (`ln -s`) inherit target icon but often display as broken rectangle in DMGs. Finder aliases properly inherit and display the target folder's icon.
+
+2. **Custom icon via fileicon**: macOS Sonoma/Sequoia has a bug where alias icons appear briefly then vanish. Setting an explicit custom icon with `fileicon` persists correctly.
+
+3. **Staging directory**: `create-dmg` copies the **contents** of the source folder. Passing `App.app` directly results in only `Contents/` being copied. A staging directory ensures the `.app` bundle structure is preserved.
+
+#### Critical Implementation Details
+
+**Prerequisites:**
+```bash
+brew install create-dmg fileicon
+```
+
+**Required files:**
+- `scripts/dmg-background.png` - 660x400 background with arrow
+- `scripts/ApplicationsFolderIcon.icns` - Custom Applications folder icon
+- `scripts/ExportOptions.plist` - Developer ID export settings
+
+**DO NOT use `--sandbox-safe`** unless absolutely necessary - it skips Finder AppleScript, resulting in wrong window size and no background.
+
+#### When to Use
+Any macOS app distribution requiring professional DMG installer appearance.
+
+#### Related Files
+- `scripts/build-release.sh`
+- `scripts/verify-distribution.sh`
+- `~/.claude/macos-swift-reference.md` (full template)
 
 ---
 
