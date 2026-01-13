@@ -10,6 +10,15 @@ extension ContentView {
     func handleVideoDropOnTimeline(_ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
         Task {
             for url in urls {
+                // Check if video already exists in timeline
+                if timelineManager.timeline.videoReels.contains(where: { $0.sourceURL == url }) {
+                    await MainActor.run {
+                        videoAlreadyInTimelineName = url.deletingPathExtension().lastPathComponent
+                        showVideoAlreadyInTimelineAlert = true
+                    }
+                    continue
+                }
+
                 // addVideoToTimeline now handles embedded timecode detection
                 await addVideoToTimeline(url: url, atFrame: atFrame)
             }

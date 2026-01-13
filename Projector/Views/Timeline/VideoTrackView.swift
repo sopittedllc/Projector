@@ -224,7 +224,12 @@ struct VideoTrackView: View {
                         let newFrame = min(max(0, unclamped), maxStart)
                         draggingReelId = nil
                         dragOffsetFrames = 0
-                        onReelMove(reel.id, newFrame)
+
+                        // Only move if it doesn't overlap with other reels
+                        let wouldOverlap = videoReelsOverlap(startFrame: newFrame, durationFrames: reel.durationFrames, excluding: reel.id)
+                        if !wouldOverlap {
+                            onReelMove(reel.id, newFrame)
+                        }
                         onReelDragPreview(reel, nil)
                     }
             )
@@ -297,7 +302,14 @@ struct VideoTrackView: View {
 
     private func updateDropPreview(location: CGPoint) {
         latestDropLocation = location
-        dropPreviewFrame = dropFrame(for: location)
+        let frame = dropFrame(for: location)
+        dropPreviewFrame = frame
+
+        // Re-check overlap as user moves drop location
+        if let durationFrames = dropPreviewDurationFrames {
+            let wouldOverlap = videoReelsOverlap(startFrame: frame, durationFrames: durationFrames)
+            isDropAllowed = !wouldOverlap
+        }
     }
 
     private func beginDropPreview(with providers: [NSItemProvider], at location: CGPoint) {
@@ -314,7 +326,6 @@ struct VideoTrackView: View {
                 clearDropPreview()
                 return
             }
-            isDropAllowed = true
         }
 
         loadFirstURL(from: providers) { url in
@@ -327,7 +338,14 @@ struct VideoTrackView: View {
                 clearDropPreview()
                 return
             }
-            isDropAllowed = true
+
+            // Check if video already exists in timeline (duplicate)
+            if timelineManager.timeline.videoReels.contains(where: { $0.sourceURL == url }) {
+                isLoadingDropPreview = false
+                isDropAllowed = false
+                return
+            }
+
             updateDropPreview(location: latestDropLocation ?? location)
             Task {
                 let asset = AVAsset(url: url)
@@ -335,12 +353,34 @@ struct VideoTrackView: View {
                     let duration = try await asset.load(.duration)
                     let frames = max(1, Int(duration.seconds * timelineManager.timeline.config.frameRate.fps))
                     dropPreviewDurationFrames = frames
+
+                    // Check if drop would overlap with existing reels
+                    let targetFrame = dropFrame(for: latestDropLocation ?? location)
+                    let wouldOverlap = videoReelsOverlap(startFrame: targetFrame, durationFrames: frames)
+                    isDropAllowed = !wouldOverlap
                 } catch {
                     dropPreviewDurationFrames = nil
+                    isDropAllowed = false
                 }
                 isLoadingDropPreview = false
             }
         }
+    }
+
+    /// Check if a new video reel at the given position would overlap with existing reels
+    private func videoReelsOverlap(startFrame: Int, durationFrames: Int, excluding reelId: UUID? = nil) -> Bool {
+        let newEnd = startFrame + durationFrames
+        for reel in timelineManager.timeline.videoReels {
+            if reel.id == reelId { continue }
+
+            let existingStart = reel.timelineStartFrame
+            let existingEnd = reel.timelineEndFrame
+
+            if startFrame < existingEnd && newEnd > existingStart {
+                return true
+            }
+        }
+        return false
     }
 
     private func clearDropPreview() {
