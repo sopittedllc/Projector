@@ -108,7 +108,12 @@ echo ""
 echo "[7/8] Creating, signing, and notarizing DMG..."
 DMG_PATH="${BUILD_DIR}/${DMG_FILENAME}"
 
-# Use Homebrew create-dmg explicitly (npm version has different syntax)
+# Create a proper Finder alias to /Applications (not a symlink)
+# Symlinks show as broken icons; Finder aliases display the proper folder icon
+ALIAS_DIR="${BUILD_DIR}/alias_temp"
+mkdir -p "${ALIAS_DIR}"
+osascript -e "tell application \"Finder\" to make new alias file at POSIX file \"${ALIAS_DIR}\" to POSIX file \"/Applications\" with properties {name:\"Applications\"}"
+
 /opt/homebrew/bin/create-dmg \
     --volname "${DMG_NAME}" \
     --volicon "${EXPORT_PATH}/${APP_NAME}/Contents/Resources/AppIcon.icns" \
@@ -118,11 +123,14 @@ DMG_PATH="${BUILD_DIR}/${DMG_FILENAME}"
     --icon-size 128 \
     --icon "${APP_NAME}" 180 200 \
     --hide-extension "${APP_NAME}" \
-    --app-drop-link 480 200 \
+    --add-file "Applications" "${ALIAS_DIR}/Applications" 480 200 \
     --codesign "${DEVELOPER_ID}" \
     --notarize "${NOTARY_PROFILE}" \
     "${DMG_PATH}" \
     "${EXPORT_PATH}/${APP_NAME}"
+
+# Cleanup alias temp directory
+rm -rf "${ALIAS_DIR}"
 
 echo "DMG created, signed, and notarized: ${DMG_PATH}"
 
