@@ -121,6 +121,10 @@ cp -a "${EXPORT_PATH}/${APP_NAME}" "${STAGING_DIR}/"
 # Symlinks show as broken icons; Finder aliases display the proper folder icon
 osascript -e "tell application \"Finder\" to make new alias file at POSIX file \"${STAGING_DIR}\" to POSIX file \"/Applications\" with properties {name:\"Applications\"}"
 
+# Set custom icon on Applications alias to prevent macOS alias icon vanishing bug
+# Without this, the alias icon appears briefly then disappears on modern macOS
+fileicon set "${STAGING_DIR}/Applications" "${SCRIPTS_DIR}/ApplicationsFolderIcon.icns"
+
 /opt/homebrew/bin/create-dmg \
     --volname "${DMG_NAME}" \
     --volicon "${EXPORT_PATH}/${APP_NAME}/Contents/Resources/AppIcon.icns" \
