@@ -584,7 +584,26 @@ struct AudioLaneView: View {
 
     private func updateDropPreview(location: CGPoint) {
         latestDropLocation = location
-        dropPreviewFrame = dropFrame(for: location)
+        let frame = dropFrame(for: location)
+        dropPreviewFrame = frame
+
+        // Disallow drop if cursor is over an existing clip
+        if dropPreviewDurationFrames != nil {
+            let isOverExisting = isFrameInsideExistingClip(frame)
+            isDropAllowed = !isOverExisting
+        }
+    }
+
+    /// Check if a frame position is within any existing audio clip in this lane
+    private func isFrameInsideExistingClip(_ frame: Int, excluding clipId: UUID? = nil) -> Bool {
+        for clip in lane.clips {
+            if clip.id == clipId { continue }
+
+            if frame >= clip.timelineStartFrame && frame < clip.timelineEndFrame {
+                return true
+            }
+        }
+        return false
     }
 
     private func beginDropPreview(with providers: [NSItemProvider], at location: CGPoint) {
@@ -684,8 +703,11 @@ struct AudioLaneView: View {
             return
         }
 
-        isDropAllowed = true
-        debugPrint("AudioLaneView[\(lane.name)]: Drop allowed, isDropAllowed=\(isDropAllowed)")
+        // Check if cursor is over an existing clip
+        let targetFrame = dropFrame(for: location)
+        let isOverExisting = isFrameInsideExistingClip(targetFrame)
+        isDropAllowed = !isOverExisting
+        debugPrint("AudioLaneView[\(lane.name)]: Drop allowed=\(isDropAllowed), isOverExisting=\(isOverExisting)")
 
         // Use duration from dragContext if available (internal drag)
         if let duration = candidate.duration {
