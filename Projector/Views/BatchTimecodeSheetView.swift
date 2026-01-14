@@ -96,7 +96,7 @@ struct BatchTimecodeSheetView: View {
             .padding(.top, 8)
         }
         .padding(24)
-        .frame(width: 520, height: min(400, CGFloat(160 + (batch?.items.count ?? 0) * 36)))
+        .frame(width: 540, height: min(550, CGFloat(320 + (batch?.items.count ?? 0) * 40)))
     }
 
     /// Whether any file in the batch is set to use embedded timecode
@@ -107,10 +107,6 @@ struct BatchTimecodeSheetView: View {
     /// File list table view
     @ViewBuilder
     private func fileListView(batch: PendingBatchTimecode) -> some View {
-        let _ = debugPrint("BatchTimecodeSheetView.fileListView: batch.items.count = \(batch.items.count)")
-        let _ = batch.items.forEach { item in
-            debugPrint("  - Item: \(item.displayName), hasTC: \(item.hasTimecode), useTC: \(item.useEmbeddedTimecode)")
-        }
         VStack(spacing: 0) {
             // Header row
             HStack {

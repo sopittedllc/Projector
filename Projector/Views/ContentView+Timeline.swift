@@ -31,14 +31,9 @@ extension ContentView {
 
             // For multiple files, detect timecode for all files in parallel
             let items = await detectTimecodeForBatch(urls: newURLs)
-            debugPrint("handleVideoDropOnTimeline: detectTimecodeForBatch returned \(items.count) items")
-            for item in items {
-                debugPrint("  - \(item.displayName): hasTC=\(item.hasTimecode), tc=\(item.detectedTimecode?.formattedTimecode ?? "none")")
-            }
 
             // If any file has embedded timecode, show batch sheet
             if items.contains(where: { $0.hasTimecode }) {
-                debugPrint("handleVideoDropOnTimeline: Showing batch sheet with \(items.count) items")
                 await MainActor.run {
                     pendingBatchTimecode = PendingBatchTimecode(
                         items: items,
@@ -46,7 +41,6 @@ extension ContentView {
                         isVideo: true,
                         laneId: nil
                     )
-                    debugPrint("handleVideoDropOnTimeline: pendingBatchTimecode set with \(pendingBatchTimecode?.items.count ?? 0) items")
                     showBatchTimecodeSheet = true
                 }
             } else {
