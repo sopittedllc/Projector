@@ -107,6 +107,10 @@ struct BatchTimecodeSheetView: View {
     /// File list table view
     @ViewBuilder
     private func fileListView(batch: PendingBatchTimecode) -> some View {
+        let _ = debugPrint("BatchTimecodeSheetView.fileListView: batch.items.count = \(batch.items.count)")
+        let _ = batch.items.forEach { item in
+            debugPrint("  - Item: \(item.displayName), hasTC: \(item.hasTimecode), useTC: \(item.useEmbeddedTimecode)")
+        }
         VStack(spacing: 0) {
             // Header row
             HStack {
