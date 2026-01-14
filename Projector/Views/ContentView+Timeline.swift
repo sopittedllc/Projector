@@ -78,27 +78,18 @@ extension ContentView {
 
     /// Handle audio files dropped on a specific audio lane
     func handleAudioDropOnTimeline(_ laneIndex: Int, _ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
-        // Guard: Don't process new drops while timecode detection is in progress or a sheet is visible
-        guard !isProcessingTimecodeDetection, !showBatchTimecodeSheet, !showEmbeddedTimecodeAlert else {
-            debugPrint("handleAudioDropOnTimeline: Already processing or sheet visible, ignoring drop")
+        // Guard: Only block if a sheet is actively visible (don't block on video processing flag)
+        // Audio processing is independent of video timecode detection
+        guard !showBatchTimecodeSheet else {
+            debugPrint("handleAudioDropOnTimeline: Batch sheet visible, ignoring drop")
             return
         }
-
-        // Set flag synchronously before starting async work
-        isProcessingTimecodeDetection = true
 
         debugPrint("handleAudioDropOnTimeline: ENTRY - laneIndex=\(laneIndex), urls=\(urls.map { $0.lastPathComponent }), atFrame=\(atFrame)")
 
         // Defer state changes to avoid "Publishing changes from within view updates"
         DispatchQueue.main.async {
             Task { @MainActor in
-                defer {
-                    // Clear processing flag when Task completes (unless a sheet is being shown)
-                    if !self.showBatchTimecodeSheet, !self.showEmbeddedTimecodeAlert {
-                        self.isProcessingTimecodeDetection = false
-                    }
-                }
-
                 // Ensure the lane exists - create lanes until we have enough
                 while self.timelineManager.timeline.audioLanes.count <= laneIndex {
                     debugPrint("handleAudioDropOnTimeline: Creating lane - current count: \(self.timelineManager.timeline.audioLanes.count), need index: \(laneIndex)")
