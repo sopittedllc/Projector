@@ -8,7 +8,25 @@ extension ContentView {
 
     /// Handle video files dropped on the timeline video track
     func handleVideoDropOnTimeline(_ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
+        // Guard: Don't process new drops while timecode detection is in progress or a sheet is visible
+        guard !isProcessingTimecodeDetection, !showBatchTimecodeSheet, !showEmbeddedTimecodeAlert else {
+            debugPrint("handleVideoDropOnTimeline: Already processing or sheet visible, ignoring drop")
+            return
+        }
+
+        // Set flag synchronously before starting async work
+        isProcessingTimecodeDetection = true
+
         Task {
+            defer {
+                // Clear processing flag when Task completes (unless a sheet is being shown)
+                Task { @MainActor in
+                    if !showBatchTimecodeSheet, !showEmbeddedTimecodeAlert {
+                        isProcessingTimecodeDetection = false
+                    }
+                }
+            }
+
             // Filter out duplicates first
             let newURLs = urls.filter { url in
                 if timelineManager.timeline.videoReels.contains(where: { $0.sourceURL == url }) {
@@ -33,13 +51,8 @@ extension ContentView {
             let items = await detectTimecodeForBatch(urls: newURLs)
 
             // If any file has embedded timecode, show batch sheet
-            // Guard: Don't show if another sheet is already presenting
             if items.contains(where: { $0.hasTimecode }) {
                 await MainActor.run {
-                    guard !showBatchTimecodeSheet, !showEmbeddedTimecodeAlert else {
-                        debugPrint("handleVideoDropOnTimeline: Sheet already visible, skipping batch sheet")
-                        return
-                    }
                     pendingBatchTimecode = PendingBatchTimecode(
                         items: items,
                         dropFrame: atFrame,
@@ -57,11 +70,27 @@ extension ContentView {
 
     /// Handle audio files dropped on a specific audio lane
     func handleAudioDropOnTimeline(_ laneIndex: Int, _ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
+        // Guard: Don't process new drops while timecode detection is in progress or a sheet is visible
+        guard !isProcessingTimecodeDetection, !showBatchTimecodeSheet, !showEmbeddedTimecodeAlert else {
+            debugPrint("handleAudioDropOnTimeline: Already processing or sheet visible, ignoring drop")
+            return
+        }
+
+        // Set flag synchronously before starting async work
+        isProcessingTimecodeDetection = true
+
         debugPrint("handleAudioDropOnTimeline: ENTRY - laneIndex=\(laneIndex), urls=\(urls.map { $0.lastPathComponent }), atFrame=\(atFrame)")
 
         // Defer state changes to avoid "Publishing changes from within view updates"
         DispatchQueue.main.async {
             Task { @MainActor in
+                defer {
+                    // Clear processing flag when Task completes (unless a sheet is being shown)
+                    if !self.showBatchTimecodeSheet, !self.showEmbeddedTimecodeAlert {
+                        self.isProcessingTimecodeDetection = false
+                    }
+                }
+
                 // Ensure the lane exists - create lanes until we have enough
                 while self.timelineManager.timeline.audioLanes.count <= laneIndex {
                     debugPrint("handleAudioDropOnTimeline: Creating lane - current count: \(self.timelineManager.timeline.audioLanes.count), need index: \(laneIndex)")
@@ -91,12 +120,7 @@ extension ContentView {
                 let items = await self.detectTimecodeForBatch(urls: urls)
 
                 // If any file has embedded timecode, show batch sheet
-                // Guard: Don't show if another sheet is already presenting
                 if items.contains(where: { $0.hasTimecode }) {
-                    guard !self.showBatchTimecodeSheet, !self.showEmbeddedTimecodeAlert else {
-                        debugPrint("handleAudioDropOnTimeline: Sheet already visible, skipping batch sheet")
-                        return
-                    }
                     self.pendingBatchTimecode = PendingBatchTimecode(
                         items: items,
                         dropFrame: atFrame,
@@ -725,6 +749,7 @@ extension ContentView {
         pendingTimecodeDropFrame = nil
         pendingTimecodeIsVideo = true
         pendingTimecodeLaneId = nil
+        isProcessingTimecodeDetection = false
     }
 
     // MARK: - Batch Timecode Detection
@@ -909,5 +934,6 @@ extension ContentView {
     func clearPendingBatchTimecode() {
         showBatchTimecodeSheet = false
         pendingBatchTimecode = nil
+        isProcessingTimecodeDetection = false
     }
 }

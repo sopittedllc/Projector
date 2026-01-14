@@ -142,6 +142,9 @@ struct ContentView: View {
     @State var showBatchTimecodeSheet = false
     @State var pendingBatchTimecode: PendingBatchTimecode?
 
+    /// Flag to prevent concurrent timecode detection from multiple drop events
+    @State var isProcessingTimecodeDetection = false
+
     /// Service for detecting embedded timecode from media files
     let embeddedTimecodeService = EmbeddedTimecodeService()
 
