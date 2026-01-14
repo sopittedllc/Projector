@@ -137,15 +137,19 @@ struct BatchTimecodeSheetView: View {
 
             // File rows
             ScrollView {
-                LazyVStack(spacing: 0) {
+                VStack(spacing: 0) {
                     ForEach(batch.items) { item in
                         fileRow(item: item)
-                        Divider()
+                        if item.id != batch.items.last?.id {
+                            Divider()
+                        }
                     }
                 }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxHeight: 200)
+            .frame(minHeight: 50, maxHeight: 200)
         }
+        .frame(maxWidth: .infinity)
         .background(Color(nsColor: .controlBackgroundColor))
         .cornerRadius(6)
         .overlay(
@@ -191,9 +195,10 @@ struct BatchTimecodeSheetView: View {
                 .frame(width: 60, alignment: .center)
                 .disabled(!item.hasTimecode)
         }
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color.clear)
+        .contentShape(Rectangle())
     }
 
     /// Create a binding for a specific item's useEmbeddedTimecode property
