@@ -17,10 +17,15 @@ struct SheetsModifier: ViewModifier {
     @Binding var showSettings: Bool
     @Binding var showVideoInsertSheet: Bool
     @Binding var showSaveProjectSheet: Bool
+    @Binding var showBatchTimecodeSheet: Bool
     @Binding var videoInsertURL: URL?
+    @Binding var pendingBatchTimecode: PendingBatchTimecode?
     let frameRate: TimecodeFrameRate
     let startTimecode: Timecode
     let onVideoInsertConfirm: (URL, Int) -> Void
+    let onBatchTimecodeConfirm: (Bool) -> Void  // Bool = setTimelineStart
+    let onBatchTimecodeCancel: () -> Void
+    let showBatchSetTimelineStartOption: Bool
     let settingsView: AnyView
     let saveProjectSheet: AnyView
 
@@ -36,6 +41,14 @@ struct SheetsModifier: ViewModifier {
                 )
             }
             .sheet(isPresented: $showSaveProjectSheet) { saveProjectSheet }
+            .sheet(isPresented: $showBatchTimecodeSheet) {
+                BatchTimecodeSheetView(
+                    batch: $pendingBatchTimecode,
+                    showSetTimelineStartOption: showBatchSetTimelineStartOption,
+                    onConfirm: onBatchTimecodeConfirm,
+                    onCancel: onBatchTimecodeCancel
+                )
+            }
     }
 }
 

@@ -22,6 +22,78 @@ enum TimecodeSource: String, Sendable, Equatable {
     case proResMetadata = "ProRes Metadata"
 }
 
+// MARK: - Batch Timecode Types
+
+/// A single file item in a batch timecode detection operation
+///
+/// Used when multiple files are dropped simultaneously to track each file's
+/// detected timecode and the user's placement preference.
+struct BatchTimecodeItem: Identifiable, Sendable {
+    /// Unique identifier for this batch item
+    let id: UUID
+
+    /// The file URL
+    let url: URL
+
+    /// Detected embedded timecode, or nil if no timecode found
+    let detectedTimecode: EmbeddedTimecodeResult?
+
+    /// User's choice: true = place at embedded timecode, false = place at drop location
+    var useEmbeddedTimecode: Bool
+
+    /// Display name for the file
+    var displayName: String {
+        url.deletingPathExtension().lastPathComponent
+    }
+
+    /// Whether this file has detected timecode
+    var hasTimecode: Bool {
+        detectedTimecode != nil
+    }
+
+    /// Initialize with automatic defaults
+    /// - Parameters:
+    ///   - url: The file URL
+    ///   - detectedTimecode: Detected timecode result, if any
+    ///   - useEmbeddedTimecode: Whether to use embedded timecode (defaults to true if timecode exists)
+    init(url: URL, detectedTimecode: EmbeddedTimecodeResult?, useEmbeddedTimecode: Bool? = nil) {
+        self.id = UUID()
+        self.url = url
+        self.detectedTimecode = detectedTimecode
+        self.useEmbeddedTimecode = useEmbeddedTimecode ?? (detectedTimecode != nil)
+    }
+}
+
+/// Pending batch of files awaiting user timecode placement decisions
+///
+/// Created when multiple files are dropped and at least one has embedded timecode.
+/// Stores all the context needed to process the files after user confirmation.
+struct PendingBatchTimecode: Sendable {
+    /// The files in this batch with their detected timecodes
+    var items: [BatchTimecodeItem]
+
+    /// The frame where files were dropped (used for files not using embedded timecode)
+    let dropFrame: Int
+
+    /// Whether these are video files (true) or audio files (false)
+    let isVideo: Bool
+
+    /// For audio drops, the target lane ID
+    let laneId: UUID?
+
+    /// Whether any file in the batch has detected timecode
+    var hasAnyTimecode: Bool {
+        items.contains { $0.hasTimecode }
+    }
+
+    /// Number of files that will use embedded timecode
+    var countUsingTimecode: Int {
+        items.filter { $0.useEmbeddedTimecode }.count
+    }
+}
+
+// MARK: - Single File Result Types
+
 /// Result of embedded timecode detection from a media file
 ///
 /// Contains the detected timecode value along with metadata about its source

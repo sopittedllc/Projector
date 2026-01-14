@@ -96,6 +96,7 @@
 		TIMELINE002CONTENTVIEW /* ContentView+Timeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = TIMELINE001CONTENTVIEW /* ContentView+Timeline.swift */; };
 		VINS0001VIDEOINSERT01 /* VideoInsertSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */; };
 		ETCS0001EMBEDDEDSHEET01 /* EmbeddedTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */; };
+		BTCS0001BATCHSHEET01 /* BatchTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */; };
 		VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */; };
 /* End PBXBuildFile section */
 
@@ -230,6 +231,7 @@
 		TIMELINE001CONTENTVIEW /* ContentView+Timeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Timeline.swift"; sourceTree = "<group>"; };
 		VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoInsertSheetView.swift; sourceTree = "<group>"; };
 		ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeSheetView.swift; sourceTree = "<group>"; };
+		BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTimecodeSheetView.swift; sourceTree = "<group>"; };
 		VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerOverlays.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -406,6 +408,7 @@
 				SAVE0002PROJECTSHEET02 /* SaveProjectSheet.swift */,
 				VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */,
 				ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */,
+				BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */,
 				VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */,
 				FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */,
 			);
@@ -783,6 +786,7 @@
 				SAVE0001PROJECTSHEET01 /* SaveProjectSheet.swift in Sources */,
 				VINS0001VIDEOINSERT01 /* VideoInsertSheetView.swift in Sources */,
 				ETCS0001EMBEDDEDSHEET01 /* EmbeddedTimecodeSheetView.swift in Sources */,
+				BTCS0001BATCHSHEET01 /* BatchTimecodeSheetView.swift in Sources */,
 				VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */,
 				FSVV0001FULLSCREENVIDEO01 /* FullScreenVideoView.swift in Sources */,
 			);

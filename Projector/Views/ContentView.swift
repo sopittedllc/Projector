@@ -138,6 +138,10 @@ struct ContentView: View {
     @State var pendingTimecodeIsVideo = true
     @State var pendingTimecodeLaneId: UUID?
 
+    // Batch timecode detection state (for multiple file drops)
+    @State var showBatchTimecodeSheet = false
+    @State var pendingBatchTimecode: PendingBatchTimecode?
+
     /// Service for detecting embedded timecode from media files
     let embeddedTimecodeService = EmbeddedTimecodeService()
 
@@ -147,7 +151,9 @@ struct ContentView: View {
                 showSettings: $showSettings,
                 showVideoInsertSheet: $showVideoInsertSheet,
                 showSaveProjectSheet: $showSaveProjectSheet,
+                showBatchTimecodeSheet: $showBatchTimecodeSheet,
                 videoInsertURL: $videoInsertURL,
+                pendingBatchTimecode: $pendingBatchTimecode,
                 frameRate: timelineManager.timeline.config.frameRate,
                 startTimecode: timelineManager.timeline.config.startTimecode,
                 onVideoInsertConfirm: { url, frame in
@@ -155,6 +161,13 @@ struct ContentView: View {
                         await addVideoToTimeline(url: url, atFrame: frame)
                     }
                 },
+                onBatchTimecodeConfirm: { setTimelineStart in
+                    handleBatchTimecodeConfirm(setTimelineStart: setTimelineStart)
+                },
+                onBatchTimecodeCancel: {
+                    clearPendingBatchTimecode()
+                },
+                showBatchSetTimelineStartOption: pendingBatchTimecode?.isVideo == true && timelineManager.timeline.videoReels.isEmpty,
                 settingsView: AnyView(SettingsView(
                     audioManager: audioManager,
                     isPresented: $showSettings
