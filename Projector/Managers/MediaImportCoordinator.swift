@@ -81,6 +81,8 @@ final class MediaImportCoordinator: ObservableObject {
     func handleDrop(providers: [NSItemProvider]) -> Bool {
         guard !providers.isEmpty else { return false }
 
+        debugPrint("MediaImportCoordinator.handleDrop: ENTRY with \(providers.count) providers")
+
         Task { @MainActor in
             var urls: [URL] = []
 
@@ -91,8 +93,12 @@ final class MediaImportCoordinator: ObservableObject {
                 }
             }
 
+            debugPrint("MediaImportCoordinator.handleDrop: Loaded \(urls.count) URLs: \(urls.map { $0.lastPathComponent })")
+
             let supportedURLs = urls.filter { ProjectMediaLibrary.isSupported(url: $0) }
             let (newURLs, duplicateNames) = partitionDuplicateMediaURLs(supportedURLs)
+
+            debugPrint("MediaImportCoordinator.handleDrop: After filtering - \(supportedURLs.count) supported, \(newURLs.count) new, \(duplicateNames.count) duplicates")
 
             if !duplicateNames.isEmpty {
                 self.duplicateMediaNames = duplicateNames
@@ -115,11 +121,15 @@ final class MediaImportCoordinator: ObservableObject {
                 }
             }
 
+            debugPrint("MediaImportCoordinator.handleDrop: Separated into \(videoURLs.count) videos, \(audioURLs.count) audio")
+
             // Process videos as a batch (enables batch timecode detection)
             if !videoURLs.isEmpty {
+                debugPrint("MediaImportCoordinator.handleDrop: Calling onImportVideos with \(videoURLs.count) videos")
                 if let onImportVideos = onImportVideos {
                     await onImportVideos(videoURLs, 0)
                 } else {
+                    debugPrint("MediaImportCoordinator.handleDrop: WARNING - onImportVideos not set, using fallback")
                     // Fallback to single-file import if batch callback not set
                     for url in videoURLs {
                         await onImportVideo?(url, nil)

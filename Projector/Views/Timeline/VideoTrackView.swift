@@ -332,6 +332,22 @@ struct VideoTrackView: View {
             }
         }
 
+        // For multi-file drops, allow without strict validation
+        // Files will be placed sequentially or at their embedded timecode positions
+        let videoProviders = providers.filter { provider in
+            provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) ||
+            provider.hasItemConformingToTypeIdentifier(UTType.video.identifier) ||
+            provider.hasItemConformingToTypeIdentifier(UTType.mpeg4Movie.identifier)
+        }
+
+        if providers.count > 1 || videoProviders.count > 1 {
+            debugPrint("VideoTrackView: Multi-file drop detected (\(providers.count) providers), allowing drop")
+            isLoadingDropPreview = false
+            isDropAllowed = true
+            dropPreviewDurationFrames = 100  // Show a placeholder preview
+            return
+        }
+
         loadFirstURL(from: providers) { url in
             guard let url = url else {
                 isLoadingDropPreview = false
