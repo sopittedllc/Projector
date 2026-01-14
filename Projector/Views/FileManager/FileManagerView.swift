@@ -339,6 +339,8 @@ struct FileManagerView: View {
                     MediaGridCell(
                         item: item,
                         isSelected: selectedItemIds.contains(item.id),
+                        selectedItems: selectedItemIds.contains(item.id) ?
+                            mediaLibrary.items.filter { selectedItemIds.contains($0.id) } : [item],
                         onSelect: {
                             handleSelect(item: item, index: index)
                         },
@@ -515,11 +517,14 @@ struct FileManagerView: View {
 struct MediaGridCell: View {
     let item: MediaItem
     let isSelected: Bool
+    /// All selected items (for multi-select drag support)
+    let selectedItems: [MediaItem]
     let onSelect: () -> Void
     let onDoubleClick: () -> Void
     let onDragStateChange: (Bool) -> Void
 
     @State private var isDragging = false
+    @EnvironmentObject private var dragContext: DragContext
 
     var body: some View {
         Button(action: onSelect) {
@@ -571,6 +576,8 @@ struct MediaGridCell: View {
         .onDrag {
             isDragging = true
             onDragStateChange(true)
+            // For multi-select, populate drag context with all selected items
+            dragContext.begin(selectedItems)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 isDragging = false
             }

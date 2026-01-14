@@ -532,15 +532,27 @@ struct AudioLaneView: View {
     // MARK: - Drop Handling
 
     private func handleDrop(providers: [NSItemProvider], at location: CGPoint) -> Bool {
-        var urls: [URL] = []
-        let lock = NSLock()
-
-        let group = DispatchGroup()
         let targetFrame = dropFrame(for: location)
         let isInternalDrag = isInternalMediaDrag(providers)
 
-        // Capture dragContext item before async operations
-        let internalItem = dragContext.mediaItem
+        // For internal drags with multiple selected items, use DragContext
+        if isInternalDrag && dragContext.isDragging && !dragContext.mediaItems.isEmpty {
+            let audioURLs = dragContext.mediaItems
+                .filter { $0.type == .audio }
+                .map { $0.url }
+            debugPrint("AudioLaneView.handleDrop: Using DragContext with \(audioURLs.count) audio URLs")
+            if !audioURLs.isEmpty {
+                onDropMedia(audioURLs, targetFrame, isInternalDrag)
+            }
+            dragContext.end()
+            clearDropPreview()
+            return true
+        }
+
+        // Fall back to extracting URLs from providers (external drops)
+        var urls: [URL] = []
+        let lock = NSLock()
+        let group = DispatchGroup()
 
         for provider in providers {
             group.enter()
@@ -555,18 +567,13 @@ struct AudioLaneView: View {
         }
 
         group.notify(queue: .main) {
-            // Fallback to dragContext item URL if async loading didn't get URLs
-            if urls.isEmpty, let item = internalItem, item.type == .audio {
-                urls.append(item.url)
-            }
-
-            let audioURLs = urls.filter { isAudioFile($0) }
+            let audioURLs = urls.filter { self.isAudioFile($0) }
             debugPrint("AudioLaneView.handleDrop: Collected \(audioURLs.count) audio URLs from \(providers.count) providers")
             if !audioURLs.isEmpty {
-                onDropMedia(audioURLs, targetFrame, isInternalDrag)
+                self.onDropMedia(audioURLs, targetFrame, isInternalDrag)
             }
             if isInternalDrag {
-                dragContext.end()
+                self.dragContext.end()
             }
         }
         clearDropPreview()
@@ -618,12 +625,15 @@ struct AudioLaneView: View {
         isLoadingDropPreview = true
         isDropAllowed = false
 
-        // Check dragContext first for internal Media panel drags
-        if let item = dragContext.mediaItem, item.type == .audio {
-            isDropAllowed = true
-            dropPreviewDurationFrames = max(1, Int(item.duration * frameRate.fps))
-            isLoadingDropPreview = false
-            return
+        // Check dragContext first for internal Media panel drags (supports multi-select)
+        if dragContext.isDragging {
+            let audioItems = dragContext.mediaItems.filter { $0.type == .audio }
+            if let firstItem = audioItems.first {
+                isDropAllowed = true
+                dropPreviewDurationFrames = max(1, Int(firstItem.duration * frameRate.fps))
+                isLoadingDropPreview = false
+                return
+            }
         }
 
         if let quickType = quickMediaType(from: providers) {
@@ -672,9 +682,15 @@ struct AudioLaneView: View {
 
     /// Get audio candidate from NSDraggingInfo, checking dragContext first for internal drags
     private func audioCandidate(from info: NSDraggingInfo) -> (urls: [URL], duration: Double?, isInternal: Bool) {
-        // Check dragContext first for internal Media panel drags
-        if let item = dragContext.mediaItem, item.type == .audio {
-            return ([item.url], item.duration, true)
+        // Check dragContext first for internal Media panel drags (supports multi-select)
+        if dragContext.isDragging {
+            let audioItems = dragContext.mediaItems.filter { $0.type == .audio }
+            if !audioItems.isEmpty {
+                let urls = audioItems.map { $0.url }
+                // Use first item's duration for preview (multi-file will place sequentially)
+                let duration = audioItems.first?.duration
+                return (urls, duration, true)
+            }
         }
 
         // Fall back to pasteboard for Finder drags

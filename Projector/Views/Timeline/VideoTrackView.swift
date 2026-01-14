@@ -257,12 +257,27 @@ struct VideoTrackView: View {
     // MARK: - Drop Handling
 
     private func handleDrop(providers: [NSItemProvider], at location: CGPoint) -> Bool {
-        var urls: [URL] = []
-        let lock = NSLock()
-
-        let group = DispatchGroup()
         let targetFrame = dropFrame(for: location)
         let isInternalDrag = isInternalMediaDrag(providers)
+
+        // For internal drags with multiple selected items, use DragContext
+        if isInternalDrag && dragContext.isDragging && dragContext.mediaItems.count > 0 {
+            let videoURLs = dragContext.mediaItems
+                .filter { $0.type == .video }
+                .map { $0.url }
+            debugPrint("VideoTrackView.handleDrop: Using DragContext with \(videoURLs.count) video URLs")
+            if !videoURLs.isEmpty {
+                onDropMedia(videoURLs, targetFrame, isInternalDrag)
+            }
+            dragContext.end()
+            clearDropPreview()
+            return true
+        }
+
+        // Fall back to extracting URLs from providers (external drops)
+        var urls: [URL] = []
+        let lock = NSLock()
+        let group = DispatchGroup()
 
         for provider in providers {
             group.enter()
@@ -277,13 +292,13 @@ struct VideoTrackView: View {
         }
 
         group.notify(queue: .main) {
-            let videoURLs = urls.filter { isVideoFile($0) }
+            let videoURLs = urls.filter { self.isVideoFile($0) }
             debugPrint("VideoTrackView.handleDrop: Collected \(videoURLs.count) video URLs from \(providers.count) providers")
             if !videoURLs.isEmpty {
-                onDropMedia(videoURLs, targetFrame, isInternalDrag)
+                self.onDropMedia(videoURLs, targetFrame, isInternalDrag)
             }
             if isInternalDrag {
-                dragContext.end()
+                self.dragContext.end()
             }
         }
         clearDropPreview()

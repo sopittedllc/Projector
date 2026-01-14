@@ -10,17 +10,33 @@ enum MediaType: String, Codable, CaseIterable {
 }
 
 /// Shared drag state for internal Media panel drags.
+///
+/// Supports both single and multi-item drags from the Media panel.
 @MainActor
 final class DragContext: ObservableObject {
-    @Published var mediaItem: MediaItem?
+    /// The items currently being dragged (supports multi-select)
+    @Published var mediaItems: [MediaItem] = []
 
+    /// Legacy single-item accessor for backwards compatibility
+    var mediaItem: MediaItem? { mediaItems.first }
+
+    /// Begin dragging a single item
     func begin(_ item: MediaItem) {
-        mediaItem = item
+        mediaItems = [item]
     }
 
-    func end() {
-        mediaItem = nil
+    /// Begin dragging multiple items
+    func begin(_ items: [MediaItem]) {
+        mediaItems = items
     }
+
+    /// End the drag operation
+    func end() {
+        mediaItems = []
+    }
+
+    /// Whether there's an active drag
+    var isDragging: Bool { !mediaItems.isEmpty }
 }
 
 /// Represents a media file in the project library

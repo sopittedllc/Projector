@@ -164,29 +164,99 @@ final class MediaImportCoordinator: ObservableObject {
 
     /// Loads a URL from an NSItemProvider.
     ///
-    /// Attempts to extract a file URL first, falling back to a generic URL if needed.
+    /// Attempts multiple extraction methods in order of reliability:
+    /// 1. NSURL object loading (works for most Finder and internal drags)
+    /// 2. File URL type identifier
+    /// 3. Movie type identifier (for video files)
+    /// 4. Generic URL type identifier
+    /// 5. Custom projector media item format (for internal drags)
     ///
     /// - Parameter provider: The item provider to extract the URL from
     /// - Returns: The extracted URL, or `nil` if extraction failed
     func loadURL(from provider: NSItemProvider) async -> URL? {
         let boxedProvider = ProviderBox(provider: provider)
         return await withCheckedContinuation { continuation in
-            boxedProvider.provider.loadItem(
-                forTypeIdentifier: UTType.fileURL.identifier,
-                options: nil
-            ) { item, _ in
-                if let url = Self.extractURL(from: item) {
-                    continuation.resume(returning: url)
+            var didFinish = false
+            func finish(_ url: URL?) {
+                guard !didFinish else { return }
+                didFinish = true
+                continuation.resume(returning: url)
+            }
+
+            // Try loading as NSURL first (works for most Finder and internal drags)
+            boxedProvider.provider.loadObject(ofClass: NSURL.self) { object, _ in
+                if let url = object as? NSURL {
+                    finish(url as URL)
                     return
                 }
+
+                // Try file URL identifier
                 boxedProvider.provider.loadItem(
-                    forTypeIdentifier: UTType.url.identifier,
+                    forTypeIdentifier: UTType.fileURL.identifier,
                     options: nil
                 ) { item, _ in
-                    continuation.resume(returning: Self.extractURL(from: item))
+                    if let url = Self.extractURL(from: item) {
+                        finish(url)
+                        return
+                    }
+
+                    // Try movie type (for video files)
+                    boxedProvider.provider.loadItem(
+                        forTypeIdentifier: UTType.movie.identifier,
+                        options: nil
+                    ) { item, _ in
+                        if let url = Self.extractURL(from: item) {
+                            finish(url)
+                            return
+                        }
+
+                        // Try generic URL
+                        boxedProvider.provider.loadItem(
+                            forTypeIdentifier: UTType.url.identifier,
+                            options: nil
+                        ) { item, _ in
+                            if let url = Self.extractURL(from: item) {
+                                finish(url)
+                                return
+                            }
+
+                            // Try custom projector media item format (for internal drags)
+                            boxedProvider.provider.loadDataRepresentation(
+                                forTypeIdentifier: UTType.projectorMediaItem.identifier
+                            ) { data, _ in
+                                finish(Self.extractProjectorMediaURL(from: data))
+                            }
+                        }
+                    }
                 }
             }
         }
+    }
+
+    /// Extracts URL from projector media item JSON data.
+    ///
+    /// - Parameter data: The JSON data from a projector media item provider
+    /// - Returns: The extracted URL, or `nil` if extraction failed
+    nonisolated static func extractProjectorMediaURL(from data: Data?) -> URL? {
+        guard let data = data else { return nil }
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let urlString = object["url"] as? String {
+            if let url = URL(string: urlString) {
+                return url
+            }
+            if urlString.hasPrefix("/") {
+                return URL(fileURLWithPath: urlString)
+            }
+        }
+        if let string = String(data: data, encoding: .utf8) {
+            if let url = URL(string: string), url.scheme != nil {
+                return url
+            }
+            if string.hasPrefix("/") {
+                return URL(fileURLWithPath: string)
+            }
+        }
+        return nil
     }
 
     /// Extracts a URL from various possible representations.
