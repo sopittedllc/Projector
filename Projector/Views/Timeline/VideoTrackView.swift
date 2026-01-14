@@ -258,6 +258,7 @@ struct VideoTrackView: View {
 
     private func handleDrop(providers: [NSItemProvider], at location: CGPoint) -> Bool {
         var urls: [URL] = []
+        let lock = NSLock()
 
         let group = DispatchGroup()
         let targetFrame = dropFrame(for: location)
@@ -268,13 +269,16 @@ struct VideoTrackView: View {
             loadURL(from: provider) { url in
                 defer { group.leave() }
                 if let url = url {
+                    lock.lock()
                     urls.append(url)
+                    lock.unlock()
                 }
             }
         }
 
         group.notify(queue: .main) {
             let videoURLs = urls.filter { isVideoFile($0) }
+            debugPrint("VideoTrackView.handleDrop: Collected \(videoURLs.count) video URLs from \(providers.count) providers")
             if !videoURLs.isEmpty {
                 onDropMedia(videoURLs, targetFrame, isInternalDrag)
             }

@@ -8,22 +8,23 @@ extension ContentView {
 
     /// Handle video files dropped on the timeline video track
     func handleVideoDropOnTimeline(_ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
+        debugPrint("handleVideoDropOnTimeline: ENTRY with \(urls.count) URLs: \(urls.map { $0.lastPathComponent })")
+
         // Guard: Don't process new drops while timecode detection is in progress or a sheet is visible
         guard !isProcessingTimecodeDetection, !showBatchTimecodeSheet, !showEmbeddedTimecodeAlert else {
-            debugPrint("handleVideoDropOnTimeline: Already processing or sheet visible, ignoring drop")
+            debugPrint("handleVideoDropOnTimeline: BLOCKED - isProcessing=\(isProcessingTimecodeDetection), showBatch=\(showBatchTimecodeSheet), showSingle=\(showEmbeddedTimecodeAlert)")
             return
         }
 
         // Set flag synchronously before starting async work
         isProcessingTimecodeDetection = true
+        debugPrint("handleVideoDropOnTimeline: Set isProcessingTimecodeDetection=true")
 
-        Task {
+        Task { @MainActor in
             defer {
                 // Clear processing flag when Task completes (unless a sheet is being shown)
-                Task { @MainActor in
-                    if !showBatchTimecodeSheet, !showEmbeddedTimecodeAlert {
-                        isProcessingTimecodeDetection = false
-                    }
+                if !showBatchTimecodeSheet, !showEmbeddedTimecodeAlert {
+                    isProcessingTimecodeDetection = false
                 }
             }
 
@@ -39,15 +40,22 @@ extension ContentView {
                 return true
             }
 
-            guard !newURLs.isEmpty else { return }
+            guard !newURLs.isEmpty else {
+                debugPrint("handleVideoDropOnTimeline: No new URLs after filtering, returning")
+                return
+            }
+
+            debugPrint("handleVideoDropOnTimeline: After filtering, \(newURLs.count) new URLs")
 
             // For single file, use existing single-file flow
             if newURLs.count == 1 {
+                debugPrint("handleVideoDropOnTimeline: SINGLE FILE PATH - calling addVideoToTimeline")
                 await addVideoToTimeline(url: newURLs[0], atFrame: atFrame)
                 return
             }
 
             // For multiple files, detect timecode for all files in parallel
+            debugPrint("handleVideoDropOnTimeline: BATCH PATH - detecting timecode for \(newURLs.count) files")
             let items = await detectTimecodeForBatch(urls: newURLs)
 
             // If any file has embedded timecode, show batch sheet

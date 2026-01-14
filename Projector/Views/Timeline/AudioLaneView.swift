@@ -533,6 +533,7 @@ struct AudioLaneView: View {
 
     private func handleDrop(providers: [NSItemProvider], at location: CGPoint) -> Bool {
         var urls: [URL] = []
+        let lock = NSLock()
 
         let group = DispatchGroup()
         let targetFrame = dropFrame(for: location)
@@ -546,7 +547,9 @@ struct AudioLaneView: View {
             loadURL(from: provider) { url in
                 defer { group.leave() }
                 if let url = url {
+                    lock.lock()
                     urls.append(url)
+                    lock.unlock()
                 }
             }
         }
@@ -558,6 +561,7 @@ struct AudioLaneView: View {
             }
 
             let audioURLs = urls.filter { isAudioFile($0) }
+            debugPrint("AudioLaneView.handleDrop: Collected \(audioURLs.count) audio URLs from \(providers.count) providers")
             if !audioURLs.isEmpty {
                 onDropMedia(audioURLs, targetFrame, isInternalDrag)
             }
