@@ -189,7 +189,8 @@ extension ContentView {
     ///   - checkTimecode: Whether to check for embedded timecode and prompt user
     func addVideoToTimeline(url: URL, atFrame: Int?, checkTimecode: Bool = true) async {
         // Check for embedded timecode if requested and not already handling a pending choice
-        if checkTimecode, !showEmbeddedTimecodeAlert, pendingTimecodeURL == nil {
+        // Also skip if batch processing is in progress or batch sheet is showing
+        if checkTimecode, !showEmbeddedTimecodeAlert, !showBatchTimecodeSheet, !isProcessingTimecodeDetection, pendingTimecodeURL == nil {
             if let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
                 debugPrint("addVideoToTimeline: Found embedded timecode! \(result.formattedTimecode)")
                 await MainActor.run {
@@ -406,7 +407,8 @@ extension ContentView {
     func addAudioToTimeline(url: URL, laneId: UUID, atFrame: Int?, checkTimecode: Bool = true) async -> AudioClip? {
         debugPrint("addAudioToTimeline: ENTRY - \(url.lastPathComponent), laneId=\(laneId), atFrame=\(atFrame ?? -1), checkTimecode=\(checkTimecode)")
         // Check for embedded timecode if requested and not already handling a pending choice
-        if checkTimecode, !showEmbeddedTimecodeAlert, pendingTimecodeURL == nil {
+        // Also skip if batch processing is in progress or batch sheet is showing
+        if checkTimecode, !showEmbeddedTimecodeAlert, !showBatchTimecodeSheet, !isProcessingTimecodeDetection, pendingTimecodeURL == nil {
             debugPrint("addAudioToTimeline: checking for embedded timecode...")
             if let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
                 debugPrint("addAudioToTimeline: Found embedded timecode! \(result.formattedTimecode)")
@@ -835,13 +837,16 @@ extension ContentView {
             return
         }
 
-        // Capture batch and dismiss sheet immediately
+        // Capture batch state before clearing
         let items = batch.items
         let dropFrame = batch.dropFrame
         let isVideo = batch.isVideo
         let laneId = batch.laneId
 
+        // Keep processing flag set and dismiss sheet
+        // Note: isProcessingTimecodeDetection should already be true from drop handler
         showBatchTimecodeSheet = false
+        pendingBatchTimecode = nil
 
         Task {
             // Handle setting timeline start if requested (only for first file with timecode that's using it)
