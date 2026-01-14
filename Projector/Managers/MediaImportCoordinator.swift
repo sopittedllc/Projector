@@ -32,9 +32,17 @@ final class MediaImportCoordinator: ObservableObject {
     /// Callback to add a video to the timeline at an optional frame position
     var onImportVideo: ((URL, Int?) async -> Void)?
 
+    /// Callback to add multiple videos to the timeline (batch import with timecode detection)
+    /// Parameters: (urls, atFrame)
+    var onImportVideos: (([URL], Int) async -> Void)?
+
     /// Callback to add an audio file to a lane at an optional frame position
     /// Parameters: (url, laneId, atFrame) -> AudioClip?
     var onImportAudio: ((URL, UUID, Int?) async -> AudioClip?)?
+
+    /// Callback to add multiple audio files to a lane (batch import with timecode detection)
+    /// Parameters: (urls, laneId, atFrame)
+    var onImportAudios: (([URL], UUID, Int) async -> Void)?
 
     /// Callback to create a new audio lane
     /// Returns the newly created lane
@@ -91,20 +99,44 @@ final class MediaImportCoordinator: ObservableObject {
                 self.showDuplicateMediaAlert = true
             }
 
-            // Process each URL sequentially
+            // Separate URLs by media type for batch processing
+            var videoURLs: [URL] = []
+            var audioURLs: [URL] = []
+
             for url in newURLs {
                 guard let mediaType = ProjectMediaLibrary.mediaType(for: url) else {
                     continue
                 }
-
                 switch mediaType {
                 case .video:
-                    await onImportVideo?(url, nil)
-
+                    videoURLs.append(url)
                 case .audio:
-                    // Create a new audio lane for each audio file
-                    if let newLane = onCreateAudioLane?() {
-                        _ = await onImportAudio?(url, newLane.id, nil)
+                    audioURLs.append(url)
+                }
+            }
+
+            // Process videos as a batch (enables batch timecode detection)
+            if !videoURLs.isEmpty {
+                if let onImportVideos = onImportVideos {
+                    await onImportVideos(videoURLs, 0)
+                } else {
+                    // Fallback to single-file import if batch callback not set
+                    for url in videoURLs {
+                        await onImportVideo?(url, nil)
+                    }
+                }
+            }
+
+            // Process audio files as a batch
+            if !audioURLs.isEmpty {
+                if let newLane = onCreateAudioLane?() {
+                    if let onImportAudios = onImportAudios {
+                        await onImportAudios(audioURLs, newLane.id, 0)
+                    } else {
+                        // Fallback to single-file import if batch callback not set
+                        for url in audioURLs {
+                            _ = await onImportAudio?(url, newLane.id, nil)
+                        }
                     }
                 }
             }

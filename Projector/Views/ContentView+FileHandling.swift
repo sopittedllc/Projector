@@ -131,8 +131,20 @@ extension ContentView {
             await addVideoToTimeline(url: url, atFrame: atFrame)
         }
 
+        // Batch video import with timecode detection
+        mediaImportCoordinator.onImportVideos = { [self] urls, atFrame in
+            handleVideoDropOnTimeline(urls, atFrame, false)
+        }
+
         mediaImportCoordinator.onImportAudio = { [self] url, laneId, atFrame in
             await addAudioToTimeline(url: url, laneId: laneId, atFrame: atFrame)
+        }
+
+        // Batch audio import with timecode detection
+        mediaImportCoordinator.onImportAudios = { [self] urls, laneId, atFrame in
+            // Get the lane index from the lane ID
+            let laneIndex = timelineManager.timeline.audioLanes.firstIndex { $0.id == laneId } ?? 0
+            handleAudioDropOnTimeline(laneIndex, urls, atFrame, false)
         }
 
         mediaImportCoordinator.onCreateAudioLane = { [self] in
