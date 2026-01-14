@@ -118,15 +118,22 @@ extension ContentView {
                 // For multiple files, detect timecode for all files in parallel
                 let items = await self.detectTimecodeForBatch(urls: urls)
 
-                // If any file has embedded timecode, show batch sheet
+                // If any file has embedded timecode, show batch sheet (if no other sheet is showing)
                 if items.contains(where: { $0.hasTimecode }) {
-                    self.pendingBatchTimecode = PendingBatchTimecode(
-                        items: items,
-                        dropFrame: atFrame,
-                        isVideo: false,
-                        laneId: lane.id
-                    )
-                    self.showBatchTimecodeSheet = true
+                    // Check if another sheet is already showing
+                    if self.showEmbeddedTimecodeAlert || self.showBatchTimecodeSheet {
+                        // Another sheet is showing - auto-place audio at embedded timecode positions
+                        debugPrint("handleAudioDropOnTimeline: Auto-placing at embedded timecode (another sheet is showing)")
+                        await self.addAudioFilesAtEmbeddedTimecode(items: items, laneId: lane.id, fallbackFrame: atFrame)
+                    } else {
+                        self.pendingBatchTimecode = PendingBatchTimecode(
+                            items: items,
+                            dropFrame: atFrame,
+                            isVideo: false,
+                            laneId: lane.id
+                        )
+                        self.showBatchTimecodeSheet = true
+                    }
                 } else {
                     // No timecodes found, add all files directly at sequential positions
                     await self.addAudioFilesSequentially(urls: urls, laneId: lane.id, startFrame: atFrame)
@@ -815,6 +822,46 @@ extension ContentView {
         for url in urls {
             if let clip = await addAudioToTimeline(url: url, laneId: laneId, atFrame: currentFrame, checkTimecode: false) {
                 currentFrame = clip.timelineEndFrame
+            }
+        }
+
+        // Add padding after all files
+        let paddingFrames = Int(20.0 * 60.0 * timelineManager.timeline.config.frameRate.fps)
+        if let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
+           let lastClip = lane.clips.last {
+            timelineManager.extendTimeline(toEndFrame: lastClip.timelineEndFrame + paddingFrames)
+        }
+    }
+
+    /// Add audio files at their embedded timecode positions (auto-confirm mode)
+    ///
+    /// Used when another sheet is showing and we can't display the batch timecode sheet.
+    /// Files with embedded timecode are placed at their timecode positions;
+    /// files without timecode are placed sequentially after the last file.
+    ///
+    /// - Parameters:
+    ///   - items: Batch timecode items with detected timecode info
+    ///   - laneId: Target audio lane ID
+    ///   - fallbackFrame: Frame to start placing clips without timecode
+    func addAudioFilesAtEmbeddedTimecode(items: [BatchTimecodeItem], laneId: UUID, fallbackFrame: Int) async {
+        let timelineFPS = timelineManager.timeline.config.frameRate.fps
+        var nextSequentialFrame = fallbackFrame
+
+        for item in items {
+            let targetFrame: Int
+
+            if item.hasTimecode, let result = item.detectedTimecode {
+                // Place at embedded timecode position
+                targetFrame = result.convertedFrames(to: timelineFPS)
+                debugPrint("addAudioFilesAtEmbeddedTimecode: \(item.url.lastPathComponent) -> frame \(targetFrame) (from timecode)")
+            } else {
+                // Place at sequential position
+                targetFrame = nextSequentialFrame
+                debugPrint("addAudioFilesAtEmbeddedTimecode: \(item.url.lastPathComponent) -> frame \(targetFrame) (sequential)")
+            }
+
+            if let clip = await addAudioToTimeline(url: item.url, laneId: laneId, atFrame: targetFrame, checkTimecode: false) {
+                nextSequentialFrame = clip.timelineEndFrame
             }
         }
 
