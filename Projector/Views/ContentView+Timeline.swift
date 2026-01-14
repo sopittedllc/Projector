@@ -33,8 +33,13 @@ extension ContentView {
             let items = await detectTimecodeForBatch(urls: newURLs)
 
             // If any file has embedded timecode, show batch sheet
+            // Guard: Don't show if another sheet is already presenting
             if items.contains(where: { $0.hasTimecode }) {
                 await MainActor.run {
+                    guard !showBatchTimecodeSheet, !showEmbeddedTimecodeAlert else {
+                        debugPrint("handleVideoDropOnTimeline: Sheet already visible, skipping batch sheet")
+                        return
+                    }
                     pendingBatchTimecode = PendingBatchTimecode(
                         items: items,
                         dropFrame: atFrame,
@@ -86,7 +91,12 @@ extension ContentView {
                 let items = await self.detectTimecodeForBatch(urls: urls)
 
                 // If any file has embedded timecode, show batch sheet
+                // Guard: Don't show if another sheet is already presenting
                 if items.contains(where: { $0.hasTimecode }) {
+                    guard !self.showBatchTimecodeSheet, !self.showEmbeddedTimecodeAlert else {
+                        debugPrint("handleAudioDropOnTimeline: Sheet already visible, skipping batch sheet")
+                        return
+                    }
                     self.pendingBatchTimecode = PendingBatchTimecode(
                         items: items,
                         dropFrame: atFrame,
