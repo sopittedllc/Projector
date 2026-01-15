@@ -1127,11 +1127,10 @@ struct MultiTrackTimelineView: View {
                     multiFileDropOverlay
                 }
             }
-            // DragCaptureView to track external multi-file drags and handle drops
-            // IMPORTANT: This view ONLY handles multi-file drops. Single-file drops
-            // must pass through to child views (AudioLaneView, VideoTrackView).
-            // By returning [] from onEntered for single-file, AppKit won't consider
-            // this view as the drag destination, allowing child views to handle it.
+            // DragCaptureView for handling multi-file drops only.
+            // For multi-file drags: returns .copy and handles the drop here.
+            // For single-file drags: returns [] so child views (AudioLaneView,
+            // VideoTrackView, newLaneDropZone) can handle them instead.
             .overlay {
                 DragCaptureView(
                     onEntered: { info, _ in
@@ -1140,8 +1139,8 @@ struct MultiTrackTimelineView: View {
                             let pasteboardItems = info.draggingPasteboard.pasteboardItems ?? []
                             externalDragItemCount = pasteboardItems.count
                         }
-                        // Only accept multi-file drops - return [] for single-file
-                        // so child views can handle them
+                        // Only claim multi-file drags - single-file drops are handled by child views
+                        // (AudioLaneView, VideoTrackView, newLaneDropZone)
                         return (isMultiFileDrag || externalDragItemCount > 1) ? .copy : []
                     },
                     onUpdated: { info, _ in
@@ -1150,13 +1149,16 @@ struct MultiTrackTimelineView: View {
                             let pasteboardItems = info.draggingPasteboard.pasteboardItems ?? []
                             externalDragItemCount = pasteboardItems.count
                         }
-                        // Only accept multi-file drops - single-file drops should go to child views
+                        // Show copy cursor for multi-file, no-op for single-file
+                        // (single-file will be handled by child views)
                         return (isMultiFileDrag || externalDragItemCount > 1) ? .copy : []
                     },
                     onExited: {
                         externalDragItemCount = 0
                     },
                     onPerform: { info, _ in
+                        // Only handle multi-file drops - returns false for single-file
+                        // which signals child views should handle it
                         handleMultiFileDropNative(info: info)
                     }
                 )

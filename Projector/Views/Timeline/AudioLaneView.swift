@@ -290,6 +290,8 @@ struct AudioLaneView: View {
                 AudioLaneDragCaptureView(
                     onEntered: { info, location in
                         beginDropPreviewNative(info: info, at: location)
+                        // Accept single-file audio drops (multi-file handled by parent)
+                        return (isDropAllowed || isLoadingDropPreview) ? .copy : []
                     },
                     onUpdated: { info, location in
                         updateDropPreview(location: location)
@@ -904,7 +906,7 @@ struct AudioLaneView: View {
 
 /// SwiftUI wrapper for native AppKit drag handling, enabling synchronous access to dragContext
 private struct AudioLaneDragCaptureView: NSViewRepresentable {
-    var onEntered: (NSDraggingInfo, CGPoint) -> Void
+    var onEntered: (NSDraggingInfo, CGPoint) -> NSDragOperation
     var onUpdated: (NSDraggingInfo, CGPoint) -> NSDragOperation
     var onExited: () -> Void
     var onPerform: (NSDraggingInfo, CGPoint) -> Bool
@@ -927,7 +929,7 @@ private struct AudioLaneDragCaptureView: NSViewRepresentable {
 }
 
 private final class AudioLaneDragCaptureNSView: NSView {
-    var onEntered: ((NSDraggingInfo, CGPoint) -> Void)?
+    var onEntered: ((NSDraggingInfo, CGPoint) -> NSDragOperation)?
     var onUpdated: ((NSDraggingInfo, CGPoint) -> NSDragOperation)?
     var onExited: (() -> Void)?
     var onPerform: ((NSDraggingInfo, CGPoint) -> Bool)?
@@ -981,8 +983,7 @@ private final class AudioLaneDragCaptureNSView: NSView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        onEntered?(sender, localLocation(for: sender))
-        return .copy
+        onEntered?(sender, localLocation(for: sender)) ?? []
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
