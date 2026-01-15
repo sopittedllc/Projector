@@ -18,14 +18,6 @@ struct DropTargetOverlay: View {
                     .fill(Color.accentColor.opacity(0.15))
                 RoundedRectangle(cornerRadius: 12)
                     .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [8, 4]))
-                VStack(spacing: 12) {
-                    Image(systemName: "arrow.down.doc.fill")
-                        .font(.system(size: 48))
-                        .foregroundColor(.accentColor)
-                    Text("Drop media to import")
-                        .font(.headline)
-                        .foregroundColor(.accentColor)
-                }
             }
             .padding(8)
         }

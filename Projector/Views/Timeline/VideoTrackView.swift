@@ -33,6 +33,11 @@ struct VideoTrackView: View {
     @State private var dragOffsetFrames: Int = 0
     @EnvironmentObject private var dragContext: DragContext
 
+    /// Whether we're in a multi-file drag from the media panel (parent handles these)
+    private var isMultiFileDrag: Bool {
+        dragContext.mediaItems.count > 1
+    }
+
 
     var body: some View {
         HStack(spacing: 0) {
@@ -108,7 +113,8 @@ struct VideoTrackView: View {
                 // Reels
                 reelsContent
 
-                if (isDropAllowed || isLoadingDropPreview), let previewFrame = dropPreviewFrame {
+                // Don't show preview for multi-file drops (parent handles those)
+                if !isMultiFileDrag, (isDropAllowed || isLoadingDropPreview), let previewFrame = dropPreviewFrame {
                     dropPreviewOverlay(frame: previewFrame, height: geometry.size.height, width: geometry.size.width)
                 }
 
@@ -260,7 +266,14 @@ struct VideoTrackView: View {
         let targetFrame = dropFrame(for: location)
         let isInternalDrag = isInternalMediaDrag(providers)
 
-        // For internal drags with multiple selected items, use DragContext
+        // For multi-file drags, let the parent timeline view handle it with unified overlay
+        if isMultiFileDrag {
+            debugPrint("VideoTrackView.handleDrop: Multi-file drag, deferring to parent")
+            clearDropPreview()
+            return false
+        }
+
+        // For single-file internal drags, use DragContext
         if isInternalDrag && dragContext.isDragging && dragContext.mediaItems.count > 0 {
             let videoURLs = dragContext.mediaItems
                 .filter { $0.type == .video }

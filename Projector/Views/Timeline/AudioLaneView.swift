@@ -57,6 +57,10 @@ struct AudioLaneView: View {
     @FocusState private var isNameFieldFocused: Bool
     @EnvironmentObject private var dragContext: DragContext
 
+    /// Whether we're in a multi-file drag from the media panel (parent handles these)
+    private var isMultiFileDrag: Bool {
+        dragContext.mediaItems.count > 1
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -265,7 +269,8 @@ struct AudioLaneView: View {
                     laneChangePreviewGhost(preview: preview, height: geometry.size.height)
                 }
 
-                if (isDropAllowed || isLoadingDropPreview), let previewFrame = dropPreviewFrame {
+                // Don't show preview for multi-file drops (parent handles those)
+                if !isMultiFileDrag, (isDropAllowed || isLoadingDropPreview), let previewFrame = dropPreviewFrame {
                     dropPreviewOverlay(frame: previewFrame, height: geometry.size.height, width: geometry.size.width)
                 }
 
@@ -760,6 +765,13 @@ struct AudioLaneView: View {
     }
 
     private func handleDropNative(info: NSDraggingInfo, at location: CGPoint) -> Bool {
+        // For multi-file drags, let the parent timeline view handle it with unified overlay
+        if isMultiFileDrag {
+            debugPrint("AudioLaneView.handleDropNative: Multi-file drag, deferring to parent")
+            clearDropPreview()
+            return false
+        }
+
         let candidate = audioCandidate(from: info)
         guard !candidate.urls.isEmpty else {
             clearDropPreview()

@@ -982,33 +982,6 @@ struct MultiTrackTimelineView: View {
 
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [8, 4]))
-
-            VStack(spacing: 8) {
-                Image(systemName: "doc.on.doc.fill")
-                    .font(.system(size: 32))
-                    .foregroundColor(.accentColor)
-
-                Text("Drop \(dragContext.mediaItems.count) files to add to timeline")
-                    .font(.headline)
-                    .foregroundColor(.accentColor)
-
-                let videoCount = dragContext.mediaItems.filter { $0.type == .video }.count
-                let audioCount = dragContext.mediaItems.filter { $0.type == .audio }.count
-                if videoCount > 0 || audioCount > 0 {
-                    HStack(spacing: 12) {
-                        if videoCount > 0 {
-                            Label("\(videoCount) video", systemImage: "film")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                        if audioCount > 0 {
-                            Label("\(audioCount) audio", systemImage: "waveform")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-            }
         }
         .allowsHitTesting(false)
     }
@@ -1111,7 +1084,8 @@ struct MultiTrackTimelineView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .offset(x: -TimelineLayout.headerWidth / 2)
 
-                    if (isEmptyAudioDropAllowed || isEmptyAudioDropLoading),
+                    // Don't show preview for multi-file drops (parent handles those)
+                    if !isMultiFileDrag, (isEmptyAudioDropAllowed || isEmptyAudioDropLoading),
                        let previewFrame = emptyAudioDropPreviewFrame {
                         emptyAudioDropPreviewOverlay(
                             frame: previewFrame,
@@ -1186,7 +1160,8 @@ struct MultiTrackTimelineView: View {
                         .offset(x: -TimelineLayout.headerWidth / 2)
                     }
 
-                    if (isEmptyAudioDropAllowed || isEmptyAudioDropLoading),
+                    // Don't show preview for multi-file drops (parent handles those)
+                    if !isMultiFileDrag, (isEmptyAudioDropAllowed || isEmptyAudioDropLoading),
                        let previewFrame = emptyAudioDropPreviewFrame {
                         emptyAudioDropPreviewOverlay(
                             frame: previewFrame,
@@ -1243,6 +1218,12 @@ struct MultiTrackTimelineView: View {
         pixelsPerFrame: CGFloat,
         laneIndex: Int
     ) -> Bool {
+        // For multi-file drags, let the parent timeline view handle it with unified overlay
+        if isMultiFileDrag {
+            clearEmptyAudioDrop()
+            return false
+        }
+
         let urls = audioURLs(from: info)
         guard !urls.isEmpty else {
             clearEmptyAudioDrop()
