@@ -289,7 +289,34 @@ final class AudioOutputManager: ObservableObject {
     }
 
     private func loadMappedOutputs() {
-        mappedOutputs = settings.mappedOutputs(for: selectedDeviceUID)
+        let saved = settings.mappedOutputs(for: selectedDeviceUID)
+        if !saved.isEmpty {
+            mappedOutputs = saved
+            return
+        }
+
+        // Auto-generate default stereo outputs based on device channel count
+        let channelCount = selectedDevice?.outputChannelCount ?? 2
+        var defaults: [MappedAudioOutput] = []
+
+        // Create stereo pairs (or mono if odd number at end)
+        var channel = 0
+        var outputIndex = 1
+        while channel < channelCount {
+            let remaining = channelCount - channel
+            let count = min(2, remaining)  // Stereo pair or remaining mono
+            let name = count == 2 ? "Output \(outputIndex)-\(outputIndex + 1)" : "Output \(outputIndex)"
+            defaults.append(MappedAudioOutput(
+                id: UUID(),
+                name: name,
+                channelStart: channel,
+                channelCount: count
+            ))
+            channel += count
+            outputIndex += count
+        }
+
+        mappedOutputs = defaults
     }
 
     private func updateSelectedDeviceChannelCount() {
