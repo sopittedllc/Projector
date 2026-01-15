@@ -104,7 +104,7 @@ struct BatchTimecodeSheetView: View {
         batch?.items.contains { $0.useEmbeddedTimecode } ?? false
     }
 
-    /// File list table view
+    /// File list table view with video/audio sections
     @ViewBuilder
     private func fileListView(batch: PendingBatchTimecode) -> some View {
         VStack(spacing: 0) {
@@ -131,19 +131,32 @@ struct BatchTimecodeSheetView: View {
 
             Divider()
 
-            // File rows
+            // File rows grouped by media type
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(batch.items) { item in
-                        fileRow(item: item)
-                        if item.id != batch.items.last?.id {
+                    // Video section
+                    if batch.hasVideoItems {
+                        sectionHeader(title: "Video", icon: "film", count: batch.videoItems.count)
+                        ForEach(batch.videoItems) { item in
+                            fileRow(item: item)
                             Divider()
+                        }
+                    }
+
+                    // Audio section
+                    if batch.hasAudioItems {
+                        sectionHeader(title: "Audio", icon: "waveform", count: batch.audioItems.count)
+                        ForEach(batch.audioItems) { item in
+                            fileRow(item: item)
+                            if item.id != batch.audioItems.last?.id {
+                                Divider()
+                            }
                         }
                     }
                 }
                 .frame(maxWidth: .infinity)
             }
-            .frame(minHeight: 50, maxHeight: 200)
+            .frame(minHeight: 50, maxHeight: 250)
         }
         .frame(maxWidth: .infinity)
         .background(Color(nsColor: .controlBackgroundColor))
@@ -154,13 +167,30 @@ struct BatchTimecodeSheetView: View {
         )
     }
 
+    /// Section header for video/audio groups
+    @ViewBuilder
+    private func sectionHeader(title: String, icon: String, count: Int) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.accentColor)
+            Text("\(title) (\(count))")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.primary)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+    }
+
     /// Single file row
     @ViewBuilder
     private func fileRow(item: BatchTimecodeItem) -> some View {
         HStack {
             // File icon and name
             HStack(spacing: 8) {
-                Image(systemName: item.hasTimecode ? "film" : "doc")
+                Image(systemName: fileIcon(for: item))
                     .foregroundColor(item.hasTimecode ? .accentColor : .secondary)
                     .frame(width: 16)
 
@@ -197,6 +227,15 @@ struct BatchTimecodeSheetView: View {
         .contentShape(Rectangle())
     }
 
+    /// Get the appropriate icon for a file item
+    private func fileIcon(for item: BatchTimecodeItem) -> String {
+        if item.hasTimecode {
+            return item.mediaType == .video ? "film" : "waveform"
+        } else {
+            return item.mediaType == .video ? "video" : "speaker.wave.2"
+        }
+    }
+
     /// Create a binding for a specific item's useEmbeddedTimecode property
     private func binding(for item: BatchTimecodeItem) -> Binding<Bool> {
         Binding(
@@ -213,12 +252,13 @@ struct BatchTimecodeSheetView: View {
     }
 }
 
-#Preview("With Timecodes") {
+#Preview("Mixed Video/Audio") {
     BatchTimecodeSheetView(
         batch: .constant(PendingBatchTimecode(
             items: [
                 BatchTimecodeItem(
                     url: URL(fileURLWithPath: "/Users/test/Interview_A.mov"),
+                    mediaType: .video,
                     detectedTimecode: EmbeddedTimecodeResult(
                         timecodeFrames: 86400,
                         formattedTimecode: "01:00:00:00",
@@ -228,34 +268,29 @@ struct BatchTimecodeSheetView: View {
                     )
                 ),
                 BatchTimecodeItem(
-                    url: URL(fileURLWithPath: "/Users/test/Interview_B.mov"),
+                    url: URL(fileURLWithPath: "/Users/test/FX_Mix.wav"),
+                    mediaType: .audio,
                     detectedTimecode: EmbeddedTimecodeResult(
-                        timecodeFrames: 90720,
-                        formattedTimecode: "01:03:00:00",
-                        source: .xmpMetadata,
+                        timecodeFrames: 86280,
+                        formattedTimecode: "00:59:55:00",
+                        source: .quickTimeTrack,
                         frameRate: 24.0,
                         isDropFrame: false
                     )
                 ),
                 BatchTimecodeItem(
-                    url: URL(fileURLWithPath: "/Users/test/B-Roll_001.mp4"),
-                    detectedTimecode: nil
-                ),
-                BatchTimecodeItem(
-                    url: URL(fileURLWithPath: "/Users/test/Interview_C_VeryLongFileName.mov"),
+                    url: URL(fileURLWithPath: "/Users/test/Music_Track.wav"),
+                    mediaType: .audio,
                     detectedTimecode: EmbeddedTimecodeResult(
-                        timecodeFrames: 86340,
-                        formattedTimecode: "00:59:57:12",
-                        source: .proResMetadata,
+                        timecodeFrames: 86280,
+                        formattedTimecode: "00:59:55:00",
+                        source: .quickTimeTrack,
                         frameRate: 24.0,
                         isDropFrame: false
-                    ),
-                    useEmbeddedTimecode: false
+                    )
                 )
             ],
-            dropFrame: 0,
-            isVideo: true,
-            laneId: nil
+            dropFrame: 0
         )),
         showSetTimelineStartOption: true,
         onConfirm: { setStart in
@@ -267,22 +302,22 @@ struct BatchTimecodeSheetView: View {
     )
 }
 
-#Preview("No Timecodes") {
+#Preview("Video Only") {
     BatchTimecodeSheetView(
         batch: .constant(PendingBatchTimecode(
             items: [
                 BatchTimecodeItem(
                     url: URL(fileURLWithPath: "/Users/test/Clip1.mp4"),
+                    mediaType: .video,
                     detectedTimecode: nil
                 ),
                 BatchTimecodeItem(
                     url: URL(fileURLWithPath: "/Users/test/Clip2.mp4"),
+                    mediaType: .video,
                     detectedTimecode: nil
                 )
             ],
-            dropFrame: 0,
-            isVideo: true,
-            laneId: nil
+            dropFrame: 0
         )),
         showSetTimelineStartOption: false,
         onConfirm: { _ in },

@@ -44,6 +44,11 @@ final class MediaImportCoordinator: ObservableObject {
     /// Parameters: (urls, laneId, atFrame)
     var onImportAudios: (([URL], UUID, Int) async -> Void)?
 
+    /// Callback for unified batch import with mixed video/audio files
+    /// Parameters: (videoURLs, audioURLs, atFrame)
+    /// Each audio file gets its own lane
+    var onImportMixedBatch: (([URL], [URL], Int) async -> Void)?
+
     /// Callback to create a new audio lane
     /// Returns the newly created lane
     var onCreateAudioLane: (() -> AudioLane)?
@@ -123,29 +128,32 @@ final class MediaImportCoordinator: ObservableObject {
 
             debugPrint("MediaImportCoordinator.handleDrop: Separated into \(videoURLs.count) videos, \(audioURLs.count) audio")
 
-            // Process videos as a batch (enables batch timecode detection)
-            if !videoURLs.isEmpty {
-                debugPrint("MediaImportCoordinator.handleDrop: Calling onImportVideos with \(videoURLs.count) videos")
-                if let onImportVideos = onImportVideos {
-                    await onImportVideos(videoURLs, 0)
+            // Use unified batch import for all files (enables combined timecode detection sheet)
+            if !videoURLs.isEmpty || !audioURLs.isEmpty {
+                debugPrint("MediaImportCoordinator.handleDrop: Calling onImportMixedBatch with \(videoURLs.count) videos, \(audioURLs.count) audio")
+                if let onImportMixedBatch = onImportMixedBatch {
+                    await onImportMixedBatch(videoURLs, audioURLs, 0)
                 } else {
-                    debugPrint("MediaImportCoordinator.handleDrop: WARNING - onImportVideos not set, using fallback")
-                    // Fallback to single-file import if batch callback not set
-                    for url in videoURLs {
-                        await onImportVideo?(url, nil)
+                    debugPrint("MediaImportCoordinator.handleDrop: WARNING - onImportMixedBatch not set, using fallback")
+                    // Fallback to separate processing if unified callback not set
+                    if !videoURLs.isEmpty {
+                        if let onImportVideos = onImportVideos {
+                            await onImportVideos(videoURLs, 0)
+                        } else {
+                            for url in videoURLs {
+                                await onImportVideo?(url, nil)
+                            }
+                        }
                     }
-                }
-            }
-
-            // Process audio files as a batch
-            if !audioURLs.isEmpty {
-                if let newLane = onCreateAudioLane?() {
-                    if let onImportAudios = onImportAudios {
-                        await onImportAudios(audioURLs, newLane.id, 0)
-                    } else {
-                        // Fallback to single-file import if batch callback not set
-                        for url in audioURLs {
-                            _ = await onImportAudio?(url, newLane.id, nil)
+                    if !audioURLs.isEmpty {
+                        if let newLane = onCreateAudioLane?() {
+                            if let onImportAudios = onImportAudios {
+                                await onImportAudios(audioURLs, newLane.id, 0)
+                            } else {
+                                for url in audioURLs {
+                                    _ = await onImportAudio?(url, newLane.id, nil)
+                                }
+                            }
                         }
                     }
                 }

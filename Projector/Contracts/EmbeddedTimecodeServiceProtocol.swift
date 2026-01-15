@@ -24,6 +24,12 @@ enum TimecodeSource: String, Sendable, Equatable {
 
 // MARK: - Batch Timecode Types
 
+/// Media type for batch items
+enum BatchMediaType: String, Sendable, Equatable {
+    case video
+    case audio
+}
+
 /// A single file item in a batch timecode detection operation
 ///
 /// Used when multiple files are dropped simultaneously to track each file's
@@ -35,11 +41,17 @@ struct BatchTimecodeItem: Identifiable, Sendable {
     /// The file URL
     let url: URL
 
+    /// Media type (video or audio)
+    let mediaType: BatchMediaType
+
     /// Detected embedded timecode, or nil if no timecode found
     let detectedTimecode: EmbeddedTimecodeResult?
 
     /// User's choice: true = place at embedded timecode, false = place at drop location
     var useEmbeddedTimecode: Bool
+
+    /// For audio items, the target lane ID (nil for video)
+    var targetLaneId: UUID?
 
     /// Display name for the file
     var displayName: String {
@@ -54,13 +66,17 @@ struct BatchTimecodeItem: Identifiable, Sendable {
     /// Initialize with automatic defaults
     /// - Parameters:
     ///   - url: The file URL
+    ///   - mediaType: The media type (video or audio)
     ///   - detectedTimecode: Detected timecode result, if any
     ///   - useEmbeddedTimecode: Whether to use embedded timecode (defaults to true if timecode exists)
-    init(url: URL, detectedTimecode: EmbeddedTimecodeResult?, useEmbeddedTimecode: Bool? = nil) {
+    ///   - targetLaneId: For audio items, the target lane ID
+    init(url: URL, mediaType: BatchMediaType, detectedTimecode: EmbeddedTimecodeResult?, useEmbeddedTimecode: Bool? = nil, targetLaneId: UUID? = nil) {
         self.id = UUID()
         self.url = url
+        self.mediaType = mediaType
         self.detectedTimecode = detectedTimecode
         self.useEmbeddedTimecode = useEmbeddedTimecode ?? (detectedTimecode != nil)
+        self.targetLaneId = targetLaneId
     }
 }
 
@@ -68,6 +84,7 @@ struct BatchTimecodeItem: Identifiable, Sendable {
 ///
 /// Created when multiple files are dropped and at least one has embedded timecode.
 /// Stores all the context needed to process the files after user confirmation.
+/// Supports mixed video and audio files in a single batch.
 struct PendingBatchTimecode: Sendable {
     /// The files in this batch with their detected timecodes
     var items: [BatchTimecodeItem]
@@ -75,11 +92,11 @@ struct PendingBatchTimecode: Sendable {
     /// The frame where files were dropped (used for files not using embedded timecode)
     let dropFrame: Int
 
-    /// Whether these are video files (true) or audio files (false)
-    let isVideo: Bool
-
-    /// For audio drops, the target lane ID
-    let laneId: UUID?
+    /// Primary initializer for mixed video/audio batches
+    init(items: [BatchTimecodeItem], dropFrame: Int) {
+        self.items = items
+        self.dropFrame = dropFrame
+    }
 
     /// Whether any file in the batch has detected timecode
     var hasAnyTimecode: Bool {
@@ -89,6 +106,59 @@ struct PendingBatchTimecode: Sendable {
     /// Number of files that will use embedded timecode
     var countUsingTimecode: Int {
         items.filter { $0.useEmbeddedTimecode }.count
+    }
+
+    /// Video items in this batch
+    var videoItems: [BatchTimecodeItem] {
+        items.filter { $0.mediaType == .video }
+    }
+
+    /// Audio items in this batch
+    var audioItems: [BatchTimecodeItem] {
+        items.filter { $0.mediaType == .audio }
+    }
+
+    /// Whether this batch contains video files
+    var hasVideoItems: Bool {
+        items.contains { $0.mediaType == .video }
+    }
+
+    /// Whether this batch contains audio files
+    var hasAudioItems: Bool {
+        items.contains { $0.mediaType == .audio }
+    }
+
+    /// Legacy compatibility: returns true if batch contains only video files
+    var isVideo: Bool {
+        hasVideoItems && !hasAudioItems
+    }
+
+    /// Legacy compatibility: returns the first audio lane ID if any audio items exist
+    var laneId: UUID? {
+        audioItems.first?.targetLaneId
+    }
+
+    /// Convenience initializer for backwards compatibility with video-only or audio-only batches
+    /// - Parameters:
+    ///   - items: The batch items (without mediaType set)
+    ///   - dropFrame: The frame where files were dropped
+    ///   - isVideo: Whether this is a video-only batch
+    ///   - laneId: For audio-only batches, the target lane ID
+    init(items: [BatchTimecodeItem], dropFrame: Int, isVideo: Bool, laneId: UUID?) {
+        let mediaType: BatchMediaType = isVideo ? .video : .audio
+        self.items = items.map { item in
+            var newItem = BatchTimecodeItem(
+                url: item.url,
+                mediaType: mediaType,
+                detectedTimecode: item.detectedTimecode,
+                useEmbeddedTimecode: item.useEmbeddedTimecode
+            )
+            if !isVideo {
+                newItem.targetLaneId = laneId
+            }
+            return newItem
+        }
+        self.dropFrame = dropFrame
     }
 }
 

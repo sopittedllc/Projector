@@ -149,6 +149,135 @@ extension ContentView {
         }
     }
 
+    // MARK: - Unified Batch Drop Handler
+
+    /// Handle mixed video and audio files dropped together
+    ///
+    /// Creates a unified batch sheet showing all files with their detected timecodes.
+    /// Each audio file gets its own lane.
+    ///
+    /// - Parameters:
+    ///   - videoURLs: Array of video file URLs
+    ///   - audioURLs: Array of audio file URLs
+    ///   - atFrame: Target frame position for files not using embedded timecode
+    func handleMixedBatchDrop(videoURLs: [URL], audioURLs: [URL], atFrame: Int) {
+        debugPrint("handleMixedBatchDrop: ENTRY with \(videoURLs.count) videos, \(audioURLs.count) audio")
+
+        // Guard: Don't process new drops while timecode detection is in progress or a sheet is visible
+        guard !isProcessingTimecodeDetection, !showBatchTimecodeSheet, !showEmbeddedTimecodeAlert else {
+            debugPrint("handleMixedBatchDrop: BLOCKED - isProcessing=\(isProcessingTimecodeDetection), showBatch=\(showBatchTimecodeSheet), showSingle=\(showEmbeddedTimecodeAlert)")
+            return
+        }
+
+        // Set flag synchronously before starting async work
+        isProcessingTimecodeDetection = true
+        debugPrint("handleMixedBatchDrop: Set isProcessingTimecodeDetection=true")
+
+        Task { @MainActor in
+            defer {
+                // Clear processing flag when Task completes (unless a sheet is being shown)
+                if !showBatchTimecodeSheet, !showEmbeddedTimecodeAlert {
+                    isProcessingTimecodeDetection = false
+                }
+            }
+
+            // Filter out duplicate videos
+            let newVideoURLs = videoURLs.filter { url in
+                if timelineManager.timeline.videoReels.contains(where: { $0.sourceURL == url }) {
+                    Task { @MainActor in
+                        videoAlreadyInTimelineName = url.deletingPathExtension().lastPathComponent
+                        showVideoAlreadyInTimelineAlert = true
+                    }
+                    return false
+                }
+                return true
+            }
+
+            // Filter out duplicate audio (audio already in any lane)
+            let newAudioURLs = audioURLs.filter { url in
+                !timelineManager.timeline.audioLanes.contains { lane in
+                    lane.clips.contains { $0.sourceURL == url }
+                }
+            }
+
+            guard !newVideoURLs.isEmpty || !newAudioURLs.isEmpty else {
+                debugPrint("handleMixedBatchDrop: No new URLs after filtering, returning")
+                return
+            }
+
+            debugPrint("handleMixedBatchDrop: After filtering, \(newVideoURLs.count) videos, \(newAudioURLs.count) audio")
+
+            // For single video + no audio, use existing single-file flow
+            if newVideoURLs.count == 1 && newAudioURLs.isEmpty {
+                debugPrint("handleMixedBatchDrop: SINGLE VIDEO PATH")
+                await addVideoToTimeline(url: newVideoURLs[0], atFrame: atFrame)
+                return
+            }
+
+            // For single audio + no video, use existing single-file flow with new lane
+            if newAudioURLs.count == 1 && newVideoURLs.isEmpty {
+                debugPrint("handleMixedBatchDrop: SINGLE AUDIO PATH")
+                let laneNumber = timelineManager.timeline.audioLanes.count + 1
+                let newLane = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+                let clip = await addAudioToTimeline(url: newAudioURLs[0], laneId: newLane.id, atFrame: atFrame)
+                if let clip = clip {
+                    let paddingFrames = Int(20.0 * 60.0 * timelineManager.timeline.config.frameRate.fps)
+                    timelineManager.extendTimeline(toEndFrame: clip.timelineEndFrame + paddingFrames)
+                }
+                return
+            }
+
+            // For multiple files, detect timecode for all files in parallel
+            debugPrint("handleMixedBatchDrop: BATCH PATH - detecting timecode for \(newVideoURLs.count) videos, \(newAudioURLs.count) audio")
+
+            // Detect timecode for video files
+            var allItems: [BatchTimecodeItem] = []
+            if !newVideoURLs.isEmpty {
+                let videoItems = await detectTimecodeForBatch(urls: newVideoURLs, mediaType: .video)
+                allItems.append(contentsOf: videoItems)
+            }
+
+            // Detect timecode for audio files and create a lane for each
+            for url in newAudioURLs {
+                let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil)
+                let laneNumber = timelineManager.timeline.audioLanes.count + 1
+                let newLane = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+                var item = BatchTimecodeItem(url: url, mediaType: .audio, detectedTimecode: result)
+                item.targetLaneId = newLane.id
+                allItems.append(item)
+                debugPrint("handleMixedBatchDrop: Created lane '\(newLane.name)' for \(url.lastPathComponent)")
+            }
+
+            // If any file has embedded timecode, show batch sheet
+            if allItems.contains(where: { $0.hasTimecode }) {
+                await MainActor.run {
+                    pendingBatchTimecode = PendingBatchTimecode(
+                        items: allItems,
+                        dropFrame: atFrame
+                    )
+                    showBatchTimecodeSheet = true
+                }
+            } else {
+                // No timecodes found, add all files directly at sequential positions
+                debugPrint("handleMixedBatchDrop: No timecodes, adding sequentially")
+                await addVideoFilesSequentially(urls: newVideoURLs, startFrame: atFrame)
+
+                // Add audio files to their assigned lanes
+                for item in allItems where item.mediaType == .audio {
+                    if let laneId = item.targetLaneId {
+                        _ = await addAudioToTimeline(url: item.url, laneId: laneId, atFrame: atFrame, checkTimecode: false)
+                    }
+                }
+
+                // Add padding after all files
+                let paddingFrames = Int(20.0 * 60.0 * timelineManager.timeline.config.frameRate.fps)
+                if let lastReel = timelineManager.timeline.videoReels.last {
+                    timelineManager.extendTimeline(toEndFrame: lastReel.timelineEndFrame + paddingFrames)
+                }
+            }
+        }
+    }
+
     // MARK: - Media Library Handlers
 
     /// Handle media item double-clicked to add to video track
@@ -761,14 +890,16 @@ extension ContentView {
     // MARK: - Batch Timecode Detection
 
     /// Detect embedded timecode for multiple files in parallel
-    /// - Parameter urls: Array of file URLs to check
+    /// - Parameters:
+    ///   - urls: Array of file URLs to check
+    ///   - mediaType: The media type for these files (video or audio)
     /// - Returns: Array of BatchTimecodeItem with detected timecodes
-    func detectTimecodeForBatch(urls: [URL]) async -> [BatchTimecodeItem] {
+    func detectTimecodeForBatch(urls: [URL], mediaType: BatchMediaType = .video) async -> [BatchTimecodeItem] {
         await withTaskGroup(of: BatchTimecodeItem.self, returning: [BatchTimecodeItem].self) { group in
             for url in urls {
                 group.addTask {
                     let result = await self.embeddedTimecodeService.detectTimecode(from: url, bookmark: nil)
-                    return BatchTimecodeItem(url: url, detectedTimecode: result)
+                    return BatchTimecodeItem(url: url, mediaType: mediaType, detectedTimecode: result)
                 }
             }
 
@@ -884,8 +1015,8 @@ extension ContentView {
         // Capture batch state before clearing
         let items = batch.items
         let dropFrame = batch.dropFrame
-        let isVideo = batch.isVideo
-        let laneId = batch.laneId
+        let videoItems = batch.videoItems
+        let audioItems = batch.audioItems
 
         // Keep processing flag set and dismiss sheet
         // Note: isProcessingTimecodeDetection should already be true from drop handler
@@ -893,10 +1024,12 @@ extension ContentView {
         pendingBatchTimecode = nil
 
         Task {
-            // Handle setting timeline start if requested (only for first file with timecode that's using it)
+            let timelineFPS = timelineManager.timeline.config.frameRate.fps
+
+            // Handle setting timeline start if requested (only for first video file with timecode that's using it)
             var didSetTimelineStart = false
-            if setTimelineStart, isVideo {
-                if let firstWithTC = items.first(where: { $0.hasTimecode && $0.useEmbeddedTimecode }),
+            if setTimelineStart, !videoItems.isEmpty {
+                if let firstWithTC = videoItems.first(where: { $0.hasTimecode && $0.useEmbeddedTimecode }),
                    let result = firstWithTC.detectedTimecode {
                     await MainActor.run {
                         var config = timelineManager.timeline.config
@@ -911,65 +1044,81 @@ extension ContentView {
                 }
             }
 
-            // Process each file according to user's choice
-            var nextSequentialFrame = dropFrame
+            // Calculate first video timecode frames for relative positioning when timeline start is set
+            var firstVideoTimecodeFrames: Int?
+            if didSetTimelineStart,
+               let firstWithTC = videoItems.first(where: { $0.hasTimecode && $0.useEmbeddedTimecode }),
+               let firstResult = firstWithTC.detectedTimecode {
+                firstVideoTimecodeFrames = firstResult.convertedFrames(to: timelineFPS)
+            }
 
-            for item in items {
+            // Process video items
+            var nextVideoFrame = dropFrame
+            for item in videoItems {
                 let targetFrame: Int
 
                 if item.useEmbeddedTimecode, let result = item.detectedTimecode {
-                    // Place at embedded timecode position
-                    let timelineFPS = timelineManager.timeline.config.frameRate.fps
-                    if didSetTimelineStart {
-                        // Timeline start was set to first file's TC, so place relative to timeline start (frame 0)
-                        if let firstWithTC = items.first(where: { $0.hasTimecode && $0.useEmbeddedTimecode }),
-                           let firstResult = firstWithTC.detectedTimecode {
-                            // Calculate offset from first file's timecode
-                            let firstFrames = firstResult.convertedFrames(to: timelineFPS)
-                            let thisFrames = result.convertedFrames(to: timelineFPS)
-                            targetFrame = thisFrames - firstFrames
-                        } else {
-                            targetFrame = result.convertedFrames(to: timelineFPS)
-                        }
+                    let thisFrames = result.convertedFrames(to: timelineFPS)
+                    if let firstFrames = firstVideoTimecodeFrames {
+                        // Place relative to timeline start (frame 0)
+                        targetFrame = thisFrames - firstFrames
                     } else {
-                        targetFrame = result.convertedFrames(to: timelineFPS)
+                        targetFrame = thisFrames
                     }
                 } else {
-                    // Place at sequential position (drop frame or after previous clip)
-                    targetFrame = nextSequentialFrame
+                    targetFrame = nextVideoFrame
                 }
 
-                if isVideo {
-                    // Skip duplicates
-                    if !timelineManager.timeline.videoReels.contains(where: { $0.sourceURL == item.url }) {
-                        await addVideoToTimeline(url: item.url, atFrame: targetFrame, checkTimecode: false)
+                // Skip duplicates
+                if !timelineManager.timeline.videoReels.contains(where: { $0.sourceURL == item.url }) {
+                    await addVideoToTimeline(url: item.url, atFrame: targetFrame, checkTimecode: false)
 
-                        // Update sequential frame for next file
-                        if let lastReel = timelineManager.timeline.videoReels.last(where: { $0.sourceURL == item.url }) {
-                            nextSequentialFrame = lastReel.timelineEndFrame
-                        }
-                    }
-                } else if let laneId = laneId {
-                    if let clip = await addAudioToTimeline(url: item.url, laneId: laneId, atFrame: targetFrame, checkTimecode: false) {
-                        nextSequentialFrame = clip.timelineEndFrame
+                    // Update sequential frame for next file
+                    if let lastReel = timelineManager.timeline.videoReels.last(where: { $0.sourceURL == item.url }) {
+                        nextVideoFrame = lastReel.timelineEndFrame
                     }
                 }
             }
 
-            // Add padding after all files
-            let paddingFrames = Int(20.0 * 60.0 * timelineManager.timeline.config.frameRate.fps)
-            if isVideo {
-                if let lastReel = timelineManager.timeline.videoReels.last {
-                    await MainActor.run {
-                        timelineManager.extendTimeline(toEndFrame: lastReel.timelineEndFrame + paddingFrames)
-                    }
+            // Process audio items - each goes to its own assigned lane
+            for item in audioItems {
+                guard let laneId = item.targetLaneId else {
+                    debugPrint("handleBatchTimecodeConfirm: Audio item \(item.url.lastPathComponent) has no targetLaneId, skipping")
+                    continue
                 }
-            } else if let laneId = laneId {
-                if let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
-                   let lastClip = lane.clips.last {
-                    await MainActor.run {
-                        timelineManager.extendTimeline(toEndFrame: lastClip.timelineEndFrame + paddingFrames)
+
+                let targetFrame: Int
+                if item.useEmbeddedTimecode, let result = item.detectedTimecode {
+                    let thisFrames = result.convertedFrames(to: timelineFPS)
+                    if let firstFrames = firstVideoTimecodeFrames {
+                        // Place relative to timeline start (frame 0) when video set the timeline start
+                        targetFrame = thisFrames - firstFrames
+                    } else {
+                        targetFrame = thisFrames
                     }
+                } else {
+                    targetFrame = dropFrame
+                }
+
+                _ = await addAudioToTimeline(url: item.url, laneId: laneId, atFrame: targetFrame, checkTimecode: false)
+            }
+
+            // Add padding after all files
+            let paddingFrames = Int(20.0 * 60.0 * timelineFPS)
+            var maxEndFrame = 0
+
+            if let lastReel = timelineManager.timeline.videoReels.last {
+                maxEndFrame = max(maxEndFrame, lastReel.timelineEndFrame)
+            }
+            for lane in timelineManager.timeline.audioLanes {
+                if let lastClip = lane.clips.last {
+                    maxEndFrame = max(maxEndFrame, lastClip.timelineEndFrame)
+                }
+            }
+
+            if maxEndFrame > 0 {
+                await MainActor.run {
+                    timelineManager.extendTimeline(toEndFrame: maxEndFrame + paddingFrames)
                 }
             }
 

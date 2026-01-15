@@ -147,6 +147,11 @@ extension ContentView {
             handleAudioDropOnTimeline(laneIndex, urls, atFrame, false)
         }
 
+        // Unified batch import for mixed video/audio files
+        mediaImportCoordinator.onImportMixedBatch = { [self] videoURLs, audioURLs, atFrame in
+            handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: atFrame)
+        }
+
         mediaImportCoordinator.onCreateAudioLane = { [self] in
             let laneNumber = timelineManager.timeline.audioLanes.count + 1
             return timelineManager.addAudioLane(name: "Audio \(laneNumber)")
