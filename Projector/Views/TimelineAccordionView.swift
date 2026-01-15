@@ -158,6 +158,12 @@ struct TimelineAccordionView: View {
             .fill(Color.clear)
             .frame(height: 12)
             .contentShape(Rectangle())
+            .overlay {
+                // Visible drag indicator line
+                Rectangle()
+                    .fill(isResizingTimeline ? Color.accentColor : Color.white.opacity(0.25))
+                    .frame(height: 1)
+            }
             .onHover { hovering in
                 guard !isResizingTimeline else { return }
                 if hovering, !isHoveringTimelineResize {

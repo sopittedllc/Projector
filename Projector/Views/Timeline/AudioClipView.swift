@@ -6,6 +6,7 @@ import Iconoir
 struct AudioClipView: View {
     let clip: AudioClip
     let lane: AudioLane
+    let laneIndex: Int
     let isActive: Bool
     let pixelsPerFrame: CGFloat
     let frameRate: TimecodeFrameRate
@@ -149,12 +150,11 @@ struct AudioClipView: View {
     }
 
     private var laneColor: Color {
-        // Use lane ID to get consistent color
+        // Use lane index for consistent, sequential coloring
         let colors: [Color] = [
             .blue, .green, .orange, .purple, .pink, .cyan, .mint, .indigo
         ]
-        let index = abs(lane.id.hashValue) % colors.count
-        return colors[index]
+        return colors[laneIndex % colors.count]
     }
 
     private var borderColor: Color {
@@ -288,6 +288,7 @@ private struct WaveformBarsView: Shape {
                 sourceType: .audioFile
             ),
             lane: AudioLane(name: "Audio 1"),
+            laneIndex: 0,
             isActive: true,
             pixelsPerFrame: 0.5,
             frameRate: .fps24,
@@ -311,6 +312,7 @@ private struct WaveformBarsView: Shape {
                 isMuted: true
             ),
             lane: AudioLane(name: "Audio 2"),
+            laneIndex: 1,
             isActive: false,
             pixelsPerFrame: 0.5,
             frameRate: .fps24,

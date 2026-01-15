@@ -369,6 +369,7 @@ struct AudioLaneView: View {
             AudioClipView(
                 clip: clip,
                 lane: lane,
+                laneIndex: laneIndex,
                 isActive: activeClipIds.contains(clip.id),
                 pixelsPerFrame: pixelsPerFrame,
                 frameRate: frameRate,
