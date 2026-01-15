@@ -352,8 +352,16 @@ struct ContentView: View {
                 overlayOpacity: settings.timecodeOverlayOpacity,
                 extraTrailingPadding: settings.timecodeOverlayPosition == .bottomRight ? 50 : 0
             )
-            .onDrop(of: [UTType.fileURL, UTType.url], isTargeted: $isPlaybackDropTargeted) { providers in
-                mediaImportCoordinator.handleDrop(providers: providers)
+            .onDrop(of: [UTType.fileURL, UTType.url, UTType.projectorMediaItem], isTargeted: $isPlaybackDropTargeted) { providers in
+                // Check for internal drag from media panel first
+                if dragContext.isDragging && !dragContext.mediaItems.isEmpty {
+                    let urls = dragContext.mediaItems.map { $0.url }
+                    handlePlaybackAreaDrop(urls: urls)
+                    dragContext.end()
+                    return true
+                }
+                // Fall back to external drop handling
+                return mediaImportCoordinator.handleDrop(providers: providers)
             }
             .overlay {
                 DropTargetOverlay(isTargeted: $isPlaybackDropTargeted)
@@ -442,6 +450,9 @@ struct ContentView: View {
                             let laneNumber = timelineManager.timeline.audioLanes.count + 1
                             _ = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
                             timelineViewModel.expandIfNeeded()
+                        },
+                        onDropMixedMedia: { videoURLs, audioURLs, atFrame in
+                            handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: atFrame)
                         }
                     )
                     .padding(.horizontal, Spacing.lg)

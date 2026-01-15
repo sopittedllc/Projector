@@ -149,6 +149,33 @@ extension ContentView {
         }
     }
 
+    // MARK: - Playback Area Drop Handler
+
+    /// Handle files dropped on the playback area (video player)
+    ///
+    /// This accepts both internal drags from the media panel and external files.
+    /// Files are processed through the unified batch handler at frame 0.
+    ///
+    /// - Parameter urls: Array of file URLs to import
+    func handlePlaybackAreaDrop(urls: [URL]) {
+        // Separate video and audio URLs
+        var videoURLs: [URL] = []
+        var audioURLs: [URL] = []
+
+        for url in urls {
+            guard let mediaType = ProjectMediaLibrary.mediaType(for: url) else { continue }
+            switch mediaType {
+            case .video:
+                videoURLs.append(url)
+            case .audio:
+                audioURLs.append(url)
+            }
+        }
+
+        // Use the unified batch handler at frame 0
+        handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: 0)
+    }
+
     // MARK: - Unified Batch Drop Handler
 
     /// Handle mixed video and audio files dropped together

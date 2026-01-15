@@ -55,6 +55,13 @@ struct FileManagerView: View {
     // Focus state for keyboard commands
     @FocusState private var isMediaListFocused: Bool
 
+    // Marquee selection state
+    @State private var isMarqueeSelecting = false
+    @State private var marqueeStartPoint: CGPoint = .zero
+    @State private var marqueeCurrentPoint: CGPoint = .zero
+    @State private var itemFrames: [UUID: CGRect] = [:]
+    @State private var scrollContentOffset: CGFloat = 0
+
 
     var body: some View {
         VStack(spacing: 0) {
@@ -333,29 +340,111 @@ struct FileManagerView: View {
     }
 
     private var itemsList: some View {
-        ScrollView(.horizontal, showsIndicators: true) {
-            HStack(spacing: 8) {
-                ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
-                    MediaGridCell(
-                        item: item,
-                        isSelected: selectedItemIds.contains(item.id),
-                        selectedItems: selectedItemIds.contains(item.id) ?
-                            mediaLibrary.items.filter { selectedItemIds.contains($0.id) } : [item],
-                        onSelect: {
-                            handleSelect(item: item, index: index)
-                        },
-                        onDoubleClick: { handleDoubleClick(item) },
-                        onDragStateChange: { isDragging in
-                            if isDragging {
-                                isDraggingFromLibrary = true
+        GeometryReader { outerGeometry in
+            ScrollView(.horizontal, showsIndicators: true) {
+                HStack(spacing: 8) {
+                    ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
+                        MediaGridCell(
+                            item: item,
+                            isSelected: selectedItemIds.contains(item.id),
+                            selectedItems: selectedItemIds.contains(item.id) ?
+                                mediaLibrary.items.filter { selectedItemIds.contains($0.id) } : [item],
+                            onSelect: {
+                                handleSelect(item: item, index: index)
+                            },
+                            onDoubleClick: { handleDoubleClick(item) },
+                            onDragStateChange: { isDragging in
+                                if isDragging {
+                                    isDraggingFromLibrary = true
+                                }
+                            }
+                        )
+                        .background(
+                            GeometryReader { cellGeometry in
+                                Color.clear
+                                    .onAppear {
+                                        // Store frame in coordinate space of scroll content
+                                        itemFrames[item.id] = cellGeometry.frame(in: .named("mediaScrollContent"))
+                                    }
+                                    .onChange(of: cellGeometry.frame(in: .named("mediaScrollContent"))) { _, newFrame in
+                                        itemFrames[item.id] = newFrame
+                                    }
+                            }
+                        )
+                    }
+                }
+                .padding(8)
+                .coordinateSpace(name: "mediaScrollContent")
+            }
+            .scrollIndicators(.visible)
+            .coordinateSpace(name: "mediaScrollOuter")
+            // Marquee selection gesture - use simultaneous gesture to not block scrolling
+            .gesture(
+                DragGesture(minimumDistance: 5, coordinateSpace: .named("mediaScrollOuter"))
+                    .onChanged { value in
+                        // Only start marquee if shift is held or we're clicking on empty space
+                        if !isMarqueeSelecting {
+                            // Start marquee selection
+                            isMarqueeSelecting = true
+                            marqueeStartPoint = value.startLocation
+                            // Clear selection if not holding shift
+                            if !NSEvent.modifierFlags.contains(.shift) {
+                                selectedItemIds.removeAll()
                             }
                         }
-                    )
+                        marqueeCurrentPoint = value.location
+                        updateMarqueeSelection()
+                    }
+                    .onEnded { _ in
+                        isMarqueeSelecting = false
+                    }
+            )
+            // Marquee selection overlay
+            .overlay {
+                if isMarqueeSelecting {
+                    marqueeSelectionRectangle
+                        .allowsHitTesting(false)
                 }
             }
-            .padding(8)
         }
-        .scrollIndicators(.visible)
+    }
+
+    /// Computed marquee rectangle in view coordinates
+    private var marqueeRect: CGRect {
+        let minX = min(marqueeStartPoint.x, marqueeCurrentPoint.x)
+        let minY = min(marqueeStartPoint.y, marqueeCurrentPoint.y)
+        let maxX = max(marqueeStartPoint.x, marqueeCurrentPoint.x)
+        let maxY = max(marqueeStartPoint.y, marqueeCurrentPoint.y)
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    /// Selection rectangle overlay view
+    private var marqueeSelectionRectangle: some View {
+        Rectangle()
+            .stroke(Color.accentColor, lineWidth: 1)
+            .background(Color.accentColor.opacity(0.1))
+            .frame(width: marqueeRect.width, height: marqueeRect.height)
+            .position(x: marqueeRect.midX, y: marqueeRect.midY)
+    }
+
+    /// Update selection based on items intersecting with marquee rectangle
+    private func updateMarqueeSelection() {
+        var newSelection: Set<UUID> = []
+
+        // If shift is held, start with existing selection
+        if NSEvent.modifierFlags.contains(.shift) {
+            newSelection = selectedItemIds
+        }
+
+        // Check each item's frame against the marquee rectangle
+        for (itemId, frame) in itemFrames {
+            // Adjust frame to account for scroll position if needed
+            if marqueeRect.intersects(frame) {
+                newSelection.insert(itemId)
+            }
+        }
+
+        selectedItemIds = newSelection
     }
 
     private var dropOverlay: some View {

@@ -45,6 +45,9 @@ struct TimelineAccordionView: View {
     /// Called when user wants to add a new audio lane
     var onAddAudioLane: () -> Void
 
+    /// Called when mixed video/audio files are dropped on the timeline
+    var onDropMixedMedia: (([URL], [URL], Int) -> Void)?
+
     @State private var isResizingTimeline = false
     @State private var isHoveringTimelineResize = false
     @State private var timelineDragStartHeight: CGFloat = 0
@@ -142,6 +145,7 @@ struct TimelineAccordionView: View {
             mediaLibrary: mediaLibrary,
             onDropVideoMedia: onDropVideoMedia,
             onDropAudioMedia: onDropAudioMedia,
+            onDropMixedMedia: onDropMixedMedia,
             onSeek: onSeek,
             onSettingsPressed: onSettingsPressed,
             showHeader: false,

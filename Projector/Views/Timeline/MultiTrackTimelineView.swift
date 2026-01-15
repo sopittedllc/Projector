@@ -37,6 +37,8 @@ struct MultiTrackTimelineView: View {
     @Environment(\.undoManager) private var undoManager
     let onDropVideoMedia: ([URL], Int, Bool) -> Void
     let onDropAudioMedia: (Int, [URL], Int, Bool) -> Void
+    /// Called when mixed video/audio files are dropped on the timeline
+    var onDropMixedMedia: (([URL], [URL], Int) -> Void)?
     let onSeek: (Int) -> Void
     let onSettingsPressed: () -> Void
     var showHeader: Bool = true
@@ -79,6 +81,9 @@ struct MultiTrackTimelineView: View {
     @State private var linkedDragPreview: LinkedDragPreview?
     @State private var laneChangePreview: LaneChangePreview?
 
+    // Unified multi-file drop state
+    @State private var isMultiFileDropTargeted = false
+
     // MARK: - Constants
 
     /// Height for the inactive "new lane" drop target
@@ -116,6 +121,11 @@ struct MultiTrackTimelineView: View {
     /// Active audio clip IDs - uses cached value to avoid recalculation on scroll
     private var activeAudioClipIds: Set<UUID> {
         cachedActiveAudioClipIds
+    }
+
+    /// Whether we're dragging multiple items from the media panel
+    private var isMultiFileDrag: Bool {
+        dragContext.mediaItems.count > 1
     }
 
     /// Update cached active audio clip IDs when frame changes
@@ -930,7 +940,77 @@ struct MultiTrackTimelineView: View {
                 playhead(pixelsPerFrame: ppf, totalHeight: geometry.size.height)
                     .allowsHitTesting(false)
             }
+            // Unified multi-file drop overlay (shown when dragging multiple files)
+            .overlay {
+                if isMultiFileDrag && isMultiFileDropTargeted {
+                    multiFileDropOverlay
+                }
+            }
+            // Drop target for multi-file drops
+            .onDrop(of: [UTType.fileURL, UTType.url, UTType.projectorMediaItem], isTargeted: $isMultiFileDropTargeted) { providers in
+                // Only handle multi-file drops from media panel here
+                guard isMultiFileDrag else { return false }
+
+                let urls = dragContext.mediaItems.map { $0.url }
+                var videoURLs: [URL] = []
+                var audioURLs: [URL] = []
+
+                for url in urls {
+                    guard let mediaType = ProjectMediaLibrary.mediaType(for: url) else { continue }
+                    switch mediaType {
+                    case .video:
+                        videoURLs.append(url)
+                    case .audio:
+                        audioURLs.append(url)
+                    }
+                }
+
+                if let onDropMixedMedia = onDropMixedMedia {
+                    onDropMixedMedia(videoURLs, audioURLs, 0)
+                }
+                dragContext.end()
+                return true
+            }
         }
+    }
+
+    /// Overlay shown when dragging multiple files to the timeline
+    private var multiFileDropOverlay: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.accentColor.opacity(0.15))
+
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [8, 4]))
+
+            VStack(spacing: 8) {
+                Image(systemName: "doc.on.doc.fill")
+                    .font(.system(size: 32))
+                    .foregroundColor(.accentColor)
+
+                Text("Drop \(dragContext.mediaItems.count) files to add to timeline")
+                    .font(.headline)
+                    .foregroundColor(.accentColor)
+
+                let videoCount = dragContext.mediaItems.filter { $0.type == .video }.count
+                let audioCount = dragContext.mediaItems.filter { $0.type == .audio }.count
+                if videoCount > 0 || audioCount > 0 {
+                    HStack(spacing: 12) {
+                        if videoCount > 0 {
+                            Label("\(videoCount) video", systemImage: "film")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        if audioCount > 0 {
+                            Label("\(audioCount) audio", systemImage: "waveform")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .allowsHitTesting(false)
     }
 
     // Simple playhead using offset positioning (more efficient than .position())
