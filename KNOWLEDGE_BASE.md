@@ -1340,6 +1340,842 @@ This works because:
 
 ---
 
+### GP-020: macOS Audio Interface Architecture (Foundational Guide)
+**Added**: 2026-01-15
+**Source**: Apple CoreAudio Documentation, OBS Studio, WWDC Sessions 501/502/510
+**Category**: Audio / CoreAudio / AVAudioEngine
+
+This is the **definitive reference** for macOS audio device management - enumeration, selection, hot-plugging, and AVAudioEngine integration.
+
+---
+
+#### Part 1: CoreAudio Device Enumeration
+
+##### Property-Based Architecture
+
+CoreAudio uses a **tree-structured object model** with the root element `kAudioObjectSystemObject`. All device interaction happens through property queries using `AudioObjectPropertyAddress`:
+
+```swift
+struct AudioObjectPropertyAddress {
+    var mSelector: AudioObjectPropertySelector  // e.g., kAudioHardwarePropertyDevices
+    var mScope: AudioObjectPropertyScope        // e.g., kAudioObjectPropertyScopeGlobal
+    var mElement: AudioObjectPropertyElement    // e.g., kAudioObjectPropertyElementMain
+}
+```
+
+**Critical Property Selectors:**
+- `kAudioHardwarePropertyDevices` - Enumerate all connected devices
+- `kAudioDevicePropertyDeviceUID` - Persistent device identifier (survives reboots)
+- `kAudioDevicePropertyDeviceID` - Session-scoped device identifier (ephemeral)
+- `kAudioDevicePropertyDeviceName` - Human-readable device name
+- `kAudioHardwarePropertyDefaultOutputDevice` - System default output
+
+##### Core Enumeration Pattern
+
+```c
+// Step 1: Get device list size
+AudioObjectPropertyAddress addr = {
+    .mSelector = kAudioHardwarePropertyDevices,
+    .mScope = kAudioObjectPropertyScopeGlobal,
+    .mElement = kAudioObjectPropertyElementMain
+};
+
+UInt32 size = 0;
+AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &addr, 0, NULL, &size);
+
+// Step 2: Allocate and retrieve device IDs
+AudioDeviceID *ids = malloc(size);
+UInt32 count = size / sizeof(AudioDeviceID);
+AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &size, ids);
+
+// Step 3: Query each device
+for (UInt32 i = 0; i < count; i++) {
+    // Query device properties for ids[i]
+}
+```
+
+**Key Implementation Details:**
+- Always call `AudioObjectGetPropertyDataSize()` first to allocate correct buffer
+- Memory returned by CoreAudio (like CFString) must be CFReleased
+
+---
+
+#### Part 2: AudioDeviceID vs UID - When to Use Each
+
+| Identifier | Scope | Persistence | Use Case |
+|-----------|-------|-------------|----------|
+| **AudioDeviceID** | Session | Lost on app restart | Runtime operations |
+| **Device UID** | Permanent | Survives reboots | User preferences storage |
+
+##### Best Practice Pattern
+
+```swift
+// Store: Always use UID
+let deviceUID = getDeviceUID(from: deviceID)
+UserDefaults.standard.set(deviceUID, forKey: "preferredAudioOutputUID")
+
+// Retrieve: Must convert UID back to ID
+if let storedUID = UserDefaults.standard.string(forKey: "preferredAudioOutputUID"),
+   let newDeviceID = deviceIDFromUID(storedUID) {
+    setCurrentDevice(newDeviceID)
+} else {
+    useSystemDefaultDevice()  // Fallback if device disconnected
+}
+```
+
+**Critical Issue:** AudioDeviceID becomes stale after:
+- Device unplug/replug
+- App restart
+- System sleep/wake
+
+---
+
+#### Part 3: Hot-Plugging Detection
+
+##### Property Listener Registration
+
+```c
+// Register listener for device addition/removal
+AudioObjectPropertyAddress addr = {
+    .mSelector = kAudioHardwarePropertyDevices,
+    .mScope = kAudioObjectPropertyScopeGlobal,
+    .mElement = kAudioObjectPropertyElementMain
+};
+
+AudioObjectAddPropertyListener(
+    kAudioObjectSystemObject,
+    &addr,
+    deviceListChangedCallback,
+    NULL
+);
+```
+
+##### Critical Listener Cleanup
+
+**Major crash source if not done correctly:**
+
+```c
+// MUST match the EXACT address used during registration
+AudioObjectRemovePropertyListener(
+    kAudioObjectSystemObject,
+    &addr,  // Same scope/element as registration
+    deviceListChangedCallback,
+    NULL
+);
+
+// Common bug: Different scope/element = listener NOT removed = crash
+```
+
+---
+
+#### Part 4: Device Selection at Runtime
+
+##### Setting Device via AudioUnit
+
+```swift
+// Get output node's underlying audio unit
+guard let audioUnit = audioEngine.outputNode.audioUnit else { return }
+
+// Set device ID
+var deviceID: AudioDeviceID = targetDeviceID
+AudioUnitSetProperty(
+    audioUnit,
+    kAudioOutputUnitProperty_CurrentDevice,
+    kAudioUnitScope_Global,
+    0,
+    &deviceID,
+    UInt32(MemoryLayout<AudioDeviceID>.size)
+)
+```
+
+##### System Default vs Specific Device
+
+```swift
+enum AudioOutputDevice {
+    case systemDefault  // Maps to kAudioHardwarePropertyDefaultOutputDevice
+    case specific(deviceUID: String)
+}
+
+func applyOutputSelection(_ device: AudioOutputDevice) {
+    switch device {
+    case .systemDefault:
+        // Don't set kAudioOutputUnitProperty_CurrentDevice
+        break
+    case .specific(let uid):
+        if let deviceID = deviceIDFromUID(uid) {
+            // Set specific device
+        }
+    }
+}
+```
+
+---
+
+#### Part 5: AVAudioEngine Integration
+
+##### Critical Limitation
+
+**AVAudioEngine on macOS is restricted to a single audio device** for both input and output simultaneously. For different input/output devices, use Core Audio directly.
+
+##### Configuration Change Notification
+
+```swift
+NotificationCenter.default.addObserver(
+    self,
+    selector: #selector(handleAudioEngineConfigurationChange),
+    name: .AVAudioEngineConfigurationChange,
+    object: audioEngine
+)
+
+@objc func handleAudioEngineConfigurationChange() {
+    // Device disconnected, sample rate changed, or route changed
+    audioEngine.stop()
+    // Rebuild audio graph
+    try? audioEngine.start()
+}
+```
+
+---
+
+#### Part 6: Thread Safety
+
+##### Safe Operations (No Locking Required)
+- Reading simple numeric properties
+- AudioDeviceID comparison
+- Property listener registration/removal
+
+##### NOT Thread-Safe (Require Synchronization)
+- Writing multiple properties simultaneously
+- Modifying device list during enumeration
+- Changing device while rendering
+
+##### MIDI Callback Constraints
+
+**Never do in MIDI/audio callbacks:**
+- Allocate memory
+- Call pthread_mutex_lock
+- Call into Objective-C runtime
+- dispatch_async
+
+---
+
+#### Part 7: Common Pitfalls
+
+##### Pitfall 1: Stale Device IDs
+
+```swift
+// ❌ DANGEROUS - ID becomes invalid
+var currentDeviceID: AudioDeviceID = 0
+
+// ✅ CORRECT - Use UID
+var preferredDeviceUID: String = ""
+```
+
+##### Pitfall 2: Property Address Mismatch
+
+```c
+// ❌ Registered with Global, removed with Output = LEAK
+addr.mScope = kAudioObjectPropertyScopeGlobal;  // Registration
+removeAddr.mScope = kAudioObjectPropertyScopeOutput;  // Removal - WRONG!
+```
+
+##### Pitfall 3: Device Change During Playback
+
+```swift
+// ❌ DANGEROUS - Format mismatch
+AudioUnitSetProperty(outputNode.audioUnit, kAudioOutputUnitProperty_CurrentDevice, ...)
+// Audio corrupted!
+
+// ✅ CORRECT - Stop, change, restart
+audioEngine.stop()
+AudioUnitSetProperty(...)
+try audioEngine.start()
+```
+
+---
+
+#### Sources
+
+- [Apple CoreAudio Documentation](https://developer.apple.com/documentation/coreaudio)
+- [WWDC 2014 Session 501 - What's New in Core Audio](https://asciiwwdc.com/2014/sessions/501/)
+- [WWDC 2014 Session 502 - AVAudioEngine in Practice](https://asciiwwdc.com/2014/sessions/502/)
+- [OBS Studio macOS Audio Device Enumeration](https://github.com/obsproject/obs-studio)
+- [kAudioOutputUnitProperty_CurrentDevice](https://developer.apple.com/documentation/audiotoolbox/kaudiooutputunitproperty_currentdevice)
+
+---
+
+### GP-021: macOS Audio Routing Architecture (Foundational Guide)
+**Added**: 2026-01-15
+**Source**: Apple AVAudioEngine Documentation, Audio Unit Programming Guide
+**Category**: Audio / Channel Routing / Multi-Output
+
+This is the **definitive reference** for macOS audio channel routing - channel maps, stereo pairs, device-specific persistence, and multi-output configuration.
+
+---
+
+#### Part 1: Channel Mapping Core Concepts
+
+##### The Channel Map Array
+
+Channel mapping describes how input channels map to output channels:
+
+```
+Input Channels:  [0, 1]
+                  |  |
+Channel Map:    [0, 1, -1, -1]
+                  |  |   |   |
+Output Channels:[L, R, Ch3, Ch4]
+```
+
+**Key Rules:**
+- Each array index = output channel
+- Array value = which input channel feeds it (-1 = silent)
+- Array length MUST match hardware output channel count
+- Single input can route to multiple outputs
+
+##### Implementation via AudioUnit
+
+```swift
+// Query hardware output channel count
+let outputChannelCount = Int(outputNode.outputFormatForBus(0).channelCount)
+
+// Create map array
+var channelMap = [SInt32](repeating: -1, count: outputChannelCount)
+channelMap[0] = 0  // Output 0 <- Input 0
+channelMap[1] = 1  // Output 1 <- Input 1
+
+// Apply to output unit
+AudioUnitSetProperty(
+    outputNode.audioUnit,
+    kAudioOutputUnitProperty_ChannelMap,
+    kAudioUnitScope_Global,
+    0,
+    &channelMap,
+    UInt32(MemoryLayout<SInt32>.size * channelMap.count)
+)
+```
+
+**Critical Constraint:** Channel mapping ONLY works on output units (`AVAudioEngine.outputNode`), NOT on mixer nodes.
+
+---
+
+#### Part 2: AVAudioEngine Graph Architecture
+
+##### The Graph Model
+
+```
+Source Nodes              Processing              Destination
+(AVAudioPlayerNode)       (AVAudioMixerNode)     (outputNode)
+        |                       |                      |
+        +---> Bus 0 ---+        |                      |
+        |              |------> Mixer -------> outputNode ---> Hardware
+        +---> Bus 1 ---+     (format         (channel map)
+                            conversion)
+```
+
+##### Node Types
+
+1. **Source Nodes**: `AVAudioPlayerNode`, `AVAudioInputNode`
+2. **Processing Nodes**: `AVAudioMixerNode`, `AVAudioUnitEQ`
+3. **Output Node**: `outputNode` (routes to hardware)
+
+---
+
+#### Part 3: Multi-Channel Format Creation
+
+##### The kAudioChannelLayoutTag_Unknown Pattern
+
+For arbitrary channel counts (not standard layouts like stereo or 5.1):
+
+```swift
+let channelCount: UInt32 = 8
+let layoutTag = kAudioChannelLayoutTag_Unknown | channelCount
+
+var layout = AudioChannelLayout()
+layout.mChannelLayoutTag = layoutTag
+layout.mChannelBitmap = 0
+layout.mNumberChannelDescriptions = 0
+
+let avLayout = AVAudioChannelLayout(layout: &layout)
+let format = AVAudioFormat(
+    commonFormat: .pcmFormatFloat32,
+    sampleRate: 48000,
+    interleaved: false,
+    channelLayout: avLayout
+)
+```
+
+**Why This Works:**
+- Standard layout tags (stereo, 5.1) have fixed channel counts
+- `kAudioChannelLayoutTag_Unknown | N` allows any channel count
+- Required for professional multi-channel interfaces
+
+---
+
+#### Part 4: Stereo Pairs for Professional Workflows
+
+##### The Stereo Pair Abstraction
+
+Professional interfaces expose channels as logical pairs:
+
+```
+Physical Channels    Logical Pairs
+─────────────────    ─────────────
+[0, 1]          →    Main L/R (speakers)
+[2, 3]          →    Headphones
+[4, 5]          →    Aux Send 1
+[6, 7]          →    Aux Send 2
+```
+
+##### Routing Implementation
+
+```swift
+struct OutputPair {
+    let name: String
+    let leftChannel: Int
+    let rightChannel: Int
+}
+
+func buildChannelMap(pairs: [OutputPair], hardwareChannels: Int) -> [SInt32] {
+    var map = [SInt32](repeating: -1, count: hardwareChannels)
+    for pair in pairs {
+        if pair.leftChannel < hardwareChannels {
+            map[pair.leftChannel] = 0   // Input L
+        }
+        if pair.rightChannel < hardwareChannels {
+            map[pair.rightChannel] = 1  // Input R
+        }
+    }
+    return map
+}
+```
+
+---
+
+#### Part 5: Device-Specific Routing Persistence
+
+##### The Problem
+
+Routing configurations don't persist across device changes because:
+- Channel counts differ per device
+- Channel maps are hardware-specific arrays
+
+##### Solution: Store with Device Identity
+
+```swift
+struct RoutingConfiguration: Codable {
+    let deviceUID: String
+    let channelCount: Int
+
+    struct OutputPair: Codable {
+        let name: String
+        let leftChannelIndex: Int
+        let rightChannelIndex: Int
+    }
+
+    let outputPairs: [OutputPair]
+}
+
+// Save
+func saveRouting(_ config: RoutingConfiguration) {
+    let data = try? JSONEncoder().encode(config)
+    UserDefaults.standard.set(data, forKey: "routing_\(config.deviceUID)")
+}
+
+// Restore with validation
+func restoreRouting(forDevice device: AudioDevice) -> RoutingConfiguration? {
+    guard let data = UserDefaults.standard.data(forKey: "routing_\(device.uid)"),
+          let config = try? JSONDecoder().decode(RoutingConfiguration.self, from: data),
+          config.channelCount == device.outputChannelCount else {
+        return nil  // Config invalid for this device
+    }
+    return config
+}
+```
+
+---
+
+#### Part 6: AUMatrixMixer for M-to-N Routing
+
+For complex routing (multiple sources to multiple outputs independently):
+
+```swift
+// Create matrix mixer
+var componentDesc = AudioComponentDescription(
+    componentType: kAudioUnitType_Mixer,
+    componentSubType: kAudioUnitSubType_MatrixMixer,
+    componentManufacturer: kAudioUnitManufacturer_Apple,
+    componentFlags: 0,
+    componentFlagsMask: 0
+)
+
+// Configure: 4 inputs, 8 outputs
+AudioUnitSetProperty(matrixMixer,
+    kAudioUnitProperty_BusCount,
+    kAudioUnitScope_Input, 0, &inputCount, ...)
+AudioUnitSetProperty(matrixMixer,
+    kAudioUnitProperty_BusCount,
+    kAudioUnitScope_Output, 0, &outputCount, ...)
+
+// Set matrix element volumes
+// matrixElement[input][output] = gain
+AudioUnitSetParameter(matrixMixer,
+    kMatrixMixerParam_Volume,
+    kAudioUnitScope_Global,
+    (input << 16) | output,  // Encode input/output indices
+    gainValue, 0)
+```
+
+---
+
+#### Part 7: Common Pitfalls
+
+##### Pitfall 1: Channel Map on Wrong Node
+
+```swift
+// ❌ WRONG - Channel map doesn't work on mixer
+AudioUnitSetProperty(mainMixer.audioUnit, kAudioOutputUnitProperty_ChannelMap, ...)
+
+// ✅ CORRECT - Only on outputNode
+AudioUnitSetProperty(outputNode.audioUnit, kAudioOutputUnitProperty_ChannelMap, ...)
+```
+
+##### Pitfall 2: Array Size Mismatch
+
+```swift
+// ❌ WRONG - 4-element map for 8-channel device
+var channelMap = [SInt32](0, 1, -1, -1)  // Only 4 elements
+// AudioUnitSetProperty fails or produces garbage
+
+// ✅ CORRECT - Match hardware exactly
+let hwChannels = Int(outputNode.outputFormatForBus(0).channelCount)
+var channelMap = [SInt32](repeating: -1, count: hwChannels)
+```
+
+##### Pitfall 3: Format Mismatches
+
+```swift
+// ❌ WRONG - Different formats without mixer
+let fileFormat = file.processingFormat  // 48kHz, 2ch
+let hwFormat = outputNode.outputFormatForBus(0)  // 44.1kHz, 8ch
+engine.connect(player, to: outputNode, format: fileFormat)  // FAILS
+
+// ✅ CORRECT - Use mixer for format conversion
+engine.connect(player, to: mainMixer, format: fileFormat)
+engine.connect(mainMixer, to: outputNode, format: hwFormat)
+```
+
+---
+
+#### Part 8: The Golden Pattern
+
+**Channel Routing in macOS Audio:**
+
+1. **Query** device capabilities (channel count)
+2. **Create** channel map array (one element per output)
+3. **Validate** map size matches hardware
+4. **Apply** to `outputNode.audioUnit` via `AudioUnitSetProperty`
+5. **Connect** nodes with matching formats (mixer handles conversion)
+6. **Persist** routing with device UID for restoration
+
+---
+
+#### Sources
+
+- [AVAudioEngine and Multiroute | Apple Developer Forums](https://developer.apple.com/forums/thread/15416)
+- [Audio Unit Programming Guide](https://developer.apple.com/library/archive/documentation/MusicAudio/Conceptual/AudioUnitProgrammingGuide/)
+- [AVAudioChannelLayout Documentation](https://developer.apple.com/documentation/avfaudio/avaudiochannellayout)
+- [Create Aggregate Devices | Apple Support](https://support.apple.com/en-us/102171)
+
+---
+
+### GP-022: Sample Rate and Frame Rate Handling (Foundational Guide)
+**Added**: 2026-01-15
+**Source**: Apple AVAudioConverter Documentation, MIDI 1.0 Specification, Professional Video Standards
+**Category**: Audio / Video Sync / MTC
+
+This is the **definitive reference** for sample rate and frame rate management in professional video editing with MTC synchronization.
+
+---
+
+#### Part 1: Sample Rate Fundamentals
+
+##### Core Sample Rates
+
+| Rate | Use Case |
+|------|----------|
+| **44.1 kHz** | Consumer audio (CDs) |
+| **48 kHz** | **Professional video standard** (broadcast, film) |
+| **96 kHz** | High-resolution audio |
+| **192 kHz** | Premium high-res |
+
+**For video editing: 48 kHz is the standard** because it divides evenly into common frame rates.
+
+##### Device vs Project Sample Rate
+
+Two rates must be managed:
+1. **Device Rate** - What hardware is configured to use
+2. **Project Rate** - What the editing application expects
+
+**Critical macOS Issue:** When device sample rate changes mid-playback:
+- Audio callbacks stop entirely
+- Device must be closed and reopened
+- No graceful mid-playback rate switching
+
+---
+
+#### Part 2: Frame Rate Fundamentals
+
+##### Standard Frame Rates
+
+| Rate | Use Case | Notes |
+|------|----------|-------|
+| 24 fps | Film/cinema | Exact 24.0 or 23.976 for NTSC |
+| 25 fps | PAL video | European broadcast |
+| 29.97 fps | NTSC video | American/Japanese (30÷1.001) |
+| 30 fps | Non-broadcast HD | Less common |
+| 59.94 fps | High-frame NTSC | Sports, slow-mo |
+| 60 fps | High-frame non-broadcast | 4K, gaming |
+
+##### Drop-Frame vs Non-Drop-Frame
+
+**Non-Drop-Frame (NDF):**
+- Notation: `HH:MM:SS:FF` (all colons)
+- Counts every frame sequentially
+- Drifts from real time at 29.97 fps
+
+**Drop-Frame (DF):**
+- Notation: `HH:MM:SS;FF` (semicolon before frames)
+- **Does NOT drop actual frames** - only frame numbers
+- Drops frames 00 and 01 at each minute boundary (except every 10th minute)
+- Keeps timecode synchronized to wall-clock time
+
+---
+
+#### Part 3: The Critical Relationship - Samples Per Frame
+
+##### Basic Calculation
+
+**Samples Per Frame = Sample Rate ÷ Frame Rate**
+
+| Frame Rate | Samples/Frame at 48kHz | Notes |
+|-----------|------------------------|-------|
+| 24 fps | 2000 | Exact |
+| 25 fps | 1920 | Exact |
+| 29.97 fps | **1601.6** | FRACTIONAL |
+| 30 fps | 1600 | Exact |
+| 59.94 fps | **800.8** | FRACTIONAL |
+| 60 fps | 800 | Exact |
+
+##### The Fractional Sample Problem
+
+At 29.97 fps, each frame has 1601.6 samples. Over time:
+- 30 frames = 48,048 samples (48 extra)
+- 1000 frames = 1,600 extra samples accumulated
+
+**Professional apps MUST track fractional sample accumulation:**
+
+```swift
+var accumulatedSamples: Double = 0
+for frameNumber in 0..<totalFrames {
+    accumulatedSamples += 48000.0 / frameRate
+    let samplesThisFrame = Int(accumulatedSamples)
+    accumulatedSamples -= Double(samplesThisFrame)
+    // Process samplesThisFrame
+}
+```
+
+##### Why 48 kHz for Video
+
+48,000 is divisible by 24, 25, 30, 50, 60 - eliminating fractional samples for non-NTSC rates.
+
+---
+
+#### Part 4: MTC (MIDI Time Code) Fundamentals
+
+##### MTC Structure
+
+Timecode is encoded as 8 quarter-frame messages:
+- Hours (0-23), Minutes (0-59), Seconds (0-59), Frames (0-29)
+- Status byte: `0xF1`
+- Complete update every 2 video frames
+
+##### Frame Rate Encoding
+
+Embedded in MTC messages using 2-bit field:
+
+| Bits | Frame Rate |
+|------|-----------|
+| 00 | 24 fps |
+| 01 | 25 fps |
+| 10 | 30 fps drop-frame |
+| 11 | 30 fps non-drop-frame |
+
+##### Professional Sync Performance
+
+- Pro Tools: ±7 samples (≈0.15 ms)
+- High-quality synchronizers: ±19 samples (≈0.4 ms)
+- Achieved via quarter-frame prediction and PLL filtering
+
+---
+
+#### Part 5: Sample Rate Conversion
+
+##### AVAudioConverter (Recommended)
+
+```swift
+let converter = AVAudioConverter(from: inputFormat, to: outputFormat)
+
+converter.convert(to: outputBuffer, error: nil) { packetCount, status in
+    // Provide input samples on-demand
+    status.pointee = .haveData
+    return inputBuffer
+}
+```
+
+**Use Cases:**
+- File sample rate ≠ device sample rate
+- Multi-source mixing at different rates
+- Real-time playback conversion
+
+##### AVAudioMixerNode (Automatic)
+
+The mixer node handles sample rate conversion automatically:
+```swift
+engine.connect(player, to: mainMixer, format: fileFormat)  // 44.1kHz
+engine.connect(mainMixer, to: outputNode, format: hwFormat)  // 48kHz
+// Mixer converts 44.1→48 automatically
+```
+
+---
+
+#### Part 6: Drift and Clock Synchronization
+
+##### The Nature of Drift
+
+Clock differences accumulate:
+- 0.01% variation = 1.7 seconds drift per hour
+- 0.16% (44.1 vs 48 kHz) = 38.4 samples/hour
+
+##### PLL-Based Drift Correction
+
+```swift
+actor SyncController {
+    private var driftPLL: PhaseLockedLoop
+
+    func updateFromMTC(_ timecode: Timecode, sampleTime: Int64) {
+        let expectedSamples = frameToSampleCount(timecode.frameCount, frameRate)
+        let drift = sampleTime - Int64(expectedSamples)
+        driftPLL.update(drift: drift)
+
+        let rateAdjustment = driftPLL.getPlaybackRateAdjustment()
+        // Apply to playback engine
+    }
+}
+```
+
+---
+
+#### Part 7: Common Pitfalls
+
+##### Pitfall 1: Assuming Integer Samples Per Frame
+
+```swift
+// ❌ WRONG for 29.97 fps
+let samplesPerFrame = 48000 / 30  // = 1600, not 1601.6!
+
+// ✅ CORRECT - Track fractional accumulation
+let samplesPerFrame = 48000.0 / 29.97  // = 1601.6...
+```
+
+##### Pitfall 2: Hardcoding Frame Rate
+
+```swift
+// ❌ WRONG - Assumes 30 fps
+let frameRate = 30.0
+
+// ✅ CORRECT - Extract from MTC
+let frameRateBits = (mtcQuarterFrame >> 4) & 0x3
+let frameRate: Double = switch frameRateBits {
+    case 0: 24.0
+    case 1: 25.0
+    case 2, 3: 29.97
+    default: 30.0
+}
+```
+
+##### Pitfall 3: Not Handling Device Rate Changes
+
+```swift
+// ❌ WRONG - Ignores sample rate changes
+// App crashes or glitches
+
+// ✅ CORRECT - Listen and reconfigure
+AudioUnitAddPropertyListener(audioUnit, kAudioUnitProperty_SampleRate, ...)
+
+func handleSampleRateChange() {
+    stopAudioEngine()
+    reconfigureForNewSampleRate()
+    startAudioEngine()
+}
+```
+
+##### Pitfall 4: Drop-Frame Misunderstanding
+
+```swift
+// ❌ WRONG - Thinking DF drops actual frames
+// "Drop-frame skips video frames" - FALSE!
+
+// ✅ CORRECT - DF only drops FRAME NUMBERS
+// Frames 00, 01 are skipped in numbering at minute boundaries
+// (except every 10th minute)
+// All actual video frames are present
+```
+
+---
+
+#### Part 8: Professional Standards
+
+| Application | Sample Rate | Frame Rate | Buffer Size | Sync |
+|------------|-------------|-----------|-------------|------|
+| Film editing | 48 kHz | 24 fps | 1024-4096 | MTC/LTC |
+| Broadcast PAL | 48 kHz | 25 fps | 1024-2048 | MTC |
+| Broadcast NTSC | 48 kHz | 29.97 fps (DF) | 1024-2048 | MTC |
+| Live streaming | 48 kHz | 29.97/59.94 fps | 512-1024 | Network TC |
+
+---
+
+#### Part 9: Projector Implementation Pattern
+
+##### Sample Rate Policy
+
+1. **Project initialization**: Default 48 kHz
+2. **Device detection**: Query actual device rate
+3. **Mismatch handling**: Create AVAudioConverter, warn user
+4. **Mid-playback changes**: Pause → reconfigure → resume
+
+##### Frame-to-Sample Conversion
+
+```swift
+func frameToSampleCount(_ frameCount: Int, frameRate: Double, sampleRate: Int = 48000) -> Int {
+    // Handle fractional samples correctly
+    let accumulatedSamples = Int64(frameCount) * Int64(sampleRate)
+    return Int(accumulatedSamples / Int64(Int(frameRate * 1000)) * 1000)
+}
+```
+
+---
+
+#### Sources
+
+- [TN3136: AVAudioConverter - Sample Rate Conversions](https://developer.apple.com/documentation/technotes/tn3136)
+- [Sound on Sound - SMPTE & MTC](https://www.soundonsound.com/techniques/smpte-mtc-midi-code)
+- [David Heidelberger - Drop-Frame Timecode](https://www.davidheidelberger.com/2010/06/10/drop-frame-timecode/)
+- [Wikipedia - MIDI Timecode](https://en.wikipedia.org/wiki/MIDI_timecode)
+- [Sound Devices - Sample Rate and Frame Rate Settings](https://www.sounddevices.com/sample-rate-and-frame-rate-settings-for-production-sound/)
+
+---
+
 ## Prohibited Anti-Patterns
 
 ### AP-001: @MainActor for MIDI Processing
