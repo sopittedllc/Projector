@@ -1796,47 +1796,62 @@ struct MultiTrackTimelineView: View {
             newAudioSelection = selectedAudioClipIds
         }
 
-        // Adjust marquee rect for scroll offset and header
-        let adjustedMarqueeRect = CGRect(
-            x: marqueeRect.minX - TimelineLayout.headerWidth + scrollOffset,
-            y: marqueeRect.minY,
-            width: marqueeRect.width,
-            height: marqueeRect.height
-        )
+        // The marquee coordinates are relative to the scroll content VStack which contains:
+        // - 4px spacer at top
+        // - Video track (height: videoTrackHeight)
+        // - 1px divider
+        // - Audio lanes (each height: audioLaneHeight with 1px dividers between)
+        // - 8px spacer at bottom
+        //
+        // The X coordinate needs to account for the header width since clips are positioned
+        // starting after the header
 
-        // Check video reels (in video track area: y = rulerHeight + 4 to rulerHeight + 4 + videoTrackHeight)
-        let videoTrackTop: CGFloat = TimelineLayout.rulerHeight + 1 + 4
+        // Adjust marquee X for header (clips start after header)
+        let marqueeMinX = marqueeRect.minX - TimelineLayout.headerWidth
+        let marqueeMaxX = marqueeRect.maxX - TimelineLayout.headerWidth
+
+        // Video track Y positions in scroll content coordinates
+        let videoTrackTop: CGFloat = 4 // After 4px spacer
         let videoTrackBottom = videoTrackTop + TimelineLayout.videoTrackHeight
 
         for reel in timeline.videoReels {
             let reelX = CGFloat(reel.timelineStartFrame) * pixelsPerFrame
             let reelWidth = CGFloat(reel.durationFrames) * pixelsPerFrame
-            let reelFrame = CGRect(x: reelX, y: videoTrackTop, width: reelWidth, height: TimelineLayout.videoTrackHeight)
+            let reelMaxX = reelX + reelWidth
 
-            // Check if marquee intersects with reel (considering Y position)
-            let yOverlap = marqueeRect.minY < videoTrackBottom && marqueeRect.maxY > videoTrackTop
-            if yOverlap && adjustedMarqueeRect.intersects(CGRect(x: reelX, y: 0, width: reelWidth, height: 1)) {
+            // Check X overlap
+            let xOverlap = marqueeMaxX > reelX && marqueeMinX < reelMaxX
+            // Check Y overlap
+            let yOverlap = marqueeRect.maxY > videoTrackTop && marqueeRect.minY < videoTrackBottom
+
+            if xOverlap && yOverlap {
                 newVideoSelection.insert(reel.id)
+                debugPrint("Marquee selected video reel: \(reel.displayName)")
             }
         }
 
-        // Check audio clips (in audio lanes area)
-        var audioLaneTop = videoTrackBottom + 1 // After divider
+        // Audio lanes Y positions in scroll content coordinates
+        var audioLaneTop = videoTrackBottom + 1 // After 1px divider
         for lane in timeline.audioLanes {
             let audioLaneBottom = audioLaneTop + TimelineLayout.audioLaneHeight
 
             for clip in lane.clips {
                 let clipX = CGFloat(clip.timelineStartFrame) * pixelsPerFrame
                 let clipWidth = CGFloat(clip.durationFrames) * pixelsPerFrame
+                let clipMaxX = clipX + clipWidth
 
-                // Check if marquee intersects with clip (considering Y position)
-                let yOverlap = marqueeRect.minY < audioLaneBottom && marqueeRect.maxY > audioLaneTop
-                if yOverlap && adjustedMarqueeRect.intersects(CGRect(x: clipX, y: 0, width: clipWidth, height: 1)) {
+                // Check X overlap
+                let xOverlap = marqueeMaxX > clipX && marqueeMinX < clipMaxX
+                // Check Y overlap
+                let yOverlap = marqueeRect.maxY > audioLaneTop && marqueeRect.minY < audioLaneBottom
+
+                if xOverlap && yOverlap {
                     newAudioSelection.insert(clip.id)
+                    debugPrint("Marquee selected audio clip: \(clip.displayName) in lane \(lane.name)")
                 }
             }
 
-            audioLaneTop = audioLaneBottom + 1 // Move to next lane (with divider)
+            audioLaneTop = audioLaneBottom + 1 // Move to next lane (with 1px divider)
         }
 
         selectedVideoReelIds = newVideoSelection
@@ -1850,6 +1865,10 @@ struct MultiTrackTimelineView: View {
             selectedAudioLaneId = timeline.audioLanes.first { lane in
                 lane.clips.contains { $0.id == clipId }
             }?.id
+        }
+
+        if !newVideoSelection.isEmpty || !newAudioSelection.isEmpty {
+            debugPrint("Marquee selection: \(newVideoSelection.count) video, \(newAudioSelection.count) audio")
         }
     }
 
