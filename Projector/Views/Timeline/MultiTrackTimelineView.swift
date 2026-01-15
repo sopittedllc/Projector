@@ -1127,39 +1127,34 @@ struct MultiTrackTimelineView: View {
                     multiFileDropOverlay
                 }
             }
-            // DragCaptureView for handling multi-file drops only.
-            // For multi-file drags: returns .copy and handles the drop here.
-            // For single-file drags: returns [] so child views (AudioLaneView,
-            // VideoTrackView, newLaneDropZone) can handle them instead.
-            .overlay {
+            // DragTracker: tracks external drag item count for multi-file overlay visibility.
+            // NEVER claims drags - always returns [] so child views handle all drops.
+            // Uses .background so it's BEHIND children in z-order.
+            .background {
                 DragCaptureView(
                     onEntered: { info, _ in
-                        // Track external drag item count
+                        // Track external drag item count for overlay visibility
                         if dragContext.mediaItems.isEmpty {
                             let pasteboardItems = info.draggingPasteboard.pasteboardItems ?? []
                             externalDragItemCount = pasteboardItems.count
                         }
-                        // Only claim multi-file drags - single-file drops are handled by child views
-                        // (AudioLaneView, VideoTrackView, newLaneDropZone)
-                        return (isMultiFileDrag || externalDragItemCount > 1) ? .copy : []
+                        // NEVER claim drags - let children handle everything
+                        return []
                     },
                     onUpdated: { info, _ in
-                        // Keep tracking - cursor might move in/out of child views
+                        // Keep tracking count
                         if dragContext.mediaItems.isEmpty {
                             let pasteboardItems = info.draggingPasteboard.pasteboardItems ?? []
                             externalDragItemCount = pasteboardItems.count
                         }
-                        // Show copy cursor for multi-file, no-op for single-file
-                        // (single-file will be handled by child views)
-                        return (isMultiFileDrag || externalDragItemCount > 1) ? .copy : []
+                        return []
                     },
                     onExited: {
                         externalDragItemCount = 0
                     },
-                    onPerform: { info, _ in
-                        // Only handle multi-file drops - returns false for single-file
-                        // which signals child views should handle it
-                        handleMultiFileDropNative(info: info)
+                    onPerform: { _, _ in
+                        // Never handle drops - children do
+                        false
                     }
                 )
             }
@@ -1463,8 +1458,8 @@ struct MultiTrackTimelineView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .offset(x: -TimelineLayout.headerWidth / 2)
 
-                    // Don't show preview for multi-file drops (parent handles those)
-                    if !isMultiFileDrag, (isEmptyAudioDropAllowed || isEmptyAudioDropLoading),
+                    // Show preview for all drops (single and multi-file)
+                    if (isEmptyAudioDropAllowed || isEmptyAudioDropLoading),
                        let previewFrame = emptyAudioDropPreviewFrame {
                         emptyAudioDropPreviewOverlay(
                             frame: previewFrame,
@@ -1540,8 +1535,8 @@ struct MultiTrackTimelineView: View {
                         .offset(x: -TimelineLayout.headerWidth / 2)
                     }
 
-                    // Don't show preview for multi-file drops (parent handles those)
-                    if !isMultiFileDrag, (isEmptyAudioDropAllowed || isEmptyAudioDropLoading),
+                    // Show preview for all drops (single and multi-file)
+                    if (isEmptyAudioDropAllowed || isEmptyAudioDropLoading),
                        let previewFrame = emptyAudioDropPreviewFrame {
                         emptyAudioDropPreviewOverlay(
                             frame: previewFrame,
@@ -1600,12 +1595,7 @@ struct MultiTrackTimelineView: View {
         pixelsPerFrame: CGFloat,
         laneIndex: Int
     ) -> Bool {
-        // For multi-file drags, let the parent timeline view handle it with unified overlay
-        if isMultiFileDrag {
-            clearEmptyAudioDrop()
-            return false
-        }
-
+        // Handle both single and multi-file drops to create new lane
         let urls = audioURLs(from: info)
         guard !urls.isEmpty else {
             clearEmptyAudioDrop()

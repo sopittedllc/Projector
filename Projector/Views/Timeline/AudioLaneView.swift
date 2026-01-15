@@ -278,8 +278,8 @@ struct AudioLaneView: View {
                     laneChangePreviewGhost(preview: preview, height: geometry.size.height)
                 }
 
-                // Don't show preview for multi-file drops (parent handles those)
-                if !isMultiFileDrag, (isDropAllowed || isLoadingDropPreview), let previewFrame = dropPreviewFrame {
+                // Show preview for all drops (single and multi-file)
+                if (isDropAllowed || isLoadingDropPreview), let previewFrame = dropPreviewFrame {
                     dropPreviewOverlay(frame: previewFrame, height: geometry.size.height, width: geometry.size.width)
                 }
 
@@ -718,14 +718,7 @@ struct AudioLaneView: View {
     }
 
     private func beginDropPreviewNative(info: NSDraggingInfo, at location: CGPoint) {
-        // For multi-file drops (internal or external), defer to parent timeline view
-        if isMultiFileDrag || isMultiFileExternalDrag(info) {
-            isLoadingDropPreview = false
-            isDropAllowed = false
-            dropPreviewFrame = nil
-            dropPreviewDurationFrames = nil
-            return
-        }
+        // Handle both single and multi-file drops in this lane
 
         updateDropPreview(location: location)
 
@@ -779,12 +772,7 @@ struct AudioLaneView: View {
     }
 
     private func handleDropNative(info: NSDraggingInfo, at location: CGPoint) -> Bool {
-        // For multi-file drags (internal or external), let the parent timeline view handle it
-        if isMultiFileDrag || isMultiFileExternalDrag(info) {
-            clearDropPreview()
-            return false
-        }
-
+        // Handle both single and multi-file audio drops in this lane
         let candidate = audioCandidate(from: info)
         guard !candidate.urls.isEmpty else {
             clearDropPreview()

@@ -120,8 +120,8 @@ struct VideoTrackView: View {
                 // Reels
                 reelsContent
 
-                // Don't show preview for multi-file drops (parent handles those)
-                if !isMultiFileDrag, (isDropAllowed || isLoadingDropPreview), let previewFrame = dropPreviewFrame {
+                // Show preview for all drops (single and multi-file)
+                if (isDropAllowed || isLoadingDropPreview), let previewFrame = dropPreviewFrame {
                     dropPreviewOverlay(frame: previewFrame, height: geometry.size.height, width: geometry.size.width)
                 }
 
@@ -273,14 +273,7 @@ struct VideoTrackView: View {
         let targetFrame = dropFrame(for: location)
         let isInternalDrag = isInternalMediaDrag(providers)
 
-        // For multi-file drags (internal or external), let the parent timeline view handle it
-        if isMultiFileDrag || isMultiFileExternalDrag(providers) {
-            debugPrint("VideoTrackView.handleDrop: Multi-file drag (\(providers.count) providers), deferring to parent")
-            clearDropPreview()
-            return false
-        }
-
-        // For single-file internal drags, use DragContext
+        // For internal drags (single or multi-file), use DragContext
         if isInternalDrag && dragContext.isDragging && dragContext.mediaItems.count > 0 {
             let videoURLs = dragContext.mediaItems
                 .filter { $0.type == .video }
@@ -352,16 +345,7 @@ struct VideoTrackView: View {
     }
 
     private func beginDropPreview(with providers: [NSItemProvider], at location: CGPoint) {
-        // For multi-file drops (internal or external), defer to parent timeline view
-        if isMultiFileDrag || isMultiFileExternalDrag(providers) {
-            debugPrint("VideoTrackView: Multi-file drop detected (\(providers.count) providers), deferring to parent")
-            isLoadingDropPreview = false
-            isDropAllowed = false
-            dropPreviewFrame = nil
-            dropPreviewDurationFrames = nil
-            return
-        }
-
+        // Handle both single and multi-file drops
         updateDropPreview(location: location)
         if dropPreviewDurationFrames != nil || isLoadingDropPreview {
             return
