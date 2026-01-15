@@ -57,12 +57,16 @@ struct AudioLaneView: View {
     @FocusState private var isNameFieldFocused: Bool
     @EnvironmentObject private var dragContext: DragContext
 
-    /// Number of items in current external drag (from Finder)
-    @State private var externalDragItemCount: Int = 0
-
-    /// Whether we're in a multi-file drag (from media panel or external like Finder)
+    /// Whether we're in a multi-file drag from the media panel
     private var isMultiFileDrag: Bool {
-        dragContext.mediaItems.count > 1 || externalDragItemCount > 1
+        dragContext.mediaItems.count > 1
+    }
+
+    /// Check if NSDraggingInfo represents a multi-file external drag
+    private func isMultiFileExternalDrag(_ info: NSDraggingInfo) -> Bool {
+        guard dragContext.mediaItems.isEmpty else { return false }
+        let pasteboardItems = info.draggingPasteboard.pasteboardItems ?? []
+        return pasteboardItems.count > 1
     }
 
     var body: some View {
@@ -684,7 +688,6 @@ struct AudioLaneView: View {
         dropPreviewDurationFrames = nil
         isLoadingDropPreview = false
         isDropAllowed = false
-        externalDragItemCount = 0
     }
 
     // MARK: - Native Drop Handling (AppKit)
@@ -714,19 +717,14 @@ struct AudioLaneView: View {
     private func beginDropPreviewNative(info: NSDraggingInfo, at location: CGPoint) {
         debugPrint("AudioLaneView[\(lane.name)]: beginDropPreviewNative at \(location), clips in lane: \(lane.clips.count)")
 
-        // Track external drag item count for multi-file detection
-        if dragContext.mediaItems.isEmpty {
-            let pasteboardItems = info.draggingPasteboard.pasteboardItems ?? []
-            externalDragItemCount = pasteboardItems.count
-            debugPrint("AudioLaneView[\(lane.name)]: External drag with \(externalDragItemCount) items")
-        }
-
-        // For multi-file drops, defer to parent timeline view
-        if isMultiFileDrag {
-            debugPrint("AudioLaneView[\(lane.name)]: Multi-file drop detected, deferring to parent")
+        // For multi-file drops (internal or external), defer to parent timeline view
+        if isMultiFileDrag || isMultiFileExternalDrag(info) {
+            let itemCount = info.draggingPasteboard.pasteboardItems?.count ?? 0
+            debugPrint("AudioLaneView[\(lane.name)]: Multi-file drop detected (\(itemCount) items), deferring to parent")
             isLoadingDropPreview = false
             isDropAllowed = false
-            clearDropPreview()
+            dropPreviewFrame = nil
+            dropPreviewDurationFrames = nil
             return
         }
 
@@ -786,9 +784,10 @@ struct AudioLaneView: View {
     }
 
     private func handleDropNative(info: NSDraggingInfo, at location: CGPoint) -> Bool {
-        // For multi-file drags, let the parent timeline view handle it with unified overlay
-        if isMultiFileDrag {
-            debugPrint("AudioLaneView.handleDropNative: Multi-file drag, deferring to parent")
+        // For multi-file drags (internal or external), let the parent timeline view handle it
+        if isMultiFileDrag || isMultiFileExternalDrag(info) {
+            let itemCount = info.draggingPasteboard.pasteboardItems?.count ?? 0
+            debugPrint("AudioLaneView.handleDropNative: Multi-file drag (\(itemCount) items), deferring to parent")
             clearDropPreview()
             return false
         }

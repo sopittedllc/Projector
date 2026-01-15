@@ -33,12 +33,14 @@ struct VideoTrackView: View {
     @State private var dragOffsetFrames: Int = 0
     @EnvironmentObject private var dragContext: DragContext
 
-    /// Number of items in current external drag (from Finder)
-    @State private var externalDragItemCount: Int = 0
-
-    /// Whether we're in a multi-file drag (from media panel or external like Finder)
+    /// Whether we're in a multi-file drag from the media panel
     private var isMultiFileDrag: Bool {
-        dragContext.mediaItems.count > 1 || externalDragItemCount > 1
+        dragContext.mediaItems.count > 1
+    }
+
+    /// Check if providers represent a multi-file external drag
+    private func isMultiFileExternalDrag(_ providers: [NSItemProvider]) -> Bool {
+        dragContext.mediaItems.isEmpty && providers.count > 1
     }
 
 
@@ -269,9 +271,9 @@ struct VideoTrackView: View {
         let targetFrame = dropFrame(for: location)
         let isInternalDrag = isInternalMediaDrag(providers)
 
-        // For multi-file drags, let the parent timeline view handle it with unified overlay
-        if isMultiFileDrag {
-            debugPrint("VideoTrackView.handleDrop: Multi-file drag, deferring to parent")
+        // For multi-file drags (internal or external), let the parent timeline view handle it
+        if isMultiFileDrag || isMultiFileExternalDrag(providers) {
+            debugPrint("VideoTrackView.handleDrop: Multi-file drag (\(providers.count) providers), deferring to parent")
             clearDropPreview()
             return false
         }
@@ -348,9 +350,14 @@ struct VideoTrackView: View {
     }
 
     private func beginDropPreview(with providers: [NSItemProvider], at location: CGPoint) {
-        // Track external drag item count for multi-file detection
-        if dragContext.mediaItems.isEmpty {
-            externalDragItemCount = providers.count
+        // For multi-file drops (internal or external), defer to parent timeline view
+        if isMultiFileDrag || isMultiFileExternalDrag(providers) {
+            debugPrint("VideoTrackView: Multi-file drop detected (\(providers.count) providers), deferring to parent")
+            isLoadingDropPreview = false
+            isDropAllowed = false
+            dropPreviewFrame = nil
+            dropPreviewDurationFrames = nil
+            return
         }
 
         updateDropPreview(location: location)
@@ -366,15 +373,6 @@ struct VideoTrackView: View {
                 clearDropPreview()
                 return
             }
-        }
-
-        // For multi-file drops, defer to parent timeline view
-        if isMultiFileDrag {
-            debugPrint("VideoTrackView: Multi-file drop detected, deferring to parent")
-            isLoadingDropPreview = false
-            isDropAllowed = false
-            clearDropPreview()
-            return
         }
 
         loadFirstURL(from: providers) { url in
@@ -433,7 +431,6 @@ struct VideoTrackView: View {
         dropPreviewDurationFrames = nil
         isLoadingDropPreview = false
         isDropAllowed = false
-        externalDragItemCount = 0
     }
 
     private func loadFirstURL(from providers: [NSItemProvider], completion: @escaping (URL?) -> Void) {
