@@ -33,9 +33,12 @@ struct VideoTrackView: View {
     @State private var dragOffsetFrames: Int = 0
     @EnvironmentObject private var dragContext: DragContext
 
-    /// Whether we're in a multi-file drag from the media panel (parent handles these)
+    /// Number of items in current external drag (from Finder)
+    @State private var externalDragItemCount: Int = 0
+
+    /// Whether we're in a multi-file drag (from media panel or external like Finder)
     private var isMultiFileDrag: Bool {
-        dragContext.mediaItems.count > 1
+        dragContext.mediaItems.count > 1 || externalDragItemCount > 1
     }
 
 
@@ -345,6 +348,11 @@ struct VideoTrackView: View {
     }
 
     private func beginDropPreview(with providers: [NSItemProvider], at location: CGPoint) {
+        // Track external drag item count for multi-file detection
+        if dragContext.mediaItems.isEmpty {
+            externalDragItemCount = providers.count
+        }
+
         updateDropPreview(location: location)
         if dropPreviewDurationFrames != nil || isLoadingDropPreview {
             return
@@ -360,19 +368,12 @@ struct VideoTrackView: View {
             }
         }
 
-        // For multi-file drops, allow without strict validation
-        // Files will be placed sequentially or at their embedded timecode positions
-        let videoProviders = providers.filter { provider in
-            provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) ||
-            provider.hasItemConformingToTypeIdentifier(UTType.video.identifier) ||
-            provider.hasItemConformingToTypeIdentifier(UTType.mpeg4Movie.identifier)
-        }
-
-        if providers.count > 1 || videoProviders.count > 1 {
-            debugPrint("VideoTrackView: Multi-file drop detected (\(providers.count) providers), allowing drop")
+        // For multi-file drops, defer to parent timeline view
+        if isMultiFileDrag {
+            debugPrint("VideoTrackView: Multi-file drop detected, deferring to parent")
             isLoadingDropPreview = false
-            isDropAllowed = true
-            dropPreviewDurationFrames = 100  // Show a placeholder preview
+            isDropAllowed = false
+            clearDropPreview()
             return
         }
 
@@ -432,6 +433,7 @@ struct VideoTrackView: View {
         dropPreviewDurationFrames = nil
         isLoadingDropPreview = false
         isDropAllowed = false
+        externalDragItemCount = 0
     }
 
     private func loadFirstURL(from providers: [NSItemProvider], completion: @escaping (URL?) -> Void) {

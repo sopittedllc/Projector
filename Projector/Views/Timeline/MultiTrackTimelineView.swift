@@ -83,6 +83,7 @@ struct MultiTrackTimelineView: View {
 
     // Unified multi-file drop state
     @State private var isMultiFileDropTargeted = false
+    @State private var externalDragItemCount: Int = 0
 
     // MARK: - Constants
 
@@ -123,9 +124,9 @@ struct MultiTrackTimelineView: View {
         cachedActiveAudioClipIds
     }
 
-    /// Whether we're dragging multiple items from the media panel
+    /// Whether we're dragging multiple items (from media panel or external like Finder)
     private var isMultiFileDrag: Bool {
-        dragContext.mediaItems.count > 1
+        dragContext.mediaItems.count > 1 || externalDragItemCount > 1
     }
 
     /// Update cached active audio clip IDs when frame changes
@@ -948,27 +949,56 @@ struct MultiTrackTimelineView: View {
             }
             // Drop target for multi-file drops
             .onDrop(of: [UTType.fileURL, UTType.url, UTType.projectorMediaItem], isTargeted: $isMultiFileDropTargeted) { providers in
-                // Only handle multi-file drops from media panel here
-                guard isMultiFileDrag else { return false }
+                // Check for multi-file drop (internal or external)
+                let isInternalMulti = dragContext.mediaItems.count > 1
+                let isExternalMulti = providers.count > 1
 
-                let urls = dragContext.mediaItems.map { $0.url }
-                var videoURLs: [URL] = []
-                var audioURLs: [URL] = []
+                guard isInternalMulti || isExternalMulti else { return false }
 
-                for url in urls {
-                    guard let mediaType = ProjectMediaLibrary.mediaType(for: url) else { continue }
-                    switch mediaType {
-                    case .video:
-                        videoURLs.append(url)
-                    case .audio:
-                        audioURLs.append(url)
+                if isInternalMulti {
+                    // Internal drag from media panel - use dragContext URLs
+                    let urls = dragContext.mediaItems.map { $0.url }
+                    var videoURLs: [URL] = []
+                    var audioURLs: [URL] = []
+
+                    for url in urls {
+                        guard let mediaType = ProjectMediaLibrary.mediaType(for: url) else { continue }
+                        switch mediaType {
+                        case .video:
+                            videoURLs.append(url)
+                        case .audio:
+                            audioURLs.append(url)
+                        }
+                    }
+
+                    if let onDropMixedMedia = onDropMixedMedia {
+                        onDropMixedMedia(videoURLs, audioURLs, 0)
+                    }
+                    dragContext.end()
+                } else {
+                    // External drag from Finder - extract URLs from providers
+                    Task { @MainActor in
+                        var videoURLs: [URL] = []
+                        var audioURLs: [URL] = []
+
+                        for provider in providers {
+                            if let url = await loadURL(from: provider) {
+                                guard let mediaType = ProjectMediaLibrary.mediaType(for: url) else { continue }
+                                switch mediaType {
+                                case .video:
+                                    videoURLs.append(url)
+                                case .audio:
+                                    audioURLs.append(url)
+                                }
+                            }
+                        }
+
+                        if let onDropMixedMedia = onDropMixedMedia {
+                            onDropMixedMedia(videoURLs, audioURLs, 0)
+                        }
                     }
                 }
-
-                if let onDropMixedMedia = onDropMixedMedia {
-                    onDropMixedMedia(videoURLs, audioURLs, 0)
-                }
-                dragContext.end()
+                externalDragItemCount = 0
                 return true
             }
         }
@@ -1200,6 +1230,12 @@ struct MultiTrackTimelineView: View {
         location: CGPoint,
         pixelsPerFrame: CGFloat
     ) {
+        // Track external drag item count for multi-file detection
+        if dragContext.mediaItems.isEmpty {
+            let pasteboardItems = info.draggingPasteboard.pasteboardItems ?? []
+            externalDragItemCount = pasteboardItems.count
+        }
+
         _ = updateEmptyAudioDrop(from: info, location: location, pixelsPerFrame: pixelsPerFrame)
     }
 
@@ -1394,6 +1430,22 @@ struct MultiTrackTimelineView: View {
         emptyAudioDropPreviewDurationFrames = nil
         emptyAudioDropLocation = nil
         emptyAudioDropSourceURL = nil
+        externalDragItemCount = 0
+    }
+
+    /// Load URL from an NSItemProvider (for external Finder drops)
+    private func loadURL(from provider: NSItemProvider) async -> URL? {
+        await withCheckedContinuation { continuation in
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
+                if let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
+                    continuation.resume(returning: url)
+                } else if let url = item as? URL {
+                    continuation.resume(returning: url)
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
     }
 
     private func handleEmptyAudioDrop(
