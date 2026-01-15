@@ -25,6 +25,51 @@ struct DustyBackground: View {
     }
 }
 
+/// Helper view that captures a reference to the nearest ancestor NSScrollView
+///
+/// Embeds an invisible NSView that traverses up the view hierarchy to find
+/// the enclosing NSScrollView and reports it via a binding.
+private struct ScrollViewCaptureHelper: NSViewRepresentable {
+    @Binding var scrollView: NSScrollView?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = ScrollViewFinderView()
+        view.onScrollViewFound = { [self] foundScrollView in
+            DispatchQueue.main.async {
+                self.scrollView = foundScrollView
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    /// Custom NSView that finds its ancestor NSScrollView
+    private class ScrollViewFinderView: NSView {
+        var onScrollViewFound: ((NSScrollView?) -> Void)?
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            // Delay to ensure view hierarchy is fully set up
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.findScrollView()
+            }
+        }
+
+        private func findScrollView() {
+            var currentView: NSView? = superview
+            while let view = currentView {
+                if let scrollView = view as? NSScrollView {
+                    onScrollViewFound?(scrollView)
+                    return
+                }
+                currentView = view.superview
+            }
+            onScrollViewFound?(nil)
+        }
+    }
+}
+
 /// Multi-track timeline view with video reels and audio lanes
 struct MultiTrackTimelineView: View {
     @ObservedObject var timelineManager: TimelineManager
@@ -96,7 +141,8 @@ struct MultiTrackTimelineView: View {
 
     // Auto-scroll state for marquee selection
     @State private var autoScrollTimer: Timer?
-    @State private var scrollViewBounds: CGRect = .zero
+    @State private var cachedScrollView: NSScrollView?
+    @State private var scrollAreaFrame: CGRect = .zero
 
     // MARK: - Constants
 
@@ -104,10 +150,10 @@ struct MultiTrackTimelineView: View {
     private let newLaneDropInactiveHeight: CGFloat = 20
 
     /// Distance from edge to trigger auto-scroll during marquee selection
-    private let autoScrollEdgeInset: CGFloat = 40
+    private let autoScrollEdgeInset: CGFloat = 50
 
     /// Scroll speed in points per timer tick
-    private let autoScrollSpeed: CGFloat = 15
+    private let autoScrollSpeed: CGFloat = 20
 
     // MARK: - Computed Properties
 
@@ -870,6 +916,10 @@ struct MultiTrackTimelineView: View {
                 // Scrollable tracks area (horizontal + vertical)
                 ScrollView([.horizontal, .vertical], showsIndicators: true) {
                     VStack(spacing: 0) {
+                        // Invisible helper to capture NSScrollView reference
+                        ScrollViewCaptureHelper(scrollView: $cachedScrollView)
+                            .frame(width: 0, height: 0)
+
                         Spacer().frame(height: 4)
 
                         // Video track
@@ -1148,11 +1198,16 @@ struct MultiTrackTimelineView: View {
     /// Start the auto-scroll timer for marquee selection
     private func startAutoScrollTimer(pixelsPerFrame: CGFloat) {
         stopAutoScrollTimer()
-        autoScrollTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [self] _ in
+
+        // Use Timer on main run loop - properly cancelled on drag end
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { _ in
+            // Timer callback on main thread - check state and scroll
             Task { @MainActor in
-                self.performAutoScroll(pixelsPerFrame: pixelsPerFrame)
+                performAutoScrollIfNeeded(pixelsPerFrame: pixelsPerFrame)
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        autoScrollTimer = timer
     }
 
     /// Stop the auto-scroll timer
@@ -1162,76 +1217,76 @@ struct MultiTrackTimelineView: View {
     }
 
     /// Perform auto-scroll based on cursor position relative to scroll view bounds
-    private func performAutoScroll(pixelsPerFrame: CGFloat) {
+    ///
+    /// This function:
+    /// 1. Uses the cached NSScrollView reference (not fragile hierarchy search)
+    /// 2. Checks cursor proximity to scroll view edges
+    /// 3. Scrolls programmatically when near edges
+    /// 4. Does NOT update marqueeCurrentPoint - the gesture will naturally
+    ///    provide updated coordinates on the next onChanged call
+    private func performAutoScrollIfNeeded(pixelsPerFrame: CGFloat) {
         guard isMarqueeSelecting else { return }
 
-        // Find the NSScrollView in the view hierarchy
-        guard let window = NSApp.keyWindow,
-              let scrollView = findScrollView(in: window.contentView) else { return }
+        // Use cached scroll view reference
+        guard let scrollView = cachedScrollView else { return }
 
         let clipView = scrollView.contentView
         var currentOrigin = clipView.bounds.origin
         let contentSize = scrollView.documentView?.frame.size ?? .zero
         let visibleSize = clipView.bounds.size
 
-        // Get cursor position in window coordinates
-        let mouseLocation = NSEvent.mouseLocation
-        let windowLocation = window.convertPoint(fromScreen: mouseLocation)
-
-        // Convert to scroll view coordinates
-        let scrollViewLocation = scrollView.convert(windowLocation, from: nil)
+        // Get cursor position in screen coordinates and convert to scroll view
+        let mouseScreenLocation = NSEvent.mouseLocation
+        let mouseWindowLocation = scrollView.window?.convertPoint(fromScreen: mouseScreenLocation) ?? .zero
+        let mouseInScrollView = scrollView.convert(mouseWindowLocation, from: nil)
 
         // Calculate scroll deltas based on cursor proximity to edges
         var deltaX: CGFloat = 0
         var deltaY: CGFloat = 0
 
-        // Check horizontal edges
-        if scrollViewLocation.x < autoScrollEdgeInset {
+        // Horizontal edge detection
+        // Note: NSScrollView uses flipped coordinates by default in SwiftUI hosting
+        if mouseInScrollView.x < autoScrollEdgeInset && mouseInScrollView.x >= 0 {
+            // Near left edge - scroll left
             deltaX = -autoScrollSpeed
-        } else if scrollViewLocation.x > scrollView.bounds.width - autoScrollEdgeInset {
+        } else if mouseInScrollView.x > scrollView.bounds.width - autoScrollEdgeInset &&
+                  mouseInScrollView.x <= scrollView.bounds.width {
+            // Near right edge - scroll right
             deltaX = autoScrollSpeed
         }
 
-        // Check vertical edges
-        if scrollViewLocation.y < autoScrollEdgeInset {
-            deltaY = autoScrollSpeed  // NSView coordinates: lower Y = scroll down
-        } else if scrollViewLocation.y > scrollView.bounds.height - autoScrollEdgeInset {
+        // Vertical edge detection
+        // NSView coordinates: Y increases upward, but SwiftUI's hosting view may be flipped
+        let scrollViewHeight = scrollView.bounds.height
+        if mouseInScrollView.y < autoScrollEdgeInset && mouseInScrollView.y >= 0 {
+            // Near bottom edge (in NSView coords) - scroll down
             deltaY = -autoScrollSpeed
+        } else if mouseInScrollView.y > scrollViewHeight - autoScrollEdgeInset &&
+                  mouseInScrollView.y <= scrollViewHeight {
+            // Near top edge (in NSView coords) - scroll up
+            deltaY = autoScrollSpeed
         }
 
         // Apply scroll with bounds checking
         if deltaX != 0 || deltaY != 0 {
-            currentOrigin.x = max(0, min(currentOrigin.x + deltaX, contentSize.width - visibleSize.width))
-            currentOrigin.y = max(0, min(currentOrigin.y + deltaY, contentSize.height - visibleSize.height))
-            clipView.setBoundsOrigin(currentOrigin)
+            let maxScrollX = max(0, contentSize.width - visibleSize.width)
+            let maxScrollY = max(0, contentSize.height - visibleSize.height)
 
-            // Update marquee current point to follow the cursor in content coordinates
-            // This keeps the marquee rectangle extending as we scroll
-            if let contentView = scrollView.documentView {
-                let contentLocation = contentView.convert(windowLocation, from: nil)
-                marqueeCurrentPoint = contentLocation
-                updateMarqueeSelection(pixelsPerFrame: pixelsPerFrame)
+            currentOrigin.x = max(0, min(currentOrigin.x + deltaX, maxScrollX))
+            currentOrigin.y = max(0, min(currentOrigin.y + deltaY, maxScrollY))
+
+            // Animate the scroll for smoother visual feedback
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.03
+                context.allowsImplicitAnimation = true
+                clipView.setBoundsOrigin(currentOrigin)
             }
-        }
-    }
 
-    /// Recursively find the NSScrollView in the view hierarchy
-    private func findScrollView(in view: NSView?) -> NSScrollView? {
-        guard let view = view else { return nil }
-
-        if let scrollView = view as? NSScrollView {
-            // Check if this is our timeline scroll view (has both horizontal and vertical scrollers)
-            if scrollView.hasHorizontalScroller && scrollView.hasVerticalScroller {
-                return scrollView
-            }
+            // IMPORTANT: Do NOT update marqueeCurrentPoint here!
+            // The gesture's onChanged handler will naturally receive updated
+            // coordinates on the next event, which properly accounts for
+            // the new scroll position in the coordinate space.
         }
-
-        for subview in view.subviews {
-            if let found = findScrollView(in: subview) {
-                return found
-            }
-        }
-        return nil
     }
 
     /// Handle multi-file drop from NSDraggingInfo
