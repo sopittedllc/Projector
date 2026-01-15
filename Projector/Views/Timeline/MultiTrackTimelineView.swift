@@ -983,35 +983,6 @@ struct MultiTrackTimelineView: View {
                     }
                 )
             }
-            // Marquee selection gesture
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 5)
-                    .onChanged { value in
-                        // Don't start marquee during multi-file drag operations
-                        guard !isMultiFileDrag, externalDragItemCount == 0 else { return }
-
-                        if !isMarqueeSelecting {
-                            // Start marquee selection
-                            isMarqueeSelecting = true
-                            marqueeStartPoint = value.startLocation
-                            // Clear selection if not holding shift
-                            if !NSEvent.modifierFlags.contains(.shift) {
-                                clearSelection()
-                            }
-                        }
-                        marqueeCurrentPoint = value.location
-                        updateMarqueeSelection(pixelsPerFrame: ppf)
-                    }
-                    .onEnded { _ in
-                        isMarqueeSelecting = false
-                    }
-            )
-            // Marquee selection overlay
-            .overlay {
-                if isMarqueeSelecting {
-                    marqueeSelectionRectangle
-                }
-            }
             .coordinateSpace(name: "timelineTracks")
         }
     }
