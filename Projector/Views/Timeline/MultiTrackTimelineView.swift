@@ -198,6 +198,49 @@ struct MultiTrackTimelineView: View {
         .onAppear {
             updateActiveAudioClipIds()
         }
+        // Edit menu notification handlers
+        .onReceive(NotificationCenter.default.publisher(for: .editUndo)) { _ in
+            guard isTimelineFocused else { return }
+            undoManager?.undo()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editRedo)) { _ in
+            guard isTimelineFocused else { return }
+            undoManager?.redo()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editDelete)) { _ in
+            guard isTimelineFocused else { return }
+            deleteSelectedItem()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editSelectAll)) { _ in
+            guard isTimelineFocused else { return }
+            selectAll()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editDeselectAll)) { _ in
+            guard isTimelineFocused else { return }
+            deselectAll()
+        }
+        // Escape key to deselect all
+        .onKeyPress(.escape) {
+            deselectAll()
+            return .handled
+        }
+        // Arrow keys for navigation
+        .onKeyPress(.leftArrow) {
+            navigateSelection(direction: .left)
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            navigateSelection(direction: .right)
+            return .handled
+        }
+        .onKeyPress(.upArrow) {
+            navigateSelection(direction: .up)
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            navigateSelection(direction: .down)
+            return .handled
+        }
     }
 
     // MARK: - Delete Selected Items
@@ -830,15 +873,8 @@ struct MultiTrackTimelineView: View {
                             showThumbnails: !debug.disableThumbnails,
                             clipInteractionsEnabled: !debug.disableClipInteractions,
                             onDropMedia: onDropVideoMedia,
-                            onReelSelected: { reelId in
-                                // Clear multi-selection when single-clicking
-                                selectedVideoReelIds.removeAll()
-                                selectedAudioClipIds.removeAll()
-                                // Set single selection
-                                selectedVideoReelId = reelId
-                                selectedAudioClipId = nil
-                                selectedAudioLaneId = nil
-                                isTimelineFocused = true
+                            onReelSelected: { reelId, modifiers in
+                                handleReelSelection(reelId: reelId, modifiers: modifiers)
                             },
                             onReelDoubleClick: { reel in
                                 editingReelId = reel.id
@@ -896,15 +932,8 @@ struct MultiTrackTimelineView: View {
                                 onVolumeChange: { volume in timelineManager.setLaneVolume(at: index, volume: volume) },
                                 onOutputMappingChange: { output in timelineManager.setLaneOutputMapping(id: lane.id, mapping: output) },
                                 onDropMedia: { urls, frame, isInternal in onDropAudioMedia(index, urls, frame, isInternal) },
-                                onClipSelected: { clipId in
-                                    // Clear multi-selection when single-clicking
-                                    selectedVideoReelIds.removeAll()
-                                    selectedAudioClipIds.removeAll()
-                                    // Set single selection
-                                    selectedAudioClipId = clipId
-                                    selectedAudioLaneId = lane.id
-                                    selectedVideoReelId = nil
-                                    isTimelineFocused = true
+                                onClipSelected: { clipId, modifiers in
+                                    handleClipSelection(clipId: clipId, laneId: lane.id, modifiers: modifiers)
                                 },
                                 onClipDoubleClick: { clip in
                                     editingClipId = clip.id
@@ -1947,6 +1976,342 @@ struct MultiTrackTimelineView: View {
         selectedVideoReelId = nil
         selectedAudioClipId = nil
         selectedAudioLaneId = nil
+    }
+
+    /// Deselect all items in the timeline
+    private func deselectAll() {
+        clearSelection()
+    }
+
+    /// Select all items in the timeline
+    private func selectAll() {
+        // Select all video reels
+        selectedVideoReelIds = Set(timeline.videoReels.map { $0.id })
+
+        // Select all audio clips
+        selectedAudioClipIds = Set(timeline.audioLanes.flatMap { lane in
+            lane.clips.map { $0.id }
+        })
+
+        // Update single selection for compatibility (use first item)
+        selectedVideoReelId = selectedVideoReelIds.first
+        selectedAudioClipId = selectedAudioClipIds.first
+
+        if let clipId = selectedAudioClipId {
+            selectedAudioLaneId = timeline.audioLanes.first { lane in
+                lane.clips.contains { $0.id == clipId }
+            }?.id
+        }
+    }
+
+    // MARK: - Selection Handling with Modifiers
+
+    /// Handle video reel selection with modifier key support
+    ///
+    /// - Parameters:
+    ///   - reelId: The ID of the clicked reel (nil to deselect)
+    ///   - modifiers: Current modifier keys
+    private func handleReelSelection(reelId: UUID?, modifiers: SelectionModifiers) {
+        isTimelineFocused = true
+
+        guard let reelId else {
+            // Nil selection - clear all
+            deselectAll()
+            return
+        }
+
+        if modifiers.contains(.command) {
+            // Cmd+Click: Toggle selection
+            if selectedVideoReelIds.contains(reelId) {
+                selectedVideoReelIds.remove(reelId)
+                if selectedVideoReelId == reelId {
+                    selectedVideoReelId = selectedVideoReelIds.first
+                }
+            } else {
+                selectedVideoReelIds.insert(reelId)
+                selectedVideoReelId = reelId
+            }
+            // Clear audio selection when toggling video
+            selectedAudioClipId = nil
+            selectedAudioLaneId = nil
+        } else if modifiers.contains(.shift) {
+            // Shift+Click: Range selection (extend from last selected to this reel)
+            if let anchorId = selectedVideoReelId,
+               let anchorReel = timeline.videoReels.first(where: { $0.id == anchorId }),
+               let targetReel = timeline.videoReels.first(where: { $0.id == reelId }) {
+                // Get reels between anchor and target (by timeline position)
+                let startFrame = min(anchorReel.timelineStartFrame, targetReel.timelineStartFrame)
+                let endFrame = max(
+                    anchorReel.timelineStartFrame + anchorReel.durationFrames,
+                    targetReel.timelineStartFrame + targetReel.durationFrames
+                )
+                // Select all reels that overlap this range
+                for reel in timeline.videoReels {
+                    let reelEnd = reel.timelineStartFrame + reel.durationFrames
+                    if reel.timelineStartFrame < endFrame && reelEnd > startFrame {
+                        selectedVideoReelIds.insert(reel.id)
+                    }
+                }
+            } else {
+                // No anchor - just select this reel
+                selectedVideoReelIds.insert(reelId)
+                selectedVideoReelId = reelId
+            }
+            // Clear audio selection on shift-click
+            selectedAudioClipIds.removeAll()
+            selectedAudioClipId = nil
+            selectedAudioLaneId = nil
+        } else {
+            // Normal click: Single selection (clear others)
+            selectedVideoReelIds.removeAll()
+            selectedAudioClipIds.removeAll()
+            selectedVideoReelIds.insert(reelId)
+            selectedVideoReelId = reelId
+            selectedAudioClipId = nil
+            selectedAudioLaneId = nil
+        }
+    }
+
+    /// Handle audio clip selection with modifier key support
+    ///
+    /// - Parameters:
+    ///   - clipId: The ID of the clicked clip (nil to deselect)
+    ///   - laneId: The ID of the lane containing the clip
+    ///   - modifiers: Current modifier keys
+    private func handleClipSelection(clipId: UUID?, laneId: UUID, modifiers: SelectionModifiers) {
+        isTimelineFocused = true
+
+        guard let clipId else {
+            // Nil selection - clear all
+            deselectAll()
+            return
+        }
+
+        if modifiers.contains(.command) {
+            // Cmd+Click: Toggle selection
+            if selectedAudioClipIds.contains(clipId) {
+                selectedAudioClipIds.remove(clipId)
+                if selectedAudioClipId == clipId {
+                    selectedAudioClipId = selectedAudioClipIds.first
+                    // Update lane ID for new primary selection
+                    if let newPrimaryId = selectedAudioClipId {
+                        selectedAudioLaneId = timeline.audioLanes.first { lane in
+                            lane.clips.contains { $0.id == newPrimaryId }
+                        }?.id
+                    }
+                }
+            } else {
+                selectedAudioClipIds.insert(clipId)
+                selectedAudioClipId = clipId
+                selectedAudioLaneId = laneId
+            }
+            // Clear video selection when toggling audio
+            selectedVideoReelId = nil
+        } else if modifiers.contains(.shift) {
+            // Shift+Click: Range selection (extend from last selected to this clip)
+            if let anchorId = selectedAudioClipId,
+               let (_, anchorClip) = findClip(by: anchorId),
+               let (_, targetClip) = findClip(by: clipId) {
+                // Get clips between anchor and target (by timeline position)
+                let startFrame = min(anchorClip.timelineStartFrame, targetClip.timelineStartFrame)
+                let endFrame = max(
+                    anchorClip.timelineStartFrame + anchorClip.durationFrames,
+                    targetClip.timelineStartFrame + targetClip.durationFrames
+                )
+                // Select all clips that overlap this range (across all lanes)
+                for lane in timeline.audioLanes {
+                    for clip in lane.clips {
+                        let clipEnd = clip.timelineStartFrame + clip.durationFrames
+                        if clip.timelineStartFrame < endFrame && clipEnd > startFrame {
+                            selectedAudioClipIds.insert(clip.id)
+                        }
+                    }
+                }
+            } else {
+                // No anchor - just select this clip
+                selectedAudioClipIds.insert(clipId)
+                selectedAudioClipId = clipId
+                selectedAudioLaneId = laneId
+            }
+            // Clear video selection on shift-click
+            selectedVideoReelIds.removeAll()
+            selectedVideoReelId = nil
+        } else {
+            // Normal click: Single selection (clear others)
+            selectedVideoReelIds.removeAll()
+            selectedAudioClipIds.removeAll()
+            selectedAudioClipIds.insert(clipId)
+            selectedAudioClipId = clipId
+            selectedAudioLaneId = laneId
+            selectedVideoReelId = nil
+        }
+    }
+
+    // MARK: - Arrow Key Navigation
+
+    /// Direction for selection navigation
+    private enum NavigationDirection {
+        case left, right, up, down
+    }
+
+    /// Navigate selection using arrow keys
+    ///
+    /// - Left/Right: Move to previous/next clip by timeline position
+    /// - Up/Down: Move between video track and audio lanes
+    private func navigateSelection(direction: NavigationDirection) {
+        // Build a sorted list of all selectable items
+        let videoReels = timeline.videoReels.sorted { $0.timelineStartFrame < $1.timelineStartFrame }
+        let audioClips: [(lane: AudioLane, clip: AudioClip, laneIndex: Int)] = timeline.audioLanes.enumerated().flatMap { index, lane in
+            lane.clips.map { (lane, $0, index) }
+        }.sorted { $0.clip.timelineStartFrame < $1.clip.timelineStartFrame }
+
+        switch direction {
+        case .left:
+            navigateHorizontal(backward: true, videoReels: videoReels, audioClips: audioClips)
+        case .right:
+            navigateHorizontal(backward: false, videoReels: videoReels, audioClips: audioClips)
+        case .up:
+            navigateVertical(upward: true, videoReels: videoReels, audioClips: audioClips)
+        case .down:
+            navigateVertical(upward: false, videoReels: videoReels, audioClips: audioClips)
+        }
+    }
+
+    /// Navigate horizontally (left/right) to previous/next item
+    private func navigateHorizontal(backward: Bool, videoReels: [VideoReel], audioClips: [(lane: AudioLane, clip: AudioClip, laneIndex: Int)]) {
+        // If we have a video reel selected, navigate within video track
+        if let selectedId = selectedVideoReelId,
+           let currentIndex = videoReels.firstIndex(where: { $0.id == selectedId }) {
+            let newIndex = backward ? currentIndex - 1 : currentIndex + 1
+            if videoReels.indices.contains(newIndex) {
+                clearSelection()
+                let newReel = videoReels[newIndex]
+                selectedVideoReelId = newReel.id
+                selectedVideoReelIds.insert(newReel.id)
+            }
+            return
+        }
+
+        // If we have an audio clip selected, navigate within audio lanes
+        if let selectedId = selectedAudioClipId,
+           let currentIndex = audioClips.firstIndex(where: { $0.clip.id == selectedId }) {
+            let newIndex = backward ? currentIndex - 1 : currentIndex + 1
+            if audioClips.indices.contains(newIndex) {
+                clearSelection()
+                let item = audioClips[newIndex]
+                selectedAudioClipId = item.clip.id
+                selectedAudioClipIds.insert(item.clip.id)
+                selectedAudioLaneId = item.lane.id
+            }
+            return
+        }
+
+        // Nothing selected - select the first/last item depending on direction
+        if backward {
+            // Select the last video reel if available
+            if let lastReel = videoReels.last {
+                clearSelection()
+                selectedVideoReelId = lastReel.id
+                selectedVideoReelIds.insert(lastReel.id)
+            } else if let lastClip = audioClips.last {
+                clearSelection()
+                selectedAudioClipId = lastClip.clip.id
+                selectedAudioClipIds.insert(lastClip.clip.id)
+                selectedAudioLaneId = lastClip.lane.id
+            }
+        } else {
+            // Select the first video reel if available
+            if let firstReel = videoReels.first {
+                clearSelection()
+                selectedVideoReelId = firstReel.id
+                selectedVideoReelIds.insert(firstReel.id)
+            } else if let firstClip = audioClips.first {
+                clearSelection()
+                selectedAudioClipId = firstClip.clip.id
+                selectedAudioClipIds.insert(firstClip.clip.id)
+                selectedAudioLaneId = firstClip.lane.id
+            }
+        }
+    }
+
+    /// Navigate vertically (up/down) between video track and audio lanes
+    private func navigateVertical(upward: Bool, videoReels: [VideoReel], audioClips: [(lane: AudioLane, clip: AudioClip, laneIndex: Int)]) {
+        // Get current timeline position for finding items at similar positions
+        let currentFrame: Int
+        if let selectedId = selectedVideoReelId,
+           let reel = videoReels.first(where: { $0.id == selectedId }) {
+            currentFrame = reel.timelineStartFrame
+        } else if let selectedId = selectedAudioClipId,
+                  let item = audioClips.first(where: { $0.clip.id == selectedId }) {
+            currentFrame = item.clip.timelineStartFrame
+        } else {
+            currentFrame = playbackEngine.currentFrame
+        }
+
+        if upward {
+            // Move up: from audio to video track, or from lower lane to upper lane
+            if let selectedId = selectedAudioClipId,
+               let currentItem = audioClips.first(where: { $0.clip.id == selectedId }) {
+                if currentItem.laneIndex == 0 {
+                    // At the top audio lane - move to video track
+                    if let nearestReel = findNearestVideoReel(at: currentFrame, in: videoReels) {
+                        clearSelection()
+                        selectedVideoReelId = nearestReel.id
+                        selectedVideoReelIds.insert(nearestReel.id)
+                    }
+                } else {
+                    // Move to upper audio lane
+                    let targetLaneIndex = currentItem.laneIndex - 1
+                    if let nearestClip = findNearestAudioClip(at: currentFrame, inLaneIndex: targetLaneIndex, audioClips: audioClips) {
+                        clearSelection()
+                        selectedAudioClipId = nearestClip.clip.id
+                        selectedAudioClipIds.insert(nearestClip.clip.id)
+                        selectedAudioLaneId = nearestClip.lane.id
+                    }
+                }
+            }
+        } else {
+            // Move down: from video to audio track, or from upper lane to lower lane
+            if selectedVideoReelId != nil {
+                // Move from video track to first audio lane
+                if let nearestClip = findNearestAudioClip(at: currentFrame, inLaneIndex: 0, audioClips: audioClips) {
+                    clearSelection()
+                    selectedAudioClipId = nearestClip.clip.id
+                    selectedAudioClipIds.insert(nearestClip.clip.id)
+                    selectedAudioLaneId = nearestClip.lane.id
+                }
+            } else if let selectedId = selectedAudioClipId,
+                      let currentItem = audioClips.first(where: { $0.clip.id == selectedId }) {
+                // Move to lower audio lane
+                let targetLaneIndex = currentItem.laneIndex + 1
+                if targetLaneIndex < timeline.audioLanes.count {
+                    if let nearestClip = findNearestAudioClip(at: currentFrame, inLaneIndex: targetLaneIndex, audioClips: audioClips) {
+                        clearSelection()
+                        selectedAudioClipId = nearestClip.clip.id
+                        selectedAudioClipIds.insert(nearestClip.clip.id)
+                        selectedAudioLaneId = nearestClip.lane.id
+                    }
+                }
+            } else if !videoReels.isEmpty {
+                // Nothing selected - start with video track
+                if let nearestReel = findNearestVideoReel(at: currentFrame, in: videoReels) {
+                    clearSelection()
+                    selectedVideoReelId = nearestReel.id
+                    selectedVideoReelIds.insert(nearestReel.id)
+                }
+            }
+        }
+    }
+
+    /// Find the video reel closest to the given frame
+    private func findNearestVideoReel(at frame: Int, in reels: [VideoReel]) -> VideoReel? {
+        reels.min { abs($0.timelineStartFrame - frame) < abs($1.timelineStartFrame - frame) }
+    }
+
+    /// Find the audio clip closest to the given frame in a specific lane
+    private func findNearestAudioClip(at frame: Int, inLaneIndex laneIndex: Int, audioClips: [(lane: AudioLane, clip: AudioClip, laneIndex: Int)]) -> (lane: AudioLane, clip: AudioClip, laneIndex: Int)? {
+        let laneClips = audioClips.filter { $0.laneIndex == laneIndex }
+        return laneClips.min { abs($0.clip.timelineStartFrame - frame) < abs($1.clip.timelineStartFrame - frame) }
     }
 }
 

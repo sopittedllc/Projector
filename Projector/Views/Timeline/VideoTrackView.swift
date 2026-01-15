@@ -15,7 +15,7 @@ struct VideoTrackView: View {
     let showThumbnails: Bool
     let clipInteractionsEnabled: Bool
     let onDropMedia: ([URL], Int, Bool) -> Void
-    let onReelSelected: (UUID?) -> Void
+    let onReelSelected: (UUID?, SelectionModifiers) -> Void
     let onReelDoubleClick: (VideoReel) -> Void
     let onReelMove: (UUID, Int) -> Void
     let linkedDragPreview: LinkedDragPreview?
@@ -203,9 +203,9 @@ struct VideoTrackView: View {
                 isSelected: selectedReelId == reel.id || selectedReelIds.contains(reel.id),
                 interactionsEnabled: clipInteractionsEnabled,
                 isOptimized: isReelOptimized(reel),
-                onSelect: {
+                onSelect: { modifiers in
                     selectedReelId = reel.id
-                    onReelSelected(reel.id)
+                    onReelSelected(reel.id, modifiers)
                 },
                 onDoubleClick: {
                     onReelDoubleClick(reel)
@@ -221,7 +221,7 @@ struct VideoTrackView: View {
                             dragStartFrame = reel.timelineStartFrame
                             dragOffsetFrames = 0
                             selectedReelId = reel.id
-                            onReelSelected(reel.id)
+                            onReelSelected(reel.id, SelectionModifiers.current)
                         }
                         let deltaFrames = Int(round(value.translation.width / max(pixelsPerFrame, 0.001)))
                         dragOffsetFrames = deltaFrames
@@ -633,8 +633,8 @@ private struct VideoTrackDropDelegate: DropDelegate {
                 onDropMedia: { urls, _, _ in
                     print("Dropped: \(urls)")
                 },
-                onReelSelected: { id in
-                    print("Selected: \(String(describing: id))")
+                onReelSelected: { id, modifiers in
+                    print("Selected: \(String(describing: id)), modifiers: \(modifiers)")
                 },
                 onReelDoubleClick: { reel in
                     print("Double-clicked: \(reel.displayName)")

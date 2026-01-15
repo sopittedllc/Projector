@@ -211,7 +211,110 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         // Replace the submenu entirely
         fileMenuItem.submenu = newFileMenu
 
-        debugPrint("setupMenus: DONE. Replaced File menu with: %@", newFileMenu.items.map { $0.title })
+        debugPrint("setupMenus: File menu replaced with: %@", newFileMenu.items.map { $0.title })
+
+        // Create Edit menu (insert after File menu)
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.autoenablesItems = false
+
+        // Undo
+        let undoItem = NSMenuItem(
+            title: "Undo",
+            action: #selector(editUndo(_:)),
+            keyEquivalent: "z"
+        )
+        undoItem.target = self
+        undoItem.isEnabled = true
+        editMenu.addItem(undoItem)
+
+        // Redo
+        let redoItem = NSMenuItem(
+            title: "Redo",
+            action: #selector(editRedo(_:)),
+            keyEquivalent: "Z"
+        )
+        redoItem.keyEquivalentModifierMask = [.command, .shift]
+        redoItem.target = self
+        redoItem.isEnabled = true
+        editMenu.addItem(redoItem)
+
+        editMenu.addItem(NSMenuItem.separator())
+
+        // Cut
+        let cutItem = NSMenuItem(
+            title: "Cut",
+            action: #selector(editCut(_:)),
+            keyEquivalent: "x"
+        )
+        cutItem.target = self
+        cutItem.isEnabled = true
+        editMenu.addItem(cutItem)
+
+        // Copy
+        let copyItem = NSMenuItem(
+            title: "Copy",
+            action: #selector(editCopy(_:)),
+            keyEquivalent: "c"
+        )
+        copyItem.target = self
+        copyItem.isEnabled = true
+        editMenu.addItem(copyItem)
+
+        // Paste
+        let pasteItem = NSMenuItem(
+            title: "Paste",
+            action: #selector(editPaste(_:)),
+            keyEquivalent: "v"
+        )
+        pasteItem.target = self
+        pasteItem.isEnabled = true
+        editMenu.addItem(pasteItem)
+
+        // Delete
+        let deleteItem = NSMenuItem(
+            title: "Delete",
+            action: #selector(editDelete(_:)),
+            keyEquivalent: "\u{8}" // Backspace
+        )
+        deleteItem.keyEquivalentModifierMask = []
+        deleteItem.target = self
+        deleteItem.isEnabled = true
+        editMenu.addItem(deleteItem)
+
+        editMenu.addItem(NSMenuItem.separator())
+
+        // Select All
+        let selectAllItem = NSMenuItem(
+            title: "Select All",
+            action: #selector(editSelectAll(_:)),
+            keyEquivalent: "a"
+        )
+        selectAllItem.target = self
+        selectAllItem.isEnabled = true
+        editMenu.addItem(selectAllItem)
+
+        // Deselect All
+        let deselectAllItem = NSMenuItem(
+            title: "Deselect All",
+            action: #selector(editDeselectAll(_:)),
+            keyEquivalent: "d"
+        )
+        deselectAllItem.keyEquivalentModifierMask = [.command, .shift]
+        deselectAllItem.target = self
+        deselectAllItem.isEnabled = true
+        editMenu.addItem(deselectAllItem)
+
+        // Insert Edit menu after File (index 2)
+        let editMenuItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        editMenuItem.submenu = editMenu
+
+        // Check if Edit menu already exists
+        if let existingEditIndex = mainMenu.items.firstIndex(where: { $0.title == "Edit" }) {
+            mainMenu.removeItem(at: existingEditIndex)
+        }
+        mainMenu.insertItem(editMenuItem, at: 2)
+
+        debugPrint("setupMenus: DONE. Added Edit menu with: %@", editMenu.items.map { $0.title })
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -406,6 +509,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         NotificationCenter.default.post(name: .consolidateMedia, object: nil)
     }
 
+    // MARK: - Edit Actions
+
+    @objc func editUndo(_ sender: Any?) {
+        debugPrint("editUndo called")
+        NotificationCenter.default.post(name: .editUndo, object: nil)
+    }
+
+    @objc func editRedo(_ sender: Any?) {
+        debugPrint("editRedo called")
+        NotificationCenter.default.post(name: .editRedo, object: nil)
+    }
+
+    @objc func editCut(_ sender: Any?) {
+        debugPrint("editCut called")
+        NotificationCenter.default.post(name: .editCut, object: nil)
+    }
+
+    @objc func editCopy(_ sender: Any?) {
+        debugPrint("editCopy called")
+        NotificationCenter.default.post(name: .editCopy, object: nil)
+    }
+
+    @objc func editPaste(_ sender: Any?) {
+        debugPrint("editPaste called")
+        NotificationCenter.default.post(name: .editPaste, object: nil)
+    }
+
+    @objc func editDelete(_ sender: Any?) {
+        debugPrint("editDelete called")
+        NotificationCenter.default.post(name: .editDelete, object: nil)
+    }
+
+    @objc func editSelectAll(_ sender: Any?) {
+        debugPrint("editSelectAll called")
+        NotificationCenter.default.post(name: .editSelectAll, object: nil)
+    }
+
+    @objc func editDeselectAll(_ sender: Any?) {
+        debugPrint("editDeselectAll called")
+        NotificationCenter.default.post(name: .editDeselectAll, object: nil)
+    }
+
     // MARK: - Open Action
 
     private func openFile() {
@@ -435,6 +580,16 @@ extension Notification.Name {
     static let saveProjectAs = Notification.Name("saveProjectAs")
     static let checkUnsavedChanges = Notification.Name("checkUnsavedChanges")
     static let consolidateMedia = Notification.Name("consolidateMedia")
+
+    // Edit menu notifications
+    static let editUndo = Notification.Name("editUndo")
+    static let editRedo = Notification.Name("editRedo")
+    static let editCut = Notification.Name("editCut")
+    static let editCopy = Notification.Name("editCopy")
+    static let editPaste = Notification.Name("editPaste")
+    static let editDelete = Notification.Name("editDelete")
+    static let editSelectAll = Notification.Name("editSelectAll")
+    static let editDeselectAll = Notification.Name("editDeselectAll")
 }
 
 // MARK: - NSApplication Swizzling for CMD+S

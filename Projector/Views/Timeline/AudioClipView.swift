@@ -14,7 +14,7 @@ struct AudioClipView: View {
     let showWaveform: Bool
     let interactionsEnabled: Bool
     let isOptimized: Bool
-    let onSelect: () -> Void
+    let onSelect: (SelectionModifiers) -> Void
     let onDoubleClick: () -> Void
 
     /// Track height for audio clips
@@ -91,7 +91,7 @@ struct AudioClipView: View {
 
         Group {
             if interactionsEnabled {
-                Button(action: onSelect) {
+                Button(action: { onSelect(SelectionModifiers.current) }) {
                     clipContent
                 }
                 .buttonStyle(.plain)
@@ -296,7 +296,7 @@ private struct WaveformBarsView: Shape {
             showWaveform: true,
             interactionsEnabled: true,
             isOptimized: true,
-            onSelect: {},
+            onSelect: { _ in },
             onDoubleClick: {}
         )
 
@@ -319,7 +319,7 @@ private struct WaveformBarsView: Shape {
             showWaveform: true,
             interactionsEnabled: true,
             isOptimized: false,
-            onSelect: {},
+            onSelect: { _ in },
             onDoubleClick: {}
         )
     }

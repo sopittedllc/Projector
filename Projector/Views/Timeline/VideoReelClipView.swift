@@ -1,6 +1,23 @@
 import SwiftUI
 import Iconoir
 
+/// Modifier flags for selection operations
+struct SelectionModifiers: OptionSet {
+    let rawValue: Int
+
+    static let command = SelectionModifiers(rawValue: 1 << 0)
+    static let shift = SelectionModifiers(rawValue: 1 << 1)
+
+    /// Get current modifier flags from NSEvent
+    static var current: SelectionModifiers {
+        var modifiers = SelectionModifiers()
+        let flags = NSEvent.modifierFlags
+        if flags.contains(.command) { modifiers.insert(.command) }
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        return modifiers
+    }
+}
+
 /// Visual representation of a single video reel on the timeline
 struct VideoReelClipView: View {
     let reel: VideoReel
@@ -11,7 +28,7 @@ struct VideoReelClipView: View {
     let isSelected: Bool
     let interactionsEnabled: Bool
     let isOptimized: Bool
-    let onSelect: () -> Void
+    let onSelect: (SelectionModifiers) -> Void
     let onDoubleClick: () -> Void
 
     /// Clip height (fits within 50px track with padding)
@@ -91,7 +108,7 @@ struct VideoReelClipView: View {
 
         Group {
             if interactionsEnabled {
-                Button(action: onSelect) {
+                Button(action: { onSelect(SelectionModifiers.current) }) {
                     clipContent
                 }
                 .buttonStyle(.plain)
@@ -199,7 +216,7 @@ struct VideoReelClipView: View {
             isSelected: false,
             interactionsEnabled: true,
             isOptimized: true,
-            onSelect: {},
+            onSelect: { _ in },
             onDoubleClick: {}
         )
 
@@ -218,7 +235,7 @@ struct VideoReelClipView: View {
             isSelected: true,
             interactionsEnabled: true,
             isOptimized: false,
-            onSelect: {},
+            onSelect: { _ in },
             onDoubleClick: {}
         )
     }

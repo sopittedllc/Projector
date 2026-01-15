@@ -26,7 +26,7 @@ struct AudioLaneView: View {
     let onVolumeChange: (Float) -> Void
     let onOutputMappingChange: (MappedAudioOutput?) -> Void
     let onDropMedia: ([URL], Int, Bool) -> Void
-    let onClipSelected: (UUID?) -> Void
+    let onClipSelected: (UUID?, SelectionModifiers) -> Void
     let onClipDoubleClick: (AudioClip) -> Void
     let onClipMove: (UUID, Int) -> Void
     let onClipDragPreview: (AudioClip, Int?) -> Void
@@ -377,9 +377,9 @@ struct AudioLaneView: View {
                 showWaveform: showWaveforms,
                 interactionsEnabled: clipInteractionsEnabled,
                 isOptimized: isClipOptimized(clip),
-                onSelect: {
+                onSelect: { modifiers in
                     selectedClipId = clip.id
-                    onClipSelected(clip.id)
+                    onClipSelected(clip.id, modifiers)
                 },
                 onDoubleClick: {
                     onClipDoubleClick(clip)
@@ -396,7 +396,7 @@ struct AudioLaneView: View {
                             dragOffsetFrames = 0
                             dragVerticalOffset = 0
                             selectedClipId = clip.id
-                            onClipSelected(clip.id)
+                            onClipSelected(clip.id, SelectionModifiers.current)
                         }
 
                         // Track vertical offset for lane changes
@@ -1055,7 +1055,7 @@ private final class AudioLaneDragCaptureNSView: NSView {
                 onVolumeChange: { _ in },
                 onOutputMappingChange: { _ in },
                 onDropMedia: { _, _, _ in },
-                onClipSelected: { _ in },
+                onClipSelected: { _, _ in },
                 onClipDoubleClick: { _ in },
                 onClipMove: { _, _ in },
                 onClipDragPreview: { _, _ in },

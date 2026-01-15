@@ -12,10 +12,17 @@ enum MediaType: String, Codable, CaseIterable {
 /// Shared drag state for internal Media panel drags.
 ///
 /// Supports both single and multi-item drags from the Media panel.
+/// Includes automatic cleanup for cancelled drags where no drop handler is called.
 @MainActor
 final class DragContext: ObservableObject {
     /// The items currently being dragged (supports multi-select)
     @Published var mediaItems: [MediaItem] = []
+
+    /// Cleanup task handle for automatic timeout
+    private var cleanupTask: Task<Void, Never>?
+
+    /// Timeout duration for automatic cleanup (seconds)
+    private let cleanupTimeout: TimeInterval = 5.0
 
     /// Legacy single-item accessor for backwards compatibility
     var mediaItem: MediaItem? { mediaItems.first }
@@ -23,20 +30,40 @@ final class DragContext: ObservableObject {
     /// Begin dragging a single item
     func begin(_ item: MediaItem) {
         mediaItems = [item]
+        scheduleCleanup()
     }
 
     /// Begin dragging multiple items
     func begin(_ items: [MediaItem]) {
         mediaItems = items
+        scheduleCleanup()
     }
 
     /// End the drag operation
     func end() {
+        cleanupTask?.cancel()
+        cleanupTask = nil
         mediaItems = []
     }
 
     /// Whether there's an active drag
     var isDragging: Bool { !mediaItems.isEmpty }
+
+    /// Schedule automatic cleanup for cancelled drags
+    ///
+    /// When a drag is cancelled (escape key, dropped outside valid target),
+    /// no drop handler is called. This timeout ensures the context is cleared.
+    private func scheduleCleanup() {
+        cleanupTask?.cancel()
+        cleanupTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(self?.cleanupTimeout ?? 5.0))
+            guard !Task.isCancelled else { return }
+            // If we get here, the drag was likely cancelled (no drop handler called)
+            if self?.isDragging == true {
+                self?.mediaItems = []
+            }
+        }
+    }
 }
 
 /// Represents a media file in the project library
