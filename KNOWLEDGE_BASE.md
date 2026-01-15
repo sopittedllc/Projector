@@ -1,6 +1,6 @@
 # Projector Knowledge Base
 
-> **Last Updated**: 2026-01-13 (GP-018 added - DMG Distribution Build)
+> **Last Updated**: 2026-01-15 (GP-019 added - macOS Drag-Drop Architecture)
 > **Maintainer**: The Librarian Agent
 >
 > This document captures institutional knowledge extracted from the Projector codebase.
@@ -932,6 +932,411 @@ Any macOS app distribution requiring professional DMG installer appearance.
 - `scripts/build-release.sh`
 - `scripts/verify-distribution.sh`
 - `~/.claude/macos-swift-reference.md` (full template)
+
+---
+
+### GP-019: macOS Drag-Drop Architecture (Definitive Guide)
+**Added**: 2026-01-15
+**Source**: Apple Drag and Drop Programming Topics, MacRumors Forums research, empirical testing
+**Category**: UI / AppKit / SwiftUI Integration
+
+This is the **definitive reference** for implementing drag-drop in macOS applications, especially those mixing SwiftUI and AppKit.
+
+---
+
+#### Part 1: Ground Truth - How AppKit Drag-Drop Actually Works
+
+##### The Window Server Makes the Decision
+
+**CRITICAL INSIGHT**: Drag destination selection happens in the **window server**, not your application code.
+
+> "The whole of a drag and drop operation happens within the window server. This includes determining which view is under the mouse and therefore the target of the d'n'd operation. The target application doesn't get any events or messages, so it's impossible for your application to change this determination."
+> — MacRumors Forums
+
+**Implications:**
+- You CANNOT "pass" a drag from parent to child by returning `[]` from `draggingEntered:`
+- The window server decides the target BEFORE your code runs
+- Once a view is selected, it handles the entire drag session
+
+##### Registration Permanently Marks a View
+
+```swift
+// Once called, this view is FOREVER a potential drag destination
+view.registerForDraggedTypes([.fileURL])
+```
+
+**Critical Rule**: If a subview **ever** registers for drag types, it will intercept drags from its superview. Even calling `unregisterDraggedTypes()` doesn't fully undo this.
+
+##### The Lifecycle
+
+```
+                                    ┌─────────────────────────────────┐
+                                    │     Window Server Decision      │
+                                    │   (Based on view registration   │
+                                    │    and mouse position)          │
+                                    └─────────────────────────────────┘
+                                                   │
+                                                   ▼
+┌─────────────────┐   Returns .copy    ┌─────────────────┐
+│ draggingEntered │ ────────────────▶  │ draggingUpdated │ (periodic)
+└─────────────────┘                    └─────────────────┘
+        │                                      │
+        │ Returns []                           │ Image released
+        │                                      ▼
+        ▼                              ┌─────────────────────┐
+   Drag Rejected                       │ prepareForDragOp    │
+   (cursor shows ⊘)                    └─────────────────────┘
+                                               │
+                                               ▼
+                                       ┌─────────────────────┐
+                                       │ performDragOp       │
+                                       └─────────────────────┘
+                                               │
+                                               ▼
+                                       ┌─────────────────────┐
+                                       │ concludeDragOp      │
+                                       └─────────────────────┘
+```
+
+##### Return Values from draggingEntered
+
+| Return Value | Effect |
+|--------------|--------|
+| `.copy` | Accept drag, show "+" cursor badge |
+| `.move` | Accept drag, indicate move operation |
+| `[]` (empty) | **Reject drag** - shows ⊘ cursor, `performDragOperation` NOT called |
+
+**MYTH BUSTED**: Returning `[]` does NOT pass the drag to child views. It simply rejects the drag at this view.
+
+---
+
+#### Part 2: SwiftUI Integration Pitfalls
+
+##### SwiftUI Overlays Create Siblings, Not Children
+
+```swift
+// This creates SIBLING NSViews in AppKit, not parent-child!
+VStack {
+    ChildView()
+}
+.overlay {
+    ParentDragHandler()  // NSView is SIBLING to ChildView's NSView
+}
+```
+
+**The Problem**: SwiftUI's `.overlay` and `.background` modifiers create views that are **siblings** in the underlying NSView hierarchy, not parent-child. This breaks AppKit's drag destination selection model.
+
+##### NSViewRepresentable Drag Handlers
+
+When using `NSViewRepresentable` for drag handling:
+```swift
+struct DragCaptureView: NSViewRepresentable {
+    func makeNSView(context: Context) -> DragCaptureNSView {
+        let view = DragCaptureNSView()
+        view.registerForDraggedTypes([.fileURL])  // Now a permanent drag target
+        return view
+    }
+}
+```
+
+**Problem**: Every `DragCaptureView` in your hierarchy creates a separate registered view. The **topmost in z-order** intercepts all drags.
+
+##### SwiftUI .onDrop Limitations
+
+- **Breaks inside List**: `.onDrop` stops working on views inside `List` (known SwiftUI bug)
+- **Workaround**: Use `ScrollView + ForEach` instead of `List`
+- **Alternative**: Use `NSViewRepresentable` with explicit drag handling
+
+---
+
+#### Part 3: Correct Architecture Patterns
+
+##### Pattern A: Single Coordinator (Recommended)
+
+**Use ONE drag handler that routes based on coordinates:**
+
+```swift
+struct TimelineView: View {
+    var body: some View {
+        ZStack {
+            // Content layers (no drag registration)
+            VideoTrackView()
+            AudioLanesView()
+            NewLaneDropZone()
+        }
+        .overlay {
+            // SINGLE drag coordinator handles ALL drags
+            TimelineDragCoordinator(
+                onDrop: { info, location in
+                    // Determine target based on coordinates
+                    if isOverVideoTrack(location) {
+                        handleVideoTrackDrop(info, location)
+                    } else if let laneIndex = laneAt(location) {
+                        handleAudioLaneDrop(info, location, laneIndex)
+                    } else {
+                        handleNewLaneDrop(info, location)
+                    }
+                }
+            )
+        }
+    }
+}
+```
+
+**Why This Works:**
+- Only ONE view registers for drags
+- No competition between handlers
+- Coordinator has full knowledge of layout
+- Preview state can be managed centrally
+
+##### Pattern B: Child-Only Registration (No Parent)
+
+**Register ONLY the leaf views that handle drops:**
+
+```swift
+struct AudioLaneView: View {
+    var body: some View {
+        LaneContent()
+            .overlay {
+                LaneDragHandler()  // Each lane has its own handler
+            }
+    }
+}
+
+// NO parent drag handler - each lane handles its own drops
+struct TimelineView: View {
+    var body: some View {
+        VStack {
+            VideoTrackView()  // Has its own handler
+            ForEach(lanes) { lane in
+                AudioLaneView(lane: lane)  // Each has its own handler
+            }
+        }
+        // NO overlay drag handler here!
+    }
+}
+```
+
+**Why This Works:**
+- No parent to intercept
+- Each leaf view receives its own drags
+- Works for simple cases
+
+**Limitation**: Coordination between views (e.g., multi-file distribution) becomes complex.
+
+##### Pattern C: Glass View for Tracking Only
+
+**Use a glass view to observe without intercepting:**
+
+```swift
+class GlassTrackingView: NSView {
+    // CRITICAL: Return nil from hitTest
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return nil  // Transparent to all mouse events
+    }
+
+    // DO NOT register for drag types if you want to pass through
+    // OR register but ALWAYS return [] to observe without claiming
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        // Track for UI purposes
+        updateDragItemCount(from: sender)
+        // ALWAYS return [] - never claim
+        return []
+    }
+}
+```
+
+**Why This Works:**
+- Observes drags for UI feedback (showing overlays)
+- Never claims drags, so children can handle them
+- **BUT**: Works only if children are actual NSView subviews, not SwiftUI siblings
+
+---
+
+#### Part 4: Reading Files from NSDraggingInfo
+
+##### Modern Pattern (macOS 10.13+)
+
+```swift
+override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    let pasteboard = sender.draggingPasteboard
+
+    // Preferred: readObjects with type filtering
+    guard let urls = pasteboard.readObjects(
+        forClasses: [NSURL.self],
+        options: [.urlReadingFileURLsOnly: true]
+    ) as? [URL] else {
+        return false
+    }
+
+    // Filter by media type
+    let audioURLs = urls.filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
+    let videoURLs = urls.filter { ProjectMediaLibrary.mediaType(for: $0) == .video }
+
+    // Handle the drop
+    handleDrop(audioURLs: audioURLs, videoURLs: videoURLs)
+    return true
+}
+```
+
+##### Sandbox Considerations
+
+```swift
+// For sandboxed apps, access security-scoped URLs
+for url in urls {
+    guard url.startAccessingSecurityScopedResource() else { continue }
+    defer { url.stopAccessingSecurityScopedResource() }
+
+    // Use the file...
+}
+```
+
+##### Internal vs External Drags
+
+```swift
+// Check if drag is from within the app
+let isInternalDrag = pasteboard.types?.contains(
+    NSPasteboard.PasteboardType("com.yourapp.internal-item")
+) ?? false
+
+if isInternalDrag {
+    // Use shared drag context (faster, has metadata)
+    let items = DragContext.shared.items
+} else {
+    // Parse from pasteboard (external drag from Finder)
+    let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [:])
+}
+```
+
+---
+
+#### Part 5: Anti-Patterns (What Breaks)
+
+##### AP-DND-001: Multiple Competing Drag Handlers
+
+```swift
+// ❌ BROKEN - Multiple overlays with drag handlers
+VStack {
+    Content()
+}
+.overlay { ParentDragHandler() }   // Claims all drags!
+.overlay { ChildDragHandler() }    // Never receives anything
+```
+
+**Why It Breaks**: First overlay claims all drags. Second never sees them.
+
+##### AP-DND-002: Expecting Parent-to-Child Passthrough
+
+```swift
+// ❌ BROKEN - Expecting [] to pass to children
+override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+    if shouldHandleHere {
+        return .copy
+    } else {
+        return []  // MYTH: This does NOT pass to children!
+    }
+}
+```
+
+**Why It Breaks**: Window server already chose this view. Returning `[]` just rejects the drag.
+
+##### AP-DND-003: Using .background for Drag Observation
+
+```swift
+// ❌ UNRELIABLE - Background may not receive drags
+VStack { Content() }
+    .background {
+        DragObserver()  // May or may not work depending on z-order
+    }
+```
+
+**Why It Breaks**: Z-order of `.background` vs content is implementation-defined.
+
+##### AP-DND-004: SwiftUI List with onDrop
+
+```swift
+// ❌ BROKEN - Known SwiftUI bug
+List(items) { item in
+    ItemRow(item: item)
+        .onDrop(of: [.fileURL]) { ... }  // Does not work!
+}
+```
+
+**Fix**: Use `ScrollView + ForEach` instead:
+```swift
+ScrollView {
+    ForEach(items) { item in
+        ItemRow(item: item)
+            .onDrop(of: [.fileURL]) { ... }  // Works
+    }
+}
+```
+
+---
+
+#### Part 6: Debugging Drag-Drop Issues
+
+##### Diagnostic Questions
+
+1. **How many views register for drag types?**
+   - Search for `registerForDraggedTypes` and `.onDrop`
+   - Each registration creates a potential interceptor
+
+2. **What's the actual NSView hierarchy?**
+   - Use Xcode's View Debugger (Debug → View Debugging → Capture View Hierarchy)
+   - Look at NSView tree, not SwiftUI tree
+
+3. **Which view is claiming drags?**
+   - Add logging to `draggingEntered` in ALL drag-registered views
+   - Only ONE should fire per drag session
+
+4. **Is the cursor showing the right indicator?**
+   - "+" badge = `.copy` returned
+   - ⊘ symbol = `[]` returned (rejected)
+   - No badge = `.move` or `.generic`
+
+##### Debug Logging Pattern
+
+```swift
+override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+    print("[\(type(of: self))] draggingEntered at \(sender.draggingLocation)")
+    let result: NSDragOperation = // your logic
+    print("[\(type(of: self))] returning \(result)")
+    return result
+}
+```
+
+---
+
+#### Part 7: The Projector Implementation
+
+Based on the above principles, Projector's timeline uses **Pattern A (Single Coordinator)** conceptually, but due to SwiftUI's overlay architecture, we implement it as:
+
+1. **Parent DragCaptureView** (`.background`): Only tracks `externalDragItemCount` for overlay visibility, ALWAYS returns `[]`
+2. **Child handlers** (per-lane, per-track): Actually handle drops, return `.copy` when accepting
+3. **No multi-level claiming**: Only leaf views claim drags
+
+This works because:
+- Parent uses `.background` (lower z-order)
+- Parent never claims (returns `[]`)
+- Children are at higher z-order and claim appropriately
+
+---
+
+#### Summary: The Three Rules
+
+1. **ONE handler per drop zone** - Never have multiple registered views covering the same area
+2. **Window server decides first** - Your code cannot redirect drags between views
+3. **Leaf views handle drops** - Parent views should observe, not claim
+
+---
+
+#### Sources
+
+- [Apple: Dragging Destinations](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/DragandDrop/Concepts/dragdestination.html)
+- [Apple: Receiving Drag Operations](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/DragandDrop/Tasks/acceptingdrags.html)
+- [MacRumors: Subview Blocking Drag/Drop](https://forums.macrumors.com/threads/cocoa-nsview-subview-blocking-drag-drop.1147942/)
+- [SwiftUI Lab: Drag & Drop](https://swiftui-lab.com/drag-drop-with-swiftui/)
 
 ---
 
