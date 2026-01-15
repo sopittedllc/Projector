@@ -1128,6 +1128,10 @@ struct MultiTrackTimelineView: View {
                 }
             }
             // DragCaptureView to track external multi-file drags and handle drops
+            // IMPORTANT: This view ONLY handles multi-file drops. Single-file drops
+            // must pass through to child views (AudioLaneView, VideoTrackView).
+            // By returning [] from onEntered for single-file, AppKit won't consider
+            // this view as the drag destination, allowing child views to handle it.
             .overlay {
                 DragCaptureView(
                     onEntered: { info, _ in
@@ -1136,6 +1140,9 @@ struct MultiTrackTimelineView: View {
                             let pasteboardItems = info.draggingPasteboard.pasteboardItems ?? []
                             externalDragItemCount = pasteboardItems.count
                         }
+                        // Only accept multi-file drops - return [] for single-file
+                        // so child views can handle them
+                        return (isMultiFileDrag || externalDragItemCount > 1) ? .copy : []
                     },
                     onUpdated: { info, _ in
                         // Keep tracking - cursor might move in/out of child views
@@ -1143,7 +1150,7 @@ struct MultiTrackTimelineView: View {
                             let pasteboardItems = info.draggingPasteboard.pasteboardItems ?? []
                             externalDragItemCount = pasteboardItems.count
                         }
-                        // Only accept multi-file drops
+                        // Only accept multi-file drops - single-file drops should go to child views
                         return (isMultiFileDrag || externalDragItemCount > 1) ? .copy : []
                     },
                     onExited: {
@@ -1472,6 +1479,7 @@ struct MultiTrackTimelineView: View {
             DragCaptureView(
                 onEntered: { info, location in
                     handleNewLaneDragEntered(info: info, location: adjustLocation(location), pixelsPerFrame: pixelsPerFrame)
+                    return .copy  // Accept all drops for new lane creation
                 },
                 onUpdated: { info, location in
                     handleNewLaneDragUpdated(info: info, location: adjustLocation(location), pixelsPerFrame: pixelsPerFrame)
@@ -1548,6 +1556,7 @@ struct MultiTrackTimelineView: View {
             DragCaptureView(
                 onEntered: { info, location in
                     handleNewLaneDragEntered(info: info, location: adjustLocation(location), pixelsPerFrame: pixelsPerFrame)
+                    return .copy  // Accept all drops for new lane creation
                 },
                 onUpdated: { info, location in
                     handleNewLaneDragUpdated(info: info, location: adjustLocation(location), pixelsPerFrame: pixelsPerFrame)
@@ -2510,7 +2519,8 @@ private struct EmptyAudioLaneDropDelegate: DropDelegate {
 }
 
 private struct DragCaptureView: NSViewRepresentable {
-    var onEntered: (NSDraggingInfo, CGPoint) -> Void
+    /// Called when drag enters - should also return the operation to accept/reject
+    var onEntered: (NSDraggingInfo, CGPoint) -> NSDragOperation
     var onUpdated: (NSDraggingInfo, CGPoint) -> NSDragOperation
     var onExited: () -> Void
     var onPerform: (NSDraggingInfo, CGPoint) -> Bool
@@ -2533,7 +2543,7 @@ private struct DragCaptureView: NSViewRepresentable {
 }
 
 private final class DragCaptureNSView: NSView {
-    var onEntered: ((NSDraggingInfo, CGPoint) -> Void)?
+    var onEntered: ((NSDraggingInfo, CGPoint) -> NSDragOperation)?
     var onUpdated: ((NSDraggingInfo, CGPoint) -> NSDragOperation)?
     var onExited: (() -> Void)?
     var onPerform: ((NSDraggingInfo, CGPoint) -> Bool)?
@@ -2590,8 +2600,7 @@ private final class DragCaptureNSView: NSView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        onEntered?(sender, localLocation(for: sender))
-        return .copy
+        onEntered?(sender, localLocation(for: sender)) ?? []
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
