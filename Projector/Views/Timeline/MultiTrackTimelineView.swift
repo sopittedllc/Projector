@@ -997,19 +997,11 @@ struct MultiTrackTimelineView: View {
         }
     }
 
-    /// Marquee selection gesture - requires Option key to activate
-    /// This prevents conflicts with scrolling and clip interactions
+    /// Marquee selection gesture for selecting multiple clips
+    /// Uses simultaneousGesture so it doesn't block scrolling
     private func marqueeSelectionGesture(pixelsPerFrame: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 3)
+        DragGesture(minimumDistance: 5)
             .onChanged { value in
-                // Only activate marquee if Option key is held
-                guard NSEvent.modifierFlags.contains(.option) else {
-                    if isMarqueeSelecting {
-                        isMarqueeSelecting = false
-                    }
-                    return
-                }
-
                 // Don't start marquee during multi-file drag operations
                 guard !isMultiFileDrag, externalDragItemCount == 0 else { return }
 

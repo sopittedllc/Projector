@@ -264,7 +264,17 @@ extension ContentView {
                 allItems.append(contentsOf: videoItems)
             }
 
+            // IMPORTANT: Reserve lanes for video embedded audio FIRST
+            // Each video may have an audio track that needs its own lane
+            // We create placeholder lanes now so standalone audio files get assigned to subsequent lanes
+            for videoURL in newVideoURLs {
+                let laneNumber = timelineManager.timeline.audioLanes.count + 1
+                let _ = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+                debugPrint("handleMixedBatchDrop: Reserved lane 'Audio \(laneNumber)' for video audio from \(videoURL.lastPathComponent)")
+            }
+
             // Detect timecode for audio files and create a lane for each
+            // These lanes come AFTER the video audio lanes
             for url in newAudioURLs {
                 let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil)
                 let laneNumber = timelineManager.timeline.audioLanes.count + 1
