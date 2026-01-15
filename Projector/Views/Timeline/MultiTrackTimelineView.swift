@@ -200,36 +200,97 @@ struct MultiTrackTimelineView: View {
         }
     }
 
-    // MARK: - Delete Selected Item
+    // MARK: - Delete Selected Items
 
+    /// Delete all selected items (video reels and audio clips)
+    ///
+    /// Handles both single and multi-selection:
+    /// - Uses `selectedVideoReelIds` and `selectedAudioClipIds` for multi-selection
+    /// - Falls back to singular `selectedVideoReelId` and `selectedAudioClipId` for compatibility
+    /// - Registers a single undo operation before any deletions
+    /// - Removes linked audio clips when deleting video reels
+    /// - Cleans up empty audio lanes after all deletions
     private func deleteSelectedItem() {
-        if let reelId = selectedVideoReelId,
-           let reel = timelineManager.timeline.videoReels.first(where: { $0.id == reelId }) {
-            registerTimelineUndo(actionName: "Delete Video Reel")
-            removeLinkedAudio(for: reel)
-            timelineManager.removeVideoReel(id: reelId)
-            selectedVideoReelId = nil
-            selectedAudioClipId = nil
-            selectedAudioLaneId = nil
-            return
+        // Collect all items to delete
+        var reelIdsToDelete: Set<UUID> = selectedVideoReelIds
+        var clipIdsToDelete: Set<UUID> = selectedAudioClipIds
+
+        // Fall back to singular selection if multi-selection is empty
+        if reelIdsToDelete.isEmpty, let singleReelId = selectedVideoReelId {
+            reelIdsToDelete.insert(singleReelId)
+        }
+        if clipIdsToDelete.isEmpty, let singleClipId = selectedAudioClipId {
+            clipIdsToDelete.insert(singleClipId)
         }
 
-        if let clipId = selectedAudioClipId,
-           let laneId = selectedAudioLaneId,
-           let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
-           let clip = lane.clips.first(where: { $0.id == clipId }) {
-            registerTimelineUndo(actionName: "Delete Audio Clip")
-            if clip.sourceType == .videoTrack, let reel = linkedReel(for: clip) {
-                removeLinkedAudio(for: reel)
-                timelineManager.removeVideoReel(id: reel.id)
-                selectedVideoReelId = nil
-            } else {
-                timelineManager.removeAudioClip(clipId: clipId, fromLane: laneId)
-            }
-            removeEmptyAudioLanes()
-            selectedAudioClipId = nil
-            selectedAudioLaneId = nil
+        // Nothing to delete
+        guard !reelIdsToDelete.isEmpty || !clipIdsToDelete.isEmpty else { return }
+
+        // Build description for undo action
+        let reelCount = reelIdsToDelete.count
+        let clipCount = clipIdsToDelete.count
+        let actionName: String
+        if reelCount > 0 && clipCount > 0 {
+            actionName = "Delete \(reelCount + clipCount) Items"
+        } else if reelCount > 1 {
+            actionName = "Delete \(reelCount) Video Reels"
+        } else if reelCount == 1 {
+            actionName = "Delete Video Reel"
+        } else if clipCount > 1 {
+            actionName = "Delete \(clipCount) Audio Clips"
+        } else {
+            actionName = "Delete Audio Clip"
         }
+
+        // Register undo ONCE before any modifications
+        registerTimelineUndo(actionName: actionName)
+
+        // Track which video reels we've already handled (to avoid double-delete via linked audio)
+        var deletedReelIds: Set<UUID> = []
+
+        // First, check if any selected audio clips are linked to video reels
+        // If so, we'll delete the reel (which deletes all linked audio)
+        for clipId in clipIdsToDelete {
+            guard let (lane, clip) = findClip(by: clipId) else { continue }
+            if clip.sourceType == .videoTrack, let reel = linkedReel(for: clip) {
+                // This clip is linked to a video reel - add the reel to delete list
+                reelIdsToDelete.insert(reel.id)
+            }
+        }
+
+        // Delete all video reels and their linked audio
+        for reelId in reelIdsToDelete {
+            guard let reel = timelineManager.timeline.videoReels.first(where: { $0.id == reelId }) else { continue }
+            removeLinkedAudio(for: reel, cleanupLanes: false)
+            timelineManager.removeVideoReel(id: reelId)
+            deletedReelIds.insert(reelId)
+        }
+
+        // Delete standalone audio clips (not linked to video)
+        for clipId in clipIdsToDelete {
+            guard let (lane, clip) = findClip(by: clipId) else { continue }
+            // Skip if this clip was already deleted as part of a video reel
+            if clip.sourceType == .videoTrack {
+                continue // Already handled when we deleted the linked reel
+            }
+            timelineManager.removeAudioClip(clipId: clipId, fromLane: lane.id)
+        }
+
+        // Clean up empty lanes ONCE after all deletions
+        removeEmptyAudioLanes()
+
+        // Clear all selection state
+        clearSelection()
+    }
+
+    /// Find a clip by its ID across all audio lanes
+    private func findClip(by clipId: UUID) -> (lane: AudioLane, clip: AudioClip)? {
+        for lane in timelineManager.timeline.audioLanes {
+            if let clip = lane.clips.first(where: { $0.id == clipId }) {
+                return (lane, clip)
+            }
+        }
+        return nil
     }
 
     private func linkedReel(for clip: AudioClip) -> VideoReel? {
@@ -241,7 +302,12 @@ struct MultiTrackTimelineView: View {
         }
     }
 
-    private func removeLinkedAudio(for reel: VideoReel) {
+    /// Remove all audio clips linked to a video reel
+    ///
+    /// - Parameters:
+    ///   - reel: The video reel whose linked audio should be removed
+    ///   - cleanupLanes: Whether to remove empty lanes after removal (default: true)
+    private func removeLinkedAudio(for reel: VideoReel, cleanupLanes: Bool = true) {
         let removals: [(laneId: UUID, clipId: UUID)] = timelineManager.timeline.audioLanes.flatMap { lane in
             lane.clips.compactMap { clip in
                 guard clip.sourceType == .videoTrack,
@@ -259,7 +325,9 @@ struct MultiTrackTimelineView: View {
             timelineManager.removeAudioClip(clipId: removal.clipId, fromLane: removal.laneId)
         }
 
-        removeEmptyAudioLanes()
+        if cleanupLanes {
+            removeEmptyAudioLanes()
+        }
     }
 
     private func removeEmptyAudioLanes() {
@@ -763,6 +831,10 @@ struct MultiTrackTimelineView: View {
                             clipInteractionsEnabled: !debug.disableClipInteractions,
                             onDropMedia: onDropVideoMedia,
                             onReelSelected: { reelId in
+                                // Clear multi-selection when single-clicking
+                                selectedVideoReelIds.removeAll()
+                                selectedAudioClipIds.removeAll()
+                                // Set single selection
                                 selectedVideoReelId = reelId
                                 selectedAudioClipId = nil
                                 selectedAudioLaneId = nil
@@ -825,6 +897,10 @@ struct MultiTrackTimelineView: View {
                                 onOutputMappingChange: { output in timelineManager.setLaneOutputMapping(id: lane.id, mapping: output) },
                                 onDropMedia: { urls, frame, isInternal in onDropAudioMedia(index, urls, frame, isInternal) },
                                 onClipSelected: { clipId in
+                                    // Clear multi-selection when single-clicking
+                                    selectedVideoReelIds.removeAll()
+                                    selectedAudioClipIds.removeAll()
+                                    // Set single selection
                                     selectedAudioClipId = clipId
                                     selectedAudioLaneId = lane.id
                                     selectedVideoReelId = nil
