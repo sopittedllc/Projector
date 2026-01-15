@@ -943,6 +943,10 @@ struct MultiTrackTimelineView: View {
                         Spacer().frame(height: 8)
                     }
                     .frame(minHeight: scrollHeight)
+                    // Marquee selection gesture on scroll content
+                    // Using simultaneousGesture so it doesn't block scrolling
+                    // Requires Option key to activate
+                    .simultaneousGesture(marqueeSelectionGesture(pixelsPerFrame: ppf))
                 }
             }
             // Playhead overlay spanning full height
@@ -984,7 +988,46 @@ struct MultiTrackTimelineView: View {
                 )
             }
             .coordinateSpace(name: "timelineTracks")
+            // Marquee selection overlay (rendered above everything)
+            .overlay {
+                if isMarqueeSelecting {
+                    marqueeSelectionRectangle
+                }
+            }
         }
+    }
+
+    /// Marquee selection gesture - requires Option key to activate
+    /// This prevents conflicts with scrolling and clip interactions
+    private func marqueeSelectionGesture(pixelsPerFrame: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 3)
+            .onChanged { value in
+                // Only activate marquee if Option key is held
+                guard NSEvent.modifierFlags.contains(.option) else {
+                    if isMarqueeSelecting {
+                        isMarqueeSelecting = false
+                    }
+                    return
+                }
+
+                // Don't start marquee during multi-file drag operations
+                guard !isMultiFileDrag, externalDragItemCount == 0 else { return }
+
+                if !isMarqueeSelecting {
+                    // Start marquee selection
+                    isMarqueeSelecting = true
+                    marqueeStartPoint = value.startLocation
+                    // Clear selection if not holding shift
+                    if !NSEvent.modifierFlags.contains(.shift) {
+                        clearSelection()
+                    }
+                }
+                marqueeCurrentPoint = value.location
+                updateMarqueeSelection(pixelsPerFrame: pixelsPerFrame)
+            }
+            .onEnded { _ in
+                isMarqueeSelecting = false
+            }
     }
 
     /// Handle multi-file drop from NSDraggingInfo
