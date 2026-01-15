@@ -277,6 +277,13 @@ extension ContentView {
 
             // If any file has embedded timecode, show batch sheet
             if allItems.contains(where: { $0.hasTimecode }) {
+                // Debug: verify audio items have targetLaneId set
+                let audioCount = allItems.filter { $0.mediaType == .audio }.count
+                let audioWithLane = allItems.filter { $0.mediaType == .audio && $0.targetLaneId != nil }.count
+                debugPrint("handleMixedBatchDrop: BATCH SHEET - \(allItems.count) items total, \(audioCount) audio, \(audioWithLane) with targetLaneId")
+                for item in allItems where item.mediaType == .audio {
+                    debugPrint("  Audio: \(item.url.lastPathComponent), targetLaneId=\(item.targetLaneId?.uuidString ?? "nil")")
+                }
                 await MainActor.run {
                     pendingBatchTimecode = PendingBatchTimecode(
                         items: allItems,
@@ -1044,6 +1051,12 @@ extension ContentView {
         let dropFrame = batch.dropFrame
         let videoItems = batch.videoItems
         let audioItems = batch.audioItems
+
+        // Debug: verify audio items received with targetLaneId
+        debugPrint("handleBatchTimecodeConfirm: ENTRY - \(items.count) items, \(videoItems.count) video, \(audioItems.count) audio")
+        for item in audioItems {
+            debugPrint("  Audio item: \(item.url.lastPathComponent), targetLaneId=\(item.targetLaneId?.uuidString ?? "nil"), useTC=\(item.useEmbeddedTimecode)")
+        }
 
         // Keep processing flag set and dismiss sheet
         // Note: isProcessingTimecodeDetection should already be true from drop handler

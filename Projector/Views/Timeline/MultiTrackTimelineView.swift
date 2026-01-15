@@ -59,10 +59,19 @@ struct MultiTrackTimelineView: View {
     @State private var emptyAudioDropLocation: CGPoint?
     @State private var emptyAudioDropSourceURL: URL?
 
-    // Selection state
+    // Selection state (single selection for compatibility)
     @State private var selectedVideoReelId: UUID?
     @State private var selectedAudioClipId: UUID?
     @State private var selectedAudioLaneId: UUID?
+
+    // Multi-selection state for marquee selection
+    @State private var selectedVideoReelIds: Set<UUID> = []
+    @State private var selectedAudioClipIds: Set<UUID> = []
+
+    // Marquee selection state
+    @State private var isMarqueeSelecting = false
+    @State private var marqueeStartPoint: CGPoint = .zero
+    @State private var marqueeCurrentPoint: CGPoint = .zero
 
     // Focus state for keyboard commands
     @FocusState private var isTimelineFocused: Bool
@@ -974,6 +983,36 @@ struct MultiTrackTimelineView: View {
                     }
                 )
             }
+            // Marquee selection gesture
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 5)
+                    .onChanged { value in
+                        // Don't start marquee during multi-file drag operations
+                        guard !isMultiFileDrag, externalDragItemCount == 0 else { return }
+
+                        if !isMarqueeSelecting {
+                            // Start marquee selection
+                            isMarqueeSelecting = true
+                            marqueeStartPoint = value.startLocation
+                            // Clear selection if not holding shift
+                            if !NSEvent.modifierFlags.contains(.shift) {
+                                clearSelection()
+                            }
+                        }
+                        marqueeCurrentPoint = value.location
+                        updateMarqueeSelection(pixelsPerFrame: ppf)
+                    }
+                    .onEnded { _ in
+                        isMarqueeSelecting = false
+                    }
+            )
+            // Marquee selection overlay
+            .overlay {
+                if isMarqueeSelecting {
+                    marqueeSelectionRectangle
+                }
+            }
+            .coordinateSpace(name: "timelineTracks")
         }
     }
 
@@ -1011,10 +1050,13 @@ struct MultiTrackTimelineView: View {
             var videoURLs: [URL] = []
             var audioURLs: [URL] = []
 
+            debugPrint("handleMultiFileDropNative: Processing \(pasteboardItems.count) pasteboard items")
             for item in pasteboardItems {
                 if let urlString = item.string(forType: .fileURL),
                    let url = URL(string: urlString) {
-                    guard let mediaType = ProjectMediaLibrary.mediaType(for: url) else { continue }
+                    let mediaType = ProjectMediaLibrary.mediaType(for: url)
+                    debugPrint("  URL: \(url.lastPathComponent), mediaType=\(mediaType?.rawValue ?? "nil")")
+                    guard let mediaType = mediaType else { continue }
                     switch mediaType {
                     case .video:
                         videoURLs.append(url)
@@ -1024,6 +1066,7 @@ struct MultiTrackTimelineView: View {
                 }
             }
 
+            debugPrint("handleMultiFileDropNative: Found \(videoURLs.count) videos, \(audioURLs.count) audio")
             if let onDropMixedMedia = onDropMixedMedia, (!videoURLs.isEmpty || !audioURLs.isEmpty) {
                 onDropMixedMedia(videoURLs, audioURLs, 0)
             }
@@ -1710,6 +1753,107 @@ struct MultiTrackTimelineView: View {
             timelineManager.moveVideoReel(id: reelId, to: oldFrame)
         }
         undoManager?.setActionName("Move Video Reel")
+    }
+
+    // MARK: - Marquee Selection
+
+    /// Computed marquee rectangle in view coordinates
+    private var marqueeRect: CGRect {
+        let minX = min(marqueeStartPoint.x, marqueeCurrentPoint.x)
+        let minY = min(marqueeStartPoint.y, marqueeCurrentPoint.y)
+        let maxX = max(marqueeStartPoint.x, marqueeCurrentPoint.x)
+        let maxY = max(marqueeStartPoint.y, marqueeCurrentPoint.y)
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    /// Selection rectangle overlay view
+    private var marqueeSelectionRectangle: some View {
+        Rectangle()
+            .stroke(Color.accentColor, lineWidth: 1)
+            .background(Color.accentColor.opacity(0.1))
+            .frame(width: marqueeRect.width, height: marqueeRect.height)
+            .position(x: marqueeRect.midX, y: marqueeRect.midY)
+            .allowsHitTesting(false)
+    }
+
+    /// Update selection based on clips intersecting with marquee rectangle
+    /// - Parameters:
+    ///   - pixelsPerFrame: Current pixels per frame for calculating clip positions
+    ///   - scrollOffset: Current horizontal scroll offset (for position adjustment)
+    private func updateMarqueeSelection(pixelsPerFrame: CGFloat, scrollOffset: CGFloat = 0) {
+        var newVideoSelection: Set<UUID> = []
+        var newAudioSelection: Set<UUID> = []
+
+        // If shift is held, start with existing selection
+        if NSEvent.modifierFlags.contains(.shift) {
+            newVideoSelection = selectedVideoReelIds
+            newAudioSelection = selectedAudioClipIds
+        }
+
+        // Adjust marquee rect for scroll offset and header
+        let adjustedMarqueeRect = CGRect(
+            x: marqueeRect.minX - TimelineLayout.headerWidth + scrollOffset,
+            y: marqueeRect.minY,
+            width: marqueeRect.width,
+            height: marqueeRect.height
+        )
+
+        // Check video reels (in video track area: y = rulerHeight + 4 to rulerHeight + 4 + videoTrackHeight)
+        let videoTrackTop: CGFloat = TimelineLayout.rulerHeight + 1 + 4
+        let videoTrackBottom = videoTrackTop + TimelineLayout.videoTrackHeight
+
+        for reel in timeline.videoReels {
+            let reelX = CGFloat(reel.timelineStartFrame) * pixelsPerFrame
+            let reelWidth = CGFloat(reel.durationFrames) * pixelsPerFrame
+            let reelFrame = CGRect(x: reelX, y: videoTrackTop, width: reelWidth, height: TimelineLayout.videoTrackHeight)
+
+            // Check if marquee intersects with reel (considering Y position)
+            let yOverlap = marqueeRect.minY < videoTrackBottom && marqueeRect.maxY > videoTrackTop
+            if yOverlap && adjustedMarqueeRect.intersects(CGRect(x: reelX, y: 0, width: reelWidth, height: 1)) {
+                newVideoSelection.insert(reel.id)
+            }
+        }
+
+        // Check audio clips (in audio lanes area)
+        var audioLaneTop = videoTrackBottom + 1 // After divider
+        for lane in timeline.audioLanes {
+            let audioLaneBottom = audioLaneTop + TimelineLayout.audioLaneHeight
+
+            for clip in lane.clips {
+                let clipX = CGFloat(clip.timelineStartFrame) * pixelsPerFrame
+                let clipWidth = CGFloat(clip.durationFrames) * pixelsPerFrame
+
+                // Check if marquee intersects with clip (considering Y position)
+                let yOverlap = marqueeRect.minY < audioLaneBottom && marqueeRect.maxY > audioLaneTop
+                if yOverlap && adjustedMarqueeRect.intersects(CGRect(x: clipX, y: 0, width: clipWidth, height: 1)) {
+                    newAudioSelection.insert(clip.id)
+                }
+            }
+
+            audioLaneTop = audioLaneBottom + 1 // Move to next lane (with divider)
+        }
+
+        selectedVideoReelIds = newVideoSelection
+        selectedAudioClipIds = newAudioSelection
+
+        // Update single selection for compatibility (use first selected item)
+        selectedVideoReelId = newVideoSelection.first
+        selectedAudioClipId = newAudioSelection.first
+        if let clipId = selectedAudioClipId {
+            // Find the lane containing this clip
+            selectedAudioLaneId = timeline.audioLanes.first { lane in
+                lane.clips.contains { $0.id == clipId }
+            }?.id
+        }
+    }
+
+    /// Clear all selections
+    private func clearSelection() {
+        selectedVideoReelIds.removeAll()
+        selectedAudioClipIds.removeAll()
+        selectedVideoReelId = nil
+        selectedAudioClipId = nil
+        selectedAudioLaneId = nil
     }
 }
 
