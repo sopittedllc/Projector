@@ -39,6 +39,8 @@ struct AudioLaneView: View {
     let onClipLaneChangePreview: ((AudioClip, Int?) -> Void)?
     /// Preview of a clip being dragged to this lane from another lane
     let laneChangePreview: LaneChangePreview?
+    /// Set of clip IDs selected via marquee selection (from parent)
+    var selectedClipIds: Set<UUID> = []
 
     @State private var selectedClipId: UUID?
     @State private var isDropTargeted = false
@@ -370,7 +372,7 @@ struct AudioLaneView: View {
                 isActive: activeClipIds.contains(clip.id),
                 pixelsPerFrame: pixelsPerFrame,
                 frameRate: frameRate,
-                isSelected: selectedClipId == clip.id,
+                isSelected: selectedClipId == clip.id || selectedClipIds.contains(clip.id),
                 waveformCache: waveformCache,
                 showWaveform: showWaveforms,
                 interactionsEnabled: clipInteractionsEnabled,
@@ -552,7 +554,6 @@ struct AudioLaneView: View {
             let audioURLs = dragContext.mediaItems
                 .filter { $0.type == .audio }
                 .map { $0.url }
-            debugPrint("AudioLaneView.handleDrop: Using DragContext with \(audioURLs.count) audio URLs")
             if !audioURLs.isEmpty {
                 onDropMedia(audioURLs, targetFrame, isInternalDrag)
             }
@@ -580,7 +581,6 @@ struct AudioLaneView: View {
 
         group.notify(queue: .main) {
             let audioURLs = urls.filter { self.isAudioFile($0) }
-            debugPrint("AudioLaneView.handleDrop: Collected \(audioURLs.count) audio URLs from \(providers.count) providers")
             if !audioURLs.isEmpty {
                 self.onDropMedia(audioURLs, targetFrame, isInternalDrag)
             }
@@ -715,12 +715,8 @@ struct AudioLaneView: View {
     }
 
     private func beginDropPreviewNative(info: NSDraggingInfo, at location: CGPoint) {
-        debugPrint("AudioLaneView[\(lane.name)]: beginDropPreviewNative at \(location), clips in lane: \(lane.clips.count)")
-
         // For multi-file drops (internal or external), defer to parent timeline view
         if isMultiFileDrag || isMultiFileExternalDrag(info) {
-            let itemCount = info.draggingPasteboard.pasteboardItems?.count ?? 0
-            debugPrint("AudioLaneView[\(lane.name)]: Multi-file drop detected (\(itemCount) items), deferring to parent")
             isLoadingDropPreview = false
             isDropAllowed = false
             dropPreviewFrame = nil
@@ -731,7 +727,6 @@ struct AudioLaneView: View {
         updateDropPreview(location: location)
 
         if dropPreviewDurationFrames != nil || isLoadingDropPreview {
-            debugPrint("AudioLaneView[\(lane.name)]: Already loading preview, skipping")
             return
         }
 
@@ -739,9 +734,7 @@ struct AudioLaneView: View {
         isDropAllowed = false
 
         let candidate = audioCandidate(from: info)
-        debugPrint("AudioLaneView[\(lane.name)]: audioCandidate urls=\(candidate.urls.count), isInternal=\(candidate.isInternal)")
         guard !candidate.urls.isEmpty else {
-            debugPrint("AudioLaneView[\(lane.name)]: No URLs, clearing preview")
             isLoadingDropPreview = false
             clearDropPreview()
             return
@@ -751,7 +744,6 @@ struct AudioLaneView: View {
         let targetFrame = dropFrame(for: location)
         let isOverExisting = isFrameInsideExistingClip(targetFrame)
         isDropAllowed = !isOverExisting
-        debugPrint("AudioLaneView[\(lane.name)]: Drop allowed=\(isDropAllowed), isOverExisting=\(isOverExisting)")
 
         // Use duration from dragContext if available (internal drag)
         if let duration = candidate.duration {
@@ -786,8 +778,6 @@ struct AudioLaneView: View {
     private func handleDropNative(info: NSDraggingInfo, at location: CGPoint) -> Bool {
         // For multi-file drags (internal or external), let the parent timeline view handle it
         if isMultiFileDrag || isMultiFileExternalDrag(info) {
-            let itemCount = info.draggingPasteboard.pasteboardItems?.count ?? 0
-            debugPrint("AudioLaneView.handleDropNative: Multi-file drag (\(itemCount) items), deferring to parent")
             clearDropPreview()
             return false
         }
@@ -990,7 +980,6 @@ private final class AudioLaneDragCaptureNSView: NSView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        debugPrint("AudioLaneDragCaptureNSView: draggingEntered at \(localLocation(for: sender))")
         onEntered?(sender, localLocation(for: sender))
         return .copy
     }

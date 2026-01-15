@@ -188,17 +188,13 @@ extension ContentView {
     ///   - audioURLs: Array of audio file URLs
     ///   - atFrame: Target frame position for files not using embedded timecode
     func handleMixedBatchDrop(videoURLs: [URL], audioURLs: [URL], atFrame: Int) {
-        debugPrint("handleMixedBatchDrop: ENTRY with \(videoURLs.count) videos, \(audioURLs.count) audio")
-
         // Guard: Don't process new drops while timecode detection is in progress or a sheet is visible
         guard !isProcessingTimecodeDetection, !showBatchTimecodeSheet, !showEmbeddedTimecodeAlert else {
-            debugPrint("handleMixedBatchDrop: BLOCKED - isProcessing=\(isProcessingTimecodeDetection), showBatch=\(showBatchTimecodeSheet), showSingle=\(showEmbeddedTimecodeAlert)")
             return
         }
 
         // Set flag synchronously before starting async work
         isProcessingTimecodeDetection = true
-        debugPrint("handleMixedBatchDrop: Set isProcessingTimecodeDetection=true")
 
         Task { @MainActor in
             defer {
@@ -228,22 +224,17 @@ extension ContentView {
             }
 
             guard !newVideoURLs.isEmpty || !newAudioURLs.isEmpty else {
-                debugPrint("handleMixedBatchDrop: No new URLs after filtering, returning")
                 return
             }
 
-            debugPrint("handleMixedBatchDrop: After filtering, \(newVideoURLs.count) videos, \(newAudioURLs.count) audio")
-
             // For single video + no audio, use existing single-file flow
             if newVideoURLs.count == 1 && newAudioURLs.isEmpty {
-                debugPrint("handleMixedBatchDrop: SINGLE VIDEO PATH")
                 await addVideoToTimeline(url: newVideoURLs[0], atFrame: atFrame)
                 return
             }
 
             // For single audio + no video, use existing single-file flow with new lane
             if newAudioURLs.count == 1 && newVideoURLs.isEmpty {
-                debugPrint("handleMixedBatchDrop: SINGLE AUDIO PATH")
                 let laneNumber = timelineManager.timeline.audioLanes.count + 1
                 let newLane = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
                 let clip = await addAudioToTimeline(url: newAudioURLs[0], laneId: newLane.id, atFrame: atFrame)
@@ -255,7 +246,6 @@ extension ContentView {
             }
 
             // For multiple files, detect timecode for all files in parallel
-            debugPrint("handleMixedBatchDrop: BATCH PATH - detecting timecode for \(newVideoURLs.count) videos, \(newAudioURLs.count) audio")
 
             // Detect timecode for video files
             var allItems: [BatchTimecodeItem] = []
@@ -267,10 +257,9 @@ extension ContentView {
             // IMPORTANT: Reserve lanes for video embedded audio FIRST
             // Each video may have an audio track that needs its own lane
             // We create placeholder lanes now so standalone audio files get assigned to subsequent lanes
-            for videoURL in newVideoURLs {
+            for _ in newVideoURLs {
                 let laneNumber = timelineManager.timeline.audioLanes.count + 1
                 let _ = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
-                debugPrint("handleMixedBatchDrop: Reserved lane 'Audio \(laneNumber)' for video audio from \(videoURL.lastPathComponent)")
             }
 
             // Detect timecode for audio files and create a lane for each
@@ -282,18 +271,10 @@ extension ContentView {
                 var item = BatchTimecodeItem(url: url, mediaType: .audio, detectedTimecode: result)
                 item.targetLaneId = newLane.id
                 allItems.append(item)
-                debugPrint("handleMixedBatchDrop: Created lane '\(newLane.name)' for \(url.lastPathComponent)")
             }
 
             // If any file has embedded timecode, show batch sheet
             if allItems.contains(where: { $0.hasTimecode }) {
-                // Debug: verify audio items have targetLaneId set
-                let audioCount = allItems.filter { $0.mediaType == .audio }.count
-                let audioWithLane = allItems.filter { $0.mediaType == .audio && $0.targetLaneId != nil }.count
-                debugPrint("handleMixedBatchDrop: BATCH SHEET - \(allItems.count) items total, \(audioCount) audio, \(audioWithLane) with targetLaneId")
-                for item in allItems where item.mediaType == .audio {
-                    debugPrint("  Audio: \(item.url.lastPathComponent), targetLaneId=\(item.targetLaneId?.uuidString ?? "nil")")
-                }
                 await MainActor.run {
                     pendingBatchTimecode = PendingBatchTimecode(
                         items: allItems,
@@ -303,7 +284,6 @@ extension ContentView {
                 }
             } else {
                 // No timecodes found, add all files directly at sequential positions
-                debugPrint("handleMixedBatchDrop: No timecodes, adding sequentially")
                 await addVideoFilesSequentially(urls: newVideoURLs, startFrame: atFrame)
 
                 // Add audio files to their assigned lanes

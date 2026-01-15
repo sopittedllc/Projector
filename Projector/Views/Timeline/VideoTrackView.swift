@@ -20,6 +20,8 @@ struct VideoTrackView: View {
     let onReelMove: (UUID, Int) -> Void
     let linkedDragPreview: LinkedDragPreview?
     let onReelDragPreview: (VideoReel, Int?) -> Void
+    /// Set of reel IDs selected via marquee selection (from parent)
+    var selectedReelIds: Set<UUID> = []
 
     @State private var selectedReelId: UUID?
     @State private var isDropTargeted = false
@@ -198,7 +200,7 @@ struct VideoTrackView: View {
                 pixelsPerFrame: pixelsPerFrame,
                 thumbnailCache: thumbnailCache,
                 showThumbnails: showThumbnails,
-                isSelected: selectedReelId == reel.id,
+                isSelected: selectedReelId == reel.id || selectedReelIds.contains(reel.id),
                 interactionsEnabled: clipInteractionsEnabled,
                 isOptimized: isReelOptimized(reel),
                 onSelect: {

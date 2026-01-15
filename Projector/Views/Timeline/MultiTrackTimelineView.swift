@@ -793,7 +793,8 @@ struct MultiTrackTimelineView: View {
                                 } else {
                                     linkedDragPreview = nil
                                 }
-                            }
+                            },
+                            selectedReelIds: selectedVideoReelIds
                         )
                         .frame(width: totalContentWidth, height: TimelineLayout.videoTrackHeight)
                         .overlay(alignment: .top) {
@@ -907,7 +908,8 @@ struct MultiTrackTimelineView: View {
                                         isValidDrop: isValid
                                     )
                                 },
-                                laneChangePreview: laneChangePreview
+                                laneChangePreview: laneChangePreview,
+                                selectedClipIds: selectedAudioClipIds
                             )
                             .frame(width: totalContentWidth, height: TimelineLayout.audioLaneHeight)
                             .overlay(alignment: .bottom) {
@@ -1056,13 +1058,10 @@ struct MultiTrackTimelineView: View {
             var videoURLs: [URL] = []
             var audioURLs: [URL] = []
 
-            debugPrint("handleMultiFileDropNative: Processing \(pasteboardItems.count) pasteboard items")
             for item in pasteboardItems {
                 if let urlString = item.string(forType: .fileURL),
                    let url = URL(string: urlString) {
-                    let mediaType = ProjectMediaLibrary.mediaType(for: url)
-                    debugPrint("  URL: \(url.lastPathComponent), mediaType=\(mediaType?.rawValue ?? "nil")")
-                    guard let mediaType = mediaType else { continue }
+                    guard let mediaType = ProjectMediaLibrary.mediaType(for: url) else { continue }
                     switch mediaType {
                     case .video:
                         videoURLs.append(url)
@@ -1071,8 +1070,6 @@ struct MultiTrackTimelineView: View {
                     }
                 }
             }
-
-            debugPrint("handleMultiFileDropNative: Found \(videoURLs.count) videos, \(audioURLs.count) audio")
             if let onDropMixedMedia = onDropMixedMedia, (!videoURLs.isEmpty || !audioURLs.isEmpty) {
                 onDropMixedMedia(videoURLs, audioURLs, 0)
             }
@@ -1826,7 +1823,6 @@ struct MultiTrackTimelineView: View {
 
             if xOverlap && yOverlap {
                 newVideoSelection.insert(reel.id)
-                debugPrint("Marquee selected video reel: \(reel.displayName)")
             }
         }
 
@@ -1847,7 +1843,6 @@ struct MultiTrackTimelineView: View {
 
                 if xOverlap && yOverlap {
                     newAudioSelection.insert(clip.id)
-                    debugPrint("Marquee selected audio clip: \(clip.displayName) in lane \(lane.name)")
                 }
             }
 
@@ -1867,9 +1862,6 @@ struct MultiTrackTimelineView: View {
             }?.id
         }
 
-        if !newVideoSelection.isEmpty || !newAudioSelection.isEmpty {
-            debugPrint("Marquee selection: \(newVideoSelection.count) video, \(newAudioSelection.count) audio")
-        }
     }
 
     /// Clear all selections
