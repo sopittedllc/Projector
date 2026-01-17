@@ -197,6 +197,14 @@ final class PlaybackEngine: ObservableObject {
     /// Pending seek request (coalesced)
     private var pendingSeekFrame: Int?
 
+    /// Sample rate change listener block (held for cleanup)
+    private nonisolated(unsafe) var sampleRateListenerBlock: AudioObjectPropertyListenerBlock?
+
+    /// Dispatch queue for sample rate change notifications
+    private let sampleRateListenerQueue = DispatchQueue(
+        label: "com.projector.samplerate-listener"
+    )
+
     // MARK: - Constants
 
     /// Seconds before reel boundary to start preloading
@@ -835,6 +843,41 @@ final class PlaybackEngine: ObservableObject {
         }
     }
 
+    /// Calculates sample position with NTSC-accurate rounding.
+    ///
+    /// Standard truncation of `Double(frame) / fps * sampleRate` loses fractional
+    /// samples at NTSC rates (29.97, 59.94). This method rounds to nearest sample
+    /// for more accurate positioning.
+    ///
+    /// - Parameters:
+    ///   - sourceTime: Time in seconds from clip start
+    ///   - sampleRate: Audio file sample rate (e.g., 48000 Hz)
+    /// - Returns: Sample position rounded to nearest sample
+    ///
+    /// ## NTSC Frame Rate Math
+    ///
+    /// At 29.97 fps with 48kHz audio:
+    /// - Samples per frame = 48000 / 29.97 = 1601.6016...
+    /// - Frame 1000: truncate(33.3667s * 48000) = 1,601,600
+    /// - Frame 1000: round(33.3667s * 48000) = 1,601,602
+    ///
+    /// Rounding distributes the error symmetrically rather than always losing samples.
+    private func samplePosition(sourceTime: Double, sampleRate: Double) -> AVAudioFramePosition {
+        let exactSamples = sourceTime * sampleRate
+        return AVAudioFramePosition(exactSamples.rounded())
+    }
+
+    /// Calculates sample count with NTSC-accurate rounding.
+    ///
+    /// - Parameters:
+    ///   - seconds: Duration in seconds
+    ///   - sampleRate: Audio file sample rate
+    /// - Returns: Sample count rounded to nearest sample
+    private func sampleCount(seconds: Double, sampleRate: Double) -> AVAudioFramePosition {
+        let exactSamples = seconds * sampleRate
+        return AVAudioFramePosition(exactSamples.rounded())
+    }
+
     private func scheduleAudioPlayback(
         _ playback: AudioClipPlayback,
         clip: AudioClip,
@@ -845,9 +888,12 @@ final class PlaybackEngine: ObservableObject {
 
         let file = playback.audioFile
         let sampleRate = file.processingFormat.sampleRate
-        let startFrame = AVAudioFramePosition(sourceTime * sampleRate)
+
+        // Use rounded sample positions for NTSC frame rate accuracy
+        // Truncation at 29.97 fps loses ~0.6 samples/frame, causing drift over time
+        let startFrame = samplePosition(sourceTime: sourceTime, sampleRate: sampleRate)
         let remainingSeconds = Double(max(0, clip.timelineEndFrame - currentFrame)) / frameRate.fps
-        let maxFrames = AVAudioFramePosition(remainingSeconds * sampleRate)
+        let maxFrames = sampleCount(seconds: remainingSeconds, sampleRate: sampleRate)
         let availableFrames = max(0, file.length - startFrame)
         let frameCount = AVAudioFrameCount(min(Double(availableFrames), Double(maxFrames)))
 
@@ -1165,6 +1211,9 @@ final class PlaybackEngine: ObservableObject {
     }
 
     private func updateAudioOutputDeviceSettings() {
+        // Remove any existing sample rate listener before changing devices
+        removeSampleRateListener()
+
         if let uid = audioOutputDeviceUID, let deviceID = deviceID(for: uid) {
             audioOutputDeviceID = deviceID
         } else {
@@ -1179,11 +1228,103 @@ final class PlaybackEngine: ObservableObject {
             audioOutputChannelCount = max(1, queriedChannels)
             audioOutputSampleRate = outputSampleRate(for: deviceID) ?? audioOutputSampleRate
             debugPrint("updateAudioOutputDeviceSettings: DeviceID=\(deviceID), QueriedChannels=\(queriedChannels), FinalChannels=\(audioOutputChannelCount)")
+
+            // Set up listener for sample rate changes on this device
+            setupSampleRateListener(for: deviceID)
         } else {
             audioOutputChannelCount = 2
             audioOutputSampleRate = 48000
             debugPrint("updateAudioOutputDeviceSettings: No device, defaulting to 2 channels")
         }
+    }
+
+    /// Sets up a CoreAudio property listener for sample rate changes on the specified device.
+    ///
+    /// When the device's sample rate changes (e.g., user changes it in Audio MIDI Setup,
+    /// or the device switches to match an incoming digital signal), this listener triggers
+    /// a reconfiguration of the audio engine to maintain correct playback.
+    ///
+    /// - Parameter deviceID: The CoreAudio device ID to monitor
+    ///
+    /// ## GP-022 Compliance
+    ///
+    /// Per GP-022 (Sample Rate and Frame Rate Handling), sample rate changes must be
+    /// detected and handled to prevent:
+    /// - Audio playback at wrong speed
+    /// - Buffer underruns from mismatched rates
+    /// - Timing drift with video
+    private func setupSampleRateListener(for deviceID: AudioDeviceID) {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        sampleRateListenerBlock = { [weak self] _, _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.handleSampleRateChange()
+            }
+        }
+
+        let status = AudioObjectAddPropertyListenerBlock(
+            deviceID,
+            &propertyAddress,
+            sampleRateListenerQueue,
+            sampleRateListenerBlock!
+        )
+
+        if status != noErr {
+            debugPrint("PlaybackEngine: Failed to add sample rate listener: \(status)")
+        } else {
+            debugPrint("PlaybackEngine: Sample rate listener installed for device \(deviceID)")
+        }
+    }
+
+    /// Removes the sample rate change listener from the current device.
+    ///
+    /// Must be called before changing devices or during cleanup to prevent
+    /// dangling callbacks to deallocated objects.
+    private func removeSampleRateListener() {
+        guard let deviceID = audioOutputDeviceID,
+              let listenerBlock = sampleRateListenerBlock else { return }
+
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        let status = AudioObjectRemovePropertyListenerBlock(
+            deviceID,
+            &propertyAddress,
+            sampleRateListenerQueue,
+            listenerBlock
+        )
+
+        if status != noErr {
+            debugPrint("PlaybackEngine: Failed to remove sample rate listener: \(status)")
+        }
+
+        sampleRateListenerBlock = nil
+    }
+
+    /// Handles a sample rate change notification from CoreAudio.
+    ///
+    /// Queries the new sample rate and reconfigures the audio engine if it differs
+    /// from the cached rate. This ensures playback continues at the correct speed
+    /// when the device's sample rate changes.
+    private func handleSampleRateChange() {
+        guard let deviceID = audioOutputDeviceID else { return }
+
+        let newSampleRate = outputSampleRate(for: deviceID) ?? audioOutputSampleRate
+        guard newSampleRate != audioOutputSampleRate else { return }
+
+        debugPrint("PlaybackEngine: Sample rate changed from \(audioOutputSampleRate) to \(newSampleRate)")
+        audioOutputSampleRate = newSampleRate
+
+        // Reconfigure the audio engine with the new sample rate
+        reconfigureAudioEngineForOutputChange()
     }
 
     private func reconfigureAudioEngineForOutputChange() {
@@ -1581,7 +1722,7 @@ final class PlaybackEngine: ObservableObject {
     /// Cleans up all resources before deallocation.
     ///
     /// Stops all playback, releases audio engine resources, clears caches,
-    /// and deletes temporary audio extraction files.
+    /// removes CoreAudio property listeners, and deletes temporary audio extraction files.
     ///
     /// - Important: Call this method before the engine is deallocated to ensure
     ///   proper resource cleanup. The `deinit` cannot access `@MainActor` properties.
@@ -1595,6 +1736,9 @@ final class PlaybackEngine: ObservableObject {
             player.removeTimeObserver(observer)
         }
         timeObserver = nil
+
+        // Remove sample rate change listener before releasing audio engine
+        removeSampleRateListener()
 
         // Stop and clean up audio engine
         audioEngine.stop()

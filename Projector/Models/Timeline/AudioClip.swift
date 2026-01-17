@@ -127,9 +127,31 @@ struct AudioClip: Identifiable, Codable, Equatable {
         return sourceStartFrame + (timelineFrame - timelineStartFrame)
     }
 
-    /// Convert a timeline frame to source time in seconds
-    /// Uses sourceFrameRate if available (for video-sourced clips), otherwise masterFrameRate
-    /// This ensures audio stays in sync with video from the same source
+    /// Convert a timeline frame to source time in seconds.
+    ///
+    /// Uses sourceFrameRate if available (for video-sourced clips), otherwise masterFrameRate.
+    /// This ensures audio stays in sync with video from the same source.
+    ///
+    /// - Parameters:
+    ///   - timelineFrame: The frame number on the master timeline
+    ///   - masterFrameRate: The timeline's frame rate (fallback if no sourceFrameRate)
+    /// - Returns: Time in seconds from the clip's source start, or `nil` if frame is outside clip
+    ///
+    /// ## NTSC Frame Rate Precision
+    ///
+    /// At NTSC rates (29.97, 59.94 fps), the time calculation preserves full Double precision:
+    /// ```
+    /// Frame 1000 at 29.97 fps = 33.36670003... seconds
+    /// ```
+    ///
+    /// When converting to audio samples, callers should round (not truncate) to maintain
+    /// sample-accurate sync:
+    /// ```
+    /// 33.3667s × 48000 Hz = 1,601,601.6 samples → round to 1,601,602
+    /// ```
+    ///
+    /// Truncation loses ~0.6 samples per frame at 29.97 fps, causing ~1.3 second drift
+    /// over 1 hour of playback.
     func sourceTime(at timelineFrame: Int, masterFrameRate: TimecodeFrameRate) -> Double? {
         guard let frame = sourceFrame(at: timelineFrame) else { return nil }
         // Use source frame rate for video-sourced clips to match video timing exactly
