@@ -19,10 +19,16 @@ struct CuesWindowView: View {
     @State private var sortOrder: SortOrder = .byNumber
     @FocusState private var isFieldFocused: Bool
 
-    // Cue detection state
-    @State private var showDetectedCuesSheet = false
-    @State private var detectedCues: [DetectedCue] = []
-    @State private var detectedCuesClipName: String = ""
+    // Cue detection state - using single object for sheet(item:) pattern to avoid race condition
+    @State private var detectionResult: DetectionResult?
+
+    /// Holds detected cues result for sheet presentation
+    struct DetectionResult: Identifiable {
+        let id = UUID()
+        let cues: [DetectedCue]
+        let clipName: String
+        let frameRate: TimecodeFrameRate
+    }
 
     enum EditingField: Equatable {
         case number
@@ -61,11 +67,11 @@ struct CuesWindowView: View {
             statusBar
         }
         .frame(minWidth: 600, minHeight: 300)
-        .sheet(isPresented: $showDetectedCuesSheet) {
+        .sheet(item: $detectionResult) { result in
             DetectedCueListView(
-                cues: detectedCues,
-                frameRate: timelineManager.timeline.config.frameRate,
-                clipName: detectedCuesClipName,
+                cues: result.cues,
+                frameRate: result.frameRate,
+                clipName: result.clipName,
                 onImport: { cues in
                     timelineManager.importDetectedCues(cues)
                 }
@@ -473,14 +479,19 @@ struct CuesWindowView: View {
             return
         }
 
-        detectedCues = SilenceDetectionService.detectCues(
+        let cues = SilenceDetectionService.detectCues(
             from: level,
             clipStartFrame: clip.timelineStartFrame,
             clipDurationFrames: clip.durationFrames,
             timelineConfig: timelineManager.timeline.config
         )
-        detectedCuesClipName = clip.displayName
-        showDetectedCuesSheet = true
+
+        // Set single result object - sheet(item:) pattern ensures data is captured correctly
+        detectionResult = DetectionResult(
+            cues: cues,
+            clipName: clip.displayName,
+            frameRate: timelineManager.timeline.config.frameRate
+        )
     }
 }
 
