@@ -425,17 +425,20 @@ struct CuesWindowView: View {
                 Text("No audio clips")
             } else {
                 ForEach(audioClips, id: \.clip.id) { item in
-                    let hasWaveform = waveformCache.clipAtlases[item.clip.id] != nil
+                    let isReady = isWaveformReady(for: item.clip)
+                    let isLoading = waveformCache.isLoading(for: item.clip)
                     Button {
                         detectCuesFromClip(item.clip)
                     } label: {
-                        if hasWaveform {
+                        if isReady {
                             Text("\(item.clip.displayName) (Lane \(item.laneIndex + 1))")
-                        } else {
+                        } else if isLoading {
                             Text("\(item.clip.displayName) (Loading...)")
+                        } else {
+                            Text("\(item.clip.displayName) (No waveform)")
                         }
                     }
-                    .disabled(!hasWaveform)
+                    .disabled(!isReady)
                 }
             }
         } label: {
@@ -448,6 +451,12 @@ struct CuesWindowView: View {
         .menuStyle(.borderedButton)
         .fixedSize()
         .help("Detect cues from audio activity")
+    }
+
+    /// Checks if waveform data is ready for detection (atlas exists with levels populated)
+    private func isWaveformReady(for clip: AudioClip) -> Bool {
+        guard let atlas = waveformCache.clipAtlases[clip.id] else { return false }
+        return !atlas.levels.isEmpty
     }
 
     /// All audio clips from all lanes, with lane index for display
