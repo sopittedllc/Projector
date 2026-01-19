@@ -437,10 +437,21 @@ struct CuesPanelView: View {
 
     /// Detects cues from a specific audio clip's waveform data
     private func detectCuesFromClip(_ clip: AudioClip) {
-        guard let atlas = waveformCache.clipAtlases[clip.id],
-              let level = atlas.levels[4096] ?? atlas.levels.values.first else {
+        debugPrint("detectCuesFromClip: clip=\(clip.displayName), id=\(clip.id)")
+
+        guard let atlas = waveformCache.clipAtlases[clip.id] else {
+            debugPrint("detectCuesFromClip: NO ATLAS for clip \(clip.id)")
             return
         }
+
+        debugPrint("detectCuesFromClip: atlas found, levels count=\(atlas.levels.count), keys=\(atlas.levels.keys.sorted())")
+
+        guard let level = atlas.levels[4096] ?? atlas.levels.values.first else {
+            debugPrint("detectCuesFromClip: NO LEVELS in atlas")
+            return
+        }
+
+        debugPrint("detectCuesFromClip: level found, rms count=\(level.rms.count)")
 
         detectedCues = SilenceDetectionService.detectCues(
             from: level,
@@ -448,6 +459,7 @@ struct CuesPanelView: View {
             clipDurationFrames: clip.durationFrames,
             timelineConfig: timelineManager.timeline.config
         )
+        debugPrint("detectCuesFromClip: detected \(detectedCues.count) cues")
         detectedCuesClipName = clip.displayName
         showDetectedCuesSheet = true
     }
