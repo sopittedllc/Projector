@@ -73,9 +73,11 @@ extension ContentView {
         let projectName = projectDocument.fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
         let manager = timelineManager
         let engine = playbackEngine
+        let cache = waveformCache
 
         let cuesView = CuesWindowView(
             timelineManager: manager,
+            waveformCache: cache,
             projectName: projectName,
             onSeekToCue: { frame in
                 engine.seekToFrame(frame)

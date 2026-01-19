@@ -8,6 +8,7 @@ import Iconoir
 /// when popped out from the main window's accordion panel.
 struct CuesWindowView: View {
     @ObservedObject var timelineManager: TimelineManager
+    let waveformCache: WaveformCache
     let projectName: String
     let onSeekToCue: (Int) -> Void
 
@@ -17,6 +18,11 @@ struct CuesWindowView: View {
     @State private var editingText: String = ""
     @State private var sortOrder: SortOrder = .byNumber
     @FocusState private var isFieldFocused: Bool
+
+    // Cue detection state
+    @State private var showDetectedCuesSheet = false
+    @State private var detectedCues: [DetectedCue] = []
+    @State private var detectedCuesClipName: String = ""
 
     enum EditingField: Equatable {
         case number
@@ -55,6 +61,16 @@ struct CuesWindowView: View {
             statusBar
         }
         .frame(minWidth: 600, minHeight: 300)
+        .sheet(isPresented: $showDetectedCuesSheet) {
+            DetectedCueListView(
+                cues: detectedCues,
+                frameRate: timelineManager.timeline.config.frameRate,
+                clipName: detectedCuesClipName,
+                onImport: { cues in
+                    timelineManager.importDetectedCues(cues)
+                }
+            )
+        }
         // Click outside to commit edit
         .onTapGesture {
             if editingCueId != nil {
@@ -76,6 +92,9 @@ struct CuesWindowView: View {
                 }
             }
             .buttonStyle(.bordered)
+
+            // Detect cues from audio menu
+            detectCuesMenu
 
             Spacer()
 
@@ -395,15 +414,76 @@ struct CuesWindowView: View {
             selectedCueId = nil
         }
     }
+
+    // MARK: - Cue Detection
+
+    /// Menu for detecting cues from audio clips
+    private var detectCuesMenu: some View {
+        Menu {
+            let audioClips = allAudioClips
+            if audioClips.isEmpty {
+                Text("No audio clips")
+            } else {
+                ForEach(audioClips, id: \.clip.id) { item in
+                    let hasWaveform = waveformCache.clipAtlases[item.clip.id] != nil
+                    Button {
+                        detectCuesFromClip(item.clip)
+                    } label: {
+                        if hasWaveform {
+                            Text("\(item.clip.displayName) (Lane \(item.laneIndex + 1))")
+                        } else {
+                            Text("\(item.clip.displayName) (Loading...)")
+                        }
+                    }
+                    .disabled(!hasWaveform)
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "waveform.circle")
+                    .frame(width: 14, height: 14)
+                Text("Detect...")
+            }
+        }
+        .menuStyle(.borderedButton)
+        .fixedSize()
+        .help("Detect cues from audio activity")
+    }
+
+    /// All audio clips from all lanes, with lane index for display
+    private var allAudioClips: [(clip: AudioClip, laneIndex: Int)] {
+        timelineManager.timeline.audioLanes.enumerated().flatMap { laneIndex, lane in
+            lane.clips.map { (clip: $0, laneIndex: laneIndex) }
+        }
+    }
+
+    /// Detects cues from a specific audio clip's waveform data
+    private func detectCuesFromClip(_ clip: AudioClip) {
+        guard let atlas = waveformCache.clipAtlases[clip.id],
+              let level = atlas.levels[4096] ?? atlas.levels.values.first else {
+            return
+        }
+
+        detectedCues = SilenceDetectionService.detectCues(
+            from: level,
+            clipStartFrame: clip.timelineStartFrame,
+            clipDurationFrames: clip.durationFrames,
+            timelineConfig: timelineManager.timeline.config
+        )
+        detectedCuesClipName = clip.displayName
+        showDetectedCuesSheet = true
+    }
 }
 
 #Preview {
     struct PreviewWrapper: View {
         @StateObject var timelineManager = TimelineManager()
+        @StateObject var waveformCache = WaveformCache()
 
         var body: some View {
             CuesWindowView(
                 timelineManager: timelineManager,
+                waveformCache: waveformCache,
                 projectName: "Sample Project",
                 onSeekToCue: { _ in }
             )

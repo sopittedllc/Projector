@@ -1,6 +1,6 @@
 # Projector Knowledge Base
 
-> **Last Updated**: 2026-01-18 (GP-023 added - Xcode project.pbxproj Target Identification Protocol)
+> **Last Updated**: 2026-01-19 (GP-024, GP-025, GP-026 added - Cue Detection UI Patterns)
 > **Maintainer**: The Librarian Agent
 >
 > This document captures institutional knowledge extracted from the Projector codebase.
@@ -2811,6 +2811,205 @@ guard needsCustomRouting else { return nil }
 | **Actor** | Swift concurrency primitive providing thread-safe state isolation |
 | **@MainActor** | Swift attribute ensuring code runs on the main thread |
 | **DocC** | Apple's documentation compiler for Swift |
+
+---
+
+### GP-024: Menu-Based Action Trigger with Capability Check
+**Added**: 2026-01-19
+**Source**: `Projector/Views/CueSheet/CuesPanelView.swift:390-420`
+**Category**: UI
+
+#### Problem
+When offering menu actions that depend on external resources (async-loaded data), users see actions that can't be completed, leading to confusion. The UI should communicate resource availability clearly.
+
+#### Solution
+Implement a menu that:
+1. Checks resource availability before rendering each option
+2. Displays resource state in the label (e.g., "Loading...")
+3. Disables options when prerequisites aren't met
+
+```swift
+private var detectCuesMenu: some View {
+    Menu {
+        let audioClips = allAudioClips
+        if audioClips.isEmpty {
+            Text("No audio clips")
+        } else {
+            ForEach(audioClips, id: \.clip.id) { item in
+                let hasWaveform = waveformCache.clipAtlases[item.clip.id] != nil
+                Button {
+                    detectCuesFromClip(item.clip)
+                } label: {
+                    if hasWaveform {
+                        Text("\(item.clip.displayName) (Lane \(item.laneIndex + 1))")
+                    } else {
+                        Text("\(item.clip.displayName) (Loading...)")
+                    }
+                }
+                .disabled(!hasWaveform)
+            }
+        }
+    } label: {
+        HStack(spacing: 4) {
+            Image(systemName: "waveform.circle")
+            Text("Detect...")
+        }
+    }
+}
+```
+
+#### Why It Works
+- **Availability Check**: `hasWaveform` queries the cache to verify prerequisites
+- **Status Feedback**: Showing "(Loading...)" manages user expectations
+- **Disabling**: `.disabled(!hasWaveform)` prevents invalid operations
+- **No Polling**: Relies on already-computed cache state, no extra async calls
+
+#### When to Use
+- Menu actions that depend on background-loaded resources
+- Actions requiring specific data availability
+- User guidance in progressive disclosure UIs
+- Any case where capabilities vary by item
+
+#### Related Files
+- `Projector/Views/CueSheet/CuesPanelView.swift`
+- `Projector/Managers/WaveformCache.swift`
+
+---
+
+### GP-025: Reusing Infrastructure for New Features
+**Added**: 2026-01-19
+**Source**: Cue detection UI implementation (feature/cue-sheet-from-audio)
+**Category**: Architecture
+
+#### Problem
+New features often tempt developers to create new protocols, services, and UI dialogs, leading to code bloat and maintenance burden. This violates the DRY principle.
+
+#### Solution
+When implementing a new feature, audit existing infrastructure first:
+
+**What Already Exists** → **How It's Reused**
+- `TimelineManager` (existing contract) → Added `importDetectedCues()` method to existing protocol
+- `SilenceDetectionService` (existing) → Reused for cue detection algorithm
+- `DetectedCueListView` (existing) → Already implements the UI for review/import
+- `WaveformCache` (existing) → Dependency injected into views that need it
+
+**Code Added to CuesPanelView**:
+```swift
+struct CuesPanelView: View {
+    @ObservedObject var timelineManager: TimelineManager
+    let waveformCache: WaveformCache  // ← Added dependency
+    // ... existing properties ...
+}
+
+// Later, in actions:
+private func detectCuesFromClip(_ clip: AudioClip) {
+    guard let atlas = waveformCache.clipAtlases[clip.id],
+          let level = atlas.levels[4096] ?? atlas.levels.values.first else {
+        return
+    }
+
+    detectedCues = SilenceDetectionService.detectCues(
+        from: level,
+        clipStartFrame: clip.timelineStartFrame,
+        clipDurationFrames: clip.durationFrames,
+        timelineConfig: timelineManager.timeline.config
+    )
+    detectedCuesClipName = clip.displayName
+    showDetectedCuesSheet = true  // Reuse existing view
+}
+```
+
+#### Why It Works
+- **Minimal new code**: Only menu integration + detection trigger
+- **Proven services**: Reuses already-tested detection logic
+- **Dependency injection**: Passes `waveformCache` through view hierarchy
+- **No new protocols**: Works within existing `TimelineManager` contract
+- **Faster delivery**: Feature ships with less code, easier testing
+
+#### Key Insight
+**Question to ask**: "What does this feature actually *add* that doesn't exist yet?"
+- Detection algorithm? No, `SilenceDetectionService` exists.
+- Cue import UI? No, `DetectedCueListView` exists.
+- Waveform data? No, `WaveformCache` exists.
+- What's *actually* new? Just the UI trigger (menu in `CuesPanelView`).
+
+This keeps features small, focused, and maintainable.
+
+#### When to Use
+- Feature involves multiple systems (audio, UI, state management)
+- New protocol or service temptation arises
+- Audit step: "Is there already a service that does this?"
+
+#### Related Files
+- `Projector/Views/CueSheet/CuesPanelView.swift`
+- `Projector/Managers/SilenceDetectionService.swift`
+- `Projector/Managers/TimelineManager.swift`
+- `Projector/Views/CueSheet/DetectedCueListView.swift`
+
+---
+
+### GP-026: Dependency Injection Through View Hierarchy
+**Added**: 2026-01-19
+**Source**: `Projector/Views/CueSheet/CuesPanelView.swift`
+**Category**: Architecture
+
+#### Problem
+Views that need resources (like `WaveformCache`) often try to create their own instances or access singletons, violating the contract pattern and making testing difficult.
+
+#### Solution
+Pass dependencies through the view hierarchy as explicit parameters:
+
+```swift
+// In ContentView or parent
+CuesPanelView(
+    timelineManager: timelineManager,
+    waveformCache: waveformCache,  // ← Explicitly passed
+    onSeekToCue: { ... },
+    onPopOut: { ... }
+)
+
+// In CuesPanelView
+struct CuesPanelView: View {
+    @ObservedObject var timelineManager: TimelineManager
+    let waveformCache: WaveformCache  // ← Stored as property
+
+    // Can now use in methods:
+    private func detectCuesFromClip(_ clip: AudioClip) {
+        guard let atlas = waveformCache.clipAtlases[clip.id] else { return }
+        // ...
+    }
+}
+```
+
+#### Why It Works
+- **Testability**: Easy to inject test doubles in previews/tests
+- **Clarity**: View contract explicitly lists all dependencies
+- **No side effects**: View doesn't create or mutate global state
+- **Preview support**: Previews can pass mock caches
+- **Compile-time checking**: Missing dependencies cause build errors, not runtime crashes
+
+#### When to Use
+- Any resource needed by multiple views
+- Views that perform operations (like cue detection)
+- Services with state (like caches, managers)
+- Tests and previews that need to isolate behavior
+
+#### Anti-Pattern (What NOT to Do)
+```swift
+// ❌ DON'T: Access singleton
+class CuesPanelView {
+    let cache = WaveformCache.shared  // Violates contract
+}
+
+// ❌ DON'T: Create new instances
+struct CuesPanelView {
+    let cache = WaveformCache()  // Separate cache, data won't sync
+}
+```
+
+#### Related Files
+- `Projector/Views/CueSheet/CuesPanelView.swift`
+- `Projector/Managers/WaveformCache.swift`
 
 ---
 

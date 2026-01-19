@@ -484,6 +484,7 @@ struct ContentView: View {
                     // Cues panel
                     CuesPanelView(
                         timelineManager: timelineManager,
+                        waveformCache: waveformCache,
                         onSeekToCue: { frame in
                             playbackEngine.seekToFrame(frame)
                         },

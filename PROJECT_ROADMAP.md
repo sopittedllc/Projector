@@ -1,8 +1,8 @@
 # Projector - Project Roadmap
 
-> **Last Updated**: 2026-01-09 (Quality-Based Video Encoding Optimization)
+> **Last Updated**: 2026-01-19 (Cue Sheet Detection UI Complete)
 > **Owner**: the-lead agent
-> **Overall Progress**: 95% (Quality-based encoding ~50% smaller files)
+> **Overall Progress**: 95% (Cue sheet detection from audio implemented)
 
 ---
 
@@ -23,7 +23,7 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 │                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Core Playback      ████████████████████████████████████████████████  95%   │
-│  Timeline UI        ████████████████████████████████████████████████  90%   │
+│  Timeline UI        ████████████████████████████████████████████████  95%   │
 │  MTC/MMC Sync       ████████████████████████████████████████████████  95%   │
 │  Audio Routing      ██████████████████████████████████████████████████ 100%   │
 │  Architecture       ██████████████████████████████████████████████████  90%   │
@@ -46,7 +46,7 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | Timecode overlay | ✅ Complete | Configurable position |
 | **Remaining** | 🔄 In Progress | Audio track extraction optimization |
 
-### 2. Timeline UI (90%)
+### 2. Timeline UI (95%)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -58,6 +58,7 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | Tap gesture fixes | ✅ Complete | All 11 violations fixed (GP-003 pattern) |
 | LayoutConstants.swift | ✅ Complete | All constants integrated |
 | Magic numbers cleanup | ✅ Complete | 37+ local constants replaced with LayoutConstants |
+| Cue sheet detection UI | ✅ Complete | Auto-detect cue points from audio |
 | **Remaining** | 🔄 In Progress | Performance optimization for large projects |
 
 ### 3. MTC/MMC Sync (95%)
@@ -225,6 +226,43 @@ All local constant declarations removed and replaced with `LayoutConstants` refe
 ---
 
 ## Recent Changes
+
+### 2026-01-19 - Cue Sheet Detection UI Implementation
+
+**Changes**:
+- Added "Detect..." menu button to CuesPanelView header with audio clip selection
+- Added "Detect..." menu button to CuesWindowView toolbar with audio clip selection
+- Integrated SilenceDetectionService.detectCues() for automated cue point detection
+- Created DetectedCueListView sheet to display and preview detected cues
+- Implemented "Import Cues" button to merge detected cues into project
+- Clips without waveform data display "Loading..." state and remain disabled
+- Full QA audit passed: build success, standards compliance, edge case handling
+
+**Files Modified**:
+- `Projector/Views/CueSheet/CuesPanelView.swift` - Added detection menu and sheet state
+- `Projector/Views/CueSheet/CuesWindowView.swift` - Added detection menu and sheet state
+- `Projector/Views/ContentView.swift` - Pass waveformCache to CuesPanelView
+- `Projector/Views/ContentView+Helpers.swift` - Pass waveformCache to CuesWindowView
+
+**Technical Details**:
+- Menu dynamically loads all clips from timeline with lane numbers
+- Disabled state for clips without waveform cache data (improves UX)
+- Async detection runs on background thread (no main thread blocking)
+- Import preserves cue properties: timecode, description, color
+- Layer separation verified: UI (Views) ← Protocol (CueDetectionService) → Logic (SilenceDetectionService)
+
+**QA Status**: ✅ APPROVED
+- Build succeeds with no new warnings
+- Standards compliance verified (GP-003, layer separation, DocC)
+- Edge cases handled (empty timeline, missing waveform data, import failures)
+- No magic numbers; uses LayoutConstants
+- Thread safety verified (async operations on background thread)
+
+**Progress Impact**:
+- Timeline UI: 90% → 95% (cue sheet detection complete)
+- **Overall: 95%** (no change - feature addition)
+
+---
 
 ### 2026-01-09 - Quality-Based Video Encoding Optimization
 
