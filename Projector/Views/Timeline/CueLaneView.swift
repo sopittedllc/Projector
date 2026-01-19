@@ -35,24 +35,26 @@ struct CueLaneView: View {
         CGFloat(timelineConfig.durationFrames) * pixelsPerFrame
     }
 
-    /// The scroll offset adjusted for the CueLaneView's content area.
+    /// The scroll offset for the CueLaneView's content area.
     ///
-    /// Inside the ScrollView:
-    /// - Header occupies pixels [0, headerWidth)
-    /// - Track content starts at pixel headerWidth
-    /// - When scrollOffset = headerWidth, the visible area starts exactly at the track content
+    /// For a cue marker at frame F to align with a clip at frame F in the ScrollView:
     ///
-    /// For CueLaneView (fixed header):
-    /// - Header is always visible at [0, headerWidth)
-    /// - Content area must show what's visible in the ScrollView's content area
-    /// - When scrollOffset < headerWidth: ScrollView shows header + some content from frame 0
-    /// - When scrollOffset >= headerWidth: ScrollView shows content starting at (scrollOffset - headerWidth)
+    /// **Inside ScrollView:**
+    /// - Clip at frame F is at content pixel: `headerWidth + F × ppf`
+    /// - With scrollOffset, VIEW position: `(headerWidth + F × ppf) - scrollOffset`
     ///
-    /// The content area starts at pixel headerWidth. The visible portion of the timeline
-    /// content in the ScrollView starts at max(headerWidth, scrollOffset). So the cue content
-    /// should be offset by: max(0, scrollOffset - headerWidth)
+    /// **In CueLaneView:**
+    /// - Marker at frame F is at position `F × ppf` in the markers container
+    /// - Container offset by `-contentScrollOffset`
+    /// - VIEW position: `headerWidth + (F × ppf - contentScrollOffset)`
+    ///
+    /// For alignment: `contentScrollOffset = scrollOffset`
+    ///
+    /// This means markers will be clipped when they're at negative positions
+    /// (behind the fixed header), which is correct behavior - those frames
+    /// aren't visible in the ScrollView either.
     private var contentScrollOffset: CGFloat {
-        max(0, scrollOffset - TimelineLayout.headerWidth)
+        scrollOffset
     }
 
     var body: some View {
