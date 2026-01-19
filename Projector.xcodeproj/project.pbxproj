@@ -101,6 +101,11 @@
 		ETCS0001EMBEDDEDSHEET01 /* EmbeddedTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */; };
 		BTCS0001BATCHSHEET01 /* BatchTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */; };
 		VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */; };
+		BA14D53096AA48D882A5B197 /* Cue.swift in Sources */ = {isa = PBXBuildFile; fileRef = B44AD7EF29364D4988068BA3 /* Cue.swift */; };
+		556A48B9BAB64A9D87F8403B /* CueSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65C1960DE2BF4E3CADECA2E8 /* CueSheet.swift */; };
+		43A8DF3C03D645CF9249B195 /* CueLaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AD1B79E32B945C99EF057D2 /* CueLaneView.swift */; };
+		8756B1577AB041319082A74D /* CuesPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0CE525FEB6B413D984D69EE /* CuesPanelView.swift */; };
+		36BF465F47894EB9A9865FD1 /* CuesWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D708874EB734232A7BB3E33 /* CuesWindowView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -239,6 +244,11 @@
 		ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeSheetView.swift; sourceTree = "<group>"; };
 		BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTimecodeSheetView.swift; sourceTree = "<group>"; };
 		VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerOverlays.swift; sourceTree = "<group>"; };
+		B44AD7EF29364D4988068BA3 /* Cue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Cue.swift; sourceTree = "<group>"; };
+		65C1960DE2BF4E3CADECA2E8 /* CueSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueSheet.swift; sourceTree = "<group>"; };
+		5AD1B79E32B945C99EF057D2 /* CueLaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueLaneView.swift; sourceTree = "<group>"; };
+		E0CE525FEB6B413D984D69EE /* CuesPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuesPanelView.swift; sourceTree = "<group>"; };
+		7D708874EB734232A7BB3E33 /* CuesWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuesWindowView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -300,6 +310,8 @@
 			isa = PBXGroup;
 			children = (
 				D4EF03E7C8D14F0BBD16631A /* DetectedCue.swift */,
+				B44AD7EF29364D4988068BA3 /* Cue.swift */,
+				65C1960DE2BF4E3CADECA2E8 /* CueSheet.swift */,
 			);
 			path = CueSheet;
 			sourceTree = "<group>";
@@ -308,6 +320,8 @@
 			isa = PBXGroup;
 			children = (
 				A949950928314F02995FB10F /* DetectedCueListView.swift */,
+				E0CE525FEB6B413D984D69EE /* CuesPanelView.swift */,
+				7D708874EB734232A7BB3E33 /* CuesWindowView.swift */,
 			);
 			path = CueSheet;
 			sourceTree = "<group>";
@@ -465,6 +479,7 @@
 			isa = PBXGroup;
 			children = (
 				A1000001227D3F0000000085 /* TimelineRulerView.swift */,
+				5AD1B79E32B945C99EF057D2 /* CueLaneView.swift */,
 				A1000001227D3F0000000087 /* WaveformShape.swift */,
 				C1TIMELINE0000000C /* VideoReelClipView.swift */,
 				C1TIMELINE0000000D /* VideoTrackView.swift */,
@@ -742,6 +757,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				ED65FB65D047420C8FE9A25A /* DetectedCue.swift in Sources */,
+				BA14D53096AA48D882A5B197 /* Cue.swift in Sources */,
+				556A48B9BAB64A9D87F8403B /* CueSheet.swift in Sources */,
+				43A8DF3C03D645CF9249B195 /* CueLaneView.swift in Sources */,
+				8756B1577AB041319082A74D /* CuesPanelView.swift in Sources */,
+				36BF465F47894EB9A9865FD1 /* CuesWindowView.swift in Sources */,
 				2F2A2A41B11841978A185166 /* SilenceDetectionService.swift in Sources */,
 				DC53E4719B63497E869D6AA5 /* DetectedCueListView.swift in Sources */,
 				753331FCF4CC4E1A8578392C /* MediaOptimizationServiceProtocol.swift in Sources */,

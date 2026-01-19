@@ -149,6 +149,9 @@ struct MultiTrackTimelineView: View {
     @State private var detectedCues: [DetectedCue] = []
     @State private var detectedCuesClipName: String = ""
 
+    // Cue lane selection state
+    @State private var selectedCueId: UUID?
+
     // MARK: - Constants
 
     /// Height for the inactive "new lane" drop target
@@ -886,7 +889,8 @@ struct MultiTrackTimelineView: View {
             let contentAreaWidth = geometry.size.width - TimelineLayout.headerWidth
             let totalContentWidth = timelineContentWidth(for: geometry.size.width)
             let ppf = pixelsPerFrame(for: geometry.size.width)
-            let scrollHeight = max(0, geometry.size.height - TimelineLayout.rulerHeight - 1)
+            let cueLaneHeight = timelineManager.allCues.isEmpty ? 0 : CueLaneLayout.laneHeight
+            let scrollHeight = max(0, geometry.size.height - TimelineLayout.rulerHeight - cueLaneHeight - 1)
             let audioLanesHeight: CGFloat = {
                 if timeline.audioLanes.isEmpty {
                     return TimelineLayout.audioLaneHeight
@@ -898,6 +902,23 @@ struct MultiTrackTimelineView: View {
             let availableNewLaneHeight = max(0, scrollHeight - baseTracksHeight - 8)
 
             VStack(spacing: 0) {
+                // Cue lane (sticky, above ruler)
+                if !timelineManager.allCues.isEmpty {
+                    CueLaneView(
+                        cues: timelineManager.allCues,
+                        pixelsPerFrame: ppf,
+                        timelineConfig: timeline.config,
+                        totalContentWidth: totalContentWidth,
+                        selectedCueId: selectedCueId,
+                        onCueSelected: { cueId in
+                            selectedCueId = cueId
+                        },
+                        onCueDoubleClick: { cue in
+                            onSeek(cue.startFrame)
+                        }
+                    )
+                }
+
                 // Ruler row (with seek gesture - doesn't scroll)
                 HStack(spacing: 0) {
                     Color.clear.frame(width: TimelineLayout.headerWidth)

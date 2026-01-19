@@ -710,6 +710,72 @@ final class TimelineManager: ObservableObject {
         timeline.config.timecode(at: currentFrame)
     }
 
+    // MARK: - Cue Operations
+
+    /// All cues from all cue sheets, sorted by start frame
+    var allCues: [Cue] {
+        timeline.allCues
+    }
+
+    /// Add a new cue at the specified position.
+    ///
+    /// - Parameters:
+    ///   - startFrame: Start frame for the cue
+    ///   - endFrame: End frame for the cue
+    ///   - title: Optional title (defaults to empty string)
+    /// - Returns: The created cue
+    @discardableResult
+    func addCue(startFrame: Int, endFrame: Int, title: String = "") -> Cue {
+        let number = (timeline.primaryCueSheet?.cues.count ?? 0) + 1
+        let cue = Cue(
+            number: number,
+            title: title,
+            startFrame: startFrame,
+            endFrame: endFrame
+        )
+        timeline.addCue(cue)
+        return cue
+    }
+
+    /// Update an existing cue.
+    ///
+    /// - Parameter cue: The cue with updated values
+    func updateCue(_ cue: Cue) {
+        timeline.updateCue(cue)
+    }
+
+    /// Remove a cue by ID.
+    ///
+    /// - Parameter id: The ID of the cue to remove
+    func removeCue(id: UUID) {
+        timeline.removeCue(id: id)
+    }
+
+    /// Renumber all cues sequentially based on their position.
+    func renumberCues() {
+        guard var sheet = timeline.primaryCueSheet else { return }
+        sheet.renumberCues()
+        timeline.updateOrAddCueSheet(sheet)
+    }
+
+    /// Import detected cues into the primary cue sheet.
+    ///
+    /// - Parameter detected: Array of detected cues from silence detection
+    func importDetectedCues(_ detected: [DetectedCue]) {
+        for detectedCue in detected {
+            let cue = Cue.from(detectedCue)
+            timeline.addCue(cue)
+        }
+    }
+
+    /// Get the cue at a specific frame, if any.
+    ///
+    /// - Parameter frame: The timeline frame to check
+    /// - Returns: The cue containing this frame, or nil
+    func cue(at frame: Int) -> Cue? {
+        allCues.first { $0.startFrame <= frame && frame <= $0.endFrame }
+    }
+
     // MARK: - Queries
 
     /// Get the video reel at the current playhead position
