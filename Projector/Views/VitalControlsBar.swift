@@ -60,16 +60,11 @@ struct VitalControlsBar: View {
 
             Spacer(minLength: 12)
 
-            HStack(spacing: 12) {
-                zoomControls
-
-                Button(action: onSettingsPressed) {
-                    Iconoir.settings.asImage
-                        .frame(width: 18, height: 18)
-                }
-                .buttonStyle(.plain)
+            Button(action: onSettingsPressed) {
+                Iconoir.settings.asImage
+                    .frame(width: 18, height: 18)
             }
-            .layoutPriority(1)
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -229,48 +224,12 @@ struct VitalControlsBar: View {
         .glassControl()
     }
 
-    // MARK: - Zoom Controls
-
-    private var zoomControls: some View {
-        HStack(spacing: 4) {
-            Button(action: { timelineViewModel.zoomOut() }) {
-                Image(systemName: "minus.magnifyingglass")
-                    .font(.system(size: 11))
-            }
-            .buttonStyle(.plain)
-            .disabled(!hasTimelineContent || timelineViewModel.zoomLevel <= timelineViewModel.minZoom)
-            .accessibilityIdentifier("zoom-out")
-
-            Slider(value: $timelineViewModel.zoomLevel, in: timelineViewModel.minZoom...timelineViewModel.maxZoom)
-                .frame(width: 80)
-                .controlSize(.mini)
-                .disabled(!hasTimelineContent)
-                .simultaneousGesture(
-                    TapGesture(count: 2)
-                        .onEnded { _ in timelineViewModel.resetZoom() }
-                )
-                .accessibilityIdentifier("zoom-slider")
-
-            Button(action: { timelineViewModel.zoomIn() }) {
-                Image(systemName: "plus.magnifyingglass")
-                    .font(.system(size: 11))
-            }
-            .buttonStyle(.plain)
-            .disabled(!hasTimelineContent || timelineViewModel.zoomLevel >= timelineViewModel.maxZoom)
-            .accessibilityIdentifier("zoom-in")
-        }
-    }
-
     // MARK: - Helper Functions
 
     private var durationTimecodeString: String {
         let config = timelineManager.timeline.config
         let durationTC = Timecode(.frames(config.durationFrames), at: config.frameRate, by: .clamping)
         return durationTC.stringValue()
-    }
-
-    private var hasTimelineContent: Bool {
-        !timelineManager.timeline.videoReels.isEmpty || timelineManager.timeline.audioLanes.contains { !$0.clips.isEmpty }
     }
 
     /// Cancel any active timecode editing and reset to stored values
