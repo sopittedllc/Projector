@@ -16,8 +16,9 @@ struct CuesPanelView: View {
     @State private var editingCueId: UUID?
     @State private var editingField: EditingField?
     @State private var editingText: String = ""
+    @FocusState private var isFieldFocused: Bool
 
-    enum EditingField {
+    enum EditingField: Equatable {
         case number
         case title
     }
@@ -38,6 +39,12 @@ struct CuesPanelView: View {
         .contentShape(Rectangle())
         .clipped()
         .glassPanel()
+        // Click outside to commit edit
+        .onTapGesture {
+            if editingCueId != nil {
+                commitCurrentEdit()
+            }
+        }
     }
 
     // MARK: - Header Bar
@@ -154,22 +161,142 @@ struct CuesPanelView: View {
         ScrollView(.vertical, showsIndicators: true) {
             LazyVStack(spacing: 0) {
                 ForEach(cues) { cue in
-                    CueRowView(
-                        cue: cue,
-                        isSelected: cue.id == selectedCueId,
-                        editingField: editingCueId == cue.id ? editingField : nil,
-                        editingText: editingCueId == cue.id ? $editingText : .constant(""),
-                        timelineConfig: timelineManager.timeline.config,
-                        onSelect: { selectCue(cue) },
-                        onDoubleClick: { field in startEditing(cue: cue, field: field) },
-                        onSeek: { onSeekToCue(cue.startFrame) },
-                        onCommitEdit: { commitEdit(for: cue) },
-                        onCancelEdit: { cancelEdit() },
-                        onDelete: { deleteCue(cue) }
-                    )
+                    cueRow(for: cue)
                 }
             }
             .padding(.vertical, 4)
+        }
+    }
+
+    // MARK: - Cue Row
+
+    @ViewBuilder
+    private func cueRow(for cue: Cue) -> some View {
+        let isSelected = cue.id == selectedCueId
+        let isEditing = editingCueId == cue.id
+
+        HStack(spacing: 0) {
+            // Number column - editable
+            numberCell(for: cue, isEditing: isEditing && editingField == .number)
+
+            // Title column - editable
+            titleCell(for: cue, isEditing: isEditing && editingField == .title)
+
+            // TC IN column - read-only
+            Text(cue.timecodeIn(config: timelineManager.timeline.config).stringValue())
+                .frame(width: CuesPanelLayout.timecodeColumnWidth, alignment: .leading)
+                .monospaced()
+
+            // TC OUT column - read-only
+            Text(cue.timecodeOut(config: timelineManager.timeline.config).stringValue())
+                .frame(width: CuesPanelLayout.timecodeColumnWidth, alignment: .leading)
+                .monospaced()
+
+            // Duration column - read-only
+            Text(cue.durationTimecode(at: timelineManager.timeline.config.frameRate).stringValue())
+                .frame(width: CuesPanelLayout.durationColumnWidth, alignment: .leading)
+                .monospaced()
+
+            Spacer()
+        }
+        .font(.system(size: 11))
+        .padding(.horizontal, Spacing.md)
+        .frame(height: CuesPanelLayout.rowHeight)
+        .background(rowBackground(isSelected: isSelected, cueId: cue.id))
+        .contentShape(Rectangle())
+        // Single click to select (but not when editing)
+        .gesture(
+            TapGesture()
+                .onEnded { _ in
+                    if editingCueId == nil {
+                        selectedCueId = cue.id
+                    }
+                }
+        )
+        // Double-click row to seek
+        .simultaneousGesture(
+            TapGesture(count: 2)
+                .onEnded { _ in
+                    if editingCueId == nil {
+                        onSeekToCue(cue.startFrame)
+                    }
+                }
+        )
+        .contextMenu {
+            Button("Go to Cue") {
+                onSeekToCue(cue.startFrame)
+            }
+            Button("Edit Title") {
+                startEditing(cue: cue, field: .title)
+            }
+            Divider()
+            Button("Delete Cue", role: .destructive) {
+                deleteCue(cue)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rowBackground(isSelected: Bool, cueId: UUID) -> some View {
+        if isSelected {
+            Color.accentColor.opacity(0.2)
+        } else {
+            Color.clear
+        }
+    }
+
+    // MARK: - Editable Cells
+
+    @ViewBuilder
+    private func numberCell(for cue: Cue, isEditing: Bool) -> some View {
+        if isEditing {
+            TextField("", text: $editingText)
+                .textFieldStyle(.plain)
+                .focused($isFieldFocused)
+                .frame(width: CuesPanelLayout.numberColumnWidth - 8, alignment: .leading)
+                .padding(.horizontal, 4)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(2)
+                .onSubmit { commitCurrentEdit() }
+                .onExitCommand { cancelEdit() }
+        } else {
+            Text("\(cue.number)")
+                .frame(width: CuesPanelLayout.numberColumnWidth, alignment: .leading)
+                .monospacedDigit()
+                .contentShape(Rectangle())
+                .simultaneousGesture(
+                    TapGesture(count: 2)
+                        .onEnded { _ in
+                            startEditing(cue: cue, field: .number)
+                        }
+                )
+        }
+    }
+
+    @ViewBuilder
+    private func titleCell(for cue: Cue, isEditing: Bool) -> some View {
+        if isEditing {
+            TextField("Enter title", text: $editingText)
+                .textFieldStyle(.plain)
+                .focused($isFieldFocused)
+                .frame(width: CuesPanelLayout.titleColumnWidth - 8, alignment: .leading)
+                .padding(.horizontal, 4)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(2)
+                .onSubmit { commitCurrentEdit() }
+                .onExitCommand { cancelEdit() }
+        } else {
+            Text(cue.title.isEmpty ? "Untitled" : cue.title)
+                .frame(width: CuesPanelLayout.titleColumnWidth, alignment: .leading)
+                .foregroundColor(cue.title.isEmpty ? .secondary : .primary)
+                .lineLimit(1)
+                .contentShape(Rectangle())
+                .simultaneousGesture(
+                    TapGesture(count: 2)
+                        .onEnded { _ in
+                            startEditing(cue: cue, field: .title)
+                        }
+                )
         }
     }
 
@@ -177,16 +304,15 @@ struct CuesPanelView: View {
 
     private func addCue() {
         let currentFrame = timelineManager.currentFrame
-        let endFrame = currentFrame + Int(timelineManager.timeline.config.frameRate.fps * 5) // 5 second default duration
+        let endFrame = currentFrame + Int(timelineManager.timeline.config.frameRate.fps * 5)
         let cue = timelineManager.addCue(startFrame: currentFrame, endFrame: endFrame, title: "")
         selectedCueId = cue.id
-    }
-
-    private func selectCue(_ cue: Cue) {
-        selectedCueId = cue.id
+        // Start editing title immediately
+        startEditing(cue: cue, field: .title)
     }
 
     private func startEditing(cue: Cue, field: EditingField) {
+        // Set up editing state
         editingCueId = cue.id
         editingField = field
         switch field {
@@ -195,10 +321,20 @@ struct CuesPanelView: View {
         case .title:
             editingText = cue.title
         }
+
+        // Delay focus to ensure TextField is rendered (pattern from AudioLaneView)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            isFieldFocused = true
+        }
     }
 
-    private func commitEdit(for cue: Cue) {
-        guard let field = editingField else { return }
+    private func commitCurrentEdit() {
+        guard let cueId = editingCueId,
+              let field = editingField,
+              let cue = cues.first(where: { $0.id == cueId }) else {
+            cancelEdit()
+            return
+        }
 
         var updatedCue = cue
         switch field {
@@ -219,139 +355,13 @@ struct CuesPanelView: View {
         editingCueId = nil
         editingField = nil
         editingText = ""
+        isFieldFocused = false
     }
 
     private func deleteCue(_ cue: Cue) {
         timelineManager.removeCue(id: cue.id)
         if selectedCueId == cue.id {
             selectedCueId = nil
-        }
-    }
-}
-
-/// Individual cue row in the cues panel.
-struct CueRowView: View {
-    let cue: Cue
-    let isSelected: Bool
-    let editingField: CuesPanelView.EditingField?
-    @Binding var editingText: String
-    let timelineConfig: TimelineConfig
-    let onSelect: () -> Void
-    let onDoubleClick: (CuesPanelView.EditingField) -> Void
-    let onSeek: () -> Void
-    let onCommitEdit: () -> Void
-    let onCancelEdit: () -> Void
-    let onDelete: () -> Void
-
-    @State private var isHovered = false
-    @FocusState private var isTextFieldFocused: Bool
-
-    var body: some View {
-        HStack(spacing: 0) {
-            // Number column
-            numberCell
-
-            // Title column
-            titleCell
-
-            // TC IN column
-            Text(cue.timecodeIn(config: timelineConfig).stringValue())
-                .frame(width: CuesPanelLayout.timecodeColumnWidth, alignment: .leading)
-                .monospaced()
-
-            // TC OUT column
-            Text(cue.timecodeOut(config: timelineConfig).stringValue())
-                .frame(width: CuesPanelLayout.timecodeColumnWidth, alignment: .leading)
-                .monospaced()
-
-            // Duration column
-            Text(cue.durationTimecode(at: timelineConfig.frameRate).stringValue())
-                .frame(width: CuesPanelLayout.durationColumnWidth, alignment: .leading)
-                .monospaced()
-
-            Spacer()
-        }
-        .font(.system(size: 11))
-        .padding(.horizontal, Spacing.md)
-        .frame(height: CuesPanelLayout.rowHeight)
-        .background(rowBackground)
-        .onTapGesture {
-            onSelect()
-        }
-        .simultaneousGesture(
-            TapGesture(count: 2)
-                .onEnded { _ in
-                    onSeek()
-                }
-        )
-        .onHover { hovering in
-            isHovered = hovering
-        }
-        .contextMenu {
-            Button("Go to Cue") {
-                onSeek()
-            }
-            Divider()
-            Button("Delete Cue", role: .destructive) {
-                onDelete()
-            }
-        }
-    }
-
-    private var rowBackground: some View {
-        Group {
-            if isSelected {
-                Color.accentColor.opacity(0.2)
-            } else if isHovered {
-                Color(nsColor: .controlBackgroundColor).opacity(0.5)
-            } else {
-                Color.clear
-            }
-        }
-    }
-
-    private var numberCell: some View {
-        Group {
-            if editingField == .number {
-                TextField("", text: $editingText)
-                    .textFieldStyle(.plain)
-                    .focused($isTextFieldFocused)
-                    .frame(width: CuesPanelLayout.numberColumnWidth - 8, alignment: .leading)
-                    .onSubmit { onCommitEdit() }
-                    .onExitCommand { onCancelEdit() }
-                    .onAppear { isTextFieldFocused = true }
-            } else {
-                Text("\(cue.number)")
-                    .frame(width: CuesPanelLayout.numberColumnWidth, alignment: .leading)
-                    .monospacedDigit()
-                    .contentShape(Rectangle())
-                    .onTapGesture(count: 2) {
-                        onDoubleClick(.number)
-                    }
-            }
-        }
-    }
-
-    private var titleCell: some View {
-        Group {
-            if editingField == .title {
-                TextField("", text: $editingText)
-                    .textFieldStyle(.plain)
-                    .focused($isTextFieldFocused)
-                    .frame(width: CuesPanelLayout.titleColumnWidth - 8, alignment: .leading)
-                    .onSubmit { onCommitEdit() }
-                    .onExitCommand { onCancelEdit() }
-                    .onAppear { isTextFieldFocused = true }
-            } else {
-                Text(cue.title.isEmpty ? "-" : cue.title)
-                    .frame(width: CuesPanelLayout.titleColumnWidth, alignment: .leading)
-                    .foregroundColor(cue.title.isEmpty ? .secondary : .primary)
-                    .lineLimit(1)
-                    .contentShape(Rectangle())
-                    .onTapGesture(count: 2) {
-                        onDoubleClick(.title)
-                    }
-            }
         }
     }
 }
@@ -369,7 +379,6 @@ struct CueRowView: View {
             .padding()
             .frame(width: 600)
             .onAppear {
-                // Add sample cues
                 timelineManager.addCue(startFrame: 0, endFrame: 100, title: "Opening")
                 timelineManager.addCue(startFrame: 150, endFrame: 300, title: "Scene 1")
                 timelineManager.addCue(startFrame: 320, endFrame: 400, title: "Transition")

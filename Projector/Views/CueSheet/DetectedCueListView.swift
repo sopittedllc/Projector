@@ -1,11 +1,13 @@
 import SwiftUI
 import SwiftTimecodeCore
 
-/// Displays detected cues in a simple numbered list
+/// Displays detected cues in a simple numbered list with option to import
 struct DetectedCueListView: View {
     let cues: [DetectedCue]
     let frameRate: TimecodeFrameRate
     let clipName: String
+    /// Callback when user imports cues into the timeline
+    var onImport: (([DetectedCue]) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -77,10 +79,20 @@ struct DetectedCueListView: View {
                 Text("\(cues.count) cue\(cues.count == 1 ? "" : "s") detected")
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Done") {
+
+                Button("Cancel") {
                     dismiss()
                 }
-                .keyboardShortcut(.defaultAction)
+                .keyboardShortcut(.cancelAction)
+
+                if let onImport = onImport, !cues.isEmpty {
+                    Button("Import Cues") {
+                        onImport(cues)
+                        dismiss()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                }
             }
             .padding()
         }

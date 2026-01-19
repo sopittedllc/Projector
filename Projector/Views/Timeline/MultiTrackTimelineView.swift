@@ -248,7 +248,10 @@ struct MultiTrackTimelineView: View {
             DetectedCueListView(
                 cues: detectedCues,
                 frameRate: timeline.config.frameRate,
-                clipName: detectedCuesClipName
+                clipName: detectedCuesClipName,
+                onImport: { cues in
+                    timelineManager.importDetectedCues(cues)
+                }
             )
         }
         // Take focus when a clip is selected
