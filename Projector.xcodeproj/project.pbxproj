@@ -723,9 +723,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				ED65FB65D047420C8FE9A25A /* DetectedCue.swift in Sources */,
-				2F2A2A41B11841978A185166 /* SilenceDetectionService.swift in Sources */,
-				DC53E4719B63497E869D6AA5 /* DetectedCueListView.swift in Sources */,
 				52E6F25BE86C6D82F69255D4 /* UITestAudioFileFactory.swift in Sources */,
 				98D24F6557F4656E904E4EBD /* ProjectorUITests.swift in Sources */,
 			);
@@ -744,6 +741,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				ED65FB65D047420C8FE9A25A /* DetectedCue.swift in Sources */,
+				2F2A2A41B11841978A185166 /* SilenceDetectionService.swift in Sources */,
+				DC53E4719B63497E869D6AA5 /* DetectedCueListView.swift in Sources */,
 				753331FCF4CC4E1A8578392C /* MediaOptimizationServiceProtocol.swift in Sources */,
 				2D32AFD4ED0B4C24B8B2504B /* MediaOptimizationService.swift in Sources */,
 				AE01AUDIOEXTRACT001 /* AudioExtractionService.swift in Sources */,
