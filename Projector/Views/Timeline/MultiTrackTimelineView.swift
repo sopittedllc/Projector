@@ -25,14 +25,13 @@ struct DustyBackground: View {
     }
 }
 
-/// Helper view that captures a reference to the nearest ancestor NSScrollView
-/// and tracks horizontal scroll offset changes.
+/// Helper view that captures a reference to the nearest ancestor NSScrollView.
 ///
+/// Used for programmatic scroll operations like auto-scroll during marquee selection.
 /// Embeds an invisible NSView that traverses up the view hierarchy to find
 /// the enclosing NSScrollView and reports it via a binding.
 private struct ScrollViewCaptureHelper: NSViewRepresentable {
     @Binding var scrollView: NSScrollView?
-    @Binding var horizontalOffset: CGFloat
 
     func makeNSView(context: Context) -> NSView {
         let view = ScrollViewFinderView()
@@ -41,27 +40,14 @@ private struct ScrollViewCaptureHelper: NSViewRepresentable {
                 self.scrollView = foundScrollView
             }
         }
-        view.onScrollOffsetChanged = { [self] offset in
-            DispatchQueue.main.async {
-                self.horizontalOffset = offset
-            }
-        }
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        // When the view updates (e.g., on zoom level change), re-read the current scroll offset
-        // This ensures the offset is always in sync even if the observer missed an update
-        guard let finderView = nsView as? ScrollViewFinderView else { return }
-        finderView.refreshScrollOffset()
-    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
 
-    /// Custom NSView that finds its ancestor NSScrollView and observes scroll changes
+    /// Custom NSView that finds its ancestor NSScrollView
     private class ScrollViewFinderView: NSView {
         var onScrollViewFound: ((NSScrollView?) -> Void)?
-        var onScrollOffsetChanged: ((CGFloat) -> Void)?
-        private var scrollObserver: NSObjectProtocol?
-        private weak var observedScrollView: NSScrollView?
 
         override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
@@ -76,55 +62,11 @@ private struct ScrollViewCaptureHelper: NSViewRepresentable {
             while let view = currentView {
                 if let scrollView = view as? NSScrollView {
                     onScrollViewFound?(scrollView)
-                    setupScrollObserver(for: scrollView)
                     return
                 }
                 currentView = view.superview
             }
             onScrollViewFound?(nil)
-        }
-
-        private func setupScrollObserver(for scrollView: NSScrollView) {
-            // Remove any existing observer
-            if let observer = scrollObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
-
-            observedScrollView = scrollView
-
-            // Enable bounds change notifications on the clip view
-            scrollView.contentView.postsBoundsChangedNotifications = true
-
-            // Observe bounds changes (which occur on scroll)
-            scrollObserver = NotificationCenter.default.addObserver(
-                forName: NSView.boundsDidChangeNotification,
-                object: scrollView.contentView,
-                queue: .main
-            ) { [weak self] _ in
-                let offset = scrollView.contentView.bounds.origin.x
-                self?.onScrollOffsetChanged?(offset)
-            }
-
-            // Report initial offset
-            onScrollOffsetChanged?(scrollView.contentView.bounds.origin.x)
-        }
-
-        /// Re-read the current scroll offset from the scroll view.
-        /// Called when the view updates to ensure sync after zoom changes.
-        func refreshScrollOffset() {
-            guard let scrollView = observedScrollView else {
-                // Try to find scroll view if not yet found
-                findScrollView()
-                return
-            }
-            let offset = scrollView.contentView.bounds.origin.x
-            onScrollOffsetChanged?(offset)
-        }
-
-        deinit {
-            if let observer = scrollObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
         }
     }
 }
@@ -202,7 +144,6 @@ struct MultiTrackTimelineView: View {
     @State private var autoScrollTimer: Timer?
     @State private var cachedScrollView: NSScrollView?
     @State private var scrollAreaFrame: CGRect = .zero
-    @State private var horizontalScrollOffset: CGFloat = 0
 
     // Cue detection state
     @State private var showDetectedCuesSheet = false
@@ -965,24 +906,6 @@ struct MultiTrackTimelineView: View {
             let availableNewLaneHeight = max(0, scrollHeight - baseTracksHeight - 8)
 
             VStack(spacing: 0) {
-                // Cue lane (sticky header, content syncs with timeline scroll)
-                if !timelineManager.allCues.isEmpty {
-                    CueLaneView(
-                        cues: timelineManager.allCues,
-                        pixelsPerFrame: ppf,
-                        timelineConfig: timeline.config,
-                        visibleWidth: geometry.size.width,
-                        scrollOffset: horizontalScrollOffset,
-                        selectedCueId: selectedCueId,
-                        onCueSelected: { cueId in
-                            selectedCueId = cueId
-                        },
-                        onCueDoubleClick: { cue in
-                            onSeek(cue.startFrame)
-                        }
-                    )
-                }
-
                 // Ruler row (with seek gesture - doesn't scroll)
                 HStack(spacing: 0) {
                     Color.clear.frame(width: TimelineLayout.headerWidth)
@@ -1013,9 +936,25 @@ struct MultiTrackTimelineView: View {
                 // Scrollable tracks area (horizontal + vertical)
                 ScrollView([.horizontal, .vertical], showsIndicators: true) {
                     VStack(spacing: 0) {
-                        // Invisible helper to capture NSScrollView reference and track scroll offset
-                        ScrollViewCaptureHelper(scrollView: $cachedScrollView, horizontalOffset: $horizontalScrollOffset)
+                        // Invisible helper to capture NSScrollView reference for auto-scroll
+                        ScrollViewCaptureHelper(scrollView: $cachedScrollView)
                             .frame(width: 0, height: 0)
+
+                        // Cue lane (inside ScrollView - scrolls naturally with tracks)
+                        if !timelineManager.allCues.isEmpty {
+                            CueLaneView(
+                                cues: timelineManager.allCues,
+                                pixelsPerFrame: ppf,
+                                selectedCueId: selectedCueId,
+                                onCueSelected: { cueId in
+                                    selectedCueId = cueId
+                                },
+                                onCueDoubleClick: { cue in
+                                    onSeek(cue.startFrame)
+                                }
+                            )
+                            .frame(width: totalContentWidth)
+                        }
 
                         Spacer().frame(height: 4)
 
