@@ -384,6 +384,7 @@
 		A1000001227D3F0000000023 /* Managers */ = {
 			isa = PBXGroup;
 			children = (
+				6FCD9ED16A0B4C4DB02A6D95 /* SilenceDetectionService.swift */,
 				AE01AUDIOEXTRACT002 /* AudioExtractionService.swift */,
 				MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */,
 				MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */,
@@ -408,6 +409,7 @@
 		A1000001227D3F0000000024 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				5ACA233C6AF84EBD86FFEC5B /* CueSheet */,
 				59F7937C1F65403C8FBC4921 /* Optimization */,
 				A1000001227D3F0000000012 /* ContentView.swift */,
 				SETUP001CONTENTVIEW /* ContentView+Setup.swift */,
