@@ -34,6 +34,8 @@ struct VitalControlsBar: View {
     @State private var editingDurationText = ""
     @State private var isHoveringStartTC = false
     @State private var isHoveringDuration = false
+    @State private var showStartTimecodeAlert = false
+    @State private var startTimecodeAlertMessage = ""
     @FocusState private var isStartTCFocused: Bool
     @FocusState private var isDurationFocused: Bool
 
@@ -69,6 +71,11 @@ struct VitalControlsBar: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .glassPanel()
+        .alert("Invalid Start Timecode", isPresented: $showStartTimecodeAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(startTimecodeAlertMessage)
+        }
     }
 
     // MARK: - Start Timecode Control
@@ -258,13 +265,70 @@ struct VitalControlsBar: View {
     }
 
     private func applyStartTimecode() {
-        if let newTC = parseTimecode(editingStartTCText) {
-            timelineManager.setTimelineBounds(start: newTC, end: timelineManager.timeline.config.endTimecode)
-            editingStartTCText = newTC.stringValue()
-        } else {
+        guard let newTC = parseTimecode(editingStartTCText) else {
             editingStartTCText = timelineManager.timeline.config.startTimecode.stringValue()
+            isStartTCFocused = false
+            return
         }
+
+        let config = timelineManager.timeline.config
+
+        // Check if the new start would be after any existing content
+        let earliestContentFrame = findEarliestContentFrame()
+        if let earliest = earliestContentFrame {
+            // Calculate what timecode the earliest content would have with the new start
+            let earliestAbsoluteFrame = config.startTimecode.frameCount.wholeFrames + earliest
+            let newStartFrames = newTC.frameCount.wholeFrames
+
+            // If new start is after the earliest content's absolute timecode, reject with message
+            if newStartFrames > earliestAbsoluteFrame {
+                let earliestTimecode = Timecode(.frames(earliestAbsoluteFrame), at: config.frameRate, by: .clamping)
+                startTimecodeAlertMessage = "The start timecode \(newTC.stringValue()) is after the first content at \(earliestTimecode.stringValue()). Move or delete the content first."
+                showStartTimecodeAlert = true
+                editingStartTCText = config.startTimecode.stringValue()
+                isStartTCFocused = false
+                return
+            }
+        }
+
+        // Maintain the same duration by adjusting end timecode
+        let currentDuration = config.durationFrames
+        let newEndFrames = newTC.frameCount.wholeFrames + currentDuration
+        let newEnd = Timecode(.frames(newEndFrames), at: config.frameRate, by: .clamping)
+
+        timelineManager.setTimelineBounds(start: newTC, end: newEnd)
+        editingStartTCText = newTC.stringValue()
         isStartTCFocused = false
+    }
+
+    /// Find the earliest frame with content (video reels or audio clips)
+    private func findEarliestContentFrame() -> Int? {
+        var earliest: Int?
+
+        // Check video reels
+        for reel in timelineManager.timeline.videoReels {
+            if earliest == nil || reel.timelineStartFrame < earliest! {
+                earliest = reel.timelineStartFrame
+            }
+        }
+
+        // Check audio clips across all lanes
+        for lane in timelineManager.timeline.audioLanes {
+            for clip in lane.clips {
+                if earliest == nil || clip.timelineStartFrame < earliest! {
+                    earliest = clip.timelineStartFrame
+                }
+            }
+        }
+
+        // Check cues
+        for cue in timelineManager.allCues {
+            if earliest == nil || cue.startFrame < earliest! {
+                earliest = cue.startFrame
+            }
+        }
+
+        return earliest
     }
 
     private func applyDuration() {

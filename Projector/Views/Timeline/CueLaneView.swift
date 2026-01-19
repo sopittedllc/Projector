@@ -138,7 +138,7 @@ struct CueMarkerView: View {
                 // Cue number (when zoomed out) and title (when zoomed in)
                 if showNumber {
                     HStack(spacing: 2) {
-                        Text("\(cue.number)")
+                        Text(showTitle ? "\(cue.number):" : "\(cue.number)")
                             .font(.system(size: 9, weight: .bold))
                         if showTitle {
                             Text(cue.title)
