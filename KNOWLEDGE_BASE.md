@@ -1,6 +1,6 @@
 # Projector Knowledge Base
 
-> **Last Updated**: 2026-01-15 (GP-019 added - macOS Drag-Drop Architecture)
+> **Last Updated**: 2026-01-18 (GP-023 added - Xcode project.pbxproj Target Identification Protocol)
 > **Maintainer**: The Librarian Agent
 >
 > This document captures institutional knowledge extracted from the Projector codebase.
@@ -2173,6 +2173,97 @@ func frameToSampleCount(_ frameCount: Int, frameRate: Double, sampleRate: Int = 
 - [David Heidelberger - Drop-Frame Timecode](https://www.davidheidelberger.com/2010/06/10/drop-frame-timecode/)
 - [Wikipedia - MIDI Timecode](https://en.wikipedia.org/wiki/MIDI_timecode)
 - [Sound Devices - Sample Rate and Frame Rate Settings](https://www.sounddevices.com/sample-rate-and-frame-rate-settings-for-production-sound/)
+
+---
+
+### GP-023: Xcode project.pbxproj Target Identification Protocol
+**Added**: 2026-01-18
+**Source**: Post-mortem from cue sheet feature implementation
+**Category**: Build System, Developer Experience
+
+#### Problem
+When programmatically adding files to an Xcode project, files may be added to the wrong target (e.g., UITests instead of main app). This causes "Cannot find type in scope" build errors even though files exist on disk and appear in the project.
+
+**Root Cause**: Xcode projects have MULTIPLE `PBXSourcesBuildPhase` sections - one per target. The UITests phase may appear BEFORE the main app phase in the file. Searching for "first PBXSourcesBuildPhase" grabs the wrong one.
+
+#### Solution
+Always follow the Target → buildPhases → Sources chain:
+
+```
+PBXNativeTarget (find by name or productType)
+        ↓
+   buildPhases array (from target object)
+        ↓
+   buildPhases[0] = Sources phase ID (always first)
+        ↓
+PBXSourcesBuildPhase (look up by that specific ID)
+        ↓
+   files array (add your build file reference here)
+```
+
+#### Target Types (productType field)
+
+| productType | Target Kind |
+|-------------|-------------|
+| `com.apple.product-type.application` | Main App (use this!) |
+| `com.apple.product-type.bundle.unit-test` | Unit Tests |
+| `com.apple.product-type.bundle.ui-testing` | UI Tests |
+| `com.apple.product-type.app-extension` | App Extension |
+
+#### Correct Implementation
+
+```python
+def add_file_to_main_app(project_path, file_path):
+    content = read_pbxproj(project_path)
+
+    # Step 1: Find main app target by productType
+    target = find_native_target(content,
+        productType="com.apple.product-type.application")
+
+    # Step 2: Get Sources phase ID (ALWAYS first in buildPhases)
+    sources_phase_id = target.buildPhases[0]
+
+    # Step 3: Find that specific PBXSourcesBuildPhase by ID
+    sources_phase = find_sources_phase(content, sources_phase_id)
+
+    # Step 4: Add file to that phase's files array
+    sources_phase.files.append(new_build_file_id)
+```
+
+#### Projector-Specific Reference
+
+```
+Target: Projector (main app)
+  productType: com.apple.product-type.application
+  buildPhases[0]: A1000001227D3F000000000C  ← CORRECT Sources phase
+
+Target: ProjectorUITests (DO NOT USE)
+  productType: com.apple.product-type.bundle.ui-testing
+  buildPhases[0]: 50F3CF58997D9E2F0BCEE6AD  ← Listed first in file!
+```
+
+#### Anti-Pattern (What Causes Failures)
+
+```python
+# ❌ NEVER DO THIS
+for phase in all_sources_phases:
+    phase.files.append(file)  # Wrong! Grabs first found (UITests)
+
+# ❌ ALSO WRONG
+sources_pattern = r'PBXSourcesBuildPhase.*?files = \('
+first_match = re.search(sources_pattern, content)  # UITests!
+```
+
+#### Verification Steps
+
+After adding files:
+1. `grep "YourFile.swift in Sources" project.pbxproj` - should appear once
+2. Check the line number - should be in the A1000001227D3F000000000C phase (around line 746+)
+3. Build in Xcode - "Cannot find type" means wrong target
+
+#### Related Files
+- `~/.claude/xcode-reference.md` - Comprehensive Xcode reference
+- `Projector.xcodeproj/project.pbxproj` - Project configuration
 
 ---
 
