@@ -144,6 +144,11 @@ struct MultiTrackTimelineView: View {
     @State private var cachedScrollView: NSScrollView?
     @State private var scrollAreaFrame: CGRect = .zero
 
+    // Cue detection state
+    @State private var showDetectedCuesSheet = false
+    @State private var detectedCues: [DetectedCue] = []
+    @State private var detectedCuesClipName: String = ""
+
     // MARK: - Constants
 
     /// Height for the inactive "new lane" drop target
@@ -235,6 +240,13 @@ struct MultiTrackTimelineView: View {
         }
         .sheet(isPresented: $showTimecodeEntryDialog) {
             timecodeEntryDialogContent
+        }
+        .sheet(isPresented: $showDetectedCuesSheet) {
+            DetectedCueListView(
+                cues: detectedCues,
+                frameRate: timeline.config.frameRate,
+                clipName: detectedCuesClipName
+            )
         }
         // Take focus when a clip is selected
         .onChange(of: selectedVideoReelId) { _, newValue in
@@ -1001,6 +1013,9 @@ struct MultiTrackTimelineView: View {
                                     let tc = Timecode(.frames(clip.timelineStartFrame + timeline.config.startTimecode.frameCount.wholeFrames), at: timeline.config.frameRate, by: .clamping)
                                     timecodeEntryText = tc.stringValue()
                                     showTimecodeEntryDialog = true
+                                },
+                                onDetectCues: { clip in
+                                    detectCuesFromClip(clip)
                                 },
                                 onClipMove: { clipId, newFrame in
                                     guard let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == lane.id }),
@@ -2473,6 +2488,25 @@ struct MultiTrackTimelineView: View {
     private func findNearestAudioClip(at frame: Int, inLaneIndex laneIndex: Int, audioClips: [(lane: AudioLane, clip: AudioClip, laneIndex: Int)]) -> (lane: AudioLane, clip: AudioClip, laneIndex: Int)? {
         let laneClips = audioClips.filter { $0.laneIndex == laneIndex }
         return laneClips.min { abs($0.clip.timelineStartFrame - frame) < abs($1.clip.timelineStartFrame - frame) }
+    }
+
+    // MARK: - Cue Detection
+
+    /// Detect cues from an audio clip's waveform data
+    private func detectCuesFromClip(_ clip: AudioClip) {
+        guard let atlas = waveformCache.clipAtlases[clip.id],
+              let level = atlas.levels[4096] ?? atlas.levels.values.first else {
+            return
+        }
+
+        detectedCues = SilenceDetectionService.detectCues(
+            from: level,
+            clipStartFrame: clip.timelineStartFrame,
+            clipDurationFrames: clip.durationFrames,
+            timelineConfig: timeline.config
+        )
+        detectedCuesClipName = clip.displayName
+        showDetectedCuesSheet = true
     }
 }
 

@@ -17,6 +17,7 @@ struct AudioClipView: View {
     let isOptimized: Bool
     let onSelect: (SelectionModifiers) -> Void
     let onDoubleClick: () -> Void
+    var onDetectCues: (() -> Void)?
 
     /// Track height for audio clips
     private let trackHeight: CGFloat = TimelineLayout.audioClipHeight
@@ -111,6 +112,14 @@ struct AudioClipView: View {
                 }
         )
         .help(clip.sourceURL.lastPathComponent)
+        .contextMenu {
+            if let onDetectCues = onDetectCues {
+                Button("Detect Cues from Audio") {
+                    onDetectCues()
+                }
+                .disabled(waveformCache.isLoading(for: clip))
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("audio-clip")
     }
