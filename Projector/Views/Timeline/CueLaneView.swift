@@ -6,6 +6,20 @@ import SwiftTimecodeCore
 /// Shows cue markers as colored rectangles positioned by their frame times.
 /// Supports click to select and double-click to seek to cue start.
 /// Synchronizes with the timeline's horizontal scroll position.
+///
+/// ## Coordinate System
+///
+/// The cue lane mirrors the timeline ScrollView's coordinate system:
+/// - The ScrollView content has width = headerWidth + (durationFrames × pixelsPerFrame)
+/// - Track headers (120px) are part of the scrollable content
+/// - Clips are positioned at `frame × pixelsPerFrame` within the content area (after header)
+/// - When scroll offset = 0, the header and initial content are visible
+/// - When scroll offset = N, content from pixel N is visible
+///
+/// The CueLaneView simulates this by:
+/// - Having a fixed header (doesn't scroll)
+/// - Positioning markers at `frame × pixelsPerFrame` within a container
+/// - Offsetting the container to match what's visible after the header in the ScrollView
 struct CueLaneView: View {
     let cues: [Cue]
     let pixelsPerFrame: CGFloat
@@ -16,9 +30,29 @@ struct CueLaneView: View {
     let onCueSelected: (UUID) -> Void
     let onCueDoubleClick: (Cue) -> Void
 
-    /// Full content width based on timeline duration
+    /// Full content width based on timeline duration (matches track content area width)
     private var fullContentWidth: CGFloat {
         CGFloat(timelineConfig.durationFrames) * pixelsPerFrame
+    }
+
+    /// The scroll offset adjusted for the CueLaneView's content area.
+    ///
+    /// Inside the ScrollView:
+    /// - Header occupies pixels [0, headerWidth)
+    /// - Track content starts at pixel headerWidth
+    /// - When scrollOffset = headerWidth, the visible area starts exactly at the track content
+    ///
+    /// For CueLaneView (fixed header):
+    /// - Header is always visible at [0, headerWidth)
+    /// - Content area must show what's visible in the ScrollView's content area
+    /// - When scrollOffset < headerWidth: ScrollView shows header + some content from frame 0
+    /// - When scrollOffset >= headerWidth: ScrollView shows content starting at (scrollOffset - headerWidth)
+    ///
+    /// The content area starts at pixel headerWidth. The visible portion of the timeline
+    /// content in the ScrollView starts at max(headerWidth, scrollOffset). So the cue content
+    /// should be offset by: max(0, scrollOffset - headerWidth)
+    private var contentScrollOffset: CGFloat {
+        max(0, scrollOffset - TimelineLayout.headerWidth)
     }
 
     var body: some View {
@@ -32,7 +66,9 @@ struct CueLaneView: View {
                 // Background
                 Color(white: 0.14)
 
-                // Cue markers container - offset by scroll position
+                // Cue markers container - positioned to match track content
+                // Markers are at frame × ppf within this container
+                // Container is offset to show the same portion as the ScrollView's content area
                 ZStack(alignment: .leading) {
                     ForEach(cues) { cue in
                         CueMarkerView(
@@ -46,7 +82,7 @@ struct CueLaneView: View {
                     }
                 }
                 .frame(width: fullContentWidth, alignment: .leading)
-                .offset(x: -scrollOffset)
+                .offset(x: -contentScrollOffset)
             }
             .frame(width: visibleWidth - TimelineLayout.headerWidth)
             .clipped()

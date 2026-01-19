@@ -49,13 +49,19 @@ private struct ScrollViewCaptureHelper: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // When the view updates (e.g., on zoom level change), re-read the current scroll offset
+        // This ensures the offset is always in sync even if the observer missed an update
+        guard let finderView = nsView as? ScrollViewFinderView else { return }
+        finderView.refreshScrollOffset()
+    }
 
     /// Custom NSView that finds its ancestor NSScrollView and observes scroll changes
     private class ScrollViewFinderView: NSView {
         var onScrollViewFound: ((NSScrollView?) -> Void)?
         var onScrollOffsetChanged: ((CGFloat) -> Void)?
         private var scrollObserver: NSObjectProtocol?
+        private weak var observedScrollView: NSScrollView?
 
         override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
@@ -84,6 +90,8 @@ private struct ScrollViewCaptureHelper: NSViewRepresentable {
                 NotificationCenter.default.removeObserver(observer)
             }
 
+            observedScrollView = scrollView
+
             // Enable bounds change notifications on the clip view
             scrollView.contentView.postsBoundsChangedNotifications = true
 
@@ -99,6 +107,18 @@ private struct ScrollViewCaptureHelper: NSViewRepresentable {
 
             // Report initial offset
             onScrollOffsetChanged?(scrollView.contentView.bounds.origin.x)
+        }
+
+        /// Re-read the current scroll offset from the scroll view.
+        /// Called when the view updates to ensure sync after zoom changes.
+        func refreshScrollOffset() {
+            guard let scrollView = observedScrollView else {
+                // Try to find scroll view if not yet found
+                findScrollView()
+                return
+            }
+            let offset = scrollView.contentView.bounds.origin.x
+            onScrollOffsetChanged?(offset)
         }
 
         deinit {
