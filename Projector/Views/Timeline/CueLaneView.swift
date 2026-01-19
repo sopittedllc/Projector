@@ -97,13 +97,19 @@ struct CueMarkerView: View {
                         .strokeBorder(Color.white.opacity(0.8), lineWidth: 1.5)
                 }
 
-                // Title text (if space permits)
-                if showTitle && !cue.title.isEmpty {
-                    Text(cue.title)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
-                        .padding(.horizontal, 4)
+                // Cue number and title (if space permits)
+                if showTitle {
+                    HStack(spacing: 2) {
+                        Text("\(cue.number)")
+                            .font(.system(size: 9, weight: .bold))
+                        if !cue.title.isEmpty {
+                            Text(cue.title)
+                                .font(.system(size: 9, weight: .medium))
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                    .padding(.horizontal, 4)
                 }
             }
             .frame(width: markerWidth, height: CueLaneLayout.laneHeight - 4)
@@ -122,13 +128,14 @@ struct CueMarkerView: View {
     }
 
     private var markerColor: Color {
-        let baseColor = Color.orange
+        // Dark pink/magenta color for cue markers
+        let baseColor = Color(red: 0.75, green: 0.22, blue: 0.45)
         if isSelected {
             return baseColor.opacity(1.0)
         } else if isHovered {
-            return baseColor.opacity(0.85)
+            return baseColor.opacity(0.9)
         } else {
-            return baseColor.opacity(0.7)
+            return baseColor.opacity(0.8)
         }
     }
 
