@@ -80,8 +80,14 @@ struct CueMarkerView: View {
         max(CueLaneLayout.markerMinWidth, CGFloat(cue.durationFrames) * pixelsPerFrame)
     }
 
+    /// Show cue number when marker is wide enough
+    private var showNumber: Bool {
+        markerWidth >= CueLaneLayout.markerNumberMinWidth
+    }
+
+    /// Show title only when marker is significantly wider (zoomed in)
     private var showTitle: Bool {
-        markerWidth >= CueLaneLayout.markerTextMinWidth
+        markerWidth >= CueLaneLayout.markerTitleMinWidth && !cue.title.isEmpty
     }
 
     var body: some View {
@@ -97,12 +103,12 @@ struct CueMarkerView: View {
                         .strokeBorder(Color.white.opacity(0.8), lineWidth: 1.5)
                 }
 
-                // Cue number and title (if space permits)
-                if showTitle {
+                // Cue number (when zoomed out) and title (when zoomed in)
+                if showNumber {
                     HStack(spacing: 2) {
                         Text("\(cue.number)")
                             .font(.system(size: 9, weight: .bold))
-                        if !cue.title.isEmpty {
+                        if showTitle {
                             Text(cue.title)
                                 .font(.system(size: 9, weight: .medium))
                         }

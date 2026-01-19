@@ -117,8 +117,11 @@ enum CueLaneLayout {
     /// Corner radius for cue markers
     static let markerCornerRadius: CGFloat = 2
 
-    /// Minimum width to show title text in marker
-    static let markerTextMinWidth: CGFloat = 40
+    /// Minimum width to show cue number only
+    static let markerNumberMinWidth: CGFloat = 20
+
+    /// Minimum width to show cue number + title
+    static let markerTitleMinWidth: CGFloat = 60
 }
 
 /// Cues panel constants
