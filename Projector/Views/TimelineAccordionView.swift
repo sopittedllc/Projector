@@ -128,9 +128,49 @@ struct TimelineAccordionView: View {
             }
             .buttonStyle(GlassActionButtonStyle(tint: .accentColor))
             .help("Add a new audio lane")
+
+            // Zoom controls
+            if timelineViewModel.isExpanded {
+                Divider()
+                    .frame(height: 20)
+                    .padding(.horizontal, Spacing.sm)
+
+                zoomControls
+            }
         }
         .frame(height: PanelLayout.headerHeight)
         .padding(.horizontal, Spacing.md)
+    }
+
+    // MARK: - Zoom Controls
+
+    private var hasTimelineContent: Bool {
+        !timelineManager.timeline.videoReels.isEmpty || timelineManager.timeline.audioLanes.contains { !$0.clips.isEmpty }
+    }
+
+    private var zoomControls: some View {
+        HStack(spacing: 4) {
+            Button(action: { timelineViewModel.zoomOut() }) {
+                Image(systemName: "minus.magnifyingglass")
+                    .font(.system(size: 11))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+            .disabled(!hasTimelineContent || timelineViewModel.zoomLevel <= timelineViewModel.minZoom)
+
+            Slider(value: $timelineViewModel.zoomLevel, in: timelineViewModel.minZoom...timelineViewModel.maxZoom)
+                .frame(width: 80)
+                .controlSize(.mini)
+
+            Button(action: { timelineViewModel.zoomIn() }) {
+                Image(systemName: "plus.magnifyingglass")
+                    .font(.system(size: 11))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+            .disabled(!hasTimelineContent || timelineViewModel.zoomLevel >= timelineViewModel.maxZoom)
+        }
+        .help("Zoom timeline")
     }
 
     // MARK: - Timeline Content

@@ -5,14 +5,21 @@ import SwiftTimecodeCore
 ///
 /// Shows cue markers as colored rectangles positioned by their frame times.
 /// Supports click to select and double-click to seek to cue start.
+/// Synchronizes with the timeline's horizontal scroll position.
 struct CueLaneView: View {
     let cues: [Cue]
     let pixelsPerFrame: CGFloat
     let timelineConfig: TimelineConfig
-    let totalContentWidth: CGFloat
+    let visibleWidth: CGFloat
+    let scrollOffset: CGFloat
     let selectedCueId: UUID?
     let onCueSelected: (UUID) -> Void
     let onCueDoubleClick: (Cue) -> Void
+
+    /// Full content width based on timeline duration
+    private var fullContentWidth: CGFloat {
+        CGFloat(timelineConfig.durationFrames) * pixelsPerFrame
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -20,24 +27,28 @@ struct CueLaneView: View {
             cueHeader
                 .frame(width: TimelineLayout.headerWidth)
 
-            // Cue content area
+            // Cue content area - clips visible portion, markers positioned absolutely
             ZStack(alignment: .leading) {
                 // Background
                 Color(white: 0.14)
 
-                // Cue markers
-                ForEach(cues) { cue in
-                    CueMarkerView(
-                        cue: cue,
-                        pixelsPerFrame: pixelsPerFrame,
-                        isSelected: cue.id == selectedCueId,
-                        onSelect: { onCueSelected(cue.id) },
-                        onDoubleClick: { onCueDoubleClick(cue) }
-                    )
-                    .offset(x: CGFloat(cue.startFrame) * pixelsPerFrame)
+                // Cue markers container - offset by scroll position
+                ZStack(alignment: .leading) {
+                    ForEach(cues) { cue in
+                        CueMarkerView(
+                            cue: cue,
+                            pixelsPerFrame: pixelsPerFrame,
+                            isSelected: cue.id == selectedCueId,
+                            onSelect: { onCueSelected(cue.id) },
+                            onDoubleClick: { onCueDoubleClick(cue) }
+                        )
+                        .offset(x: CGFloat(cue.startFrame) * pixelsPerFrame)
+                    }
                 }
+                .frame(width: fullContentWidth, alignment: .leading)
+                .offset(x: -scrollOffset)
             }
-            .frame(width: totalContentWidth - TimelineLayout.headerWidth)
+            .frame(width: visibleWidth - TimelineLayout.headerWidth)
             .clipped()
         }
         .frame(height: CueLaneLayout.laneHeight)
@@ -134,14 +145,14 @@ struct CueMarkerView: View {
     }
 
     private var markerColor: Color {
-        // Dark pink/magenta color for cue markers
-        let baseColor = Color(red: 0.75, green: 0.22, blue: 0.45)
+        // Light pink/rose color for cue markers
+        let baseColor = Color(red: 0.85, green: 0.45, blue: 0.55)
         if isSelected {
             return baseColor.opacity(1.0)
         } else if isHovered {
             return baseColor.opacity(0.9)
         } else {
-            return baseColor.opacity(0.8)
+            return baseColor.opacity(0.85)
         }
     }
 
@@ -166,7 +177,8 @@ struct CueMarkerView: View {
         cues: cues,
         pixelsPerFrame: 0.5,
         timelineConfig: config,
-        totalContentWidth: 800,
+        visibleWidth: 800,
+        scrollOffset: 0,
         selectedCueId: cues[0].id,
         onCueSelected: { _ in },
         onCueDoubleClick: { _ in }

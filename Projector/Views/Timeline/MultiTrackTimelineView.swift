@@ -26,11 +26,13 @@ struct DustyBackground: View {
 }
 
 /// Helper view that captures a reference to the nearest ancestor NSScrollView
+/// and tracks horizontal scroll offset changes.
 ///
 /// Embeds an invisible NSView that traverses up the view hierarchy to find
 /// the enclosing NSScrollView and reports it via a binding.
 private struct ScrollViewCaptureHelper: NSViewRepresentable {
     @Binding var scrollView: NSScrollView?
+    @Binding var horizontalOffset: CGFloat
 
     func makeNSView(context: Context) -> NSView {
         let view = ScrollViewFinderView()
@@ -39,14 +41,21 @@ private struct ScrollViewCaptureHelper: NSViewRepresentable {
                 self.scrollView = foundScrollView
             }
         }
+        view.onScrollOffsetChanged = { [self] offset in
+            DispatchQueue.main.async {
+                self.horizontalOffset = offset
+            }
+        }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {}
 
-    /// Custom NSView that finds its ancestor NSScrollView
+    /// Custom NSView that finds its ancestor NSScrollView and observes scroll changes
     private class ScrollViewFinderView: NSView {
         var onScrollViewFound: ((NSScrollView?) -> Void)?
+        var onScrollOffsetChanged: ((CGFloat) -> Void)?
+        private var scrollObserver: NSObjectProtocol?
 
         override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
@@ -61,11 +70,41 @@ private struct ScrollViewCaptureHelper: NSViewRepresentable {
             while let view = currentView {
                 if let scrollView = view as? NSScrollView {
                     onScrollViewFound?(scrollView)
+                    setupScrollObserver(for: scrollView)
                     return
                 }
                 currentView = view.superview
             }
             onScrollViewFound?(nil)
+        }
+
+        private func setupScrollObserver(for scrollView: NSScrollView) {
+            // Remove any existing observer
+            if let observer = scrollObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+
+            // Enable bounds change notifications on the clip view
+            scrollView.contentView.postsBoundsChangedNotifications = true
+
+            // Observe bounds changes (which occur on scroll)
+            scrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView,
+                queue: .main
+            ) { [weak self] _ in
+                let offset = scrollView.contentView.bounds.origin.x
+                self?.onScrollOffsetChanged?(offset)
+            }
+
+            // Report initial offset
+            onScrollOffsetChanged?(scrollView.contentView.bounds.origin.x)
+        }
+
+        deinit {
+            if let observer = scrollObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
         }
     }
 }
@@ -143,6 +182,7 @@ struct MultiTrackTimelineView: View {
     @State private var autoScrollTimer: Timer?
     @State private var cachedScrollView: NSScrollView?
     @State private var scrollAreaFrame: CGRect = .zero
+    @State private var horizontalScrollOffset: CGFloat = 0
 
     // Cue detection state
     @State private var showDetectedCuesSheet = false
@@ -905,13 +945,14 @@ struct MultiTrackTimelineView: View {
             let availableNewLaneHeight = max(0, scrollHeight - baseTracksHeight - 8)
 
             VStack(spacing: 0) {
-                // Cue lane (sticky, above ruler)
+                // Cue lane (sticky header, content syncs with timeline scroll)
                 if !timelineManager.allCues.isEmpty {
                     CueLaneView(
                         cues: timelineManager.allCues,
                         pixelsPerFrame: ppf,
                         timelineConfig: timeline.config,
-                        totalContentWidth: totalContentWidth,
+                        visibleWidth: geometry.size.width,
+                        scrollOffset: horizontalScrollOffset,
                         selectedCueId: selectedCueId,
                         onCueSelected: { cueId in
                             selectedCueId = cueId
@@ -952,8 +993,8 @@ struct MultiTrackTimelineView: View {
                 // Scrollable tracks area (horizontal + vertical)
                 ScrollView([.horizontal, .vertical], showsIndicators: true) {
                     VStack(spacing: 0) {
-                        // Invisible helper to capture NSScrollView reference
-                        ScrollViewCaptureHelper(scrollView: $cachedScrollView)
+                        // Invisible helper to capture NSScrollView reference and track scroll offset
+                        ScrollViewCaptureHelper(scrollView: $cachedScrollView, horizontalOffset: $horizontalScrollOffset)
                             .frame(width: 0, height: 0)
 
                         Spacer().frame(height: 4)
