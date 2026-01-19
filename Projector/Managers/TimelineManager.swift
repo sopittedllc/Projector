@@ -760,10 +760,12 @@ final class TimelineManager: ObservableObject {
 
     /// Import detected cues into the primary cue sheet.
     ///
-    /// - Parameter detected: Array of detected cues from silence detection
-    func importDetectedCues(_ detected: [DetectedCue]) {
+    /// - Parameters:
+    ///   - detected: Array of detected cues from silence detection
+    ///   - sourceClipId: Optional ID of the audio clip these cues were detected from
+    func importDetectedCues(_ detected: [DetectedCue], sourceClipId: UUID? = nil) {
         for detectedCue in detected {
-            let cue = Cue.from(detectedCue)
+            let cue = Cue.from(detectedCue, sourceClipId: sourceClipId)
             timeline.addCue(cue)
         }
     }

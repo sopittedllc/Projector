@@ -44,6 +44,9 @@ struct Cue: Identifiable, Codable, Equatable, Sendable {
     /// User notes or description for this cue
     var notes: String
 
+    /// ID of the audio clip this cue was detected from (for color matching)
+    var sourceClipId: UUID?
+
     /// External identifier for sync with external systems (e.g., Google Sheets row ID)
     var externalId: String?
 
@@ -68,6 +71,7 @@ struct Cue: Identifiable, Codable, Equatable, Sendable {
     ///   - startFrame: Start frame on timeline
     ///   - endFrame: End frame on timeline
     ///   - notes: User notes
+    ///   - sourceClipId: Optional ID of audio clip this cue was detected from
     ///   - externalId: Optional external system ID
     ///   - lastModified: Optional modification timestamp
     init(
@@ -77,6 +81,7 @@ struct Cue: Identifiable, Codable, Equatable, Sendable {
         startFrame: Int,
         endFrame: Int,
         notes: String = "",
+        sourceClipId: UUID? = nil,
         externalId: String? = nil,
         lastModified: Date? = nil
     ) {
@@ -86,6 +91,7 @@ struct Cue: Identifiable, Codable, Equatable, Sendable {
         self.startFrame = startFrame
         self.endFrame = endFrame
         self.notes = notes
+        self.sourceClipId = sourceClipId
         self.externalId = externalId
         self.lastModified = lastModified
     }
@@ -127,13 +133,15 @@ extension Cue {
     /// - Parameters:
     ///   - detected: The detected cue from silence detection
     ///   - title: Optional title (defaults to empty)
+    ///   - sourceClipId: Optional ID of the audio clip this cue was detected from
     /// - Returns: A new Cue instance
-    static func from(_ detected: DetectedCue, title: String = "") -> Cue {
+    static func from(_ detected: DetectedCue, title: String = "", sourceClipId: UUID? = nil) -> Cue {
         Cue(
             number: detected.number,
             title: title,
             startFrame: detected.startFrame,
-            endFrame: detected.endFrame
+            endFrame: detected.endFrame,
+            sourceClipId: sourceClipId
         )
     }
 }

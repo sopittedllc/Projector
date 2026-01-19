@@ -149,6 +149,7 @@ struct MultiTrackTimelineView: View {
     @State private var showDetectedCuesSheet = false
     @State private var detectedCues: [DetectedCue] = []
     @State private var detectedCuesClipName: String = ""
+    @State private var detectedCuesSourceClipId: UUID?
 
     // Cue lane selection state
     @State private var selectedCueId: UUID?
@@ -251,7 +252,7 @@ struct MultiTrackTimelineView: View {
                 frameRate: timeline.config.frameRate,
                 clipName: detectedCuesClipName,
                 onImport: { cues in
-                    timelineManager.importDetectedCues(cues)
+                    timelineManager.importDetectedCues(cues, sourceClipId: detectedCuesSourceClipId)
                 }
             )
         }
@@ -944,6 +945,7 @@ struct MultiTrackTimelineView: View {
                         if !timelineManager.allCues.isEmpty {
                             CueLaneView(
                                 cues: timelineManager.allCues,
+                                audioLanes: timeline.audioLanes,
                                 pixelsPerFrame: ppf,
                                 selectedCueId: selectedCueId,
                                 onCueSelected: { cueId in
@@ -2530,6 +2532,7 @@ struct MultiTrackTimelineView: View {
             timelineConfig: timeline.config
         )
         detectedCuesClipName = clip.displayName
+        detectedCuesSourceClipId = clip.id
         showDetectedCuesSheet = true
     }
 }

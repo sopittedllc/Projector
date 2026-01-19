@@ -15,10 +15,36 @@ import SwiftTimecodeCore
 /// The parent provides the total width via `.frame(width: totalContentWidth)`.
 struct CueLaneView: View {
     let cues: [Cue]
+    let audioLanes: [AudioLane]
     let pixelsPerFrame: CGFloat
     let selectedCueId: UUID?
     let onCueSelected: (UUID) -> Void
     let onCueDoubleClick: (Cue) -> Void
+
+    /// Lane colors matching AudioClipView
+    private static let laneColors: [Color] = [
+        .blue, .green, .orange, .purple, .pink, .cyan, .mint, .indigo
+    ]
+
+    /// Get the lane index for a cue's source clip
+    private func laneIndex(for cue: Cue) -> Int? {
+        guard let clipId = cue.sourceClipId else { return nil }
+        for (index, lane) in audioLanes.enumerated() {
+            if lane.clips.contains(where: { $0.id == clipId }) {
+                return index
+            }
+        }
+        return nil
+    }
+
+    /// Get the color for a cue based on its source clip's lane
+    private func color(for cue: Cue) -> Color {
+        if let index = laneIndex(for: cue) {
+            return Self.laneColors[index % Self.laneColors.count]
+        }
+        // Fallback to first lane color for cues without a source clip
+        return Self.laneColors[0]
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -36,6 +62,7 @@ struct CueLaneView: View {
                     CueMarkerView(
                         cue: cue,
                         pixelsPerFrame: pixelsPerFrame,
+                        markerColor: color(for: cue),
                         isSelected: cue.id == selectedCueId,
                         onSelect: { onCueSelected(cue.id) },
                         onDoubleClick: { onCueDoubleClick(cue) }
@@ -74,6 +101,7 @@ struct CueLaneView: View {
 struct CueMarkerView: View {
     let cue: Cue
     let pixelsPerFrame: CGFloat
+    let markerColor: Color
     let isSelected: Bool
     let onSelect: () -> Void
     let onDoubleClick: () -> Void
@@ -99,7 +127,7 @@ struct CueMarkerView: View {
             ZStack(alignment: .leading) {
                 // Background
                 RoundedRectangle(cornerRadius: CueLaneLayout.markerCornerRadius)
-                    .fill(markerColor)
+                    .fill(displayColor)
 
                 // Border for selected state
                 if isSelected {
@@ -137,15 +165,13 @@ struct CueMarkerView: View {
         .help(cueTooltip)
     }
 
-    private var markerColor: Color {
-        // Light pink/rose color for cue markers
-        let baseColor = Color(red: 0.85, green: 0.45, blue: 0.55)
+    private var displayColor: Color {
         if isSelected {
-            return baseColor.opacity(1.0)
+            return markerColor.opacity(1.0)
         } else if isHovered {
-            return baseColor.opacity(0.9)
+            return markerColor.opacity(0.9)
         } else {
-            return baseColor.opacity(0.85)
+            return markerColor.opacity(0.85)
         }
     }
 
@@ -167,6 +193,7 @@ struct CueMarkerView: View {
 
     return CueLaneView(
         cues: cues,
+        audioLanes: [],
         pixelsPerFrame: 0.5,
         selectedCueId: cues[0].id,
         onCueSelected: { _ in },

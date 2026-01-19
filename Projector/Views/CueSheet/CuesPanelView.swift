@@ -28,6 +28,7 @@ struct CuesPanelView: View {
         let cues: [DetectedCue]
         let clipName: String
         let frameRate: TimecodeFrameRate
+        let sourceClipId: UUID
     }
 
     enum EditingField: Equatable {
@@ -57,7 +58,7 @@ struct CuesPanelView: View {
                 frameRate: result.frameRate,
                 clipName: result.clipName,
                 onImport: { cues in
-                    timelineManager.importDetectedCues(cues)
+                    timelineManager.importDetectedCues(cues, sourceClipId: result.sourceClipId)
                 }
             )
         }
@@ -471,7 +472,8 @@ struct CuesPanelView: View {
         detectionResult = DetectionResult(
             cues: cues,
             clipName: clip.displayName,
-            frameRate: timelineManager.timeline.config.frameRate
+            frameRate: timelineManager.timeline.config.frameRate,
+            sourceClipId: clip.id
         )
     }
 }
