@@ -43,7 +43,8 @@ final class AppSettings: ObservableObject {
     // MARK: - Sync Settings
 
     /// Number of frames drift before re-syncing to MTC
-    @AppStorage("syncDriftThreshold") var syncDriftThreshold: Int = 2
+    /// Higher values reduce stuttering, lower values improve sync accuracy
+    @AppStorage("syncDriftThreshold") var syncDriftThreshold: Int = 5
 
     /// Whether to auto-play when MTC starts
     @AppStorage("autoPlayOnMTC") var autoPlayOnMTC: Bool = true
@@ -121,7 +122,7 @@ final class AppSettings: ObservableObject {
         showTimecodeOverlay = true
         timecodeOverlayPosition = .bottomRight
         timecodeOverlayOpacity = 0.8
-        syncDriftThreshold = 2
+        syncDriftThreshold = 5
         autoPlayOnMTC = true
         autoPauseOnMTCStop = true
         respondToMMC = true

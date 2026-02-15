@@ -28,7 +28,6 @@ struct AudioLaneView: View {
     let onDropMedia: ([URL], Int, Bool) -> Void
     let onClipSelected: (UUID?, SelectionModifiers) -> Void
     let onClipDoubleClick: (AudioClip) -> Void
-    var onDetectCues: ((AudioClip) -> Void)?
     let onClipMove: (UUID, Int) -> Void
     let onClipDragPreview: (AudioClip, Int?) -> Void
     let onLaneRename: (String) -> Void
@@ -387,8 +386,7 @@ struct AudioLaneView: View {
                 },
                 onDoubleClick: {
                     onClipDoubleClick(clip)
-                },
-                onDetectCues: onDetectCues != nil ? { onDetectCues?(clip) } : nil
+                }
             )
             .offset(x: clipOffset(for: clip))
             .simultaneousGesture(

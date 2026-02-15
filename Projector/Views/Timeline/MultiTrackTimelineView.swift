@@ -145,15 +145,6 @@ struct MultiTrackTimelineView: View {
     @State private var cachedScrollView: NSScrollView?
     @State private var scrollAreaFrame: CGRect = .zero
 
-    // Cue detection state
-    @State private var showDetectedCuesSheet = false
-    @State private var detectedCues: [DetectedCue] = []
-    @State private var detectedCuesClipName: String = ""
-    @State private var detectedCuesSourceClipId: UUID?
-
-    // Cue lane selection state
-    @State private var selectedCueId: UUID?
-
     // MARK: - Constants
 
     /// Height for the inactive "new lane" drop target
@@ -245,16 +236,6 @@ struct MultiTrackTimelineView: View {
         }
         .sheet(isPresented: $showTimecodeEntryDialog) {
             timecodeEntryDialogContent
-        }
-        .sheet(isPresented: $showDetectedCuesSheet) {
-            DetectedCueListView(
-                cues: detectedCues,
-                frameRate: timeline.config.frameRate,
-                clipName: detectedCuesClipName,
-                onImport: { cues in
-                    timelineManager.importDetectedCues(cues, sourceClipId: detectedCuesSourceClipId)
-                }
-            )
         }
         // Take focus when a clip is selected
         .onChange(of: selectedVideoReelId) { _, newValue in
@@ -894,8 +875,7 @@ struct MultiTrackTimelineView: View {
             let contentAreaWidth = geometry.size.width - TimelineLayout.headerWidth
             let totalContentWidth = timelineContentWidth(for: geometry.size.width)
             let ppf = pixelsPerFrame(for: geometry.size.width)
-            let cueLaneHeight = timelineManager.allCues.isEmpty ? 0 : CueLaneLayout.laneHeight
-            let scrollHeight = max(0, geometry.size.height - TimelineLayout.rulerHeight - cueLaneHeight - 1)
+            let scrollHeight = max(0, geometry.size.height - TimelineLayout.rulerHeight - 1)
             let audioLanesHeight: CGFloat = {
                 if timeline.audioLanes.isEmpty {
                     return TimelineLayout.audioLaneHeight
@@ -940,23 +920,6 @@ struct MultiTrackTimelineView: View {
                         // Invisible helper to capture NSScrollView reference for auto-scroll
                         ScrollViewCaptureHelper(scrollView: $cachedScrollView)
                             .frame(width: 0, height: 0)
-
-                        // Cue lane (inside ScrollView - scrolls naturally with tracks)
-                        if !timelineManager.allCues.isEmpty {
-                            CueLaneView(
-                                cues: timelineManager.allCues,
-                                audioLanes: timeline.audioLanes,
-                                pixelsPerFrame: ppf,
-                                selectedCueId: selectedCueId,
-                                onCueSelected: { cueId in
-                                    selectedCueId = cueId
-                                },
-                                onCueDoubleClick: { cue in
-                                    onSeek(cue.startFrame)
-                                }
-                            )
-                            .frame(width: totalContentWidth)
-                        }
 
                         Spacer().frame(height: 4)
 
@@ -1039,9 +1002,6 @@ struct MultiTrackTimelineView: View {
                                     let tc = Timecode(.frames(clip.timelineStartFrame + timeline.config.startTimecode.frameCount.wholeFrames), at: timeline.config.frameRate, by: .clamping)
                                     timecodeEntryText = tc.stringValue()
                                     showTimecodeEntryDialog = true
-                                },
-                                onDetectCues: { clip in
-                                    detectCuesFromClip(clip)
                                 },
                                 onClipMove: { clipId, newFrame in
                                     guard let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == lane.id }),
@@ -2514,26 +2474,6 @@ struct MultiTrackTimelineView: View {
     private func findNearestAudioClip(at frame: Int, inLaneIndex laneIndex: Int, audioClips: [(lane: AudioLane, clip: AudioClip, laneIndex: Int)]) -> (lane: AudioLane, clip: AudioClip, laneIndex: Int)? {
         let laneClips = audioClips.filter { $0.laneIndex == laneIndex }
         return laneClips.min { abs($0.clip.timelineStartFrame - frame) < abs($1.clip.timelineStartFrame - frame) }
-    }
-
-    // MARK: - Cue Detection
-
-    /// Detect cues from an audio clip's waveform data
-    private func detectCuesFromClip(_ clip: AudioClip) {
-        guard let atlas = waveformCache.clipAtlases[clip.id],
-              let level = atlas.levels[4096] ?? atlas.levels.values.first else {
-            return
-        }
-
-        detectedCues = SilenceDetectionService.detectCues(
-            from: level,
-            clipStartFrame: clip.timelineStartFrame,
-            clipDurationFrames: clip.durationFrames,
-            timelineConfig: timeline.config
-        )
-        detectedCuesClipName = clip.displayName
-        detectedCuesSourceClipId = clip.id
-        showDetectedCuesSheet = true
     }
 }
 

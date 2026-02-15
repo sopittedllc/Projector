@@ -7,9 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		ED65FB65D047420C8FE9A25A /* DetectedCue.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4EF03E7C8D14F0BBD16631A /* DetectedCue.swift */; };
-		2F2A2A41B11841978A185166 /* SilenceDetectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FCD9ED16A0B4C4DB02A6D95 /* SilenceDetectionService.swift */; };
-		DC53E4719B63497E869D6AA5 /* DetectedCueListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A949950928314F02995FB10F /* DetectedCueListView.swift */; };
 		BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */; };
 		67053C082F0B787BAEF7B06D /* EmbeddedTimecodeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECA2DAB208F6AEF41EA14F6 /* EmbeddedTimecodeService.swift */; };
 		0F78E7CD06BB4CCBA9AA1A36 /* WindowTitleConfigurator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04AA25E97254C758E8138F0 /* WindowTitleConfigurator.swift */; };
@@ -101,11 +98,6 @@
 		ETCS0001EMBEDDEDSHEET01 /* EmbeddedTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */; };
 		BTCS0001BATCHSHEET01 /* BatchTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */; };
 		VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */; };
-		BA14D53096AA48D882A5B197 /* Cue.swift in Sources */ = {isa = PBXBuildFile; fileRef = B44AD7EF29364D4988068BA3 /* Cue.swift */; };
-		556A48B9BAB64A9D87F8403B /* CueSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65C1960DE2BF4E3CADECA2E8 /* CueSheet.swift */; };
-		43A8DF3C03D645CF9249B195 /* CueLaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AD1B79E32B945C99EF057D2 /* CueLaneView.swift */; };
-		8756B1577AB041319082A74D /* CuesPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0CE525FEB6B413D984D69EE /* CuesPanelView.swift */; };
-		36BF465F47894EB9A9865FD1 /* CuesWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D708874EB734232A7BB3E33 /* CuesWindowView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -154,9 +146,6 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		D4EF03E7C8D14F0BBD16631A /* DetectedCue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetectedCue.swift; sourceTree = "<group>"; };
-		6FCD9ED16A0B4C4DB02A6D95 /* SilenceDetectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SilenceDetectionService.swift; sourceTree = "<group>"; };
-		A949950928314F02995FB10F /* DetectedCueListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetectedCueListView.swift; sourceTree = "<group>"; };
 		F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeServiceProtocol.swift; sourceTree = "<group>"; };
 		CECA2DAB208F6AEF41EA14F6 /* EmbeddedTimecodeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeService.swift; sourceTree = "<group>"; };
 		020DEC73914C4FCDB4106B0D /* OptimizeMediaButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizeMediaButton.swift; sourceTree = "<group>"; };
@@ -244,11 +233,6 @@
 		ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeSheetView.swift; sourceTree = "<group>"; };
 		BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTimecodeSheetView.swift; sourceTree = "<group>"; };
 		VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerOverlays.swift; sourceTree = "<group>"; };
-		B44AD7EF29364D4988068BA3 /* Cue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Cue.swift; sourceTree = "<group>"; };
-		65C1960DE2BF4E3CADECA2E8 /* CueSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueSheet.swift; sourceTree = "<group>"; };
-		5AD1B79E32B945C99EF057D2 /* CueLaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueLaneView.swift; sourceTree = "<group>"; };
-		E0CE525FEB6B413D984D69EE /* CuesPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuesPanelView.swift; sourceTree = "<group>"; };
-		7D708874EB734232A7BB3E33 /* CuesWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuesWindowView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -306,26 +290,6 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		FA927326705944399FCEA380 /* CueSheet */ = {
-			isa = PBXGroup;
-			children = (
-				D4EF03E7C8D14F0BBD16631A /* DetectedCue.swift */,
-				B44AD7EF29364D4988068BA3 /* Cue.swift */,
-				65C1960DE2BF4E3CADECA2E8 /* CueSheet.swift */,
-			);
-			path = CueSheet;
-			sourceTree = "<group>";
-		};
-		5ACA233C6AF84EBD86FFEC5B /* CueSheet */ = {
-			isa = PBXGroup;
-			children = (
-				A949950928314F02995FB10F /* DetectedCueListView.swift */,
-				E0CE525FEB6B413D984D69EE /* CuesPanelView.swift */,
-				7D708874EB734232A7BB3E33 /* CuesWindowView.swift */,
-			);
-			path = CueSheet;
-			sourceTree = "<group>";
-		};
 		3BD953EF1BF1714A87337C38 /* ProjectorTests */ = {
 			isa = PBXGroup;
 			children = (
@@ -385,7 +349,6 @@
 		A1000001227D3F0000000022 /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				FA927326705944399FCEA380 /* CueSheet */,
 				C1TIMELINE00000001 /* Timeline */,
 				A1000001227D3F0000000075 /* AppSettings.swift */,
 				A1000001227D3F00000000D1 /* ProjectDocument.swift */,
@@ -398,7 +361,6 @@
 		A1000001227D3F0000000023 /* Managers */ = {
 			isa = PBXGroup;
 			children = (
-				6FCD9ED16A0B4C4DB02A6D95 /* SilenceDetectionService.swift */,
 				AE01AUDIOEXTRACT002 /* AudioExtractionService.swift */,
 				MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */,
 				MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */,
@@ -423,7 +385,6 @@
 		A1000001227D3F0000000024 /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				5ACA233C6AF84EBD86FFEC5B /* CueSheet */,
 				59F7937C1F65403C8FBC4921 /* Optimization */,
 				A1000001227D3F0000000012 /* ContentView.swift */,
 				SETUP001CONTENTVIEW /* ContentView+Setup.swift */,
@@ -479,7 +440,6 @@
 			isa = PBXGroup;
 			children = (
 				A1000001227D3F0000000085 /* TimelineRulerView.swift */,
-				5AD1B79E32B945C99EF057D2 /* CueLaneView.swift */,
 				A1000001227D3F0000000087 /* WaveformShape.swift */,
 				C1TIMELINE0000000C /* VideoReelClipView.swift */,
 				C1TIMELINE0000000D /* VideoTrackView.swift */,
@@ -756,14 +716,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				ED65FB65D047420C8FE9A25A /* DetectedCue.swift in Sources */,
-				BA14D53096AA48D882A5B197 /* Cue.swift in Sources */,
-				556A48B9BAB64A9D87F8403B /* CueSheet.swift in Sources */,
-				43A8DF3C03D645CF9249B195 /* CueLaneView.swift in Sources */,
-				8756B1577AB041319082A74D /* CuesPanelView.swift in Sources */,
-				36BF465F47894EB9A9865FD1 /* CuesWindowView.swift in Sources */,
-				2F2A2A41B11841978A185166 /* SilenceDetectionService.swift in Sources */,
-				DC53E4719B63497E869D6AA5 /* DetectedCueListView.swift in Sources */,
 				753331FCF4CC4E1A8578392C /* MediaOptimizationServiceProtocol.swift in Sources */,
 				2D32AFD4ED0B4C24B8B2504B /* MediaOptimizationService.swift in Sources */,
 				AE01AUDIOEXTRACT001 /* AudioExtractionService.swift in Sources */,

@@ -106,51 +106,6 @@ enum FileManagerLayout {
     static let gridLabelWidth: CGFloat = 80
 }
 
-/// Cue lane constants (timeline header area)
-enum CueLaneLayout {
-    /// Height of the cue lane
-    static let laneHeight: CGFloat = 24
-
-    /// Minimum width for cue markers
-    static let markerMinWidth: CGFloat = 4
-
-    /// Corner radius for cue markers
-    static let markerCornerRadius: CGFloat = 2
-
-    /// Minimum width to show cue number only
-    static let markerNumberMinWidth: CGFloat = 20
-
-    /// Minimum width to show cue number + title
-    static let markerTitleMinWidth: CGFloat = 60
-}
-
-/// Cues panel constants
-enum CuesPanelLayout {
-    /// Height when collapsed (header only)
-    static let collapsedHeight: CGFloat = PanelLayout.headerHeight
-
-    /// Height when expanded
-    static let expandedHeight: CGFloat = 200
-
-    /// Height of each row in the cue table
-    static let rowHeight: CGFloat = 28
-
-    /// Width of the cue number column
-    static let numberColumnWidth: CGFloat = 40
-
-    /// Width of the title column
-    static let titleColumnWidth: CGFloat = 150
-
-    /// Width of timecode columns (TC IN, TC OUT)
-    static let timecodeColumnWidth: CGFloat = 100
-
-    /// Width of the duration column
-    static let durationColumnWidth: CGFloat = 80
-
-    /// Width of the notes column (flexible)
-    static let notesColumnMinWidth: CGFloat = 100
-}
-
 /// Timeline section constants (in ContentView)
 enum TimelineSectionLayout {
     /// Height when collapsed

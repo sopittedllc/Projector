@@ -64,46 +64,4 @@ extension ContentView {
             window.toggleFullScreen(nil)
         }
     }
-
-    /// Open the cues window as a separate window
-    func openCuesWindow() {
-        // Check if window is already open
-        if showCuesWindow { return }
-
-        let projectName = projectDocument.fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
-        let manager = timelineManager
-        let engine = playbackEngine
-        let cache = waveformCache
-
-        let cuesView = CuesWindowView(
-            timelineManager: manager,
-            waveformCache: cache,
-            projectName: projectName,
-            onSeekToCue: { frame in
-                engine.seekToFrame(frame)
-            }
-        )
-
-        let hostingController = NSHostingController(rootView: cuesView)
-        let window = NSWindow(contentViewController: hostingController)
-        window.title = "Cues - \(projectName)"
-        window.setContentSize(NSSize(width: 700, height: 400))
-        window.styleMask = NSWindow.StyleMask([.titled, .closable, .resizable, .miniaturizable])
-        window.minSize = NSSize(width: 500, height: 250)
-        window.center()
-
-        // Track window close
-        showCuesWindow = true
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window,
-            queue: .main
-        ) { _ in
-            Task { @MainActor in
-                self.showCuesWindow = false
-            }
-        }
-
-        window.makeKeyAndOrderFront(nil as AnyObject?)
-    }
 }

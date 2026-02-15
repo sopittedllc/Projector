@@ -30,50 +30,23 @@ struct Timeline: Codable, Equatable {
     /// Audio lanes on the timeline
     var audioLanes: [AudioLane]
 
-    /// Cue sheets on the timeline (supports multiple sheets from different sources)
-    var cueSheets: [CueSheet]
-
     /// Default empty timeline
     static var empty: Timeline {
         Timeline(
             config: .default,
             videoReels: [],
-            audioLanes: [],
-            cueSheets: []
+            audioLanes: []
         )
     }
 
     init(
         config: TimelineConfig = .default,
         videoReels: [VideoReel] = [],
-        audioLanes: [AudioLane] = [],
-        cueSheets: [CueSheet] = []
+        audioLanes: [AudioLane] = []
     ) {
         self.config = config
         self.videoReels = videoReels
         self.audioLanes = audioLanes
-        self.cueSheets = cueSheets
-    }
-
-    // MARK: - Cue Sheet Convenience Accessors
-
-    /// The primary (first) cue sheet, or nil if none exist
-    var primaryCueSheet: CueSheet? {
-        get { cueSheets.first }
-        set {
-            if let sheet = newValue {
-                if cueSheets.isEmpty {
-                    cueSheets.append(sheet)
-                } else {
-                    cueSheets[0] = sheet
-                }
-            }
-        }
-    }
-
-    /// All cues from all sheets, flattened and sorted by start frame
-    var allCues: [Cue] {
-        cueSheets.flatMap { $0.cues }.sorted { $0.startFrame < $1.startFrame }
     }
 
     // MARK: - Video Reel Queries
@@ -178,47 +151,6 @@ struct Timeline: Codable, Equatable {
         if let index = audioLanes.firstIndex(where: { $0.id == laneId }) {
             audioLanes[index].removeClip(id: clipId)
         }
-    }
-
-    // MARK: - Cue Sheet Mutations
-
-    /// Add a cue sheet to the timeline
-    mutating func addCueSheet(_ sheet: CueSheet) {
-        cueSheets.append(sheet)
-    }
-
-    /// Remove a cue sheet by ID
-    mutating func removeCueSheet(id: UUID) {
-        cueSheets.removeAll { $0.id == id }
-    }
-
-    /// Update or add a cue sheet
-    mutating func updateOrAddCueSheet(_ sheet: CueSheet) {
-        if let index = cueSheets.firstIndex(where: { $0.id == sheet.id }) {
-            cueSheets[index] = sheet
-        } else {
-            cueSheets.append(sheet)
-        }
-    }
-
-    /// Add a cue to the primary cue sheet, creating one if needed
-    mutating func addCue(_ cue: Cue) {
-        if cueSheets.isEmpty {
-            cueSheets.append(CueSheet(name: "Main Cue Sheet"))
-        }
-        cueSheets[0].addCue(cue)
-    }
-
-    /// Remove a cue from the primary cue sheet
-    mutating func removeCue(id: UUID) {
-        guard !cueSheets.isEmpty else { return }
-        cueSheets[0].removeCue(id: id)
-    }
-
-    /// Update a cue in the primary cue sheet
-    mutating func updateCue(_ cue: Cue) {
-        guard !cueSheets.isEmpty else { return }
-        cueSheets[0].updateCue(cue)
     }
 
     // MARK: - Timeline Range

@@ -207,24 +207,22 @@ struct VitalControlsBar: View {
 
     private var transportControls: some View {
         HStack(spacing: 8) {
-            // Play/Pause toggle
+            // Play/Pause toggle - always enabled for MTC sync
             Button(action: { playbackEngine.togglePlayback() }) {
                 (playbackEngine.isPlaying ? Iconoir.pauseSolid.asImage : Iconoir.playSolid.asImage)
                     .frame(width: 16, height: 16)
             }
             .buttonStyle(.plain)
-            .disabled(!playbackEngine.hasContent)
             .keyboardShortcut(.space, modifiers: [])
             .help(playbackEngine.isPlaying ? "Pause" : "Play")
 
-            // Stop (return to start)
+            // Stop - always enabled, stops playback and returns to start
             Button(action: { playbackEngine.stop() }) {
-                Image(systemName: "backward.end")
-                    .font(.system(size: 13, weight: .medium))
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 12, weight: .medium))
             }
             .buttonStyle(.plain)
-            .disabled(!playbackEngine.hasContent)
-            .help("Stop and Return to Start")
+            .help("Stop")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -318,13 +316,6 @@ struct VitalControlsBar: View {
                 if earliest == nil || clip.timelineStartFrame < earliest! {
                     earliest = clip.timelineStartFrame
                 }
-            }
-        }
-
-        // Check cues
-        for cue in timelineManager.allCues {
-            if earliest == nil || cue.startFrame < earliest! {
-                earliest = cue.startFrame
             }
         }
 

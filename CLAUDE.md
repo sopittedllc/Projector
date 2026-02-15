@@ -32,7 +32,10 @@ This project follows **Airtight Standards** with a fully automated agent workflo
 │  5. ROADMAP & PUSH (the-lead)                                              │
 │     └─ Update PROJECT_ROADMAP.md, git commit (after QA approval)           │
 │                              ↓                                               │
-│  6. LEARN (the-librarian)                                                   │
+│  6. REGISTER (the-lead)                                                     │
+│     └─ Add/update feature entry in FEATURES.md                             │
+│                              ↓                                               │
+│  7. LEARN (the-librarian)                                                   │
 │     └─ Capture Golden Patterns in KNOWLEDGE_BASE.md                         │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -46,7 +49,7 @@ Agents are located in `.claude/agents/`:
 
 | Agent | Description | Scope |
 |-------|-------------|-------|
-| `the-lead.md` | **PROACTIVE**: Maintains PROJECT_ROADMAP.md. Must update roadmap checkpoints after every successful implementation before session ends | Project-wide |
+| `the-lead.md` | **PROACTIVE**: Maintains PROJECT_ROADMAP.md and FEATURES.md. Must update roadmap checkpoints and feature registry after every successful implementation before session ends | Project-wide |
 | `arch-architect.md` | MUST BE USED to plan technical designs and thread-safety strategies for MTC/MMC logic | Architecture |
 | `backend-logic.md` | MUST BE USED for all MIDI, MTC, MMC, and AVFoundation logic. No SwiftUI imports allowed | `Managers/` |
 | `ui-specialist.md` | MUST BE USED for all SwiftUI/AppKit layouts. Must follow macOS HIG | `Views/` |
@@ -215,7 +218,29 @@ Before using ANY external SwiftUI view:
 |------|---------|-------|
 | `CLAUDE.md` | Standards and workflow | All agents |
 | `PROJECT_ROADMAP.md` | Progress tracking | the-lead |
+| `FEATURES.md` | Feature registry with files, state, and integration points | the-lead |
 | `KNOWLEDGE_BASE.md` | Patterns and lessons | the-librarian |
+
+---
+
+## Feature Registry
+
+**MANDATORY**: Every feature must be documented in `FEATURES.md`.
+
+When **adding** a feature:
+1. Create entry using the template in FEATURES.md
+2. List ALL files created (models, views, services, utilities)
+3. Document ALL state properties added to parent views
+4. Document ALL integration points (existing code modified)
+5. List layout constants added
+
+When **removing** a feature:
+1. Use the feature entry as a removal checklist
+2. Move entry to "Removed Features" section
+3. Update status and removal date
+4. Clean build and verify
+
+**Why**: Without a registry, removing features requires manual archaeology. The registry ensures clean removal, impact analysis, and maintainability.
 
 ---
 

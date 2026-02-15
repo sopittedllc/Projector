@@ -140,7 +140,6 @@ struct ContentView: View {
 
     // Batch timecode detection state (for multiple file drops)
     @State var showBatchTimecodeSheet = false
-    @State var showCuesWindow = false
     @State var pendingBatchTimecode: PendingBatchTimecode?
 
     /// Flag to prevent concurrent timecode detection from multiple drop events
@@ -480,18 +479,6 @@ struct ContentView: View {
                         .padding(.top, Spacing.sm)
                         .padding(.bottom, Spacing.sm)
                     }
-
-                    // Cues panel
-                    CuesPanelView(
-                        timelineManager: timelineManager,
-                        waveformCache: waveformCache,
-                        onSeekToCue: { frame in
-                            playbackEngine.seekToFrame(frame)
-                        },
-                        onPopOut: { openCuesWindow() }
-                    )
-                    .padding(.horizontal, Spacing.lg)
-                    .padding(.bottom, Spacing.sm)
                 }
                 .frame(maxWidth: .infinity, alignment: .top)
             }

@@ -109,9 +109,23 @@ final class TimelineManager: ObservableObject {
 
     // MARK: - Timeline Configuration
 
-    /// Update the timeline configuration
+    /// Update the timeline configuration.
+    ///
+    /// If the start timecode changes, all content (video reels and audio clips)
+    /// is shifted to maintain their absolute timecode positions.
+    ///
+    /// - Parameter config: The new timeline configuration
     func updateConfig(_ config: TimelineConfig) {
+        let oldStartFrames = timeline.config.startTimecode.frameCount.wholeFrames
+        let newStartFrames = config.startTimecode.frameCount.wholeFrames
+        let delta = oldStartFrames - newStartFrames
+
         timeline.config = config
+
+        // If start timecode changed, shift all content to maintain absolute timecode positions
+        if delta != 0 {
+            shiftAllContent(by: delta)
+        }
     }
 
     /// Set the frame rate for the timeline
@@ -121,12 +135,47 @@ final class TimelineManager: ObservableObject {
         timeline.config = config
     }
 
-    /// Set the timeline bounds
+    /// Set the timeline bounds.
+    ///
+    /// When the start timecode changes, all content (video reels and audio clips)
+    /// is shifted to maintain their absolute timecode positions.
+    ///
+    /// - Parameters:
+    ///   - start: The new start timecode
+    ///   - end: The new end timecode
     func setTimelineBounds(start: Timecode, end: Timecode) {
+        let oldStartFrames = timeline.config.startTimecode.frameCount.wholeFrames
+        let newStartFrames = start.frameCount.wholeFrames
+        let delta = oldStartFrames - newStartFrames
+
         var config = timeline.config
         config.startTimecode = start
         config.endTimecode = end
         timeline.config = config
+
+        // If start timecode changed, shift all content to maintain absolute timecode positions
+        if delta != 0 {
+            shiftAllContent(by: delta)
+        }
+    }
+
+    /// Shift all video reels and audio clips by the specified frame delta.
+    ///
+    /// Used when timeline start changes to maintain absolute timecode positions.
+    ///
+    /// - Parameter delta: Number of frames to shift (positive = later, negative = earlier)
+    private func shiftAllContent(by delta: Int) {
+        // Shift video reels
+        for i in timeline.videoReels.indices {
+            timeline.videoReels[i].timelineStartFrame += delta
+        }
+
+        // Shift audio clips in all lanes
+        for laneIndex in timeline.audioLanes.indices {
+            for clipIndex in timeline.audioLanes[laneIndex].clips.indices {
+                timeline.audioLanes[laneIndex].clips[clipIndex].timelineStartFrame += delta
+            }
+        }
     }
 
     private func extendTimelineIfNeeded(toEndFrame endFrame: Int) {
@@ -708,74 +757,6 @@ final class TimelineManager: ObservableObject {
     /// Get the current timecode
     var currentTimecode: Timecode {
         timeline.config.timecode(at: currentFrame)
-    }
-
-    // MARK: - Cue Operations
-
-    /// All cues from all cue sheets, sorted by start frame
-    var allCues: [Cue] {
-        timeline.allCues
-    }
-
-    /// Add a new cue at the specified position.
-    ///
-    /// - Parameters:
-    ///   - startFrame: Start frame for the cue
-    ///   - endFrame: End frame for the cue
-    ///   - title: Optional title (defaults to empty string)
-    /// - Returns: The created cue
-    @discardableResult
-    func addCue(startFrame: Int, endFrame: Int, title: String = "") -> Cue {
-        let number = (timeline.primaryCueSheet?.cues.count ?? 0) + 1
-        let cue = Cue(
-            number: number,
-            title: title,
-            startFrame: startFrame,
-            endFrame: endFrame
-        )
-        timeline.addCue(cue)
-        return cue
-    }
-
-    /// Update an existing cue.
-    ///
-    /// - Parameter cue: The cue with updated values
-    func updateCue(_ cue: Cue) {
-        timeline.updateCue(cue)
-    }
-
-    /// Remove a cue by ID.
-    ///
-    /// - Parameter id: The ID of the cue to remove
-    func removeCue(id: UUID) {
-        timeline.removeCue(id: id)
-    }
-
-    /// Renumber all cues sequentially based on their position.
-    func renumberCues() {
-        guard var sheet = timeline.primaryCueSheet else { return }
-        sheet.renumberCues()
-        timeline.updateOrAddCueSheet(sheet)
-    }
-
-    /// Import detected cues into the primary cue sheet.
-    ///
-    /// - Parameters:
-    ///   - detected: Array of detected cues from silence detection
-    ///   - sourceClipId: Optional ID of the audio clip these cues were detected from
-    func importDetectedCues(_ detected: [DetectedCue], sourceClipId: UUID? = nil) {
-        for detectedCue in detected {
-            let cue = Cue.from(detectedCue, sourceClipId: sourceClipId)
-            timeline.addCue(cue)
-        }
-    }
-
-    /// Get the cue at a specific frame, if any.
-    ///
-    /// - Parameter frame: The timeline frame to check
-    /// - Returns: The cue containing this frame, or nil
-    func cue(at frame: Int) -> Cue? {
-        allCues.first { $0.startFrame <= frame && frame <= $0.endFrame }
     }
 
     // MARK: - Queries
