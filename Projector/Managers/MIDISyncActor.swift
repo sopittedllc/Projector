@@ -81,11 +81,21 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// Name of the virtual MIDI input port that DAWs can send to.
     public static let virtualInputName = "Projector MIDI IN"
 
+    /// Name of the virtual MIDI output port for sending responses.
+    public static let virtualOutputName = "Projector MIDI OUT"
+
     /// Tag for the virtual MIDI input in MIDIKit.
     private static let virtualInputTag = "ProjectorVirtualInput"
 
+    /// Tag for the virtual MIDI output in MIDIKit.
+    private static let virtualOutputTag = "ProjectorVirtualOutput"
+
     /// Tag for external MIDI input connections.
     private static let inputConnectionTag = "ProjectorMIDIInput"
+
+    /// MMC Device ID (1-126, or 127 for all-call).
+    /// Using 0x7F (127) means respond to all MMC messages.
+    private static let mmcDeviceID: UInt8 = 0x7F
 
     // MARK: - Actor State
 
@@ -203,6 +213,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// ```
     public func start() async throws {
         do {
+            print("[MIDISyncActor] Starting MIDI services...")
             let manager = MIDIKitIO.MIDIManager(
                 clientName: "Projector",
                 model: "Projector",
@@ -211,17 +222,30 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
             try manager.start()
             self.midiManager = manager
+            print("[MIDISyncActor] MIDI manager started")
 
             setupMTCReceiver()
+            print("[MIDISyncActor] MTC receiver configured")
+
             setupVirtualInput()
+            print("[MIDISyncActor] Virtual input created")
+
+            setupVirtualOutput()
+            print("[MIDISyncActor] Virtual output created")
+
             await refreshAvailableInputs()
+            print("[MIDISyncActor] Available inputs: \(availableInputs)")
+
             reconnectInput()
+            print("[MIDISyncActor] Connected to input: \(selectedInputName ?? "none")")
 
             setupNotificationObservers()
 
             debugLog("MIDISyncActor started successfully")
+            print("[MIDISyncActor] Started successfully")
         } catch {
             debugLog("Failed to start MIDI services: \(error)")
+            print("[MIDISyncActor] Failed to start: \(error)")
             throw MIDISyncError.startupFailed(underlyingError: error)
         }
     }
@@ -370,15 +394,35 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
                 tag: Self.virtualInputTag,
                 uniqueID: .userDefaultsManaged(key: "ProjectorMIDIInputUID"),
                 receiver: .events { [weak self] events, _, _ in
+                    // Log immediately when MIDI arrives (before actor hop)
+                    print("[MIDI RAW] Received \(events.count) event(s)")
                     // CRITICAL: Wrap in Task to hop to actor context
                     Task { [weak self] in
                         await self?.handleMIDIEvents(events)
                     }
                 }
             )
+            print("[MIDISyncActor] Virtual MIDI input '\(Self.virtualInputName)' created successfully")
             debugLog("Virtual MIDI input '\(Self.virtualInputName)' created")
         } catch {
+            print("[MIDISyncActor] FAILED to create virtual MIDI input: \(error)")
             debugLog("Failed to create virtual MIDI input: \(error)")
+        }
+    }
+
+    /// Sets up the virtual MIDI output port for sending responses (Identity Reply, etc.).
+    private func setupVirtualOutput() {
+        guard let manager = midiManager else { return }
+
+        do {
+            try manager.addOutput(
+                name: Self.virtualOutputName,
+                tag: Self.virtualOutputTag,
+                uniqueID: .userDefaultsManaged(key: "ProjectorMIDIOutputUID")
+            )
+            debugLog("Virtual MIDI output '\(Self.virtualOutputName)' created")
+        } catch {
+            debugLog("Failed to create virtual MIDI output: \(error)")
         }
     }
 
@@ -458,15 +502,81 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             // Feed to MTC receiver for timecode parsing
             mtcReceiver?.midiIn(event: event)
 
-            // Check for SysEx messages (MTC Full Frame, MMC commands)
+            // Check for SysEx messages (MTC Full Frame, MMC commands, Identity Request)
             switch event {
             case .sysEx7(let sysEx):
+                print("[MIDI] SysEx7: \(sysEx.data.map { String(format: "%02X", $0) }.joined(separator: " "))")
                 handleSysEx(sysEx.data)
             case .universalSysEx7(let universalSysEx):
+                print("[MIDI] UniversalSysEx7: type=\(universalSysEx.universalType), subID1=\(universalSysEx.subID1), subID2=\(universalSysEx.subID2)")
                 handleUniversalSysEx(universalSysEx)
-            default:
+            case .timecodeQuarterFrame:
+                // MTC quarter frames - don't log each one (too noisy)
                 break
+            default:
+                // Log other event types we might be missing
+                print("[MIDI] Other event: \(event)")
             }
+        }
+    }
+
+    // MARK: - Identity Request/Reply
+
+    /// Handles MIDI Identity Request and sends Identity Reply.
+    ///
+    /// Identity Request format: F0 7E <channel> 06 01 F7
+    /// Identity Reply format: F0 7E <channel> 06 02 <manufacturer> <family> <model> <version> F7
+    ///
+    /// - Parameter channel: The channel/device ID from the request.
+    private func handleIdentityRequest(channel: UInt8) {
+        // Only respond if the request is for us (our device ID) or all-call (0x7F)
+        guard channel == Self.mmcDeviceID || channel == 0x7F else { return }
+
+        debugLog("Received Identity Request, sending reply")
+
+        // Send Identity Reply
+        // Using non-commercial manufacturer ID (0x7D) for development
+        // Family: 0x0001 (arbitrary), Model: 0x0001 (arbitrary), Version: 0x01 0x00 0x00 0x00
+        sendIdentityReply(channel: channel)
+    }
+
+    /// Sends an Identity Reply message.
+    ///
+    /// - Parameter channel: The channel to respond on.
+    private func sendIdentityReply(channel: UInt8) {
+        guard let manager = midiManager,
+              let output = manager.managedOutputs[Self.virtualOutputTag] else {
+            debugLog("Cannot send Identity Reply - no output port")
+            return
+        }
+
+        // Identity Reply data (after F0 and before F7):
+        // 7E <channel> 06 02 <manufacturer-id> <family-lsb> <family-msb> <model-lsb> <model-msb> <ver1> <ver2> <ver3> <ver4>
+        // Using 0x7D (non-commercial/educational manufacturer ID)
+        let replyData: [UInt8] = [
+            0x7D,       // Manufacturer ID (non-commercial)
+            0x01, 0x00, // Family (Projector)
+            0x01, 0x00, // Model
+            0x01, 0x00, 0x00, 0x00  // Version 1.0.0.0
+        ]
+
+        // Build raw SysEx message for Identity Reply
+        // Format: F0 7E <channel> 06 02 <manufacturer-id> <family-lsb> <family-msb> <model-lsb> <model-msb> <ver...> F7
+        var sysExData: [UInt8] = [
+            0x7E,                   // Universal Non-Real Time
+            channel & 0x7F,         // Device ID (masked to 7 bits)
+            0x06,                   // Sub-ID#1: General Information
+            0x02                    // Sub-ID#2: Identity Reply
+        ]
+        sysExData.append(contentsOf: replyData)
+
+        do {
+            // Create raw SysEx event
+            let sysExEvent = try MIDIEvent.sysEx7(rawBytes: sysExData)
+            try output.send(event: sysExEvent)
+            debugLog("Sent Identity Reply on channel \(channel)")
+        } catch {
+            debugLog("Failed to send Identity Reply: \(error)")
         }
     }
 
@@ -483,6 +593,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         dropoutCounter = 0
 
         if displayNeedsUpdate {
+            print("[MTC] Timecode: \(timecode.stringValue())")
             mtcTimecode = timecode
             emitState()
         }
@@ -495,6 +606,8 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         let previousState = mtcState
         mtcState = convertMTCState(state)
         isReceivingMTC = mtcState.isReceiving
+
+        print("[MTC] State changed: \(previousState.displayName) -> \(mtcState.displayName)")
 
         // Update sync quality metrics based on state transitions
         switch mtcState {
@@ -552,10 +665,19 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
     // MARK: - SysEx Parsing
 
-    /// Handles raw SysEx data for MTC Full Frame and MMC commands.
+    /// Handles raw SysEx data for MTC Full Frame, MMC commands, and Identity Request.
     ///
     /// - Parameter data: The SysEx data (F0/F7 already stripped by MIDIKit).
     private func handleSysEx(_ data: [UInt8]) {
+        guard data.count >= 3 else { return }
+
+        // Check for Universal Non-Real Time SysEx (Identity Request)
+        // Format: 7E <device-id> 06 01
+        if data[0] == 0x7E && data.count >= 4 && data[2] == 0x06 && data[3] == 0x01 {
+            handleIdentityRequest(channel: data[1])
+            return
+        }
+
         // Universal Real-Time SysEx format: F0 7F <device-id> <sub-id-1> <sub-id-2> ... F7
         // Note: MIDIKit strips F0/F7, so data starts at 7F
         guard data.count >= 4, data[0] == 0x7F else { return }
@@ -573,10 +695,20 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         handleMMCFromSysEx(data)
     }
 
-    /// Handles Universal SysEx messages for MTC and MMC.
+    /// Handles Universal SysEx messages for MTC, MMC, and Identity Request.
     ///
     /// - Parameter sysEx: The parsed Universal SysEx event.
     private func handleUniversalSysEx(_ sysEx: MIDIEvent.UniversalSysEx7) {
+        // Handle Non-Real Time messages (Identity Request)
+        if sysEx.universalType == .nonRealTime {
+            // Identity Request: subID1 = 0x06 (General Information), subID2 = 0x01 (Identity Request)
+            if sysEx.subID1.uInt8Value == 0x06 && sysEx.subID2.uInt8Value == 0x01 {
+                handleIdentityRequest(channel: sysEx.deviceID.uInt8Value)
+            }
+            return
+        }
+
+        // Handle Real Time messages (MTC, MMC)
         guard sysEx.universalType == .realTime else { return }
 
         if sysEx.subID1.uInt8Value == 0x01 && sysEx.subID2.uInt8Value == 0x01 {
@@ -729,7 +861,8 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     private func handleMMCCommand(_ command: MMCCommand) {
         lastMMCCommand = command
         emitState()
-        debugLog("MMC command received: \(command.displayName)")
+        debugLog("MMC COMMAND RECEIVED: \(command.displayName)")
+        print("[MIDISyncActor] MMC COMMAND: \(command.displayName)")
     }
 
     // MARK: - Utility Methods
