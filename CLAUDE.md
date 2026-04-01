@@ -198,12 +198,16 @@ grep -rn "\.frame(width: [0-9]" Views/
 - Touch targets: 44pt minimum
 - 4pt grid system respected
 
-### 5. Visual Inspection
-If possible, run the app and visually check:
-- [ ] Panel headers align horizontally
-- [ ] Controls have breathing room on all edges
-- [ ] Empty states are centered
-- [ ] Related buttons have consistent spacing
+### 5. Visual Inspection (MANDATORY - NOT OPTIONAL)
+**STOP. Build and run the app. Check these visually:**
+
+- [ ] **Symmetric padding**: Top padding matches bottom padding in all content areas
+- [ ] **Centered content**: Empty states are visually centered (not just code-centered)
+- [ ] **Panel headers align**: Headers across different panels align horizontally
+- [ ] **Breathing room**: Controls have space from all edges (not cramped)
+- [ ] **Consistent gaps**: Space between sections is uniform throughout
+
+**If you skip this step, you WILL miss obvious issues that code review cannot catch.**
 
 ---
 

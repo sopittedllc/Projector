@@ -315,6 +315,7 @@ struct FileManagerView: View {
                 dropOverlay
             }
         }
+        .padding(.vertical, Spacing.md)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
@@ -324,18 +325,17 @@ struct FileManagerView: View {
     private var emptyStateView: some View {
         VStack(spacing: Spacing.sm) {
             Image(systemName: "film")
-                .frame(width: 32, height: 32)
+                .font(.system(size: 28))
                 .foregroundColor(.secondary.opacity(0.5))
 
             Text("No media files")
-                .font(.system(size: 12))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.secondary)
 
             Text("Drop files here or click Import")
                 .font(.system(size: 10))
                 .foregroundColor(.secondary.opacity(0.7))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var itemsList: some View {
