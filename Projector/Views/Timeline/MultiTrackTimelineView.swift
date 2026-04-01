@@ -113,6 +113,10 @@ struct MultiTrackTimelineView: View {
     @State private var selectedVideoReelIds: Set<UUID> = []
     @State private var selectedAudioClipIds: Set<UUID> = []
 
+    // Clipboard state for cut/copy/paste
+    @State private var clipboardVideoReelIds: Set<UUID> = []
+    @State private var clipboardAudioClipIds: Set<UUID> = []
+
     // Marquee selection state
     @State private var isMarqueeSelecting = false
     @State private var marqueeStartPoint: CGPoint = .zero
@@ -274,6 +278,18 @@ struct MultiTrackTimelineView: View {
         .onReceive(NotificationCenter.default.publisher(for: .editDeselectAll)) { _ in
             guard isTimelineFocused else { return }
             deselectAll()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editCut)) { _ in
+            guard isTimelineFocused else { return }
+            cutSelectedItems()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editCopy)) { _ in
+            guard isTimelineFocused else { return }
+            copySelectedItems()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editPaste)) { _ in
+            guard isTimelineFocused else { return }
+            pasteItems()
         }
         // Escape key to deselect all
         .onKeyPress(.escape) {
@@ -2167,6 +2183,63 @@ struct MultiTrackTimelineView: View {
             selectedAudioLaneId = timeline.audioLanes.first { lane in
                 lane.clips.contains { $0.id == clipId }
             }?.id
+        }
+    }
+
+    /// Cut selected items (copy to clipboard then delete)
+    private func cutSelectedItems() {
+        copySelectedItems()
+        deleteSelectedItem()
+    }
+
+    /// Copy selected items to clipboard
+    private func copySelectedItems() {
+        // Store selected video reel IDs
+        clipboardVideoReelIds = selectedVideoReelIds
+
+        // Store selected audio clip IDs with their lane IDs
+        clipboardAudioClipIds = selectedAudioClipIds
+    }
+
+    /// Paste items from clipboard at playhead position
+    private func pasteItems() {
+        let playheadFrame = playbackEngine.currentFrame
+
+        // Paste video reels
+        for reelId in clipboardVideoReelIds {
+            guard let reel = timeline.videoReels.first(where: { $0.id == reelId }) else { continue }
+            // Create a copy at playhead position
+            Task {
+                do {
+                    _ = try await timelineManager.addVideoReel(
+                        from: reel.sourceURL,
+                        at: playheadFrame,
+                        mediaItemId: reel.mediaItemId
+                    )
+                } catch {
+                    debugPrint("Failed to paste video reel: \(error)")
+                }
+            }
+        }
+
+        // Paste audio clips
+        for clipId in clipboardAudioClipIds {
+            for lane in timeline.audioLanes {
+                guard let clip = lane.clips.first(where: { $0.id == clipId }) else { continue }
+                // Create a copy at playhead position in the same lane
+                Task {
+                    do {
+                        _ = try await timelineManager.addAudioClip(
+                            from: clip.sourceURL,
+                            toLane: lane.id,
+                            at: playheadFrame
+                        )
+                    } catch {
+                        debugPrint("Failed to paste audio clip: \(error)")
+                    }
+                }
+                break
+            }
         }
     }
 

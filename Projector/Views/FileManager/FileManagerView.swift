@@ -51,6 +51,9 @@ struct FileManagerView: View {
     /// Flag to re-open consolidation sheet after project is saved
     @State private var pendingConsolidationAfterSave = false
 
+    /// Active optimization suggestion to display in banner
+    @State private var activeSuggestion: OptimizationSuggestion?
+
     // Focus state for keyboard commands
     @FocusState private var isMediaListFocused: Bool
 
@@ -65,6 +68,24 @@ struct FileManagerView: View {
     var body: some View {
         VStack(spacing: 0) {
             headerBar
+
+            // Optimization suggestion banner
+            if let suggestion = activeSuggestion {
+                OptimizationSuggestionBanner(
+                    suggestion: suggestion,
+                    onOptimize: {
+                        showOptimizationSheet = true
+                        activeSuggestion = nil
+                    },
+                    onDismiss: {
+                        activeSuggestion = nil
+                    }
+                )
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             Divider()
             contentArea
         }
@@ -77,6 +98,8 @@ struct FileManagerView: View {
             if newCount > 0 && !isExpanded {
                 isExpanded = true
             }
+            // Check for optimization opportunities
+            evaluateOptimizationSuggestion()
         }
         .focusable()
         .focused($isMediaListFocused)
@@ -599,6 +622,48 @@ struct FileManagerView: View {
             lastSelectedIndex = index
         }
     }
+
+    // MARK: - Optimization Suggestion Evaluation
+
+    /// Evaluates media items and determines if an optimization suggestion should be shown
+    private func evaluateOptimizationSuggestion() {
+        // Don't show suggestion if already dismissed or sheet is showing
+        guard activeSuggestion == nil, !showOptimizationSheet else { return }
+
+        // Count items that need optimization
+        var highBitrateCount = 0
+        var proResCount = 0
+
+        for item in mediaLibrary.items {
+            // Skip already optimized items
+            if item.isOptimized { continue }
+
+            // Check for ProRes/production codecs
+            let proResExtensions = ["mov", "mxf"]
+            if proResExtensions.contains(item.fileExtension) {
+                if let bitrate = item.bitrate, bitrate > 50_000_000 {
+                    proResCount += 1
+                    continue
+                }
+            }
+
+            // Check for high bitrate
+            if let bitrate = item.bitrate, bitrate > 10_000_000 {
+                highBitrateCount += 1
+            }
+        }
+
+        // Show suggestion based on what we found
+        if proResCount > 0 {
+            withAnimation {
+                activeSuggestion = .proResDetected(count: proResCount)
+            }
+        } else if highBitrateCount > 0 {
+            withAnimation {
+                activeSuggestion = .highBitrateImport(count: highBitrateCount)
+            }
+        }
+    }
 }
 
 /// Grid cell for displaying a media item as an icon
@@ -626,16 +691,8 @@ struct MediaGridCell: View {
                             .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
                     )
                     .overlay(alignment: .topTrailing) {
-                        // Optimization badge
-                        if item.isOptimized {
-                            Image(systemName: "stopwatch.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(.green)
-                                .padding(Spacing.xs)
-                                .background(Color.black.opacity(0.6))
-                                .clipShape(Circle())
-                                .padding(Spacing.xs)
-                        }
+                        // Optimization status badge
+                        optimizationBadge
                     }
 
                 // Filename
@@ -672,6 +729,33 @@ struct MediaGridCell: View {
             return MediaDragProvider.provider(for: item)
         }
         .help(item.url.lastPathComponent)
+    }
+
+    @ViewBuilder
+    private var optimizationBadge: some View {
+        let status = OptimizationStatusHelper.status(for: item)
+        switch status {
+        case .optimized:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 10))
+                .foregroundColor(.green)
+                .padding(Spacing.xs)
+                .background(Color.black.opacity(0.6))
+                .clipShape(Circle())
+                .padding(Spacing.xs)
+                .help("Optimized for playback")
+        case .needsOptimization(let reason):
+            Image(systemName: reason.icon)
+                .font(.system(size: 10))
+                .foregroundColor(reason.color)
+                .padding(Spacing.xs)
+                .background(Color.black.opacity(0.6))
+                .clipShape(Circle())
+                .padding(Spacing.xs)
+                .help("\(reason.shortLabel) - optimization recommended")
+        case .noAction:
+            EmptyView()
+        }
     }
 
     @ViewBuilder
@@ -719,6 +803,82 @@ struct MediaGridCell: View {
         case .video: return .blue
         case .audio: return .green
         }
+    }
+}
+
+// MARK: - Optimization Status Helper
+
+/// Helper to determine optimization status for media items
+enum OptimizationStatusHelper {
+
+    /// Reasons why optimization might be recommended
+    enum OptimizationReason {
+        case highBitrate(mbps: Double)
+        case productionCodec
+        case highResolution(width: Int)
+
+        var shortLabel: String {
+            switch self {
+            case .highBitrate: return "High Bitrate"
+            case .productionCodec: return "ProRes"
+            case .highResolution: return "4K+"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .highBitrate: return .orange
+            case .productionCodec: return .purple
+            case .highResolution: return .blue
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .highBitrate: return "speedometer"
+            case .productionCodec: return "film"
+            case .highResolution: return "4k.tv"
+            }
+        }
+    }
+
+    enum Status {
+        case optimized
+        case needsOptimization(reason: OptimizationReason)
+        case noAction
+    }
+
+    private enum Thresholds {
+        static let highBitrateBps: Int = 10_000_000
+        static let highResolutionWidth: CGFloat = 1920
+    }
+
+    static func status(for item: MediaItem) -> Status {
+        if item.isOptimized {
+            return .optimized
+        }
+
+        // Check for production codecs
+        let proResExtensions = ["mov", "mxf"]
+        if proResExtensions.contains(item.fileExtension) {
+            if let bitrate = item.bitrate, bitrate > 50_000_000 {
+                return .needsOptimization(reason: .productionCodec)
+            }
+        }
+
+        // Check for high resolution video
+        if item.type == .video, let size = item.videoSize {
+            if size.width > Thresholds.highResolutionWidth {
+                return .needsOptimization(reason: .highResolution(width: Int(size.width)))
+            }
+        }
+
+        // Check for high bitrate
+        if let bitrate = item.bitrate, bitrate > Thresholds.highBitrateBps {
+            return .needsOptimization(reason: .highBitrate(mbps: Double(bitrate) / 1_000_000))
+        }
+
+        return .noAction
     }
 }
 

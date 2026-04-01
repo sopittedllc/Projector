@@ -214,13 +214,11 @@ struct MediaItemRow: View {
     }
 
     // MARK: - Optimization Badge
+    // NOTE: This view is not actively used - see MediaGridCell in FileManagerView.swift
 
     @ViewBuilder
     private var optimizationBadge: some View {
-        let status = OptimizationStatusHelper.status(for: item)
-
-        switch status {
-        case .optimized:
+        if item.isOptimized {
             HStack(spacing: 2) {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 8))
@@ -232,115 +230,13 @@ struct MediaItemRow: View {
             .padding(.vertical, 2)
             .background(Color.green.opacity(0.15))
             .cornerRadius(4)
-            .help("This file has been optimized for smooth playback")
-
-        case .needsOptimization(let reason):
-            HStack(spacing: 2) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 8))
-                Text(reason.shortLabel)
-                    .font(.system(size: 8, weight: .medium))
-            }
-            .foregroundColor(.orange)
-            .padding(.horizontal, Spacing.xs)
-            .padding(.vertical, 2)
-            .background(Color.orange.opacity(0.15))
-            .cornerRadius(4)
-            .help(reason.fullDescription)
-
-        case .noAction:
-            EmptyView()
         }
     }
 }
 
-// MARK: - Optimization Status Helper
-
-/// Helper to determine optimization status for media items
-enum OptimizationStatusHelper {
-
-    /// Reasons why optimization might be recommended
-    enum OptimizationReason {
-        /// Large file that could benefit from compression
-        case largeFile(sizeGB: Double)
-        /// High-bitrate video that could be compressed
-        case highBitrate(mbps: Double)
-        /// ProRes or other production codec
-        case productionCodec
-        /// Large resolution that exceeds playback needs
-        case highResolution(width: Int)
-
-        var shortLabel: String {
-            switch self {
-            case .largeFile: return "Large"
-            case .highBitrate: return "High Bitrate"
-            case .productionCodec: return "ProRes"
-            case .highResolution: return "4K+"
-            }
-        }
-
-        var fullDescription: String {
-            switch self {
-            case .largeFile(let gb):
-                return String(format: "This %.1f GB file could be compressed to save space", gb)
-            case .highBitrate(let mbps):
-                return String(format: "%.0f Mbps video could be optimized for smoother playback", mbps)
-            case .productionCodec:
-                return "ProRes files can be converted to playback proxies to reduce disk usage"
-            case .highResolution(let width):
-                return "\(width)p video could be downscaled to 720p for lighter playback"
-            }
-        }
-    }
-
-    enum Status {
-        case optimized
-        case needsOptimization(reason: OptimizationReason)
-        case noAction
-    }
-
-    /// Thresholds for suggesting optimization
-    private enum Thresholds {
-        /// Files larger than 500 MB get a warning
-        static let largeFileSizeBytes: UInt64 = 500_000_000
-        /// Bitrate above 10 Mbps suggests optimization
-        static let highBitrateBps: Int = 10_000_000
-        /// Resolution wider than 1920 suggests downscaling
-        static let highResolutionWidth: CGFloat = 1920
-    }
-
-    /// Determine optimization status for a media item
-    static func status(for item: MediaItem) -> Status {
-        // Already optimized - show green badge
-        if item.isOptimized {
-            return .optimized
-        }
-
-        // Check for production codecs (by file extension as proxy)
-        let proResExtensions = ["mov", "mxf"]
-        if proResExtensions.contains(item.fileExtension) {
-            // Additional check: if bitrate is very high, it's likely ProRes
-            if let bitrate = item.bitrate, bitrate > 50_000_000 {
-                return .needsOptimization(reason: .productionCodec)
-            }
-        }
-
-        // Check for high resolution video
-        if item.type == .video, let size = item.videoSize {
-            if size.width > Thresholds.highResolutionWidth {
-                return .needsOptimization(reason: .highResolution(width: Int(size.width)))
-            }
-        }
-
-        // Check for high bitrate
-        if let bitrate = item.bitrate, bitrate > Thresholds.highBitrateBps {
-            return .needsOptimization(reason: .highBitrate(mbps: Double(bitrate) / 1_000_000))
-        }
-
-        // No optimization needed
-        return .noAction
-    }
-}
+// NOTE: This file (MediaItemRow) is not actively used.
+// The optimization status helper is defined in FileManagerView.swift
+// where MediaGridCell (the actual view in use) resides.
 
 #Preview {
     VStack(spacing: 0) {
