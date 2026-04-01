@@ -19,6 +19,7 @@ struct AudioLaneView: View {
     let clipInteractionsEnabled: Bool
     let availableAudioOutputs: [MappedAudioOutput]
     let linkedDragPreview: LinkedDragPreview?
+    let timelineStartFrames: Int  // Sprint 5: For timecode display
     @ObservedObject var mediaLibrary: ProjectMediaLibrary
     let onMuteToggle: () -> Void
     let onSoloToggle: () -> Void
@@ -385,6 +386,7 @@ struct AudioLaneView: View {
                 showWaveform: showWaveforms,
                 interactionsEnabled: clipInteractionsEnabled,
                 isOptimized: isClipOptimized(clip),
+                timelineStartTimecode: formatTimecode(forFrame: clip.timelineStartFrame),
                 onSelect: { modifiers in
                     selectedClipId = clip.id
                     onClipSelected(clip.id, modifiers)
@@ -549,6 +551,25 @@ struct AudioLaneView: View {
             .blue, .green, .orange, .purple, .pink, .cyan, .mint, .indigo
         ]
         return colors[laneIndex % colors.count]
+    }
+
+    // MARK: - Timecode Formatting
+
+    /// Format a frame number as timecode string
+    private func formatTimecode(forFrame frame: Int) -> String {
+        let absoluteFrame = timelineStartFrames + frame
+        let fps = Int(frameRate.fps.rounded())
+        guard fps > 0 else { return "00:00:00:00" }
+
+        let totalSeconds = absoluteFrame / fps
+        let frames = absoluteFrame % fps
+        let seconds = totalSeconds % 60
+        let totalMinutes = totalSeconds / 60
+        let minutes = totalMinutes % 60
+        let hours = totalMinutes / 60
+
+        let separator = frameRate.isDrop ? ";" : ":"
+        return String(format: "%02d:%02d:%02d%@%02d", hours, minutes, seconds, separator, frames)
     }
 
     // MARK: - Drop Handling
@@ -1044,6 +1065,7 @@ private final class AudioLaneDragCaptureNSView: NSView {
                 clipInteractionsEnabled: true,
                 availableAudioOutputs: [],
                 linkedDragPreview: nil,
+                timelineStartFrames: 86400,  // 01:00:00:00 at 24fps
                 mediaLibrary: mediaLibrary,
                 onMuteToggle: {},
                 onSoloToggle: {},

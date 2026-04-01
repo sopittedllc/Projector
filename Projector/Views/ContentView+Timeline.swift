@@ -1358,7 +1358,7 @@ extension ContentView {
         switch choice {
         case .filename:
             if let tc = detectTimecodeFromFilename(url.lastPathComponent),
-               let parsed = Timecode(tc, at: config.frameRate, by: .clamping) {
+               let parsed = try? Timecode(.string(tc), at: config.frameRate, by: .clamping) {
                 let startFrames = config.startTimecode.frameCount.wholeFrames
                 targetFrame = max(0, parsed.frameCount.wholeFrames - startFrames)
             } else {
@@ -1378,10 +1378,10 @@ extension ContentView {
 
         case .manual:
             // Manual entry can't be "remembered" - fall back to playhead
-            targetFrame = playbackEngine.currentFrameNumber
+            targetFrame = playbackEngine.currentFrame
 
         case .playhead:
-            targetFrame = playbackEngine.currentFrameNumber
+            targetFrame = playbackEngine.currentFrame
         }
 
         await addVideoToTimeline(url: url, atFrame: targetFrame, checkTimecode: false)

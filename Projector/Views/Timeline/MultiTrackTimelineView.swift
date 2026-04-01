@@ -992,6 +992,7 @@ struct MultiTrackTimelineView: View {
                                 clipInteractionsEnabled: !debug.disableClipInteractions,
                                 availableAudioOutputs: audioOutputManager.mappedOutputs,
                                 linkedDragPreview: linkedDragPreview,
+                                timelineStartFrames: timeline.config.startTimecode.frameCount.wholeFrames,
                                 mediaLibrary: mediaLibrary,
                                 onMuteToggle: { timelineManager.toggleLaneMute(at: index) },
                                 onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },

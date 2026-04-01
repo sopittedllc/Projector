@@ -14,6 +14,7 @@ struct AudioClipView: View {
     let showWaveform: Bool
     let interactionsEnabled: Bool
     let isOptimized: Bool
+    let timelineStartTimecode: String?  // Sprint 5: Timeline start TC for clip
     let onSelect: (SelectionModifiers) -> Void
     let onDoubleClick: () -> Void
 
@@ -39,7 +40,7 @@ struct AudioClipView: View {
                 .shadow(color: isSelected ? Color.white.opacity(0.5) : Color.clear, radius: 4)
 
             VStack(spacing: 0) {
-                // Header with filename
+                // Header with filename and timecode
                 HStack(spacing: Spacing.xs) {
                     Text(clip.displayName)
                         .font(.system(size: 9, weight: .semibold))
@@ -51,6 +52,17 @@ struct AudioClipView: View {
                         Image(systemName: "stopwatch.fill")
                             .font(.system(size: 8))
                             .foregroundColor(.green)
+                    }
+
+                    // Sprint 5: Timeline start timecode
+                    if let tc = timelineStartTimecode, clipWidth > 120 {
+                        Text(tc)
+                            .font(.system(size: 7, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.7))
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 1)
+                            .background(Color.black.opacity(0.3))
+                            .cornerRadius(2)
                     }
 
                     Spacer(minLength: 0)
@@ -296,6 +308,7 @@ private struct WaveformBarsView: Shape {
             showWaveform: true,
             interactionsEnabled: true,
             isOptimized: true,
+            timelineStartTimecode: "01:00:00:00",
             onSelect: { _ in },
             onDoubleClick: {}
         )
@@ -320,6 +333,7 @@ private struct WaveformBarsView: Shape {
             showWaveform: true,
             interactionsEnabled: true,
             isOptimized: false,
+            timelineStartTimecode: "01:01:40:00",
             onSelect: { _ in },
             onDoubleClick: {}
         )

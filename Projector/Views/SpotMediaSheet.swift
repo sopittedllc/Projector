@@ -651,7 +651,7 @@ struct SpotMediaSheet_Previews: PreviewProvider {
                 playheadTimecode: "00:42:16:08",
                 playheadFrame: 61000,
                 frameRate: .fps23_976,
-                startTimecode: Timecode(.components(h: 0, m: 59, s: 55, f: 0), at: .fps23_976)!,
+                startTimecode: Timecode(.components(h: 0, m: 59, s: 55, f: 0), at: .fps23_976, by: .clamping),
                 showSetTimelineStartOption: true,
                 onSpot: { result in
                     print("Spot result: \(result)")

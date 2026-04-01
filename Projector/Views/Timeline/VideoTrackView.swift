@@ -209,6 +209,7 @@ struct VideoTrackView: View {
                 isSelected: selectedReelId == reel.id || selectedReelIds.contains(reel.id),
                 interactionsEnabled: clipInteractionsEnabled,
                 isOptimized: isReelOptimized(reel),
+                timelineStartTimecode: timelineManager.formatTimecode(forFrame: reel.timelineStartFrame),
                 onSelect: { modifiers in
                     selectedReelId = reel.id
                     onReelSelected(reel.id, modifiers)

@@ -107,6 +107,24 @@ final class TimelineManager: ObservableObject {
         hasChanges = false
     }
 
+    // MARK: - Timecode Formatting
+
+    /// Format a timeline frame number as a timecode string
+    ///
+    /// Adds the timeline start offset to convert from relative frame to absolute timecode.
+    ///
+    /// - Parameter frame: The frame number relative to timeline start (0-based)
+    /// - Returns: Formatted timecode string (e.g., "01:00:00:00")
+    func formatTimecode(forFrame frame: Int) -> String {
+        let startFrames = timeline.config.startTimecode.frameCount.wholeFrames
+        let absoluteFrame = startFrames + frame
+        let rate = timeline.config.frameRate
+
+        // Use SwiftTimecodeCore to format
+        let tc = Timecode(.frames(absoluteFrame), at: rate, by: .clamping)
+        return tc.stringValue()
+    }
+
     // MARK: - Timeline Configuration
 
     /// Update the timeline configuration.
