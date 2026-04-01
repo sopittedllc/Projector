@@ -46,28 +46,27 @@ struct VitalControlsBar: View {
     // MARK: - Body
 
     var body: some View {
-        ZStack {
-            // Center: Transport controls (always centered)
+        HStack(spacing: 0) {
+            // Left: TC controls (takes available space, left-aligned)
+            HStack(spacing: Spacing.md) {
+                startTCControl
+                durationControl
+                fpsControl
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Center: Transport controls (fixed width, centered)
             transportControls
 
-            // Left and Right sections
-            HStack(spacing: Spacing.md) {
-                // Left: TC controls
-                HStack(spacing: Spacing.md) {
-                    startTCControl
-                    durationControl
-                    fpsControl
-                }
-
-                Spacer()
-
-                // Right: Settings
+            // Right: Settings (takes available space, right-aligned)
+            HStack {
                 Button(action: onSettingsPressed) {
                     Image(systemName: "gearshape")
                         .frame(width: 18, height: 18)
                 }
                 .buttonStyle(.plain)
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
