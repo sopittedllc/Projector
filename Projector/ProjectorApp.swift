@@ -314,7 +314,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         }
         mainMenu.insertItem(editMenuItem, at: 2)
 
-        debugPrint("setupMenus: DONE. Added Edit menu with: %@", editMenu.items.map { $0.title })
+        // Create View menu (insert after Edit menu)
+        let viewMenu = NSMenu(title: "View")
+        viewMenu.autoenablesItems = false
+
+        // Audio Routing
+        let audioRoutingItem = NSMenuItem(
+            title: "Audio Routing...",
+            action: #selector(showAudioRouting(_:)),
+            keyEquivalent: ""
+        )
+        audioRoutingItem.target = self
+        audioRoutingItem.isEnabled = true
+        viewMenu.addItem(audioRoutingItem)
+
+        viewMenu.addItem(NSMenuItem.separator())
+
+        // Show Onboarding
+        let onboardingItem = NSMenuItem(
+            title: "Setup Guide...",
+            action: #selector(showOnboarding(_:)),
+            keyEquivalent: ""
+        )
+        onboardingItem.target = self
+        onboardingItem.isEnabled = true
+        viewMenu.addItem(onboardingItem)
+
+        // Insert View menu after Edit (index 3)
+        let viewMenuItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
+        viewMenuItem.submenu = viewMenu
+
+        // Check if View menu already exists
+        if let existingViewIndex = mainMenu.items.firstIndex(where: { $0.title == "View" }) {
+            mainMenu.removeItem(at: existingViewIndex)
+        }
+        mainMenu.insertItem(viewMenuItem, at: 3)
+
+        debugPrint("setupMenus: DONE. Added Edit and View menus")
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -551,6 +587,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         NotificationCenter.default.post(name: .editDeselectAll, object: nil)
     }
 
+    // MARK: - View Actions
+
+    @objc func showAudioRouting(_ sender: Any?) {
+        debugPrint("showAudioRouting called")
+        NotificationCenter.default.post(name: .showAudioRouting, object: nil)
+    }
+
+    @objc func showOnboarding(_ sender: Any?) {
+        debugPrint("showOnboarding called")
+        NotificationCenter.default.post(name: .showOnboarding, object: nil)
+    }
+
     // MARK: - Open Action
 
     private func openFile() {
@@ -590,6 +638,10 @@ extension Notification.Name {
     static let editDelete = Notification.Name("editDelete")
     static let editSelectAll = Notification.Name("editSelectAll")
     static let editDeselectAll = Notification.Name("editDeselectAll")
+
+    // View menu notifications
+    static let showAudioRouting = Notification.Name("showAudioRouting")
+    static let showOnboarding = Notification.Name("showOnboarding")
 }
 
 // MARK: - NSApplication Swizzling for CMD+S
