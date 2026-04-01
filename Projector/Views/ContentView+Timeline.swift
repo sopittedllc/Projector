@@ -1271,7 +1271,7 @@ extension ContentView {
 
     /// Show the video insert sheet via AlertCoordinator
     func showVideoInsertSheetViaCoordinator() {
-        guard let url = videoInsertURL else { return }
+        guard videoInsertURL != nil else { return }
 
         let config = timelineManager.timeline.config
         alerts.show(.videoInsert(

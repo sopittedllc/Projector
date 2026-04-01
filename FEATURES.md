@@ -293,6 +293,119 @@ Collapsible panel showing project media library with grid view.
 
 ---
 
+### Alert/Sheet Coordination
+
+**Status**: Active
+**Added**: 2026-03-XX
+
+#### Description
+Centralized alert and sheet management using enum-based type safety. Replaces scattered @State booleans with single source of truth.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Coordinator | `Coordinators/AlertCoordinator.swift` | Alert/sheet type enum and view modifier |
+
+#### State Properties
+
+| File | Property | Type | Purpose |
+|------|----------|------|---------|
+| `ContentView.swift` | `@StateObject alerts` | `AlertCoordinator` | Centralized alert state |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `ContentView.swift` | `.alertCoordinator()` modifier | View modifier application |
+| `ContentView+Timeline.swift` | `alerts.show()` calls | Alert triggering |
+
+---
+
+### Media Import Coordination
+
+**Status**: Active
+**Added**: 2026-03-XX
+
+#### Description
+Coordinates media file import with duplicate detection, optimization suggestions, and timeline integration.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Coordinator | `Managers/MediaImportCoordinator.swift` | Import workflow orchestration |
+
+#### Dependencies
+- Depends on: ProjectMediaLibrary, TimelineManager, MediaOptimizationService
+
+---
+
+### Missing File Resolution
+
+**Status**: Active
+**Added**: 2026-03-XX
+
+#### Description
+Handles missing media file detection and resolution with locate/skip/skip-all options.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Service | `Managers/MissingFileResolutionService.swift` | Missing file detection and resolution |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `ContentView.swift` | Project loading | Missing file check |
+| `AlertCoordinator.swift` | `.missingFile` case | User prompts |
+
+---
+
+### Audio Extraction Service
+
+**Status**: Active
+**Added**: 2026-01-XX
+
+#### Description
+Two-phase async audio extraction from video files for waveform generation and audio lane creation.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Service | `Managers/AudioExtractionService.swift` | Audio track extraction |
+
+#### Dependencies
+- Depends on: AVFoundation
+- Depended by: WaveformGenerator, AudioLane creation
+
+---
+
+### Timecode OCR
+
+**Status**: Active
+**Added**: 2026-02-XX
+
+#### Description
+OCR-based timecode detection from video frames using Vision framework.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Manager | `Managers/TimecodeOCRManager.swift` | Vision-based OCR |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `EmbeddedTimecodeService.swift` | OCR fallback | Detection pipeline |
+
+---
+
 ## Removed Features
 
 ### Cue Sheet / Cue Detection

@@ -94,7 +94,7 @@ actor TimelineActor: TimelineServiceProtocol {
         // Emit initial state
         Task {
             await self.emitState()
-            await self.startObservingTimelineManager()
+            self.startObservingTimelineManager()
         }
     }
 
@@ -107,11 +107,17 @@ actor TimelineActor: TimelineServiceProtocol {
     /// Starts observing TimelineManager for changes
     private func startObservingTimelineManager() {
         // Observe timeline changes via onTimelineChanged callback
-        observationTask = Task { [weak self] in
+        // Capture self strongly in the outer task since we need the actor to stay alive
+        // while observing. The callback explicitly captures emitState to avoid Swift 6
+        // concurrency warnings about capturing self across actor boundaries.
+        observationTask = Task { [self] in
+            let emitStateClosure: @Sendable () async -> Void = { [weak self] in
+                await self?.emitState()
+            }
             await MainActor.run {
-                self?.timelineManager.onTimelineChanged = {
+                self.timelineManager.onTimelineChanged = {
                     Task {
-                        await self?.emitState()
+                        await emitStateClosure()
                     }
                 }
             }

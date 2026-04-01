@@ -48,15 +48,19 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>1.2</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>1.2</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Musique LA. All rights reserved.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Projector uses Apple Events to communicate with other applications for automation workflows.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Projector requires local network access for MIDI device discovery and synchronization.</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

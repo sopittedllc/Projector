@@ -177,14 +177,15 @@ private struct AlertCoordinatorModifier: ViewModifier {
                         dismissButton: .default(Text("OK"))
                     )
 
-                case .missingFile(let message, let onLocate, let onSkip, let onSkipAll):
+                case .missingFile(let message, let onLocate, let onSkip, _):
+                    // Note: SwiftUI Alert only supports 2 buttons, so "Skip All" (4th param) is unused here
+                    // and would require a sheet-based approach to implement
                     return Alert(
                         title: Text("Missing File"),
                         message: Text(message),
                         primaryButton: .default(Text("Locate..."), action: onLocate),
                         secondaryButton: .destructive(Text("Skip"), action: onSkip)
                     )
-                    // Note: SwiftUI Alert only supports 2 buttons, so "Skip All" will need sheet
 
                 case .fpsConflict(let message, let onChangeProjectFPS, let onCancel):
                     return Alert(
