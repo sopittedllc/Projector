@@ -116,6 +116,7 @@ struct VitalControlsBar: View {
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
+        .fixedSize()
         .glassControl(isHighlighted: isStartTCFocused)
         .onHover { hovering in
             isHoveringStartTC = hovering
@@ -170,6 +171,7 @@ struct VitalControlsBar: View {
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
+        .fixedSize()
         .glassControl(isHighlighted: isDurationFocused)
         .onHover { hovering in
             isHoveringDuration = hovering
@@ -207,6 +209,7 @@ struct VitalControlsBar: View {
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
+        .fixedSize()
         .glassControl()
         .help("Frame rate is set by the video file")
     }
