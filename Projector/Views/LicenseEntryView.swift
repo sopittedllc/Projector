@@ -18,7 +18,7 @@ struct LicenseEntryView: View {
                 Spacer()
 
                 // Content
-                VStack(spacing: 24) {
+                VStack(spacing: Spacing.xxl) {
                     // App icon
                     Image(nsImage: NSApp.applicationIconImage)
                         .resizable()
@@ -59,7 +59,7 @@ struct LicenseEntryView: View {
 
                     // Trial expired message
                     if licenseManager.trialUsed && !licenseManager.isTrialActive && !licenseManager.hasFullLicense {
-                        HStack(spacing: 6) {
+                        HStack(spacing: Spacing.sm) {
                             Image(systemName: "clock.badge.exclamationmark")
                                 .foregroundColor(.orange)
                             Text("Your 7-day trial has ended")
@@ -75,7 +75,7 @@ struct LicenseEntryView: View {
                     }
 
                     // Purchase link
-                    HStack(spacing: 4) {
+                    HStack(spacing: Spacing.xs) {
                         Text("Don't have a license?")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -84,7 +84,7 @@ struct LicenseEntryView: View {
                             .font(.caption)
                     }
                 }
-                .padding(40)
+                .padding(Spacing.xxl)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
                         .fill(Color(nsColor: .controlBackgroundColor))
@@ -110,7 +110,7 @@ struct LicenseEntryView: View {
 
     @ViewBuilder
     private var licenseInputSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             TextField("License Key", text: $licenseKey)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.body, design: .monospaced))
@@ -143,7 +143,7 @@ struct LicenseEntryView: View {
 
     @ViewBuilder
     private var trialInputSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             TextField("Email Address", text: $trialEmail)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 400)

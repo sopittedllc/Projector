@@ -18,17 +18,10 @@ struct TransportBarView: View {
                 .foregroundColor(.primary)
                 .padding(.horizontal, 10)
                 .frame(height: controlBoxHeight)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                        )
-                )
+                .glassControl()
 
             // Timecode display
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
                 Text("TC:")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundColor(.secondary)
@@ -39,29 +32,22 @@ struct TransportBarView: View {
             }
             .padding(.horizontal, 10)
             .frame(height: controlBoxHeight)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    )
-            )
+            .glassControl()
 
             // Transport controls
-            HStack(spacing: 8) {
+            HStack(spacing: Spacing.sm) {
                 Button(action: { playbackEngine.stepBackward() }) {
                     Iconoir.skipPrev.asImage
                         .frame(width: 16, height: 16)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(GlassTransportButtonStyle())
                 .disabled(!playbackEngine.hasContent)
 
                 Button(action: { playbackEngine.togglePlayback() }) {
                     (playbackEngine.isPlaying ? Iconoir.pauseSolid.asImage : Iconoir.playSolid.asImage)
                         .frame(width: 18, height: 18)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(GlassTransportButtonStyle(isActive: playbackEngine.isPlaying))
                 .disabled(!playbackEngine.hasContent)
                 .keyboardShortcut(.space, modifiers: [])
 
@@ -69,26 +55,19 @@ struct TransportBarView: View {
                     Iconoir.skipNext.asImage
                         .frame(width: 16, height: 16)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(GlassTransportButtonStyle())
                 .disabled(!playbackEngine.hasContent)
 
                 Button(action: { playbackEngine.stop() }) {
                     Iconoir.square.asImage
                         .frame(width: 16, height: 16)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(GlassTransportButtonStyle())
                 .disabled(!playbackEngine.hasContent)
             }
             .padding(.horizontal, 10)
             .frame(height: controlBoxHeight)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    )
-            )
+            .glassControl()
 
             Spacer()
 
@@ -97,9 +76,9 @@ struct TransportBarView: View {
                 Iconoir.settings.asImage
                     .frame(width: 24, height: 24)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(GlassTransportButtonStyle())
         }
-        .padding(8)
+        .padding(Spacing.sm)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(nsColor: .controlBackgroundColor))
@@ -115,16 +94,9 @@ struct TimecodeDisplayView: View {
         Text(timecode.stringValue())
             .font(.system(size: 28, weight: .medium, design: .monospaced))
             .foregroundColor(.primary)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    )
-            )
+            .padding(.horizontal, Spacing.lg)
+            .padding(.vertical, Spacing.sm)
+            .glassControl()
     }
 }
 

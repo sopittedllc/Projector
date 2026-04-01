@@ -442,7 +442,7 @@ struct MultiTrackTimelineView: View {
     // MARK: - Timecode Entry Dialog
 
     private var timecodeEntryDialogContent: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Spacing.lg) {
             Text("Enter New Position")
                 .font(.headline)
 
@@ -462,7 +462,7 @@ struct MultiTrackTimelineView: View {
                     .multilineTextAlignment(.center)
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: Spacing.md) {
                 Button("Cancel") {
                     showTimecodeEntryDialog = false
                     clearEditingState()
@@ -475,7 +475,7 @@ struct MultiTrackTimelineView: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(24)
+        .padding(Spacing.xxl)
         .frame(minWidth: 280)
     }
 
@@ -546,7 +546,7 @@ struct MultiTrackTimelineView: View {
     private var headerSection: some View {
         VStack(spacing: 0) {
             // Toolbar: Start TC | Duration | FPS | Transport | Zoom | Settings
-            HStack(spacing: 12) {
+            HStack(spacing: Spacing.md) {
                 // Start timecode (editable)
                 startTCBox
 
@@ -580,7 +580,7 @@ struct MultiTrackTimelineView: View {
     }
 
     private var transportControls: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
             Button(action: { playbackEngine.stepBackward() }) {
                 Iconoir.skipPrev.asImage
                     .frame(width: 14, height: 14)
@@ -623,7 +623,7 @@ struct MultiTrackTimelineView: View {
     }
 
     private var zoomControls: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Button(action: { zoomOut() }) {
                 Image(systemName: "minus.magnifyingglass")
                     .font(.system(size: 11))
@@ -652,7 +652,7 @@ struct MultiTrackTimelineView: View {
     // MARK: - Editable Timecode Boxes
 
     private var startTCBox: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Text("Start TC:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
@@ -701,7 +701,7 @@ struct MultiTrackTimelineView: View {
     }
 
     private var durationBox: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Text("Duration:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
@@ -755,7 +755,7 @@ struct MultiTrackTimelineView: View {
     }
 
     private var fpsBox: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Text("FPS:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
@@ -921,7 +921,7 @@ struct MultiTrackTimelineView: View {
                         ScrollViewCaptureHelper(scrollView: $cachedScrollView)
                             .frame(width: 0, height: 0)
 
-                        Spacer().frame(height: 4)
+                        Spacer().frame(height: Spacing.xs)
 
                         // Video track
                         VideoTrackView(
@@ -1108,7 +1108,7 @@ struct MultiTrackTimelineView: View {
                         }
 
                         // Bottom padding
-                        Spacer().frame(height: 8)
+                        Spacer().frame(height: Spacing.sm)
                     }
                     .frame(minHeight: scrollHeight)
                     // Marquee selection gesture on scroll content
@@ -1415,7 +1415,7 @@ struct MultiTrackTimelineView: View {
             Color.clear
                 .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
                 .overlay(
-                    VStack(spacing: 2) {
+                    VStack(spacing: Spacing.xs) {
                         Image(systemName: "speaker.slash")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary.opacity(0.4))
@@ -1444,10 +1444,10 @@ struct MultiTrackTimelineView: View {
                                     Color.secondary.opacity(0.1),
                                     style: StrokeStyle(lineWidth: 1, dash: [4, 4])
                                 )
-                                .padding(4)
+                                .padding(Spacing.xs)
                         )
 
-                    HStack(spacing: 8) {
+                    HStack(spacing: Spacing.sm) {
                         Image(systemName: "plus.circle")
                             .font(.system(size: 16))
                             .foregroundColor(.secondary.opacity(0.4))
@@ -1509,7 +1509,7 @@ struct MultiTrackTimelineView: View {
                 .frame(width: TimelineLayout.headerWidth)
                 .background(isActive ? Color(nsColor: .controlBackgroundColor).opacity(0.6) : Color.clear)
                 .overlay(
-                    VStack(spacing: 4) {
+                    VStack(spacing: Spacing.xs) {
                         Text("New Lane")
                             .font(.system(size: 9, weight: .medium))
                             .foregroundColor(.secondary)
@@ -1527,7 +1527,7 @@ struct MultiTrackTimelineView: View {
                     }
 
                     if isActive {
-                        VStack(spacing: 4) {
+                        VStack(spacing: Spacing.xs) {
                             Text("Drop to create new lane")
                                 .font(.system(size: 10))
                                 .foregroundColor(.secondary.opacity(0.7))

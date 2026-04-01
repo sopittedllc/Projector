@@ -15,14 +15,14 @@ struct OptimizeMediaButton: View {
     var body: some View {
         if hasUnoptimizedFiles {
             Button(action: { showSheet = true }) {
-                HStack(spacing: 4) {
+                HStack(spacing: Spacing.xs) {
                     Image(systemName: "stopwatch")
                         .font(.system(size: 10))
                     Text("Optimize")
                         .font(.system(size: 11))
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
                 .background(Color.green.opacity(0.15))
                 .cornerRadius(4)
             }

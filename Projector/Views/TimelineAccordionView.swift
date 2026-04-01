@@ -95,10 +95,10 @@ struct TimelineAccordionView: View {
     // MARK: - Accordion Header
 
     private var accordionHeader: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm) {
             // Expand/collapse button
             Button(action: { timelineViewModel.toggleExpansion() }) {
-                HStack(spacing: 6) {
+                HStack(spacing: Spacing.sm) {
                     Image(systemName: timelineViewModel.isExpanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundColor(.secondary)
@@ -120,7 +120,7 @@ struct TimelineAccordionView: View {
 
             // Add Audio Lane button
             Button(action: onAddAudioLane) {
-                HStack(spacing: 4) {
+                HStack(spacing: Spacing.xs) {
                     Image(systemName: "plus")
                         .font(.system(size: 10, weight: .semibold))
                     Text("Audio Lane")
@@ -132,7 +132,7 @@ struct TimelineAccordionView: View {
             // Zoom controls
             if timelineViewModel.isExpanded {
                 Divider()
-                    .frame(height: 20)
+                    .frame(height: Spacing.xl)
                     .padding(.horizontal, Spacing.sm)
 
                 zoomControls
@@ -149,7 +149,7 @@ struct TimelineAccordionView: View {
     }
 
     private var zoomControls: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Button(action: { timelineViewModel.zoomOut() }) {
                 Image(systemName: "minus.magnifyingglass")
                     .font(.system(size: 11))
@@ -196,7 +196,7 @@ struct TimelineAccordionView: View {
     private var timelineResizeHandle: some View {
         Rectangle()
             .fill(Color.clear)
-            .frame(height: 12)
+            .frame(height: Spacing.md)
             .contentShape(Rectangle())
             .overlay {
                 // Visible drag indicator line

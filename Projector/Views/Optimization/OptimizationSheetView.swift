@@ -220,7 +220,7 @@ struct OptimizationSheetView: View {
     }
 
     private var optimizationInfoView: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Spacing.md) {
             HStack {
                 Image(systemName: "folder.badge.plus")
                     .foregroundColor(.blue)
@@ -259,14 +259,14 @@ struct OptimizationSheetView: View {
     // MARK: - Optimizing View
 
     private var optimizingView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: Spacing.xl) {
             Spacer()
 
             Text(viewModel.progressText)
                 .font(.headline)
 
             // Current item progress
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text("Current file:")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -276,7 +276,7 @@ struct OptimizationSheetView: View {
             .padding(.horizontal, 40)
 
             // Overall progress
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text("Overall progress:")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -325,7 +325,7 @@ struct OptimizationSheetView: View {
 
             // Verification report
             ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("VERIFICATION REPORT")
                         .font(.caption.bold())
                         .foregroundColor(.secondary)
@@ -370,7 +370,7 @@ struct OptimizationSheetView: View {
     // MARK: - Error View
 
     private func errorView(message: String) -> some View {
-        VStack(spacing: 20) {
+        VStack(spacing: Spacing.xl) {
             Spacer()
 
             Image(systemName: "exclamationmark.triangle.fill")
@@ -395,7 +395,7 @@ struct OptimizationSheetView: View {
     private var unsavedProjectView: some View {
         VStack(spacing: 0) {
             // Content area
-            VStack(spacing: 16) {
+            VStack(spacing: Spacing.lg) {
                 Image(systemName: "doc.badge.gearshape")
                     .font(.system(size: 56))
                     .foregroundColor(.secondary)
@@ -413,7 +413,7 @@ struct OptimizationSheetView: View {
             Divider()
 
             // Footer with buttons
-            HStack(spacing: 12) {
+            HStack(spacing: Spacing.md) {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
@@ -581,12 +581,12 @@ private struct FileAnalysisRow: View {
             }
 
             // File info
-            HStack(spacing: 6) {
+            HStack(spacing: Spacing.sm) {
                 Image(systemName: item.isVideo ? "film" : "waveform")
                     .foregroundColor(item.isVideo ? .blue : .green)
                     .frame(width: 16)
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
                     Text(item.displayName)
                         .lineLimit(1)
                     if let codec = item.currentCodec {
@@ -639,7 +639,7 @@ private struct VerificationItemRow: View {
     let item: OptimizedItemResult
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
             HStack {
                 Image(systemName: item.isVideo ? "film" : "waveform")
                     .foregroundColor(item.isVideo ? .blue : .green)
@@ -647,7 +647,7 @@ private struct VerificationItemRow: View {
                     .fontWeight(.medium)
             }
 
-            HStack(spacing: 16) {
+            HStack(spacing: Spacing.lg) {
                 if let fps = item.frameRate {
                     Label {
                         Text(String(format: "%.3f fps", fps))

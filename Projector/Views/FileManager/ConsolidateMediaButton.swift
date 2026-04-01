@@ -15,14 +15,14 @@ struct ConsolidateMediaButton: View {
     var body: some View {
         if hasExternalFiles {
             Button(action: { showSheet = true }) {
-                HStack(spacing: 4) {
+                HStack(spacing: Spacing.xs) {
                     Image(systemName: "arrow.down.doc")
                         .font(.system(size: 10))
                     Text("Consolidate")
                         .font(.system(size: 11))
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
                 .background(Color.orange.opacity(0.15))
                 .cornerRadius(4)
             }

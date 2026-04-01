@@ -48,20 +48,20 @@ struct MediaItemRow: View {
     @EnvironmentObject private var dragContext: DragContext
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.sm) {
             // Thumbnail
             thumbnailView
                 .frame(width: 48, height: 36)
                 .cornerRadius(4)
 
             // Info
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text(item.displayName)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.sm) {
                     // Type indicator
                     typeLabel
 

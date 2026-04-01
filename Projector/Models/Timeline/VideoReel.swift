@@ -2,45 +2,45 @@ import Foundation
 import SwiftTimecodeCore
 
 /// Represents a video file (reel) placed on the master timeline
-struct VideoReel: Identifiable, Codable, Equatable {
+public struct VideoReel: Identifiable, Codable, Equatable, Sendable {
     /// Unique identifier for the reel
-    let id: UUID
+    public let id: UUID
 
     /// Reference to the MediaItem in the library (for optimization status lookup)
-    var mediaItemId: UUID?
+    public var mediaItemId: UUID?
 
     /// Source video file URL
-    var sourceURL: URL
+    public var sourceURL: URL
 
     /// Security-scoped bookmark for sandbox access
-    var sourceBookmark: Data?
+    public var sourceBookmark: Data?
 
     /// Position on the master timeline (in frames from timeline start)
-    var timelineStartFrame: Int
+    public var timelineStartFrame: Int
 
     /// Duration of the clip on the timeline (in frames)
-    var durationFrames: Int
+    public var durationFrames: Int
 
     /// In-point within the source file (in source frames)
-    var sourceStartFrame: Int
+    public var sourceStartFrame: Int
 
     /// Frame rate of the source file
-    var sourceFrameRate: TimecodeFrameRate
+    public var sourceFrameRate: TimecodeFrameRate
 
     /// Display name (derived from filename if not set)
-    var name: String?
+    public var name: String?
 
     /// End frame on timeline (exclusive)
-    var timelineEndFrame: Int {
+    public var timelineEndFrame: Int {
         timelineStartFrame + durationFrames
     }
 
     /// Computed display name
-    var displayName: String {
+    public var displayName: String {
         name ?? sourceURL.deletingPathExtension().lastPathComponent
     }
 
-    init(
+    public init(
         id: UUID = UUID(),
         mediaItemId: UUID? = nil,
         sourceURL: URL,
@@ -63,19 +63,19 @@ struct VideoReel: Identifiable, Codable, Equatable {
     }
 
     /// Check if this reel is active at a given timeline frame
-    func isActive(at frame: Int) -> Bool {
+    public func isActive(at frame: Int) -> Bool {
         frame >= timelineStartFrame && frame < timelineEndFrame
     }
 
     /// Convert a timeline frame to a source frame
     /// Returns nil if the timeline frame is outside this reel's range
-    func sourceFrame(at timelineFrame: Int) -> Int? {
+    public func sourceFrame(at timelineFrame: Int) -> Int? {
         guard isActive(at: timelineFrame) else { return nil }
         return sourceStartFrame + (timelineFrame - timelineStartFrame)
     }
 
     /// Convert a timeline frame to source time in seconds
-    func sourceTime(at timelineFrame: Int) -> Double? {
+    public func sourceTime(at timelineFrame: Int) -> Double? {
         guard let frame = sourceFrame(at: timelineFrame) else { return nil }
         return Double(frame) / sourceFrameRate.fps
     }
@@ -96,7 +96,7 @@ extension VideoReel {
         case name
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         id = try container.decode(UUID.self, forKey: .id)
@@ -116,7 +116,7 @@ extension VideoReel {
         name = try container.decodeIfPresent(String.self, forKey: .name)
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
         try container.encode(id, forKey: .id)

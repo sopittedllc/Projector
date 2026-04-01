@@ -17,8 +17,7 @@ extension ContentView {
                         await generateThumbnail(for: reel)
                     }
                 } catch {
-                    loadError = error.localizedDescription
-                    showErrorAlert = true
+                    alerts.show(.error(error.localizedDescription))
                 }
             }
         }

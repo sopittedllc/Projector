@@ -30,7 +30,7 @@ struct SyncStatusIndicator: View {
     @State private var isExpanded: Bool = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm) {
             // Status dot
             Circle()
                 .fill(viewModel.syncStatusColor)
@@ -41,6 +41,11 @@ struct SyncStatusIndicator: View {
             Text(statusText)
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundColor(.secondary)
+
+            // Drift display (only when synced)
+            if viewModel.mtcState == .sync {
+                driftView
+            }
 
             // Lock progress during acquisition
             if showLockProgress {
@@ -65,6 +70,20 @@ struct SyncStatusIndicator: View {
     }
 
     // MARK: - Subviews
+
+    /// Drift display showing sync quality.
+    private var driftView: some View {
+        HStack(spacing: Spacing.xs) {
+            Image(systemName: "waveform.path.ecg")
+                .font(.system(size: 9))
+                .foregroundColor(viewModel.driftColor)
+
+            Text(viewModel.driftString)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(viewModel.driftColor)
+        }
+        .help("Sync drift: \(viewModel.driftString). Green = excellent (<0.5 frames), Yellow = fair (1-2 frames), Red = poor (>2 frames)")
+    }
 
     /// Lock progress bar shown during sync acquisition.
     private var lockProgressView: some View {
@@ -121,7 +140,7 @@ struct SyncStatusDot: View {
     @ObservedObject var viewModel: MIDISyncViewModel
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Circle()
                 .fill(viewModel.syncStatusColor)
                 .frame(width: 6, height: 6)
@@ -140,7 +159,7 @@ struct SyncStatusDot: View {
 #if DEBUG
 struct SyncStatusIndicator_Previews: PreviewProvider {
     static var previews: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: Spacing.xl) {
             Text("Sync Status Indicator Variants")
                 .font(.headline)
 

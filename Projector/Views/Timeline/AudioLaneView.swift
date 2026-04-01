@@ -102,7 +102,7 @@ struct AudioLaneView: View {
         Color.clear
             .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
             .overlay(
-                VStack(spacing: 2) {
+                VStack(spacing: Spacing.xs) {
                     // Lane name (editable on double-click)
                     if isEditingName {
                         TextField("", text: $editedName)
@@ -141,7 +141,7 @@ struct AudioLaneView: View {
                     outputMappingPicker
 
                     // Mute/Solo controls
-                    HStack(spacing: 6) {
+                    HStack(spacing: Spacing.sm) {
                         Button(action: onMuteToggle) {
                             Text("M")
                                 .font(.system(size: 9, weight: .bold))
@@ -164,7 +164,7 @@ struct AudioLaneView: View {
     @ViewBuilder
     private var audioMetadataView: some View {
         if let firstClip = lane.clips.first {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
                 // Sample rate
                 Text(String(format: "%.0fkHz", firstClip.sampleRate / 1000))
                     .font(.system(size: 8, design: .monospaced))
@@ -219,7 +219,7 @@ struct AudioLaneView: View {
                 }
             }
         } label: {
-            HStack(spacing: 3) {
+            HStack(spacing: Spacing.xs) {
                 Text(outputMappingName)
                     .font(.system(size: 9))
                     .lineLimit(1)
@@ -320,7 +320,7 @@ struct AudioLaneView: View {
     }
 
     private var emptyDropPrompt: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Iconoir.musicDoubleNote.asImage
                 .frame(width: 14, height: 14)
                 .foregroundColor(.secondary.opacity(0.5))

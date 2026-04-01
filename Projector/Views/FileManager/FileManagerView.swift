@@ -220,10 +220,10 @@ struct FileManagerView: View {
     // MARK: - Header Bar
 
     private var headerBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.md) {
             // Expand/collapse area - entire left side is clickable
             Button(action: { isExpanded.toggle() }) {
-                HStack(spacing: 6) {
+                HStack(spacing: Spacing.sm) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundColor(.secondary)
@@ -265,7 +265,7 @@ struct FileManagerView: View {
 
                 // Import button
                 Button(action: importMedia) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Spacing.xs) {
                         Iconoir.plus.asImage
                             .frame(width: 12, height: 12)
                         Text("Import")
@@ -281,7 +281,7 @@ struct FileManagerView: View {
     // MARK: - Filter Buttons
 
     private var filterButtons: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             filterButton(title: "All", type: nil)
             filterButton(title: "Video", type: .video)
             filterButton(title: "Audio", type: .audio)
@@ -342,7 +342,7 @@ struct FileManagerView: View {
     private var itemsList: some View {
         GeometryReader { outerGeometry in
             ScrollView(.horizontal, showsIndicators: true) {
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.sm) {
                     ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
                         MediaGridCell(
                             item: item,
@@ -373,7 +373,7 @@ struct FileManagerView: View {
                         )
                     }
                 }
-                .padding(8)
+                .padding(Spacing.sm)
                 .coordinateSpace(name: "mediaScrollContent")
             }
             .scrollIndicators(.visible)
@@ -452,7 +452,7 @@ struct FileManagerView: View {
             .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
             .background(Color.accentColor.opacity(0.1))
             .overlay(
-                VStack(spacing: 8) {
+                VStack(spacing: Spacing.sm) {
                     Iconoir.plus.asImage
                         .frame(width: 32, height: 32)
                         .foregroundColor(.accentColor)
@@ -462,7 +462,7 @@ struct FileManagerView: View {
                         .foregroundColor(.accentColor)
                 }
             )
-            .padding(4)
+            .padding(Spacing.xs)
     }
 
     // MARK: - Computed Properties
@@ -617,7 +617,7 @@ struct MediaGridCell: View {
 
     var body: some View {
         Button(action: onSelect) {
-            VStack(spacing: 4) {
+            VStack(spacing: Spacing.xs) {
                 // Thumbnail
                 thumbnailView
                     .frame(width: FileManagerLayout.gridThumbnailWidth, height: FileManagerLayout.gridThumbnailHeight)
@@ -632,10 +632,10 @@ struct MediaGridCell: View {
                             Image(systemName: "stopwatch.fill")
                                 .font(.system(size: 10))
                                 .foregroundColor(.green)
-                                .padding(3)
+                                .padding(Spacing.xs)
                                 .background(Color.black.opacity(0.6))
                                 .clipShape(Circle())
-                                .padding(4)
+                                .padding(Spacing.xs)
                         }
                     }
 
@@ -647,7 +647,7 @@ struct MediaGridCell: View {
                     .multilineTextAlignment(.center)
                     .frame(width: FileManagerLayout.gridLabelWidth)
             }
-            .padding(4)
+            .padding(Spacing.xs)
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
@@ -688,7 +688,7 @@ struct MediaGridCell: View {
             Rectangle()
                 .fill(Color.secondary.opacity(0.15))
                 .overlay(
-                    VStack(spacing: 2) {
+                    VStack(spacing: Spacing.xs) {
                         typeIcon
                             .frame(width: 24, height: 24)
                             .foregroundColor(.secondary.opacity(0.6))

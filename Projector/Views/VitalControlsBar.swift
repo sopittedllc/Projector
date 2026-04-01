@@ -47,8 +47,8 @@ struct VitalControlsBar: View {
     // MARK: - Body
 
     var body: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 12) {
+        HStack(spacing: Spacing.md) {
+            HStack(spacing: Spacing.md) {
                 startTCControl
                 durationControl
                 fpsControl
@@ -68,8 +68,8 @@ struct VitalControlsBar: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
         .glassPanel()
         .alert("Invalid Start Timecode", isPresented: $showStartTimecodeAlert) {
             Button("OK", role: .cancel) { }
@@ -81,7 +81,7 @@ struct VitalControlsBar: View {
     // MARK: - Start Timecode Control
 
     private var startTCControl: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Text("Start TC:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
@@ -133,7 +133,7 @@ struct VitalControlsBar: View {
     // MARK: - Duration Control
 
     private var durationControl: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Text("Duration:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
@@ -163,7 +163,7 @@ struct VitalControlsBar: View {
                     applyDuration()
                 }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Spacing.sm)
         .padding(.vertical, 6)
         .glassControl(isHighlighted: isDurationFocused)
         .onHover { hovering in
@@ -187,7 +187,7 @@ struct VitalControlsBar: View {
     // MARK: - FPS Control
 
     private var fpsControl: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Text("FPS:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
@@ -197,7 +197,7 @@ struct VitalControlsBar: View {
                 .frame(minWidth: 45)
                 .foregroundColor(.primary)
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Spacing.sm)
         .padding(.vertical, 6)
         .glassControl()
         .help("Frame rate is set by the video file")
@@ -206,7 +206,7 @@ struct VitalControlsBar: View {
     // MARK: - Transport Controls
 
     private var transportControls: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
             // Play/Pause toggle - always enabled for MTC sync
             Button(action: { playbackEngine.togglePlayback() }) {
                 (playbackEngine.isPlaying ? Iconoir.pauseSolid.asImage : Iconoir.playSolid.asImage)
@@ -224,7 +224,7 @@ struct VitalControlsBar: View {
             .buttonStyle(.plain)
             .help("Stop")
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Spacing.sm)
         .padding(.vertical, 6)
         .glassControl()
     }

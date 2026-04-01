@@ -51,7 +51,7 @@ struct ConsolidationSheetView: View {
 
     private var unsavedProjectView: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 16) {
+            VStack(spacing: Spacing.lg) {
                 Image(systemName: "doc.badge.arrow.up")
                     .font(.system(size: 56))
                     .foregroundColor(.secondary)
@@ -68,7 +68,7 @@ struct ConsolidationSheetView: View {
 
             Divider()
 
-            HStack(spacing: 12) {
+            HStack(spacing: Spacing.md) {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
@@ -192,7 +192,7 @@ struct ConsolidationSheetView: View {
             Divider()
 
             // Info section
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: Spacing.md) {
                 HStack {
                     Image(systemName: "folder.badge.plus")
                         .foregroundColor(.orange)
@@ -224,7 +224,7 @@ struct ConsolidationSheetView: View {
     // MARK: - Consolidating View
 
     private var consolidatingView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: Spacing.xl) {
             Spacer()
             ProgressView()
                 .scaleEffect(1.5)
@@ -237,7 +237,7 @@ struct ConsolidationSheetView: View {
     // MARK: - Complete View
 
     private var completeView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: Spacing.xl) {
             Spacer()
 
             if let result = result {
@@ -245,7 +245,7 @@ struct ConsolidationSheetView: View {
                     .font(.system(size: 48))
                     .foregroundColor(result.failedCount == 0 ? .green : .orange)
 
-                VStack(spacing: 8) {
+                VStack(spacing: Spacing.sm) {
                     Text("Copied \(result.copiedCount) file(s)")
                         .font(.headline)
 
@@ -261,7 +261,7 @@ struct ConsolidationSheetView: View {
                             .foregroundColor(.red)
 
                         ScrollView {
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: Spacing.xs) {
                                 ForEach(result.errors, id: \.self) { error in
                                     Text("• \(error)")
                                         .font(.caption)
@@ -282,7 +282,7 @@ struct ConsolidationSheetView: View {
     // MARK: - Error View
 
     private func errorView(message: String) -> some View {
-        VStack(spacing: 20) {
+        VStack(spacing: Spacing.xl) {
             Spacer()
 
             Image(systemName: "exclamationmark.triangle.fill")

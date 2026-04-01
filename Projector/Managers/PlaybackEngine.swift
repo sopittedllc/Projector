@@ -214,6 +214,9 @@ final class PlaybackEngine: ObservableObject {
         label: "com.projector.samplerate-listener"
     )
 
+    /// Callback for frame position updates (used by TransportActor)
+    var onFrameUpdate: ((Int) async -> Void)?
+
     // MARK: - Constants
 
     /// Seconds before reel boundary to start preloading
@@ -460,6 +463,12 @@ final class PlaybackEngine: ObservableObject {
         let clampedFrame = max(0, min(frame, durationFrames - 1))
         currentFrame = clampedFrame
         updateCurrentTimecode()
+
+        // Notify TransportActor of frame update
+        if let onFrameUpdate = onFrameUpdate {
+            Task { await onFrameUpdate(currentFrame) }
+        }
+
         pendingSeekFrame = clampedFrame
         performPendingSeekIfNeeded()
     }
@@ -516,6 +525,12 @@ final class PlaybackEngine: ObservableObject {
             }
             currentFrame = targetFrame
             updateCurrentTimecode()
+
+            // Notify TransportActor of frame update
+            if let onFrameUpdate = onFrameUpdate {
+                Task { await onFrameUpdate(currentFrame) }
+            }
+
             // Sync audio even in gaps (will stop clips that shouldn't play, start ones that should)
             if isDiscontinuousJump {
                 syncAudioClips()
@@ -529,6 +544,12 @@ final class PlaybackEngine: ObservableObject {
             activeReel = reel
             currentFrame = targetFrame
             updateCurrentTimecode()
+
+            // Notify TransportActor of frame update
+            if let onFrameUpdate = onFrameUpdate {
+                Task { await onFrameUpdate(currentFrame) }
+            }
+
             Task { [weak self] in
                 guard let self else { return }
                 try? await self.loadReel(reel)
@@ -1785,6 +1806,11 @@ final class PlaybackEngine: ObservableObject {
             let previousFrame = currentFrame
             currentFrame = max(0, videoFrame)
             updateCurrentTimecode()
+
+            // Notify TransportActor of frame update
+            if let onFrameUpdate = onFrameUpdate {
+                Task { await onFrameUpdate(currentFrame) }
+            }
 
             // Check for reel boundary
             if currentFrame >= reel.timelineEndFrame {

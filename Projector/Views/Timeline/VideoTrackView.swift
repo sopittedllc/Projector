@@ -64,7 +64,7 @@ struct VideoTrackView: View {
         Color.clear
             .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.videoTrackHeight)
             .overlay(
-                VStack(spacing: 2) {
+                VStack(spacing: Spacing.xs) {
                     Text("Video")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.primary)
@@ -162,7 +162,7 @@ struct VideoTrackView: View {
     }
 
     private var emptyDropPrompt: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: Spacing.xs) {
             Iconoir.mediaVideo.asImage
                 .frame(width: 20, height: 20)
                 .foregroundColor(.secondary.opacity(0.6))

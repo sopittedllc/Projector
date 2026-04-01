@@ -41,7 +41,7 @@ struct AudioClipView: View {
 
             VStack(spacing: 0) {
                 // Header with filename
-                HStack(spacing: 4) {
+                HStack(spacing: Spacing.xs) {
                     Text(clip.displayName)
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(.white)
@@ -278,7 +278,7 @@ private struct WaveformBarsView: Shape {
 }
 
 #Preview {
-    VStack(spacing: 4) {
+    VStack(spacing: Spacing.xs) {
         AudioClipView(
             clip: AudioClip(
                 sourceURL: URL(fileURLWithPath: "/path/to/audio.wav"),

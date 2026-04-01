@@ -230,8 +230,7 @@ extension ContentView {
     func setupPersistenceServiceCallbacks() {
         // Error callback - show alert when errors occur
         persistenceService.onError = { [self] errorMessage in
-            loadError = errorMessage
-            showErrorAlert = true
+            alerts.show(.error(errorMessage))
         }
 
         // Missing file check callback - delegates to missing file service

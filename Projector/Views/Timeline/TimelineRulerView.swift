@@ -111,7 +111,7 @@ struct TimelineRulerView: View {
 }
 
 #Preview {
-    VStack(spacing: 20) {
+    VStack(spacing: Spacing.xl) {
         // Short duration
         TimelineRulerView(
             duration: 120,

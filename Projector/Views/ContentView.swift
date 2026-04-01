@@ -31,6 +31,12 @@ struct ContentView: View {
     /// ViewModel for timeline UI state and interactions
     @StateObject var timelineViewModel: TimelineViewModel
 
+    // MARK: - Transport (Actor-based for thread safety)
+    /// The transport actor (logic layer) - handles transport state
+    let transportActor: TransportActor
+    /// ViewModel bridging actor state to UI
+    @StateObject var transportViewModel: TransportViewModel
+
     // MARK: - Missing File Resolution
     /// Service for handling missing file resolution when loading projects
     @StateObject var missingFileService: MissingFileResolutionService
@@ -51,11 +57,12 @@ struct ContentView: View {
         self.midiSyncActor = actor
         self._midiSyncViewModel = StateObject(wrappedValue: MIDISyncViewModel(service: actor))
 
-        // Initialize timeline manager and view model
+        // Initialize timeline manager, actor, and view model
         let manager = TimelineManager()
-        let viewModel = TimelineViewModel(manager: manager)
+        let timelineActor = TimelineActor(timelineManager: manager)
+        let timelineVM = TimelineViewModel(service: timelineActor)
         self._timelineManager = StateObject(wrappedValue: manager)
-        self._timelineViewModel = StateObject(wrappedValue: viewModel)
+        self._timelineViewModel = StateObject(wrappedValue: timelineVM)
 
         // Initialize media library, project document, and playback engine
         let library = ProjectMediaLibrary()
@@ -64,6 +71,15 @@ struct ContentView: View {
         self._mediaLibrary = StateObject(wrappedValue: library)
         self._projectDocument = StateObject(wrappedValue: document)
         self._playbackEngine = StateObject(wrappedValue: engine)
+
+        // Initialize transport actor and view model (requires playbackEngine, timelineActor, midiSyncActor)
+        let transport = TransportActor(
+            playbackEngine: engine,
+            timelineActor: timelineActor,
+            midiSyncService: actor
+        )
+        self.transportActor = transport
+        self._transportViewModel = StateObject(wrappedValue: TransportViewModel(service: transport))
 
         // Initialize missing file resolution service
         self._missingFileService = StateObject(wrappedValue: MissingFileResolutionService(
@@ -76,7 +92,7 @@ struct ContentView: View {
         self._mediaImportCoordinator = StateObject(wrappedValue: MediaImportCoordinator(
             mediaLibrary: library,
             timelineManager: manager,
-            timelineViewModel: viewModel
+            timelineViewModel: timelineVM
         ))
 
         // Initialize persistence service
@@ -91,14 +107,14 @@ struct ContentView: View {
     // MARK: - License
     @StateObject private var licenseManager = LicenseManager.shared
 
+    // MARK: - Alert & Sheet Coordination
+    @StateObject var alerts = AlertCoordinator()
+
     // MARK: - UI State
     // Note: Some properties use internal access to allow extension in ContentView+Timeline.swift and ContentView+Setup.swift
     @State private var showLicenseOverlay = false
     @State private var showWelcomeOverlay = false
-    @State private var showSettings = false
     @State var isLoadingMedia = false
-    @State var loadError: String?
-    @State var showErrorAlert = false
     @State var midiCancellables = Set<AnyCancellable>()
     @StateObject var thumbnailCache = ThumbnailCache()
     @State var showFileManager = true
@@ -117,21 +133,15 @@ struct ContentView: View {
     @State var vitalControlsHeight: CGFloat = 0
 
     // FPS conflict state (internal for ContentView+Timeline.swift extension)
-    @State var showFPSConflictAlert = false
     @State var pendingVideoURL: URL?
     @State var pendingVideoFPS: TimecodeFrameRate?
     @State var pendingVideoInsertFrame: Int?
-    @State var showVideoInsertSheet = false
     @State var videoInsertURL: URL?
-    @State var showVideoAlreadyInTimelineAlert = false
     @State var videoAlreadyInTimelineName: String = ""
-    @State var showAudioAlreadyInTimelineAlert = false
-    @State private var showSaveProjectSheet = false
     @State var audioAlreadyInTimelineName: String = ""
     @State private var isPlaybackDropTargeted = false
 
     // Embedded timecode detection state (internal for ContentView+Timeline.swift extension)
-    @State var showEmbeddedTimecodeAlert = false
     @State var pendingTimecodeResult: EmbeddedTimecodeResult?
     @State var pendingTimecodeURL: URL?
     @State var pendingTimecodeDropFrame: Int?
@@ -139,7 +149,6 @@ struct ContentView: View {
     @State var pendingTimecodeLaneId: UUID?
 
     // Batch timecode detection state (for multiple file drops)
-    @State var showBatchTimecodeSheet = false
     @State var pendingBatchTimecode: PendingBatchTimecode?
 
     /// Flag to prevent concurrent timecode detection from multiple drop events
@@ -150,64 +159,16 @@ struct ContentView: View {
 
     var body: some View {
         mainContent
-            .modifier(SheetsModifier(
-                showSettings: $showSettings,
-                showVideoInsertSheet: $showVideoInsertSheet,
-                showSaveProjectSheet: $showSaveProjectSheet,
-                showBatchTimecodeSheet: $showBatchTimecodeSheet,
-                videoInsertURL: $videoInsertURL,
-                pendingBatchTimecode: $pendingBatchTimecode,
-                frameRate: timelineManager.timeline.config.frameRate,
-                startTimecode: timelineManager.timeline.config.startTimecode,
-                onVideoInsertConfirm: { url, frame in
-                    Task {
-                        await addVideoToTimeline(url: url, atFrame: frame)
-                    }
-                },
-                onBatchTimecodeConfirm: { setTimelineStart in
-                    handleBatchTimecodeConfirm(setTimelineStart: setTimelineStart)
-                },
-                onBatchTimecodeCancel: {
-                    clearPendingBatchTimecode()
-                },
-                showBatchSetTimelineStartOption: pendingBatchTimecode?.isVideo == true && timelineManager.timeline.videoReels.isEmpty,
-                settingsView: AnyView(SettingsView(
-                    audioManager: audioManager,
-                    isPresented: $showSettings
-                )),
-                saveProjectSheet: AnyView(SaveProjectSheet(onSave: persistenceService.handleProjectSave))
-            ))
-            .modifier(AlertsModifier(
-                showErrorAlert: $showErrorAlert,
-                showVideoAlreadyInTimelineAlert: $showVideoAlreadyInTimelineAlert,
-                showAudioAlreadyInTimelineAlert: $showAudioAlreadyInTimelineAlert,
-                showDuplicateMediaAlert: $mediaImportCoordinator.showDuplicateMediaAlert,
-                showMissingFilesAlert: $missingFileService.showAlert,
-                showFPSConflictAlert: $showFPSConflictAlert,
-                showEmbeddedTimecodeAlert: $showEmbeddedTimecodeAlert,
-                loadError: loadError,
-                videoAlreadyInTimelineName: videoAlreadyInTimelineName,
-                audioAlreadyInTimelineName: audioAlreadyInTimelineName,
-                duplicateMediaAlertMessage: mediaImportCoordinator.duplicateMediaAlertMessage,
-                missingFileMessage: missingFileService.currentMissingFileMessage,
-                fpsConflictMessage: fpsConflictMessage,
-                onLocateMissingFile: { missingFileService.locateMissingFile() },
-                onSkipMissingFile: { missingFileService.skipMissingFile() },
-                onSkipAllMissingFiles: { missingFileService.skipAllMissingFiles() },
-                onChangeProjectFPS: handleFPSConflictChangeProject,
-                onCancelFPSConflict: {
-                    pendingVideoURL = nil
-                    pendingVideoFPS = nil
-                    pendingVideoInsertFrame = nil
-                },
-                onPlaceAtTimecode: { setTimelineStart in
-                    handleTimecodeChoice(useEmbeddedTimecode: true, setTimelineStart: setTimelineStart)
-                },
-                onPlaceAtDropLocation: { handleTimecodeChoice(useEmbeddedTimecode: false, setTimelineStart: false) },
-                onCancelTimecode: { clearPendingTimecode() },
-                pendingTimecodeResult: pendingTimecodeResult,
-                showSetTimelineStartOption: pendingTimecodeIsVideo && timelineManager.timeline.videoReels.isEmpty
-            ))
+            .alertCoordinator(alerts)
+            .sheet(isPresented: Binding(
+                get: { alerts.activeAlert?.id == "settings" },
+                set: { if !$0 { alerts.dismiss() } }
+            )) {
+                SettingsView(audioManager: audioManager, isPresented: Binding(
+                    get: { alerts.activeAlert?.id == "settings" },
+                    set: { if !$0 { alerts.dismiss() } }
+                ))
+            }
             .frame(minWidth: 640, minHeight: 400)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(WindowGlassBackground())
@@ -238,6 +199,10 @@ struct ContentView: View {
             setupMIDICallbacks()
             setupAudioCallback()
             setupTimelineCallbacks()
+
+            // Start transport actor (sets up PlaybackEngine callbacks)
+            Task { await transportActor.start() }
+
             restoreSettings()
             handleUITestImportIfNeeded()
             setupPersistenceServiceCallbacks()
@@ -270,11 +235,11 @@ struct ContentView: View {
         // Save handlers - selector-backed commands bypass AppKit's Save validation
         .onReceive(NotificationCenter.default.publisher(for: .saveProject)) { _ in
             if !persistenceService.saveProject() {
-                showSaveProjectSheet = true  // No file URL, show Save As
+                showSaveProjectSheetViaCoordinator()  // No file URL, show Save As
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .saveProjectAs)) { _ in
-            showSaveProjectSheet = true
+            showSaveProjectSheetViaCoordinator()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openProjectFile)) { notification in
             debugPrint("ContentView: received openProjectFile notification")
@@ -408,7 +373,9 @@ struct ContentView: View {
                 timelineManager: timelineManager,
                 playbackEngine: playbackEngine,
                 timelineViewModel: timelineViewModel,
-                onSettingsPressed: { showSettings = true }
+                onSettingsPressed: {
+                    alerts.show(.settings(content: AnyView(EmptyView())))
+                }
             )
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -445,7 +412,9 @@ struct ContentView: View {
                         onDropVideoMedia: handleVideoDropOnTimeline,
                         onDropAudioMedia: handleAudioDropOnTimeline,
                         onSeek: { frame in playbackEngine.seekToFrame(frame) },
-                        onSettingsPressed: { showSettings = true },
+                        onSettingsPressed: {
+                            alerts.show(.settings(content: AnyView(EmptyView())))
+                        },
                         onAddAudioLane: {
                             let laneNumber = timelineManager.timeline.audioLanes.count + 1
                             _ = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
@@ -473,7 +442,9 @@ struct ContentView: View {
                             onAddToVideoTrack: handleAddToVideoTrack,
                             onAddToAudioLane: handleAddToAudioLane,
                             onDeleteItems: handleDeleteMediaItems,
-                            onSaveProject: { showSaveProjectSheet = true }
+                            onSaveProject: {
+                                showSaveProjectSheetViaCoordinator()
+                            }
                         )
                         .padding(.horizontal, Spacing.lg)
                         .padding(.top, Spacing.sm)

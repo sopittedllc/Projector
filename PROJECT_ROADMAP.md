@@ -828,6 +828,16 @@ All new files have been added to the Xcode project via automated script:
 
 ---
 
+## Post-v1.0 Backlog / Future Investigation
+
+Items for future consideration (not blocking v1.0 release):
+
+| Item | Priority | Notes | Date Added |
+|------|----------|-------|------------|
+| QuickLook Extension Review | Low | Investigate if QuickLook extension is needed and whether it's implemented correctly. May not be necessary for core functionality. | 2026-03-31 |
+
+---
+
 ## Notes
 
 - Gap analysis completed: See previous conversation for full violation list

@@ -31,7 +31,7 @@ struct SettingsView: View {
 
             // Content
             ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     // MIDI Info Blurb
                     midiInfoSection
 
@@ -95,7 +95,7 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             // Header - entire area is clickable
             Button(action: { isExpanded.wrappedValue.toggle() }) {
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.sm) {
                     Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundColor(.secondary)
@@ -115,7 +115,7 @@ struct SettingsView: View {
 
             // Content
             if isExpanded.wrappedValue {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: Spacing.md) {
                     content()
                 }
                 .padding(.horizontal, 12)
@@ -135,7 +135,7 @@ struct SettingsView: View {
     // MARK: - MIDI Info Section
 
     private var midiInfoSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Spacing.md) {
             Label("MIDI", systemImage: "pianokeys")
                 .font(.headline)
 
@@ -144,7 +144,7 @@ struct SettingsView: View {
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(12)
+        .padding(Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 8)
@@ -159,13 +159,13 @@ struct SettingsView: View {
     // MARK: - Audio Section
 
     private var audioSectionContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
                 Text("Output Device")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
 
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.sm) {
                     Picker("Audio Output", selection: $audioManager.selectedDeviceUID) {
                         Text("System Default").tag(nil as String?)
                         ForEach(audioManager.availableDevices) { device in
@@ -197,14 +197,14 @@ struct SettingsView: View {
                 .disabled(audioManager.selectedDeviceChannelCount == 0)
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
                 if audioManager.selectedDeviceChannelCount == 0 {
                     Text("No output channels detected for this device.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
 
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("Mapped Outputs")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -215,7 +215,7 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     } else {
                         ForEach(audioManager.mappedOutputs) { output in
-                            HStack(spacing: 6) {
+                            HStack(spacing: Spacing.sm) {
                                 Text(output.name)
                                     .font(.system(size: 11, weight: .medium))
                                 Text(outputChannelLabel(output))
@@ -240,12 +240,12 @@ struct SettingsView: View {
     // MARK: - Display Section
 
     private var displaySectionContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Spacing.md) {
             Toggle("Show Timecode Overlay", isOn: $settings.showTimecodeOverlay)
                 .font(.subheadline)
 
             if settings.showTimecodeOverlay {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("Overlay Position")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
@@ -259,7 +259,7 @@ struct SettingsView: View {
                     .labelsHidden()
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("Overlay Opacity: \(Int(settings.timecodeOverlayOpacity * 100))%")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
@@ -330,7 +330,7 @@ private struct AudioOutputMappingView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
                     Text("Map Interface")
                         .font(.title2)
                         .fontWeight(.semibold)
@@ -588,7 +588,7 @@ private struct AudioOutputMappingView: View {
         let canEdit = rows[index].isIncluded && index < rows.count - 1
         let isStereo = bindingForRow(index).isStereo
 
-        return HStack(spacing: 6) {
+        return HStack(spacing: Spacing.sm) {
             modeButton(
                 iconName: "MonoIcon",
                 isSelected: !isStereo.wrappedValue,
@@ -620,7 +620,7 @@ private struct AudioOutputMappingView: View {
                 .scaledToFit()
                 .frame(width: 14, height: 14)
                 .foregroundColor(isSelected ? .accentColor : .secondary)
-                .padding(4)
+                .padding(Spacing.xs)
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)

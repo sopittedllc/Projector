@@ -778,20 +778,4 @@ final class TimelineManager: ObservableObject {
 }
 
 // MARK: - Errors
-
-enum TimelineError: LocalizedError {
-    case noAudioTrack
-    case invalidTrackIndex
-    case fileAccessDenied
-
-    var errorDescription: String? {
-        switch self {
-        case .noAudioTrack:
-            return "The file does not contain an audio track."
-        case .invalidTrackIndex:
-            return "The specified audio track index does not exist."
-        case .fileAccessDenied:
-            return "Cannot access the file. Permission denied."
-        }
-    }
-}
+// TimelineError is now defined in TimelineServiceProtocol.swift

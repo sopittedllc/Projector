@@ -69,10 +69,10 @@ struct VideoReelClipView: View {
                 .stroke(borderColor, lineWidth: isSelected ? 2 : 1)
 
             // Content overlay
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
                 // Reel info
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    HStack(spacing: Spacing.xs) {
                         Text(reel.displayName)
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(.white)
@@ -200,7 +200,7 @@ struct VideoReelClipView: View {
 }
 
 #Preview {
-    HStack(spacing: 4) {
+    HStack(spacing: Spacing.xs) {
         VideoReelClipView(
             reel: VideoReel(
                 sourceURL: URL(fileURLWithPath: "/path/to/Reel_001.mov"),

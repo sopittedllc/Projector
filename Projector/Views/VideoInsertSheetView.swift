@@ -52,7 +52,7 @@ struct VideoInsertSheetView: View {
     // MARK: - Body
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Spacing.md) {
             Text("Place Video")
                 .font(.system(size: 14, weight: .semibold))
 
@@ -84,7 +84,7 @@ struct VideoInsertSheetView: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(16)
+        .padding(Spacing.lg)
         .frame(width: 320)
         .onAppear {
             // Initialize timecode text to the start timecode

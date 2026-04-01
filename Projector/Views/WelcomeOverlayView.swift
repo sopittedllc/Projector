@@ -17,7 +17,7 @@ struct WelcomeOverlayView: View {
             // Content card
             VStack(spacing: 0) {
                 // Logo and title
-                VStack(spacing: 16) {
+                VStack(spacing: Spacing.lg) {
                     Image(nsImage: NSApp.applicationIconImage)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
@@ -34,7 +34,7 @@ struct WelcomeOverlayView: View {
                     .padding(.horizontal, 24)
 
                 // Steps
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: Spacing.xl) {
                     welcomeStep(
                         icon: "square.and.arrow.down.on.square",
                         iconColor: .blue,
@@ -117,7 +117,7 @@ struct WelcomeOverlayView: View {
         title: String,
         description: String
     ) -> some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .top, spacing: Spacing.lg) {
             ZStack {
                 RoundedRectangle(cornerRadius: 10)
                     .fill(iconColor.opacity(0.15))
@@ -128,7 +128,7 @@ struct WelcomeOverlayView: View {
                     .foregroundColor(iconColor)
             }
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.primary)

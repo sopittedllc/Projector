@@ -74,9 +74,9 @@ struct SaveProjectSheet: View {
             Divider()
 
             // Content
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: Spacing.lg) {
                 // Project name field
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("Project Name")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
@@ -86,7 +86,7 @@ struct SaveProjectSheet: View {
                 }
 
                 // Location picker
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("Location")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
@@ -101,19 +101,19 @@ struct SaveProjectSheet: View {
                             chooseLocation()
                         }
                     }
-                    .padding(8)
+                    .padding(Spacing.sm)
                     .background(Color.primary.opacity(0.05))
                     .cornerRadius(6)
                 }
 
                 // Preview of what will be created
                 if canSave {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
                         Text("Will create:")
                             .font(.caption)
                             .foregroundColor(.secondary)
 
-                        HStack(spacing: 4) {
+                        HStack(spacing: Spacing.xs) {
                             Image(systemName: "folder")
                                 .foregroundColor(.blue)
                             Text("\(sanitizedName)/")

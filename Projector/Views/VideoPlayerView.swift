@@ -58,7 +58,7 @@ struct VideoContentView: View {
                 Rectangle()
                     .fill(Color.black)
                     .overlay {
-                        VStack(spacing: 16) {
+                        VStack(spacing: Spacing.lg) {
                             Iconoir.movie.asImage
                                 .frame(width: 64, height: 64)
                                 .foregroundColor(.gray)

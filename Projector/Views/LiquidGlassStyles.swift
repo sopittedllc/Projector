@@ -131,7 +131,7 @@ struct GlassTransportButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         if #available(macOS 26, *) {
             configuration.label
-                .padding(8)
+                .padding(Spacing.sm)
                 .background {
                     Circle()
                         .fill(.clear)
@@ -145,7 +145,7 @@ struct GlassTransportButtonStyle: ButtonStyle {
                 .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
         } else {
             configuration.label
-                .padding(8)
+                .padding(Spacing.sm)
                 .background(
                     Circle()
                         .fill(isActive ? Color.accentColor.opacity(0.2) : Color(nsColor: .controlBackgroundColor))
@@ -197,6 +197,41 @@ struct GlassActionButtonStyle: ButtonStyle {
     }
 }
 
+// MARK: - Glass Panel Header Style
+
+/// A view modifier for panel headers (accordion sections, etc.)
+struct GlassPanelHeaderModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .frame(height: PanelLayout.headerHeight)
+            .padding(.horizontal, Spacing.md)
+            .background(Color.black.opacity(0.2))
+            .overlay(
+                Rectangle()
+                    .frame(height: 1)
+                    .foregroundColor(.white.opacity(0.1)),
+                alignment: .bottom
+            )
+    }
+}
+
+// MARK: - Glass Depth System
+
+/// A view modifier that applies depth/shadow for layered panels
+struct GlassDepthModifier: ViewModifier {
+    let level: Int
+
+    func body(content: Content) -> some View {
+        content
+            .shadow(
+                color: Color.black.opacity(Double(level) * 0.1),
+                radius: CGFloat(level * 2),
+                x: 0,
+                y: CGFloat(level)
+            )
+    }
+}
+
 // MARK: - View Extensions
 
 extension View {
@@ -208,6 +243,18 @@ extension View {
     /// Apply Liquid Glass control background
     func glassControl(cornerRadius: CGFloat = 6, isHighlighted: Bool = false) -> some View {
         modifier(GlassControlModifier(cornerRadius: cornerRadius, isHighlighted: isHighlighted))
+    }
+
+    /// Apply standard panel header styling
+    func glassPanelHeader() -> some View {
+        modifier(GlassPanelHeaderModifier())
+    }
+
+    /// Apply depth/shadow for layered panels
+    ///
+    /// - Parameter level: Depth level (1 = subtle, 2 = moderate, 3 = prominent)
+    func glassDepth(level: Int) -> some View {
+        modifier(GlassDepthModifier(level: level))
     }
 }
 
@@ -287,7 +334,7 @@ extension Color {
 // MARK: - Preview
 
 #Preview("Glass Styles") {
-    VStack(spacing: 20) {
+    VStack(spacing: Spacing.xl) {
         // Panel
         VStack {
             Text("Glass Panel")
@@ -299,7 +346,7 @@ extension Color {
         .glassPanel()
 
         // Controls
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.md) {
             HStack {
                 Text("TC:")
                     .font(.system(size: 10))
@@ -324,7 +371,7 @@ extension Color {
         }
 
         // Buttons
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.md) {
             Button("Import") {}
                 .buttonStyle(GlassActionButtonStyle(tint: .accentColor))
 
@@ -333,7 +380,7 @@ extension Color {
         }
 
         // Transport
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
             Button(action: {}) {
                 Image(systemName: "play.fill")
                     .frame(width: 16, height: 16)
@@ -347,7 +394,7 @@ extension Color {
             .buttonStyle(GlassTransportButtonStyle())
         }
     }
-    .padding(40)
+    .padding(Spacing.xxl)
     .frame(width: 400, height: 350)
     .background(Color.black.opacity(0.8))
 }

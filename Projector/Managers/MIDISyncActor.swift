@@ -146,6 +146,14 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// Timestamp of the last quarter-frame received.
     private var lastQFTimestamp: Date?
 
+    // MARK: - Drift Tracking
+
+    /// Current local playback frame (from PlaybackEngine/TransportActor).
+    private var localPlaybackFrame: Int = 0
+
+    /// Last time drift state was emitted (for 1Hz throttling).
+    private var lastDriftEmission: Date = .distantPast
+
     // MARK: - AsyncStream Infrastructure
 
     /// Continuation for emitting state updates.
@@ -355,6 +363,33 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         mtcReceiver?.setLocalFrameRate(frameRate)
         emitState()
         debugLog("Set local frame rate: \(frameRate)")
+    }
+
+    /// Updates the local playback frame position for drift calculation.
+    ///
+    /// Call this method from the transport layer whenever playback position changes.
+    /// Used to calculate drift between MTC and local playback.
+    ///
+    /// - Parameter frame: The current playback frame position.
+    ///
+    /// - Note: Drift updates are throttled to 1Hz to prevent UI jitter.
+    ///
+    /// ## Thread Safety
+    /// This method runs on the actor and is safe to call from any context.
+    ///
+    /// ## Example
+    /// ```swift
+    /// await midiSync.updateLocalPlaybackFrame(1234)
+    /// ```
+    public func updateLocalPlaybackFrame(_ frame: Int) async {
+        localPlaybackFrame = frame
+
+        // Throttle drift emission to 1Hz
+        let now = Date()
+        if now.timeIntervalSince(lastDriftEmission) >= 1.0 {
+            emitState()
+            lastDriftEmission = now
+        }
     }
 
     // MARK: - MTC Receiver Setup
@@ -918,6 +953,35 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             syncDuration = 0
         }
 
+        // Calculate drift between MTC and local playback
+        let driftFrames: Double
+        let driftStatus: DriftStatus
+
+        if let mtcTimecode = mtcTimecode, mtcState == .sync {
+            // Convert MTC timecode to frame number
+            let mtcFrame = mtcTimecode.frameCount.wholeFrames
+
+            // Drift = MTC frame - local playback frame
+            // Positive means MTC is ahead, negative means MTC is behind
+            driftFrames = Double(mtcFrame) - Double(localPlaybackFrame)
+
+            // Determine drift quality status
+            let absDrift = abs(driftFrames)
+            if absDrift < 0.5 {
+                driftStatus = .excellent
+            } else if absDrift < 1.0 {
+                driftStatus = .good
+            } else if absDrift < 2.0 {
+                driftStatus = .fair
+            } else {
+                driftStatus = .poor
+            }
+        } else {
+            // No sync or no MTC timecode - no drift
+            driftFrames = 0.0
+            driftStatus = .excellent
+        }
+
         let state = MIDISyncState(
             mtcState: mtcState,
             mtcTimecode: mtcTimecode,
@@ -931,7 +995,9 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             dropoutCounter: dropoutCounter,
             dropoutFramesAllowed: dropoutFramesAllowed,
             syncDuration: syncDuration,
-            lastQFTimestamp: lastQFTimestamp
+            lastQFTimestamp: lastQFTimestamp,
+            driftFrames: driftFrames,
+            driftStatus: driftStatus
         )
         stateContinuation?.yield(state)
     }

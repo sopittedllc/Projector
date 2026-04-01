@@ -64,4 +64,16 @@ extension ContentView {
             window.toggleFullScreen(nil)
         }
     }
+
+    // MARK: - AlertCoordinator Helpers
+
+    /// Show the save project sheet via AlertCoordinator
+    func showSaveProjectSheetViaCoordinator() {
+        let service = persistenceService
+        alerts.show(.saveProject(content: AnyView(
+            SaveProjectSheet(onSave: { url in
+                service.handleProjectSave(to: url)
+            })
+        )))
+    }
 }
