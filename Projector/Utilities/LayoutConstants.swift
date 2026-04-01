@@ -93,8 +93,8 @@ enum FileManagerLayout {
     /// Height when collapsed (header only)
     static let collapsedHeight: CGFloat = PanelLayout.headerHeight
 
-    /// Height when expanded
-    static let expandedHeight: CGFloat = 140
+    /// Height when expanded (header + content with comfortable padding)
+    static let expandedHeight: CGFloat = 180
 
     /// Grid cell thumbnail size
     static let gridThumbnailWidth: CGFloat = 64
