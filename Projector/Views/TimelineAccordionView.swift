@@ -87,8 +87,9 @@ struct TimelineAccordionView: View {
                 .foregroundColor(.secondary.opacity(0.6))
             Spacer()
         }
-        .frame(height: PanelLayout.footerHeight)
+        .frame(height: PanelLayout.footerHeight, alignment: .center)
         .padding(.horizontal, Spacing.md)
+        .padding(.bottom, Spacing.md) // Account for resize handle overlay
     }
 
     // MARK: - Accordion Header
