@@ -13,56 +13,66 @@ struct TransportBarView: View {
         HStack {
             // Frame rate display
             Text("\(Int(playbackEngine.frameRate.fps))fps")
-                .font(.system(size: 16, weight: .medium, design: .monospaced))
+                .font(Typography.monoLarge)
                 .foregroundColor(.primary)
                 .padding(.horizontal, Spacing.md)
                 .frame(height: controlBoxHeight)
                 .glassControl()
+                .accessibilityLabel("Frame rate: \(Int(playbackEngine.frameRate.fps)) frames per second")
 
             // Timecode display
             HStack(spacing: Spacing.xs) {
                 Text("TC:")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(Typography.label)
                     .foregroundColor(.secondary)
 
                 Text(playbackEngine.currentTimecode.stringValue())
-                    .font(.system(size: 16, weight: .medium, design: .monospaced))
+                    .font(Typography.monoLarge)
                     .foregroundColor(.primary)
             }
             .padding(.horizontal, Spacing.md)
             .frame(height: controlBoxHeight)
             .glassControl()
+            .accessibilityLabel("Current timecode: \(playbackEngine.currentTimecode.stringValue())")
 
             // Transport controls
             HStack(spacing: Spacing.sm) {
                 Button(action: { playbackEngine.stepBackward() }) {
                     Image(systemName: "backward.fill")
-                        .frame(width: 16, height: 16)
+                        .font(Typography.icon)
                 }
                 .buttonStyle(GlassTransportButtonStyle())
                 .disabled(!playbackEngine.hasContent)
+                .accessibilityLabel("Step backward one frame")
+                .help("Step backward (←)")
 
                 Button(action: { playbackEngine.togglePlayback() }) {
                     Image(systemName: playbackEngine.isPlaying ? "pause.fill" : "play.fill")
-                        .frame(width: 18, height: 18)
+                        .font(Typography.icon)
                 }
                 .buttonStyle(GlassTransportButtonStyle(isActive: playbackEngine.isPlaying))
                 .disabled(!playbackEngine.hasContent)
                 .keyboardShortcut(.space, modifiers: [])
+                .accessibilityLabel(playbackEngine.isPlaying ? "Pause" : "Play")
+                .help(playbackEngine.isPlaying ? "Pause (Space)" : "Play (Space)")
 
                 Button(action: { playbackEngine.stepForward() }) {
                     Image(systemName: "forward.fill")
-                        .frame(width: 16, height: 16)
+                        .font(Typography.icon)
                 }
                 .buttonStyle(GlassTransportButtonStyle())
                 .disabled(!playbackEngine.hasContent)
+                .accessibilityLabel("Step forward one frame")
+                .help("Step forward (→)")
 
                 Button(action: { playbackEngine.stop() }) {
                     Image(systemName: "stop.fill")
-                        .frame(width: 16, height: 16)
+                        .font(Typography.icon)
                 }
                 .buttonStyle(GlassTransportButtonStyle())
                 .disabled(!playbackEngine.hasContent)
+                .accessibilityLabel("Stop and return to start")
+                .help("Stop")
             }
             .padding(.horizontal, Spacing.md)
             .frame(height: controlBoxHeight)
@@ -78,10 +88,11 @@ struct TransportBarView: View {
                     }
                 }) {
                     Image(systemName: playbackEngine.isMeteringEnabled ? "speaker.wave.2.fill" : "speaker.wave.2")
-                        .frame(width: 16, height: 16)
+                        .font(Typography.icon)
                         .foregroundColor(playbackEngine.isMeteringEnabled ? .accentColor : .secondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(GlassIconButtonStyle(size: 16, isActive: playbackEngine.isMeteringEnabled))
+                .accessibilityLabel(playbackEngine.isMeteringEnabled ? "Disable audio metering" : "Enable audio metering")
                 .help(playbackEngine.isMeteringEnabled ? "Disable audio metering" : "Enable audio metering")
 
                 if playbackEngine.isMeteringEnabled {
@@ -101,15 +112,13 @@ struct TransportBarView: View {
             // Right: Settings
             Button(action: onSettingsPressed) {
                 Image(systemName: "gearshape")
-                    .frame(width: 24, height: 24)
             }
-            .buttonStyle(GlassTransportButtonStyle())
+            .buttonStyle(GlassIconButtonStyle(size: 20))
+            .accessibilityLabel("Settings")
+            .help("Open settings")
         }
         .padding(Spacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
+        .glassPanel(cornerRadius: PanelLayout.cornerRadius)
     }
 }
 
@@ -117,13 +126,17 @@ struct TransportBarView: View {
 struct TimecodeDisplayView: View {
     let timecode: Timecode
 
+    /// Large monospace font for overlay timecode display (28pt)
+    private static let overlayTimecodeFont = Font.system(size: 28, weight: .medium, design: .monospaced)
+
     var body: some View {
         Text(timecode.stringValue())
-            .font(.system(size: 28, weight: .medium, design: .monospaced))
+            .font(Self.overlayTimecodeFont)
             .foregroundColor(.primary)
             .padding(.horizontal, Spacing.lg)
             .padding(.vertical, Spacing.sm)
             .glassControl()
+            .accessibilityLabel("Timecode: \(timecode.stringValue())")
     }
 }
 

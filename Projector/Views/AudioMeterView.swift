@@ -44,10 +44,10 @@ struct AudioMeterView: View {
             // Channel labels
             VStack(alignment: .trailing, spacing: 2) {
                 Text("L")
-                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .font(Typography.labelTiny)
                     .foregroundColor(.secondary)
                 Text("R")
-                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .font(Typography.labelTiny)
                     .foregroundColor(.secondary)
             }
 
@@ -63,11 +63,14 @@ struct AudioMeterView: View {
         .padding(.horizontal, Spacing.sm)
         .padding(.vertical, Spacing.xs)
         .background(backgroundView)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Audio meter")
+        .accessibilityValue(isEnabled ? "Left \(Int(leftLevel * 100)) percent, Right \(Int(rightLevel * 100)) percent" : "Disabled")
         .help(isEnabled ? "Audio levels: L=\(Int(leftLevel * 100))% R=\(Int(rightLevel * 100))%" : "Audio metering disabled")
     }
 
     private var backgroundView: some View {
-        RoundedRectangle(cornerRadius: 4)
+        RoundedRectangle(cornerRadius: Spacing.xs)
             .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
     }
 }
@@ -94,14 +97,14 @@ private struct MeterBar: View {
             ZStack(alignment: .leading) {
                 // Background track
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.gray.opacity(0.3))
+                    .fill(AppColors.surfaceLight)
 
                 // Level fill with gradient zones
                 if isEnabled {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(meterGradient)
                         .frame(width: geometry.size.width * min(1.0, level))
-                        .animation(.linear(duration: 0.05), value: level)
+                        .animation(AppAnimations.linear, value: level)
                 }
 
                 // Zone markers (subtle vertical lines)
@@ -109,13 +112,13 @@ private struct MeterBar: View {
                     Spacer()
                         .frame(width: geometry.size.width * cautionThreshold)
                     Rectangle()
-                        .fill(Color.white.opacity(0.2))
-                        .frame(width: 1)
+                        .fill(AppColors.borderSubtle)
+                        .frame(width: PanelLayout.borderWidth)
                     Spacer()
                         .frame(width: geometry.size.width * (clipThreshold - cautionThreshold) - 1)
                     Rectangle()
-                        .fill(Color.white.opacity(0.2))
-                        .frame(width: 1)
+                        .fill(AppColors.borderSubtle)
+                        .frame(width: PanelLayout.borderWidth)
                     Spacer()
                 }
             }

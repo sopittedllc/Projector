@@ -83,8 +83,8 @@ struct TimelineAccordionView: View {
     private var timelineHint: some View {
         HStack {
             Text("Double-click regions to set custom timecode")
-                .font(.system(size: 10))
-                .foregroundColor(.secondary.opacity(0.6))
+                .font(Typography.caption)
+                .foregroundColor(AppColors.textTertiary)
             Spacer()
         }
         .frame(height: PanelLayout.footerHeight, alignment: .center)
@@ -100,21 +100,23 @@ struct TimelineAccordionView: View {
             Button(action: { timelineViewModel.toggleExpansion() }) {
                 HStack(spacing: Spacing.sm) {
                     Image(systemName: timelineViewModel.isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(Typography.iconSmall)
                         .foregroundColor(.secondary)
-                        .frame(width: 12)
+                        .frame(width: Spacing.md)
 
                     Image(systemName: "video")
-                        .frame(width: 14, height: 14)
+                        .font(Typography.icon)
                         .foregroundColor(.secondary)
 
                     Text("Timeline")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(Typography.subheading)
                         .foregroundColor(.primary)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Timeline section, \(timelineViewModel.isExpanded ? "expanded" : "collapsed")")
+            .accessibilityHint("Double-tap to \(timelineViewModel.isExpanded ? "collapse" : "expand")")
 
             Spacer()
 
@@ -122,11 +124,12 @@ struct TimelineAccordionView: View {
             Button(action: onAddAudioLane) {
                 HStack(spacing: Spacing.xs) {
                     Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(Typography.iconSmall)
                     Text("Audio Lane")
                 }
             }
             .buttonStyle(GlassActionButtonStyle(tint: .accentColor))
+            .accessibilityLabel("Add a new audio lane")
             .help("Add a new audio lane")
 
             // Zoom controls
@@ -152,26 +155,30 @@ struct TimelineAccordionView: View {
         HStack(spacing: Spacing.xs) {
             Button(action: { timelineViewModel.zoomOut() }) {
                 Image(systemName: "minus.magnifyingglass")
-                    .font(.system(size: 11))
+                    .font(Typography.bodySmall)
             }
             .buttonStyle(.plain)
             .foregroundColor(.secondary)
             .disabled(!hasTimelineContent || timelineViewModel.zoomLevel <= timelineViewModel.minZoom)
+            .accessibilityLabel("Zoom out")
+            .help("Zoom out")
 
             Slider(value: $timelineViewModel.zoomLevel, in: timelineViewModel.minZoom...timelineViewModel.maxZoom)
                 .frame(width: 80)
                 .controlSize(.mini)
+                .accessibilityLabel("Timeline zoom level")
 
             Button(action: { timelineViewModel.zoomIn() }) {
                 Image(systemName: "plus.magnifyingglass")
-                    .font(.system(size: 11))
+                    .font(Typography.bodySmall)
             }
             .buttonStyle(.plain)
             .foregroundColor(.secondary)
             .disabled(!hasTimelineContent || timelineViewModel.zoomLevel >= timelineViewModel.maxZoom)
+            .accessibilityLabel("Zoom in")
+            .help("Zoom in")
         }
         .padding(.trailing, Spacing.xs)
-        .help("Zoom timeline")
     }
 
     // MARK: - Timeline Content
@@ -202,9 +209,10 @@ struct TimelineAccordionView: View {
             .overlay {
                 // Visible drag indicator line
                 Rectangle()
-                    .fill(isResizingTimeline ? Color.accentColor : Color.white.opacity(0.25))
-                    .frame(height: 1)
+                    .fill(isResizingTimeline ? Color.accentColor : AppColors.borderLight)
+                    .frame(height: PanelLayout.borderWidth)
             }
+            .accessibilityLabel("Resize timeline")
             .onHover { hovering in
                 guard !isResizingTimeline else { return }
                 if hovering, !isHoveringTimelineResize {

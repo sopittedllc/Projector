@@ -1,9 +1,269 @@
 import SwiftUI
 import SwiftTimecodeCore
 
+// MARK: - Design System
+// Centralized design tokens to eliminate magic numbers and ensure consistency.
+// All view files should import these instead of defining local values.
+
+// ============================================================================
+// MARK: - Typography System
+// ============================================================================
+
+/// Semantic typography scale for consistent text styling across the app.
+///
+/// ## Usage
+/// ```swift
+/// Text("Timeline")
+///     .font(Typography.heading)
+///
+/// Text("00:00:00:00")
+///     .font(Typography.mono)
+/// ```
+enum Typography {
+    // MARK: - Display & Headings
+
+    /// Large title for modal headers (16pt semibold)
+    static let title = Font.system(size: 16, weight: .semibold)
+
+    /// Section headings in panels (13pt medium)
+    static let heading = Font.system(size: 13, weight: .medium)
+
+    /// Subsection headings (12pt medium)
+    static let subheading = Font.system(size: 12, weight: .medium)
+
+    // MARK: - Body Text
+
+    /// Primary body text (12pt regular)
+    static let body = Font.system(size: 12, weight: .regular)
+
+    /// Secondary body text (11pt regular)
+    static let bodySmall = Font.system(size: 11, weight: .regular)
+
+    // MARK: - Labels & Captions
+
+    /// Control labels like "Start TC:", "FPS:" (10pt medium)
+    static let label = Font.system(size: 10, weight: .medium)
+
+    /// Small labels and badges (9pt medium)
+    static let labelSmall = Font.system(size: 9, weight: .medium)
+
+    /// Tiny labels for clips (8pt semibold)
+    static let labelTiny = Font.system(size: 8, weight: .semibold)
+
+    /// Caption text for hints and metadata (10pt regular)
+    static let caption = Font.system(size: 10, weight: .regular)
+
+    /// Small caption for timestamps (9pt regular)
+    static let captionSmall = Font.system(size: 9, weight: .regular)
+
+    // MARK: - Monospace (Timecode & Data)
+
+    /// Primary monospace for timecode display (12pt medium)
+    static let mono = Font.system(size: 12, weight: .medium, design: .monospaced)
+
+    /// Large monospace for prominent timecode (16pt medium)
+    static let monoLarge = Font.system(size: 16, weight: .medium, design: .monospaced)
+
+    /// Small monospace for metadata (10pt regular)
+    static let monoSmall = Font.system(size: 10, weight: .regular, design: .monospaced)
+
+    /// Tiny monospace for clip duration badges (9pt medium)
+    static let monoTiny = Font.system(size: 9, weight: .medium, design: .monospaced)
+
+    // MARK: - Buttons & Actions
+
+    /// Button text (11pt medium)
+    static let button = Font.system(size: 11, weight: .medium)
+
+    /// Small button text (10pt medium)
+    static let buttonSmall = Font.system(size: 10, weight: .medium)
+
+    // MARK: - Icons
+
+    /// Standard icon size (12pt)
+    static let icon = Font.system(size: 12, weight: .medium)
+
+    /// Small icon size (10pt)
+    static let iconSmall = Font.system(size: 10, weight: .semibold)
+
+    /// Tiny icon size (8pt)
+    static let iconTiny = Font.system(size: 8, weight: .medium)
+}
+
+// ============================================================================
+// MARK: - Color System
+// ============================================================================
+
+/// Semantic color palette for consistent styling across the app.
+///
+/// ## Usage
+/// ```swift
+/// RoundedRectangle(cornerRadius: 4)
+///     .stroke(AppColors.borderSubtle, lineWidth: 1)
+///
+/// Text("Hint text")
+///     .foregroundColor(AppColors.textTertiary)
+/// ```
+enum AppColors {
+    // MARK: - Borders
+
+    /// Very subtle border (10% white) - for inactive elements
+    static let borderSubtle = Color.white.opacity(0.1)
+
+    /// Light border (15% white) - for controls and cards
+    static let borderLight = Color.white.opacity(0.15)
+
+    /// Standard border (20% white) - for panels
+    static let borderMedium = Color.white.opacity(0.2)
+
+    /// Prominent border (30% white) - for focused/hovered elements
+    static let borderStrong = Color.white.opacity(0.3)
+
+    // MARK: - Surfaces & Overlays
+
+    /// Subtle surface overlay (5% white)
+    static let surfaceSubtle = Color.white.opacity(0.05)
+
+    /// Light surface overlay (10% white)
+    static let surfaceLight = Color.white.opacity(0.1)
+
+    /// Medium surface overlay (12% white) - for focused fields
+    static let surfaceMedium = Color.white.opacity(0.12)
+
+    /// Strong surface overlay (15% white) - for selection
+    static let surfaceStrong = Color.white.opacity(0.15)
+
+    /// Dark overlay for contrast (20% black)
+    static let overlayDark = Color.black.opacity(0.2)
+
+    /// Darker overlay (40% black)
+    static let overlayDarker = Color.black.opacity(0.4)
+
+    /// Darkest overlay for modals (60% black)
+    static let overlayDarkest = Color.black.opacity(0.6)
+
+    // MARK: - Text Colors
+
+    /// Primary text - use sparingly, prefer Color.primary
+    static let textPrimary = Color.primary
+
+    /// Secondary text - use sparingly, prefer Color.secondary
+    static let textSecondary = Color.secondary
+
+    /// Tertiary text (60% secondary) - for hints
+    static let textTertiary = Color.secondary.opacity(0.6)
+
+    /// Muted text (50% secondary) - for disabled states
+    static let textMuted = Color.secondary.opacity(0.5)
+
+    // MARK: - Status Colors
+
+    /// Success/active state
+    static let success = Color.green
+
+    /// Warning state
+    static let warning = Color.yellow
+
+    /// Error/destructive state
+    static let error = Color.red
+
+    /// Info/accent state
+    static let info = Color.accentColor
+
+    // MARK: - Glass Fallback
+
+    /// Background color for glass effect fallback on pre-macOS 26
+    static let glassFallback = Color(red: 30.0 / 255.0, green: 30.0 / 255.0, blue: 30.0 / 255.0)
+
+    // MARK: - Selection
+
+    /// Selection highlight for clips
+    static let selectionHighlight = Color.yellow
+
+    /// Selection glow
+    static let selectionGlow = Color.white.opacity(0.5)
+
+    /// Multi-select marquee fill
+    static let marqueeFill = Color.accentColor.opacity(0.2)
+
+    /// Multi-select marquee border
+    static let marqueeBorder = Color.accentColor
+}
+
+// ============================================================================
+// MARK: - Animation System
+// ============================================================================
+
+/// Standardized animation curves and durations for consistent motion.
+///
+/// ## Usage
+/// ```swift
+/// withAnimation(AppAnimations.standard) {
+///     isExpanded.toggle()
+/// }
+///
+/// .animation(AppAnimations.quick, value: isHovered)
+/// ```
+enum AppAnimations {
+    // MARK: - Durations
+
+    /// Instant feedback (0.1s)
+    static let durationInstant: Double = 0.1
+
+    /// Quick transitions (0.15s)
+    static let durationQuick: Double = 0.15
+
+    /// Standard transitions (0.2s)
+    static let durationStandard: Double = 0.2
+
+    /// Slow transitions (0.3s)
+    static let durationSlow: Double = 0.3
+
+    // MARK: - Pre-built Animations
+
+    /// Instant feedback animation
+    static let instant = Animation.easeOut(duration: durationInstant)
+
+    /// Quick animation for hover/press states
+    static let quick = Animation.easeOut(duration: durationQuick)
+
+    /// Standard animation for most UI transitions
+    static let standard = Animation.easeInOut(duration: durationStandard)
+
+    /// Slow animation for panel expand/collapse
+    static let slow = Animation.easeInOut(duration: durationSlow)
+
+    /// Spring animation for playful interactions
+    static let spring = Animation.spring(response: 0.3, dampingFraction: 0.6)
+
+    /// Smooth spring for subtle bouncy effects
+    static let smoothSpring = Animation.spring(response: 0.4, dampingFraction: 0.8)
+
+    // MARK: - Linear (for meters/progress)
+
+    /// Linear animation for continuous updates (meters, progress)
+    static let linear = Animation.linear(duration: 0.05)
+}
+
+// ============================================================================
+// MARK: - Settings Layout
+// ============================================================================
+
+/// Layout constants for the Settings panel.
+enum SettingsLayout {
+    /// Settings window width
+    static let width: CGFloat = 450
+
+    /// Settings window height
+    static let height: CGFloat = 650
+
+    /// Settings window size as CGSize
+    static let size = CGSize(width: width, height: height)
+}
+
+// ============================================================================
 // MARK: - Layout Constants
-// Centralized layout constants to eliminate magic numbers (AP-004)
-// All view files should import these instead of defining local constants
+// ============================================================================
 
 /// Timeline layout constants
 enum TimelineLayout {

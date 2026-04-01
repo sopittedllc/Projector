@@ -3,6 +3,7 @@
 //  Projector
 //
 //  Liquid Glass design system for macOS Tahoe (26+) with fallbacks.
+//  Uses AppColors and AppAnimations from LayoutConstants.swift for consistency.
 //
 
 import SwiftUI
@@ -13,8 +14,8 @@ import AppKit
 /// A view modifier that applies Liquid Glass panel styling.
 /// Uses native `.glassEffect()` on macOS 26+, falls back to NSVisualEffectView on older versions.
 struct GlassPanelModifier: ViewModifier {
-    var cornerRadius: CGFloat = 8
-    var borderOpacity: CGFloat = 0.2
+    var cornerRadius: CGFloat = PanelLayout.cornerRadius
+    var borderOpacity: CGFloat = PanelLayout.borderOpacity
 
     func body(content: Content) -> some View {
         if #available(macOS 26, *) {
@@ -26,21 +27,20 @@ struct GlassPanelModifier: ViewModifier {
                 }
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(Color.white.opacity(borderOpacity), lineWidth: 1)
+                        .stroke(Color.white.opacity(borderOpacity), lineWidth: PanelLayout.borderWidth)
                 )
         } else {
             content
                 .background(
                     ZStack {
                         LegacyVisualEffectBackground(cornerRadius: cornerRadius)
-                        Color(red: 30.0 / 255.0, green: 30.0 / 255.0, blue: 30.0 / 255.0)
-                            .opacity(0.85)
+                        AppColors.glassFallback.opacity(0.85)
                     }
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(Color.white.opacity(borderOpacity), lineWidth: 1)
+                        .stroke(Color.white.opacity(borderOpacity), lineWidth: PanelLayout.borderWidth)
                 )
         }
     }
@@ -66,7 +66,7 @@ struct GlassControlModifier: ViewModifier {
                 }
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                        .stroke(AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
                 )
         } else {
             content
@@ -76,7 +76,7 @@ struct GlassControlModifier: ViewModifier {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                        .stroke(AppColors.borderStrong, lineWidth: PanelLayout.borderWidth)
                 )
         }
     }
@@ -104,7 +104,7 @@ struct GlassButtonStyle: ButtonStyle {
                 }
                 .opacity(configuration.isPressed ? 0.7 : 1.0)
                 .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-                .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+                .animation(AppAnimations.quick, value: configuration.isPressed)
         } else {
             configuration.label
                 .padding(.horizontal, Spacing.md)
@@ -115,7 +115,7 @@ struct GlassButtonStyle: ButtonStyle {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                        .stroke(AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
                 )
                 .opacity(configuration.isPressed ? 0.7 : 1.0)
         }
@@ -142,7 +142,7 @@ struct GlassTransportButtonStyle: ButtonStyle {
                 }
                 .opacity(configuration.isPressed ? 0.7 : 1.0)
                 .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
-                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
+                .animation(AppAnimations.spring, value: configuration.isPressed)
         } else {
             configuration.label
                 .padding(Spacing.sm)
@@ -152,7 +152,7 @@ struct GlassTransportButtonStyle: ButtonStyle {
                 )
                 .overlay(
                     Circle()
-                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                        .stroke(AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
                 )
                 .opacity(configuration.isPressed ? 0.7 : 1.0)
         }
@@ -168,7 +168,7 @@ struct GlassActionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         if #available(macOS 26, *) {
             configuration.label
-                .font(.system(size: 11, weight: .medium))
+                .font(Typography.button)
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, Spacing.sm)
                 .background {
@@ -178,10 +178,10 @@ struct GlassActionButtonStyle: ButtonStyle {
                 }
                 .opacity(configuration.isPressed ? 0.8 : 1.0)
                 .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-                .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+                .animation(AppAnimations.quick, value: configuration.isPressed)
         } else {
             configuration.label
-                .font(.system(size: 11, weight: .medium))
+                .font(Typography.button)
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, Spacing.sm)
                 .background(
@@ -190,7 +190,7 @@ struct GlassActionButtonStyle: ButtonStyle {
                 )
                 .overlay(
                     Capsule()
-                        .stroke(tint.opacity(0.3), lineWidth: 1)
+                        .stroke(tint.opacity(0.3), lineWidth: PanelLayout.borderWidth)
                 )
                 .opacity(configuration.isPressed ? 0.8 : 1.0)
         }
@@ -205,11 +205,11 @@ struct GlassPanelHeaderModifier: ViewModifier {
         content
             .frame(height: PanelLayout.headerHeight)
             .padding(.horizontal, Spacing.md)
-            .background(Color.black.opacity(0.2))
+            .background(AppColors.overlayDark)
             .overlay(
                 Rectangle()
-                    .frame(height: 1)
-                    .foregroundColor(.white.opacity(0.1)),
+                    .frame(height: PanelLayout.borderWidth)
+                    .foregroundColor(AppColors.borderSubtle),
                 alignment: .bottom
             )
     }
@@ -270,8 +270,7 @@ struct WindowGlassBackground: View {
         } else {
             ZStack {
                 LegacyWindowVisualEffect()
-                Color(red: 30.0 / 255.0, green: 30.0 / 255.0, blue: 30.0 / 255.0)
-                    .opacity(0.95)
+                AppColors.glassFallback.opacity(0.95)
             }
             .ignoresSafeArea()
         }
@@ -314,6 +313,102 @@ private struct LegacyVisualEffectBackground: NSViewRepresentable {
         nsView.material = .hudWindow
         nsView.blendingMode = .behindWindow
         nsView.layer?.cornerRadius = cornerRadius
+    }
+}
+
+// MARK: - Glass Icon Button Style
+
+/// A button style for icon-only buttons (settings gear, close, etc.)
+struct GlassIconButtonStyle: ButtonStyle {
+    var size: CGFloat = 18
+    var isActive: Bool = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(width: size, height: size)
+            .padding(Spacing.sm)
+            .background {
+                if #available(macOS 26, *) {
+                    Circle()
+                        .fill(.clear)
+                        .glassEffect(
+                            isActive ? .regular.tint(.accentColor) : .clear,
+                            in: Circle()
+                        )
+                } else {
+                    Circle()
+                        .fill(isActive ? Color.accentColor.opacity(0.2) : Color.clear)
+                }
+            }
+            .overlay(
+                Circle()
+                    .stroke(configuration.isPressed ? AppColors.borderStrong : AppColors.borderSubtle, lineWidth: PanelLayout.borderWidth)
+            )
+            .opacity(configuration.isPressed ? 0.7 : 1.0)
+            .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
+            .animation(AppAnimations.quick, value: configuration.isPressed)
+    }
+}
+
+// MARK: - Glass Toggle Button Style
+
+/// A button style for toggle buttons that show on/off state
+struct GlassToggleButtonStyle: ButtonStyle {
+    var isOn: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(Typography.button)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
+            .foregroundColor(isOn ? .white : .secondary)
+            .background {
+                if #available(macOS 26, *) {
+                    Capsule()
+                        .fill(.clear)
+                        .glassEffect(
+                            isOn ? .regular.tint(.accentColor) : .clear,
+                            in: Capsule()
+                        )
+                } else {
+                    Capsule()
+                        .fill(isOn ? Color.accentColor.opacity(0.3) : Color.clear)
+                }
+            }
+            .overlay(
+                Capsule()
+                    .stroke(isOn ? Color.accentColor : AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
+            )
+            .opacity(configuration.isPressed ? 0.7 : 1.0)
+            .animation(AppAnimations.quick, value: configuration.isPressed)
+    }
+}
+
+// MARK: - Reduced Motion Modifier
+
+/// A view modifier that respects the user's reduced motion preference.
+///
+/// ## Usage
+/// ```swift
+/// withAnimation(reduceMotion ? nil : AppAnimations.standard) {
+///     isExpanded.toggle()
+/// }
+/// ```
+struct ReducedMotionModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
+
+    let animation: Animation
+
+    func body(content: Content) -> some View {
+        content
+            .animation(reduceMotion ? nil : animation, value: UUID())
+    }
+}
+
+extension View {
+    /// Applies animation only if reduced motion is not enabled
+    func animationWithReducedMotion(_ animation: Animation) -> some View {
+        modifier(ReducedMotionModifier(animation: animation))
     }
 }
 

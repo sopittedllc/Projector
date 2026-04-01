@@ -65,9 +65,10 @@ struct VitalControlsBar: View {
             // Right: Settings
             Button(action: onSettingsPressed) {
                 Image(systemName: "gearshape")
-                    .frame(width: 18, height: 18)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(GlassIconButtonStyle(size: 18))
+            .accessibilityLabel("Settings")
+            .help("Open settings")
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
@@ -84,26 +85,27 @@ struct VitalControlsBar: View {
     private var startTCControl: some View {
         HStack(spacing: Spacing.xs) {
             Text("Start TC:")
-                .font(.system(size: 10, weight: .medium))
+                .font(Typography.label)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .fixedSize()
 
             TextField("00:00:00:00", text: $editingStartTCText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(Typography.mono)
                 .frame(width: 85)
                 .padding(.horizontal, Spacing.sm)
                 .padding(.vertical, Spacing.xs)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(isStartTCFocused ? Color.white.opacity(0.12) : Color.clear)
+                        .fill(isStartTCFocused ? AppColors.surfaceMedium : Color.clear)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
-                        .stroke(isStartTCFocused ? Color.accentColor : Color.clear, lineWidth: 1)
+                        .stroke(isStartTCFocused ? Color.accentColor : Color.clear, lineWidth: PanelLayout.borderWidth)
                 )
                 .focused($isStartTCFocused)
+                .accessibilityLabel("Start timecode")
                 .onChange(of: editingStartTCText) { _, newValue in
                     let formatted = formatTimecodeInput(newValue)
                     if formatted != newValue {
@@ -139,26 +141,27 @@ struct VitalControlsBar: View {
     private var durationControl: some View {
         HStack(spacing: Spacing.xs) {
             Text("Duration:")
-                .font(.system(size: 10, weight: .medium))
+                .font(Typography.label)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .fixedSize()
 
             TextField("00:00:00:00", text: $editingDurationText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(Typography.mono)
                 .frame(width: 85)
                 .padding(.horizontal, Spacing.sm)
                 .padding(.vertical, Spacing.xs)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(isDurationFocused ? Color.white.opacity(0.12) : Color.clear)
+                        .fill(isDurationFocused ? AppColors.surfaceMedium : Color.clear)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
-                        .stroke(isDurationFocused ? Color.accentColor : Color.clear, lineWidth: 1)
+                        .stroke(isDurationFocused ? Color.accentColor : Color.clear, lineWidth: PanelLayout.borderWidth)
                 )
                 .focused($isDurationFocused)
+                .accessibilityLabel("Duration")
                 .onChange(of: editingDurationText) { _, newValue in
                     let formatted = formatTimecodeInput(newValue)
                     if formatted != newValue {
@@ -196,13 +199,13 @@ struct VitalControlsBar: View {
     private var fpsControl: some View {
         HStack(spacing: Spacing.xs) {
             Text("FPS:")
-                .font(.system(size: 10, weight: .medium))
+                .font(Typography.label)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .fixedSize()
 
             Text(timelineManager.timeline.config.frameRate.displayName)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(Typography.mono)
                 .frame(minWidth: 45)
                 .foregroundColor(.primary)
                 .lineLimit(1)
@@ -211,6 +214,7 @@ struct VitalControlsBar: View {
         .padding(.vertical, Spacing.sm)
         .fixedSize()
         .glassControl()
+        .accessibilityLabel("Frame rate: \(timelineManager.timeline.config.frameRate.displayName) frames per second")
         .help("Frame rate is set by the video file")
     }
 
@@ -221,22 +225,23 @@ struct VitalControlsBar: View {
             // Play/Pause toggle - always enabled for MTC sync
             Button(action: { playbackEngine.togglePlayback() }) {
                 Image(systemName: playbackEngine.isPlaying ? "pause.fill" : "play.fill")
-                    .frame(width: 16, height: 16)
+                    .font(Typography.icon)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(GlassTransportButtonStyle(isActive: playbackEngine.isPlaying))
             .keyboardShortcut(.space, modifiers: [])
-            .help(playbackEngine.isPlaying ? "Pause" : "Play")
+            .accessibilityLabel(playbackEngine.isPlaying ? "Pause" : "Play")
+            .help(playbackEngine.isPlaying ? "Pause (Space)" : "Play (Space)")
 
             // Stop - always enabled, stops playback and returns to start
             Button(action: { playbackEngine.stop() }) {
                 Image(systemName: "stop.fill")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Typography.icon)
             }
-            .buttonStyle(.plain)
-            .help("Stop")
+            .buttonStyle(GlassTransportButtonStyle())
+            .accessibilityLabel("Stop")
+            .help("Stop and return to start")
         }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
+        .padding(.horizontal, Spacing.sm)
         .glassControl()
     }
 

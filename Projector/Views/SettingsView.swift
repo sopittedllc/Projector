@@ -26,13 +26,12 @@ struct SettingsView: View {
             // Header
             HStack {
                 Text("Settings")
-                    .font(.title2)
-                    .fontWeight(.semibold)
+                    .font(Typography.title)
                 Spacer()
             }
-            .padding(.horizontal)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
+            .padding(.horizontal, Spacing.md)
+            .padding(.top, Spacing.lg)
+            .padding(.bottom, Spacing.sm)
 
             Divider()
 
@@ -89,7 +88,7 @@ struct SettingsView: View {
             }
             .padding()
         }
-        .frame(width: 450, height: 650)
+        .frame(width: SettingsLayout.width, height: SettingsLayout.height)
         .sheet(isPresented: $showInterfaceMapping) {
             AudioOutputMappingView(
                 audioManager: audioManager,
@@ -112,38 +111,40 @@ struct SettingsView: View {
             Button(action: { isExpanded.wrappedValue.toggle() }) {
                 HStack(spacing: Spacing.sm) {
                     Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(Typography.iconSmall)
                         .foregroundColor(.secondary)
-                        .frame(width: 12)
+                        .frame(width: Spacing.md)
 
                     Label(title, systemImage: icon)
-                        .font(.headline)
+                        .font(Typography.heading)
                         .foregroundColor(.primary)
 
                     Spacer()
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("\(title) section, \(isExpanded.wrappedValue ? "expanded" : "collapsed")")
+            .accessibilityHint("Double-tap to \(isExpanded.wrappedValue ? "collapse" : "expand")")
 
             // Content
             if isExpanded.wrappedValue {
                 VStack(alignment: .leading, spacing: Spacing.md) {
                     content()
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
+                .padding(.horizontal, Spacing.md)
+                .padding(.bottom, Spacing.md)
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+            RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
+                .stroke(AppColors.borderMedium, lineWidth: PanelLayout.borderWidth)
         )
     }
 
@@ -152,22 +153,22 @@ struct SettingsView: View {
     private var midiInfoSection: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             Label("MIDI", systemImage: "pianokeys")
-                .font(.headline)
+                .font(Typography.heading)
 
             Text("On launch, Projector creates a \"Projector MIDI IN\" port. Within your DAW, send MTC and MMC to that port and you're good to go!")
-                .font(.subheadline)
+                .font(Typography.body)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+            RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
+                .stroke(AppColors.borderMedium, lineWidth: PanelLayout.borderWidth)
         )
     }
 
@@ -179,38 +180,39 @@ struct SettingsView: View {
             if let viewModel = midiSyncViewModel {
                 VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("Current Status")
-                        .font(.subheadline)
+                        .font(Typography.subheading)
                         .foregroundColor(.secondary)
 
                     // Inline sync status display
                     HStack(spacing: Spacing.sm) {
                         Circle()
                             .fill(viewModel.syncStatusColor)
-                            .frame(width: 8, height: 8)
+                            .frame(width: Spacing.sm, height: Spacing.sm)
                             .shadow(color: viewModel.syncStatusColor.opacity(0.5), radius: 2)
 
                         Text(viewModel.syncStatusText)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .font(Typography.monoSmall)
                             .foregroundColor(.secondary)
 
                         if viewModel.mtcState == .sync {
                             HStack(spacing: Spacing.xs) {
                                 Image(systemName: "waveform.path.ecg")
-                                    .font(.system(size: 9))
+                                    .font(Typography.iconTiny)
                                     .foregroundColor(viewModel.driftColor)
 
                                 Text(viewModel.driftString)
-                                    .font(.system(size: 10, design: .monospaced))
+                                    .font(Typography.monoSmall)
                                     .foregroundColor(viewModel.driftColor)
                             }
                         }
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, Spacing.sm)
+                    .padding(.vertical, Spacing.xs)
                     .background(
-                        RoundedRectangle(cornerRadius: 4)
+                        RoundedRectangle(cornerRadius: Spacing.xs)
                             .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
                     )
+                    .accessibilityLabel("Sync status: \(viewModel.syncStatusText)")
                 }
             }
 
@@ -218,12 +220,12 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 HStack {
                     Text("Re-sync Threshold")
-                        .font(.subheadline)
+                        .font(Typography.subheading)
 
                     Spacer()
 
                     Text("\(settings.syncDriftThreshold) frames")
-                        .font(.system(.subheadline, design: .monospaced))
+                        .font(Typography.mono)
                         .foregroundColor(.secondary)
                 }
 
@@ -235,9 +237,11 @@ struct SettingsView: View {
                     in: 1...15,
                     step: 1
                 )
+                .accessibilityLabel("Re-sync threshold")
+                .accessibilityValue("\(settings.syncDriftThreshold) frames")
 
                 Text("Higher values reduce stuttering during minor drift. Lower values maintain tighter sync accuracy.")
-                    .font(.caption)
+                    .font(Typography.caption)
                     .foregroundColor(.secondary)
             }
 
@@ -246,13 +250,13 @@ struct SettingsView: View {
             // Auto-play/pause settings
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 Toggle("Auto-play when MTC starts", isOn: $settings.autoPlayOnMTC)
-                    .font(.subheadline)
+                    .font(Typography.body)
 
                 Toggle("Auto-pause when MTC stops", isOn: $settings.autoPauseOnMTCStop)
-                    .font(.subheadline)
+                    .font(Typography.body)
 
                 Toggle("Respond to MMC commands", isOn: $settings.respondToMMC)
-                    .font(.subheadline)
+                    .font(Typography.body)
             }
         }
     }
@@ -263,7 +267,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 Text("Output Device")
-                    .font(.subheadline)
+                    .font(Typography.subheading)
                     .foregroundColor(.secondary)
 
                 HStack(spacing: Spacing.sm) {
@@ -282,6 +286,7 @@ struct SettingsView: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                    .accessibilityLabel("Audio output device")
 
                     RefreshIconButton(helpText: "Refresh Devices") {
                         audioManager.refreshDevices()
@@ -296,31 +301,32 @@ struct SettingsView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.accentColor)
                 .disabled(audioManager.selectedDeviceChannelCount == 0)
+                .accessibilityLabel("Map audio interface outputs")
             }
 
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 if audioManager.selectedDeviceChannelCount == 0 {
                     Text("No output channels detected for this device.")
-                        .font(.caption)
+                        .font(Typography.caption)
                         .foregroundColor(.secondary)
                 }
 
                 VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("Mapped Outputs")
-                        .font(.caption)
+                        .font(Typography.caption)
                         .foregroundColor(.secondary)
 
                     if audioManager.mappedOutputs.isEmpty {
                         Text("No mapped outputs yet.")
-                            .font(.caption)
+                            .font(Typography.caption)
                             .foregroundColor(.secondary)
                     } else {
                         ForEach(audioManager.mappedOutputs) { output in
                             HStack(spacing: Spacing.sm) {
                                 Text(output.name)
-                                    .font(.system(size: 11, weight: .medium))
+                                    .font(Typography.button)
                                 Text(outputChannelLabel(output))
-                                    .font(.system(size: 10))
+                                    .font(Typography.caption)
                                     .foregroundColor(.secondary)
                             }
                         }
@@ -343,12 +349,12 @@ struct SettingsView: View {
     private var displaySectionContent: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             Toggle("Show Timecode Overlay", isOn: $settings.showTimecodeOverlay)
-                .font(.subheadline)
+                .font(Typography.body)
 
             if settings.showTimecodeOverlay {
                 VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("Overlay Position")
-                        .font(.subheadline)
+                        .font(Typography.subheading)
                         .foregroundColor(.secondary)
 
                     Picker("Position", selection: $settings.timecodeOverlayPosition) {
@@ -358,14 +364,17 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+                    .accessibilityLabel("Timecode overlay position")
                 }
 
                 VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("Overlay Opacity: \(Int(settings.timecodeOverlayOpacity * 100))%")
-                        .font(.subheadline)
+                        .font(Typography.subheading)
                         .foregroundColor(.secondary)
 
                     Slider(value: $settings.timecodeOverlayOpacity, in: 0.3...1.0)
+                        .accessibilityLabel("Overlay opacity")
+                        .accessibilityValue("\(Int(settings.timecodeOverlayOpacity * 100)) percent")
                 }
             }
         }
@@ -382,19 +391,20 @@ private struct RefreshIconButton: View {
 
     var body: some View {
         Button(action: {
-            withAnimation(.easeInOut(duration: 0.6)) {
+            withAnimation(AppAnimations.slow) {
                 rotation += 360
             }
             action()
         }) {
             Image(systemName: "arrow.clockwise")
-                .font(.system(size: 12, weight: .semibold))
+                .font(Typography.icon)
                 .rotationEffect(.degrees(rotation))
-                .animation(.easeInOut(duration: 0.6), value: rotation)
+                .animation(AppAnimations.slow, value: rotation)
         }
         .buttonStyle(.plain)
         .foregroundColor(.secondary)
         .help(helpText)
+        .accessibilityLabel(helpText)
         .onHover { hovering in
             if hovering, !isHovering {
                 NSCursor.pointingHand.push()
@@ -433,18 +443,17 @@ private struct AudioOutputMappingView: View {
             HStack {
                 VStack(alignment: .leading, spacing: Spacing.xs) {
                     Text("Map Interface")
-                        .font(.title2)
-                        .fontWeight(.semibold)
+                        .font(Typography.title)
 
                     Text(mappingSubtitle)
-                        .font(.caption)
+                        .font(Typography.caption)
                         .foregroundColor(.secondary)
                 }
                 Spacer()
             }
-            .padding(.horizontal)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
+            .padding(.horizontal, Spacing.md)
+            .padding(.top, Spacing.lg)
+            .padding(.bottom, Spacing.sm)
 
             Divider()
 
@@ -452,9 +461,9 @@ private struct AudioOutputMappingView: View {
                 VStack(alignment: .leading, spacing: Layout.rowSpacing) {
                     if rows.isEmpty {
                         Text("No outputs available on this device.")
-                            .font(.caption)
+                            .font(Typography.caption)
                             .foregroundColor(.secondary)
-                            .padding(.top, 8)
+                            .padding(.top, Spacing.sm)
                     } else {
                         mappingHeaderRow
                         ForEach(rows.indices, id: \.self) { index in
@@ -531,17 +540,17 @@ private struct AudioOutputMappingView: View {
                     .frame(width: Layout.activeWidth, height: 1)
 
                 Text("Output \(row.channelIndex)")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Typography.body)
                     .foregroundColor(.secondary)
                     .frame(width: Layout.outputWidth, alignment: .leading)
 
                 Text("Paired")
-                    .font(.system(size: 11))
+                    .font(Typography.bodySmall)
                     .foregroundColor(.secondary)
                     .frame(width: Layout.modeWidth, alignment: .leading)
 
                 Text("with Output \(row.channelIndex - 1)")
-                    .font(.system(size: 11))
+                    .font(Typography.bodySmall)
                     .foregroundColor(.secondary)
                     .frame(width: Layout.displayWidth, alignment: .leading)
             } else {
@@ -550,9 +559,10 @@ private struct AudioOutputMappingView: View {
                     .labelsHidden()
                     .frame(width: Layout.activeWidth, alignment: .leading)
                     .controlSize(.small)
+                    .accessibilityLabel("Include Output \(row.channelIndex)")
 
                 Text("Output \(row.channelIndex)")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Typography.body)
                     .frame(width: Layout.outputWidth, alignment: .leading)
 
                 modeSelector(for: index)
@@ -563,6 +573,7 @@ private struct AudioOutputMappingView: View {
                     .frame(width: Layout.displayWidth)
                     .disabled(!rows[index].isIncluded)
                     .controlSize(.small)
+                    .accessibilityLabel("Display name for Output \(row.channelIndex)")
             }
         }
         .frame(height: Layout.rowHeight)
@@ -616,12 +627,12 @@ private struct AudioOutputMappingView: View {
     private var mappingHeaderRow: some View {
         HStack(spacing: Layout.columnSpacing) {
             Text("Active")
-                .font(.caption)
+                .font(Typography.caption)
                 .foregroundColor(.secondary)
                 .frame(width: Layout.activeWidth, alignment: .leading)
 
             Text("Output Name")
-                .font(.caption)
+                .font(Typography.caption)
                 .foregroundColor(.secondary)
                 .frame(width: Layout.outputWidth, alignment: .leading)
 
@@ -629,7 +640,7 @@ private struct AudioOutputMappingView: View {
                 .frame(width: Layout.modeWidth, height: 1)
 
             Text("Display Name")
-                .font(.caption)
+                .font(Typography.caption)
                 .foregroundColor(.secondary)
                 .frame(width: Layout.displayWidth, alignment: .leading)
         }
