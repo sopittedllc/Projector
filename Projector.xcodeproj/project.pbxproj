@@ -24,7 +24,6 @@
 		A1000001227D3F0000000064 /* SwiftTimecodeCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1000001227D3F0000000063 /* SwiftTimecodeCore */; };
 		A1000001227D3F0000000066 /* SwiftTimecodeAV in Frameworks */ = {isa = PBXBuildFile; productRef = A1000001227D3F0000000065 /* SwiftTimecodeAV */; };
 		A1000001227D3F0000000068 /* SwiftTimecodeUI in Frameworks */ = {isa = PBXBuildFile; productRef = A1000001227D3F0000000067 /* SwiftTimecodeUI */; };
-		A1000001227D3F0000000070 /* MIDIManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F000000006F /* MIDIManager.swift */; };
 		A1000001227D3F0000000072 /* AudioOutputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000071 /* AudioOutputManager.swift */; };
 		A1000001227D3F0000000074 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000073 /* SettingsView.swift */; };
 		A1000001227D3F0000000076 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000075 /* AppSettings.swift */; };
@@ -60,11 +59,11 @@
 		B19B58B82F0889F200FA33EC /* MIDISyncViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B62F0889F200FA33EC /* MIDISyncViewModel.swift */; };
 		B19B58B92F0889F200FA33EC /* MIDISyncServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B12F0889F200FA33EC /* MIDISyncServiceProtocol.swift */; };
 		B19B58BA2F0889F200FA33EC /* LayoutConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B42F0889F200FA33EC /* LayoutConstants.swift */; };
+		DEBUGLOG00000002 /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBUGLOG00000001 /* DebugLog.swift */; };
 		B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */; };
 		B19B58BD2F088AEA00FA33EC /* MIDISyncActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */; };
 		B19B58BF2F088BFF00FA33EC /* TimelineViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */; };
 		B19B58C12F088CFF00FA33EC /* VitalControlsBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58C02F088CFF00FA33EC /* VitalControlsBar.swift */; };
-		B1ICONOIR000000001 /* Iconoir in Frameworks */ = {isa = PBXBuildFile; productRef = B1ICONOIR000000002 /* Iconoir */; };
 		BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */; };
 		BTCS0001BATCHSHEET01 /* BatchTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */; };
 		C1CONSOLID0001 /* ConsolidateMediaButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1CONSOLID0002 /* ConsolidateMediaButton.swift */; };
@@ -176,7 +175,6 @@
 		A1000001227D3F0000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1000001227D3F0000000019 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1000001227D3F000000001A /* Projector.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Projector.entitlements; sourceTree = "<group>"; };
-		A1000001227D3F000000006F /* MIDIManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDIManager.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000071 /* AudioOutputManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioOutputManager.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000073 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000075 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
@@ -206,6 +204,7 @@
 		B19B58B12F0889F200FA33EC /* MIDISyncServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncServiceProtocol.swift; sourceTree = "<group>"; };
 		B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportServiceProtocol.swift; sourceTree = "<group>"; };
 		B19B58B42F0889F200FA33EC /* LayoutConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutConstants.swift; sourceTree = "<group>"; };
+		DEBUGLOG00000001 /* DebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLog.swift; sourceTree = "<group>"; };
 		B19B58B62F0889F200FA33EC /* MIDISyncViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncViewModel.swift; sourceTree = "<group>"; };
 		B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncActor.swift; sourceTree = "<group>"; };
 		B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineViewModel.swift; sourceTree = "<group>"; };
@@ -297,7 +296,6 @@
 				A1000001227D3F0000000064 /* SwiftTimecodeCore in Frameworks */,
 				A1000001227D3F0000000066 /* SwiftTimecodeAV in Frameworks */,
 				A1000001227D3F0000000068 /* SwiftTimecodeUI in Frameworks */,
-				B1ICONOIR000000001 /* Iconoir in Frameworks */,
 				C1WAVEFORM000003 /* DSWaveformImageViews in Frameworks */,
 				C1WAVEFORM000005 /* DSWaveformImage in Frameworks */,
 			);
@@ -402,7 +400,6 @@
 				F1CB65275AFE49C6AFD24B05 /* MediaOptimizationService.swift */,
 				B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */,
 				CECA2DAB208F6AEF41EA14F6 /* EmbeddedTimecodeService.swift */,
-				A1000001227D3F000000006F /* MIDIManager.swift */,
 				A1000001227D3F0000000071 /* AudioOutputManager.swift */,
 				LSQLICENSE000010 /* LicenseManager.swift */,
 				A1000001227D3F0000000083 /* WaveformGenerator.swift */,
@@ -517,6 +514,7 @@
 			isa = PBXGroup;
 			children = (
 				B19B58B42F0889F200FA33EC /* LayoutConstants.swift */,
+				DEBUGLOG00000001 /* DebugLog.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -601,7 +599,6 @@
 				A1000001227D3F0000000063 /* SwiftTimecodeCore */,
 				A1000001227D3F0000000065 /* SwiftTimecodeAV */,
 				A1000001227D3F0000000067 /* SwiftTimecodeUI */,
-				B1ICONOIR000000002 /* Iconoir */,
 				C1WAVEFORM000002 /* DSWaveformImageViews */,
 				C1WAVEFORM000004 /* DSWaveformImage */,
 			);
@@ -687,7 +684,6 @@
 			packageReferences = (
 				A1000001227D3F000000005D /* XCRemoteSwiftPackageReference "MIDIKit" */,
 				A1000001227D3F000000005E /* XCRemoteSwiftPackageReference "swift-timecode" */,
-				B1ICONOIR000000003 /* XCRemoteSwiftPackageReference "iconoir-swift" */,
 				C1WAVEFORM000001 /* XCRemoteSwiftPackageReference "DSWaveformImage" */,
 			);
 			productRefGroup = A1000001227D3F000000002F /* Products */;
@@ -783,6 +779,7 @@
 				B19B58C12F088CFF00FA33EC /* VitalControlsBar.swift in Sources */,
 				B19B58B92F0889F200FA33EC /* MIDISyncServiceProtocol.swift in Sources */,
 				B19B58BA2F0889F200FA33EC /* LayoutConstants.swift in Sources */,
+				DEBUGLOG00000002 /* DebugLog.swift in Sources */,
 				B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */,
 				BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */,
 				67053C082F0B787BAEF7B06D /* EmbeddedTimecodeService.swift in Sources */,
@@ -794,7 +791,6 @@
 				MODIFIERS002CONTENTVIEW /* ContentViewModifiers.swift in Sources */,
 				A1000001227D3F00000000B3 /* VideoPlayerView.swift in Sources */,
 				A1000001227D3F00000000B4 /* TransportBarView.swift in Sources */,
-				A1000001227D3F0000000070 /* MIDIManager.swift in Sources */,
 				A1000001227D3F0000000072 /* AudioOutputManager.swift in Sources */,
 				LSQLICENSE000011 /* LicenseManager.swift in Sources */,
 				A1000001227D3F0000000074 /* SettingsView.swift in Sources */,
@@ -1270,14 +1266,6 @@
 				minimumVersion = 3.0.0;
 			};
 		};
-		B1ICONOIR000000003 /* XCRemoteSwiftPackageReference "iconoir-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/iconoir-icons/iconoir-swift";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 7.0.0;
-			};
-		};
 		C1WAVEFORM000001 /* XCRemoteSwiftPackageReference "DSWaveformImage" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/dmrschmidt/DSWaveformImage";
@@ -1313,11 +1301,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A1000001227D3F000000005E /* XCRemoteSwiftPackageReference "swift-timecode" */;
 			productName = SwiftTimecodeUI;
-		};
-		B1ICONOIR000000002 /* Iconoir */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B1ICONOIR000000003 /* XCRemoteSwiftPackageReference "iconoir-swift" */;
-			productName = Iconoir;
 		};
 		C1WAVEFORM000002 /* DSWaveformImageViews */ = {
 			isa = XCSwiftPackageProductDependency;

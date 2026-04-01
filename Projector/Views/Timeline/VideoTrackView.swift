@@ -1,7 +1,6 @@
 import SwiftUI
 import Foundation
 import UniformTypeIdentifiers
-import Iconoir
 import AVFoundation
 
 /// Video track container showing all video reels on the timeline
@@ -73,7 +72,7 @@ struct VideoTrackView: View {
                     if let firstReel = timelineManager.timeline.videoReels.first {
                         videoMetadataView(for: firstReel)
                     } else {
-                        Iconoir.videoCamera.asImage
+                        Image(systemName: "video")
                             .frame(width: 14, height: 14)
                             .foregroundColor(.secondary)
 
@@ -163,7 +162,7 @@ struct VideoTrackView: View {
 
     private var emptyDropPrompt: some View {
         VStack(spacing: Spacing.xs) {
-            Iconoir.mediaVideo.asImage
+            Image(systemName: "film")
                 .frame(width: 20, height: 20)
                 .foregroundColor(.secondary.opacity(0.6))
 

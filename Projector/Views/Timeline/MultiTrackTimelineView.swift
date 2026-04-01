@@ -1,7 +1,6 @@
 import SwiftUI
 import Foundation
 import SwiftTimecodeCore
-import Iconoir
 import UniformTypeIdentifiers
 import AVFoundation
 import AppKit
@@ -566,7 +565,7 @@ struct MultiTrackTimelineView: View {
 
                 // Settings button
                 Button(action: onSettingsPressed) {
-                    Iconoir.settings.asImage
+                    Image(systemName: "gearshape")
                         .frame(width: 18, height: 18)
                 }
                 .buttonStyle(.plain)
@@ -582,14 +581,14 @@ struct MultiTrackTimelineView: View {
     private var transportControls: some View {
         HStack(spacing: Spacing.sm) {
             Button(action: { playbackEngine.stepBackward() }) {
-                Iconoir.skipPrev.asImage
+                Image(systemName: "backward.fill")
                     .frame(width: 14, height: 14)
             }
             .buttonStyle(.plain)
             .disabled(!playbackEngine.hasContent)
 
             Button(action: { playbackEngine.togglePlayback() }) {
-                (playbackEngine.isPlaying ? Iconoir.pauseSolid.asImage : Iconoir.playSolid.asImage)
+                Image(systemName: playbackEngine.isPlaying ? "pause.fill" : "play.fill")
                     .frame(width: 16, height: 16)
             }
             .buttonStyle(.plain)
@@ -597,14 +596,14 @@ struct MultiTrackTimelineView: View {
             .keyboardShortcut(.space, modifiers: [])
 
             Button(action: { playbackEngine.stepForward() }) {
-                Iconoir.skipNext.asImage
+                Image(systemName: "forward.fill")
                     .frame(width: 14, height: 14)
             }
             .buttonStyle(.plain)
             .disabled(!playbackEngine.hasContent)
 
             Button(action: { playbackEngine.stop() }) {
-                Iconoir.square.asImage
+                Image(systemName: "stop.fill")
                     .frame(width: 14, height: 14)
             }
             .buttonStyle(.plain)

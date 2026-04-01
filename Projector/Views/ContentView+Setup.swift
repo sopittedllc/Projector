@@ -16,7 +16,7 @@ extension ContentView {
                     await midiSyncViewModel.selectInput(settings.selectedMIDIInput)
                 }
             } catch {
-                print("Failed to start MIDI sync: \(error)")
+                debugLog("Failed to start MIDI sync: \(error)")
             }
         }
 

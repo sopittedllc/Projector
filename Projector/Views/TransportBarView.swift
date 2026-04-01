@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftTimecodeCore
-import Iconoir
 
 /// Shared height for transport bar control boxes
 private let controlBoxHeight: CGFloat = TransportLayout.controlBoxHeight
@@ -37,14 +36,14 @@ struct TransportBarView: View {
             // Transport controls
             HStack(spacing: Spacing.sm) {
                 Button(action: { playbackEngine.stepBackward() }) {
-                    Iconoir.skipPrev.asImage
+                    Image(systemName: "backward.fill")
                         .frame(width: 16, height: 16)
                 }
                 .buttonStyle(GlassTransportButtonStyle())
                 .disabled(!playbackEngine.hasContent)
 
                 Button(action: { playbackEngine.togglePlayback() }) {
-                    (playbackEngine.isPlaying ? Iconoir.pauseSolid.asImage : Iconoir.playSolid.asImage)
+                    Image(systemName: playbackEngine.isPlaying ? "pause.fill" : "play.fill")
                         .frame(width: 18, height: 18)
                 }
                 .buttonStyle(GlassTransportButtonStyle(isActive: playbackEngine.isPlaying))
@@ -52,14 +51,14 @@ struct TransportBarView: View {
                 .keyboardShortcut(.space, modifiers: [])
 
                 Button(action: { playbackEngine.stepForward() }) {
-                    Iconoir.skipNext.asImage
+                    Image(systemName: "forward.fill")
                         .frame(width: 16, height: 16)
                 }
                 .buttonStyle(GlassTransportButtonStyle())
                 .disabled(!playbackEngine.hasContent)
 
                 Button(action: { playbackEngine.stop() }) {
-                    Iconoir.square.asImage
+                    Image(systemName: "stop.fill")
                         .frame(width: 16, height: 16)
                 }
                 .buttonStyle(GlassTransportButtonStyle())
@@ -73,7 +72,7 @@ struct TransportBarView: View {
 
             // Right: Settings
             Button(action: onSettingsPressed) {
-                Iconoir.settings.asImage
+                Image(systemName: "gearshape")
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(GlassTransportButtonStyle())

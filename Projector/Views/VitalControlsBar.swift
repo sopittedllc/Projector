@@ -7,7 +7,6 @@
 
 import SwiftUI
 import SwiftTimecodeCore
-import Iconoir
 
 /// The vital controls bar containing transport, timecode editing, zoom, and settings.
 ///
@@ -63,7 +62,7 @@ struct VitalControlsBar: View {
             Spacer(minLength: 12)
 
             Button(action: onSettingsPressed) {
-                Iconoir.settings.asImage
+                Image(systemName: "gearshape")
                     .frame(width: 18, height: 18)
             }
             .buttonStyle(.plain)
@@ -209,7 +208,7 @@ struct VitalControlsBar: View {
         HStack(spacing: Spacing.sm) {
             // Play/Pause toggle - always enabled for MTC sync
             Button(action: { playbackEngine.togglePlayback() }) {
-                (playbackEngine.isPlaying ? Iconoir.pauseSolid.asImage : Iconoir.playSolid.asImage)
+                Image(systemName: playbackEngine.isPlaying ? "pause.fill" : "play.fill")
                     .frame(width: 16, height: 16)
             }
             .buttonStyle(.plain)

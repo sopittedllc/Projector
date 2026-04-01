@@ -221,7 +221,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// ```
     public func start() async throws {
         do {
-            print("[MIDISyncActor] Starting MIDI services...")
+            debugLog("Starting MIDI services...")
             let manager = MIDIKitIO.MIDIManager(
                 clientName: "Projector",
                 model: "Projector",
@@ -230,30 +230,28 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
             try manager.start()
             self.midiManager = manager
-            print("[MIDISyncActor] MIDI manager started")
+            debugLog("MIDI manager started")
 
             setupMTCReceiver()
-            print("[MIDISyncActor] MTC receiver configured")
+            debugLog("MTC receiver configured")
 
             setupVirtualInput()
-            print("[MIDISyncActor] Virtual input created")
+            debugLog("Virtual input created")
 
             setupVirtualOutput()
-            print("[MIDISyncActor] Virtual output created")
+            debugLog("Virtual output created")
 
             await refreshAvailableInputs()
-            print("[MIDISyncActor] Available inputs: \(availableInputs)")
+            debugLog("Available inputs: \(availableInputs)")
 
             reconnectInput()
-            print("[MIDISyncActor] Connected to input: \(selectedInputName ?? "none")")
+            debugLog("Connected to input: \(selectedInputName ?? "none")")
 
             setupNotificationObservers()
 
             debugLog("MIDISyncActor started successfully")
-            print("[MIDISyncActor] Started successfully")
         } catch {
             debugLog("Failed to start MIDI services: \(error)")
-            print("[MIDISyncActor] Failed to start: \(error)")
             throw MIDISyncError.startupFailed(underlyingError: error)
         }
     }
@@ -429,18 +427,14 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
                 tag: Self.virtualInputTag,
                 uniqueID: .userDefaultsManaged(key: "ProjectorMIDIInputUID"),
                 receiver: .events { [weak self] events, _, _ in
-                    // Log immediately when MIDI arrives (before actor hop)
-                    print("[MIDI RAW] Received \(events.count) event(s)")
                     // CRITICAL: Wrap in Task to hop to actor context
                     Task { [weak self] in
                         await self?.handleMIDIEvents(events)
                     }
                 }
             )
-            print("[MIDISyncActor] Virtual MIDI input '\(Self.virtualInputName)' created successfully")
             debugLog("Virtual MIDI input '\(Self.virtualInputName)' created")
         } catch {
-            print("[MIDISyncActor] FAILED to create virtual MIDI input: \(error)")
             debugLog("Failed to create virtual MIDI input: \(error)")
         }
     }
@@ -540,17 +534,17 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             // Check for SysEx messages (MTC Full Frame, MMC commands, Identity Request)
             switch event {
             case .sysEx7(let sysEx):
-                print("[MIDI] SysEx7: \(sysEx.data.map { String(format: "%02X", $0) }.joined(separator: " "))")
+                debugLog("SysEx7: \(sysEx.data.map { String(format: "%02X", $0) }.joined(separator: " "))")
                 handleSysEx(sysEx.data)
             case .universalSysEx7(let universalSysEx):
-                print("[MIDI] UniversalSysEx7: type=\(universalSysEx.universalType), subID1=\(universalSysEx.subID1), subID2=\(universalSysEx.subID2)")
+                debugLog("UniversalSysEx7: type=\(universalSysEx.universalType), subID1=\(universalSysEx.subID1), subID2=\(universalSysEx.subID2)")
                 handleUniversalSysEx(universalSysEx)
             case .timecodeQuarterFrame:
                 // MTC quarter frames - don't log each one (too noisy)
                 break
             default:
                 // Log other event types we might be missing
-                print("[MIDI] Other event: \(event)")
+                debugLog("Other event: \(event)")
             }
         }
     }
@@ -628,7 +622,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         dropoutCounter = 0
 
         if displayNeedsUpdate {
-            print("[MTC] Timecode: \(timecode.stringValue())")
+            debugLog("MTC Timecode: \(timecode.stringValue())")
             mtcTimecode = timecode
             emitState()
         }
@@ -642,7 +636,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         mtcState = convertMTCState(state)
         isReceivingMTC = mtcState.isReceiving
 
-        print("[MTC] State changed: \(previousState.displayName) -> \(mtcState.displayName)")
+        debugLog("MTC State changed: \(previousState.displayName) -> \(mtcState.displayName)")
 
         // Update sync quality metrics based on state transitions
         switch mtcState {
@@ -897,7 +891,6 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         lastMMCCommand = command
         emitState()
         debugLog("MMC COMMAND RECEIVED: \(command.displayName)")
-        print("[MIDISyncActor] MMC COMMAND: \(command.displayName)")
     }
 
     // MARK: - Utility Methods

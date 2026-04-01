@@ -3,7 +3,6 @@ import UniformTypeIdentifiers
 import AVFoundation
 import SwiftTimecodeCore
 import AppKit
-import Iconoir
 import Combine
 
 

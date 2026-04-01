@@ -1,6 +1,5 @@
 import SwiftUI
 import UniformTypeIdentifiers
-import Iconoir
 import AppKit
 
 /// File manager panel for importing and organizing media files
@@ -229,7 +228,7 @@ struct FileManagerView: View {
                         .foregroundColor(.secondary)
                         .frame(width: 12)
 
-                    Iconoir.folder.asImage
+                    Image(systemName: "folder")
                         .frame(width: 14, height: 14)
                         .foregroundColor(.secondary)
 
@@ -266,7 +265,7 @@ struct FileManagerView: View {
                 // Import button
                 Button(action: importMedia) {
                     HStack(spacing: Spacing.xs) {
-                        Iconoir.plus.asImage
+                        Image(systemName: "plus")
                             .frame(width: 12, height: 12)
                         Text("Import")
                     }
@@ -324,7 +323,7 @@ struct FileManagerView: View {
 
     private var emptyStateView: some View {
         VStack(spacing: Spacing.sm) {
-            Iconoir.mediaVideo.asImage
+            Image(systemName: "film")
                 .frame(width: 32, height: 32)
                 .foregroundColor(.secondary.opacity(0.5))
 
@@ -453,7 +452,7 @@ struct FileManagerView: View {
             .background(Color.accentColor.opacity(0.1))
             .overlay(
                 VStack(spacing: Spacing.sm) {
-                    Iconoir.plus.asImage
+                    Image(systemName: "plus")
                         .frame(width: 32, height: 32)
                         .foregroundColor(.accentColor)
 
@@ -709,9 +708,9 @@ struct MediaGridCell: View {
     private var typeIcon: some View {
         switch item.type {
         case .video:
-            Iconoir.videoCamera.asImage
+            Image(systemName: "video")
         case .audio:
-            Iconoir.musicDoubleNote.asImage
+            Image(systemName: "music.note.list")
         }
     }
 

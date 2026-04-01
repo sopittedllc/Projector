@@ -1,5 +1,4 @@
 import SwiftUI
-import Iconoir
 
 /// Modifier flags for selection operations
 struct SelectionModifiers: OptionSet {

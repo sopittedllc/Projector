@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 import SwiftTimecodeCore
 import AVFoundation
 import AppKit
-import Iconoir
 
 /// Audio lane container showing clips and lane controls
 struct AudioLaneView: View {
@@ -321,7 +320,7 @@ struct AudioLaneView: View {
 
     private var emptyDropPrompt: some View {
         HStack(spacing: Spacing.xs) {
-            Iconoir.musicDoubleNote.asImage
+            Image(systemName: "music.note.list")
                 .frame(width: 14, height: 14)
                 .foregroundColor(.secondary.opacity(0.5))
 

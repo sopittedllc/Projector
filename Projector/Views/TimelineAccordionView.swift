@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Iconoir
 import AppKit
 
 /// A collapsible accordion panel containing the multi-track timeline.
@@ -104,7 +103,7 @@ struct TimelineAccordionView: View {
                         .foregroundColor(.secondary)
                         .frame(width: 12)
 
-                    Iconoir.videoCamera.asImage
+                    Image(systemName: "video")
                         .frame(width: 14, height: 14)
                         .foregroundColor(.secondary)
 

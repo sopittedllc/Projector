@@ -1,7 +1,6 @@
 import SwiftUI
 import Foundation
 import UniformTypeIdentifiers
-import Iconoir
 
 enum MediaDragProvider {
     static func provider(for item: MediaItem) -> NSItemProvider {
@@ -139,9 +138,9 @@ struct MediaItemRow: View {
     private var thumbnailPlaceholderIcon: some View {
         switch item.type {
         case .video:
-            Iconoir.videoCamera.asImage
+            Image(systemName: "video")
         case .audio:
-            Iconoir.soundHigh.asImage
+            Image(systemName: "speaker.wave.3")
         }
     }
 
@@ -205,9 +204,9 @@ struct MediaItemRow: View {
     private var typeIcon: some View {
         switch item.type {
         case .video:
-            Iconoir.videoCamera.asImage
+            Image(systemName: "video")
         case .audio:
-            Iconoir.soundHigh.asImage
+            Image(systemName: "speaker.wave.3")
         }
     }
 }

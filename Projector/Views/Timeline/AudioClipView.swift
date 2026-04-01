@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftTimecodeCore
-import Iconoir
 
 /// Visual representation of a single audio clip on an audio lane
 struct AudioClipView: View {
@@ -58,7 +57,7 @@ struct AudioClipView: View {
 
                     // Muted indicator
                     if clip.isMuted {
-                        Iconoir.soundOff.asImage
+                        Image(systemName: "speaker.slash")
                             .frame(width: 10, height: 10)
                             .foregroundColor(.red)
                     }

@@ -1,7 +1,6 @@
 import SwiftUI
 import AVKit
 import SwiftTimecodeCore
-import Iconoir
 
 /// SwiftUI wrapper for AVPlayerView with fullscreen support
 struct VideoPlayerView: NSViewRepresentable {
@@ -59,8 +58,8 @@ struct VideoContentView: View {
                     .fill(Color.black)
                     .overlay {
                         VStack(spacing: Spacing.lg) {
-                            Iconoir.movie.asImage
-                                .frame(width: 64, height: 64)
+                            Image(systemName: "film")
+                                .font(.system(size: 48))
                                 .foregroundColor(.gray)
                             Text("Drop video files here")
                                 .font(.title2)
