@@ -2,13 +2,35 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- File Access: Read/write user-selected files -->
+	<!-- App Sandbox: REQUIRED for App Store distribution -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+
+	<!-- File Access: Read/write user-selected files (Open/Save dialogs, drag-drop) -->
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
-	<!-- Bookmarks: Persist access to user-selected files across launches -->
+
+	<!-- Bookmarks: Persist access to user-selected files across app launches -->
 	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>
-	<!-- Network: Allow outgoing connections for license validation -->
+
+	<!-- Bookmarks: Store file references within project documents -->
+	<key>com.apple.security.files.bookmarks.document-scope</key>
+	<true/>
+
+	<!-- Media: Read video/movie files for playback -->
+	<key>com.apple.security.assets.movies.read-write</key>
+	<true/>
+
+	<!-- Audio: Output audio to speakers/headphones -->
+	<key>com.apple.security.device.audio-output</key>
+	<true/>
+
+	<!-- MIDI: Access MIDI devices for MTC/MMC synchronization -->
+	<key>com.apple.security.device.midi</key>
+	<true/>
+
+	<!-- Network: Outgoing connections for license validation -->
 	<key>com.apple.security.network.client</key>
 	<true/>
 </dict>
