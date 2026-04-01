@@ -86,6 +86,8 @@ struct VitalControlsBar: View {
             Text("Start TC:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize()
 
             TextField("00:00:00:00", text: $editingStartTCText)
                 .textFieldStyle(.plain)
@@ -138,6 +140,8 @@ struct VitalControlsBar: View {
             Text("Duration:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize()
 
             TextField("00:00:00:00", text: $editingDurationText)
                 .textFieldStyle(.plain)
@@ -192,11 +196,14 @@ struct VitalControlsBar: View {
             Text("FPS:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize()
 
             Text(timelineManager.timeline.config.frameRate.displayName)
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .frame(minWidth: 45)
                 .foregroundColor(.primary)
+                .lineLimit(1)
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
