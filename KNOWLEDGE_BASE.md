@@ -2800,6 +2800,84 @@ guard needsCustomRouting else { return nil }
 
 ---
 
+### LL-005: Production Audits Must Include Visual/UI Review
+**Date**: 2026-03-31
+**Source**: User feedback during production readiness audit
+
+**Problem**: A "comprehensive audit" was performed that checked backend code (PlaybackEngine, audio routing, frame rates, MTC/MMC sync) but completely missed obvious UI issues: misaligned headers, inconsistent padding, cramped controls.
+
+**Root Cause**: The audit focused only on code logic and correctness. No systematic visual review was performed.
+
+**What Was Missed**:
+- Zoom controls flush against right edge (no trailing padding)
+- Track headers not aligned with panel headers (different left padding)
+- Empty state text using awkward `.offset()` instead of proper centering
+- Hardcoded magic numbers (3, 6, 10px) bypassing spacing system
+- Inconsistent padding patterns across similar controls
+
+**Solution**: Production audits MUST include these UI checks:
+
+1. **Layout Constants Audit**
+   - Grep for hardcoded padding values (3, 6, 10, etc.)
+   - Verify all spacing uses `Spacing.xs/sm/md/lg/xl/xxl`
+   - Check corner radii use constants
+
+2. **Alignment Audit**
+   - Compare left padding of panel headers vs content
+   - Check that related elements (track headers, lane headers) use identical spacing
+   - Verify empty states center properly
+
+3. **Visual Rhythm Audit**
+   - Check margins on all edges of controls (not just left/right)
+   - Verify consistent spacing between buttons in toolbars
+   - Confirm button padding matches across similar buttons
+
+4. **macOS HIG Compliance**
+   - Icon sizes follow standard (16, 18, 20, 24pt)
+   - Touch targets meet 44pt minimum
+   - 4pt grid system respected
+
+**Prevention Checklist** (add to all production audits):
+```
+[ ] Grep for padding with raw numbers (not Spacing.xxx)
+[ ] Read all panel/accordion headers - check padding matches
+[ ] Read all empty state views - check centering method
+[ ] Read all toolbar/control bars - check edge padding
+[ ] Visual inspection of running app (if possible)
+```
+
+**Key Insight**: Backend code audits catch runtime bugs. UI audits catch user experience bugs. Both are needed for production readiness. The user should never have to catch visual issues - that's our job.
+
+---
+
+### LL-006: Empty State Centering Pattern
+**Date**: 2026-03-31
+**Source**: UI audit findings
+
+**Problem**: Multiple empty state views used `.offset(x: -headerWidth / 2)` as a centering hack, creating fragile layouts.
+
+**Why It's Wrong**:
+- Assumes fixed header width (breaks if layout changes)
+- Not responsive to container width
+- Hard to understand intent when reading code
+
+**Correct Pattern**:
+```swift
+// WRONG - fragile offset hack
+VStack { ... }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .offset(x: -TimelineLayout.headerWidth / 2)
+
+// CORRECT - proper centering
+VStack { ... }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    // Content automatically centers in container
+```
+
+**When Offset IS Needed**: Only for animation/drag preview positioning, never for static layout.
+
+---
+
 ## Glossary
 
 | Term | Definition |

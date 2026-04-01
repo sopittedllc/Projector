@@ -356,8 +356,8 @@ struct ContentView: View {
                     alerts.show(.settings(content: AnyView(EmptyView())))
                 }
             )
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .padding(.horizontal, Spacing.lg)
+            .padding(.top, Spacing.sm)
             .background(
                 GeometryReader { proxy in
                     Color.clear

@@ -15,7 +15,7 @@ struct TransportBarView: View {
             Text("\(Int(playbackEngine.frameRate.fps))fps")
                 .font(.system(size: 16, weight: .medium, design: .monospaced))
                 .foregroundColor(.primary)
-                .padding(.horizontal, 10)
+                .padding(.horizontal, Spacing.md)
                 .frame(height: controlBoxHeight)
                 .glassControl()
 
@@ -29,7 +29,7 @@ struct TransportBarView: View {
                     .font(.system(size: 16, weight: .medium, design: .monospaced))
                     .foregroundColor(.primary)
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, Spacing.md)
             .frame(height: controlBoxHeight)
             .glassControl()
 
@@ -64,7 +64,7 @@ struct TransportBarView: View {
                 .buttonStyle(GlassTransportButtonStyle())
                 .disabled(!playbackEngine.hasContent)
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, Spacing.md)
             .frame(height: controlBoxHeight)
             .glassControl()
 

@@ -98,66 +98,72 @@ struct AudioLaneView: View {
     // MARK: - Lane Header
 
     private var laneHeader: some View {
-        Color.clear
-            .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
-            .overlay(
-                VStack(spacing: Spacing.xs) {
-                    // Lane name (editable on double-click)
-                    if isEditingName {
-                        TextField("", text: $editedName)
+        HStack(spacing: 0) {
+            // Left padding to align with panel header
+            Spacer()
+                .frame(width: Spacing.md)
+
+            VStack(spacing: Spacing.xs) {
+                // Lane name (editable on double-click)
+                if isEditingName {
+                    TextField("", text: $editedName)
+                        .font(.system(size: 10, weight: .medium))
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.center)
+                        .focused($isNameFieldFocused)
+                        .onSubmit {
+                            commitNameEdit()
+                        }
+                        .onExitCommand {
+                            cancelNameEdit()
+                        }
+                        .frame(maxWidth: TimelineLayout.headerWidth - Spacing.md - Spacing.sm - 12)
+                } else {
+                    // Use Button instead of onTapGesture to avoid ScrollView latency (GP-003)
+                    Button(action: {}) {
+                        Text(lane.name)
                             .font(.system(size: 10, weight: .medium))
-                            .textFieldStyle(.plain)
-                            .multilineTextAlignment(.center)
-                            .focused($isNameFieldFocused)
-                            .onSubmit {
-                                commitNameEdit()
-                            }
-                            .onExitCommand {
-                                cancelNameEdit()
-                            }
-                            .frame(maxWidth: TimelineLayout.headerWidth - 12)
-                    } else {
-                        // Use Button instead of onTapGesture to avoid ScrollView latency (GP-003)
-                        Button(action: {}) {
-                            Text(lane.name)
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.plain)
-                        .simultaneousGesture(
-                            TapGesture(count: 2)
-                                .onEnded { _ in
-                                    startNameEdit()
-                                }
-                        )
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
                     }
-
-                    // Audio metadata from first clip
-                    audioMetadataView
-
-                    // Output mapping dropdown (compact)
-                    outputMappingPicker
-
-                    // Mute/Solo controls
-                    HStack(spacing: Spacing.sm) {
-                        Button(action: onMuteToggle) {
-                            Text("M")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(lane.isMuted ? .red : .secondary)
-                        }
-                        .buttonStyle(.plain)
-
-                        Button(action: onSoloToggle) {
-                            Text("S")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(lane.isSolo ? .yellow : .secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
+                    .buttonStyle(.plain)
+                    .simultaneousGesture(
+                        TapGesture(count: 2)
+                            .onEnded { _ in
+                                startNameEdit()
+                            }
+                    )
                 }
-                .padding(.horizontal, 6)
-            )
+
+                // Audio metadata from first clip
+                audioMetadataView
+
+                // Output mapping dropdown (compact)
+                outputMappingPicker
+
+                // Mute/Solo controls
+                HStack(spacing: Spacing.sm) {
+                    Button(action: onMuteToggle) {
+                        Text("M")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(lane.isMuted ? .red : .secondary)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: onSoloToggle) {
+                        Text("S")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(lane.isSolo ? .yellow : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            Spacer()
+                .frame(width: Spacing.sm)
+        }
+        .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
     }
 
     @ViewBuilder
@@ -226,8 +232,8 @@ struct AudioLaneView: View {
                     .font(.system(size: 7))
             }
             .foregroundColor(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
             .background(
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Color.accentColor.opacity(0.8))
@@ -342,7 +348,7 @@ struct AudioLaneView: View {
             .background(Color.orange.opacity(0.1))
             .frame(width: clampedWidth, height: max(6, height - 6))
             .offset(x: xOffset)
-            .padding(.vertical, 3)
+            .padding(.vertical, Spacing.xs)
             .allowsHitTesting(false)
     }
 
@@ -360,7 +366,7 @@ struct AudioLaneView: View {
             )
             .frame(width: max(12, clipWidth), height: max(6, height - 6))
             .offset(x: xOffset)
-            .padding(.vertical, 3)
+            .padding(.vertical, Spacing.xs)
             .allowsHitTesting(false)
     }
 

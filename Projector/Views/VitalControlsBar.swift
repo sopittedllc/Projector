@@ -89,8 +89,8 @@ struct VitalControlsBar: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .frame(width: 85)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
                         .fill(isStartTCFocused ? Color.white.opacity(0.12) : Color.clear)
@@ -110,8 +110,8 @@ struct VitalControlsBar: View {
                     applyStartTimecode()
                 }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
         .glassControl(isHighlighted: isStartTCFocused)
         .onHover { hovering in
             isHoveringStartTC = hovering
@@ -141,8 +141,8 @@ struct VitalControlsBar: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .frame(width: 85)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
                         .fill(isDurationFocused ? Color.white.opacity(0.12) : Color.clear)
@@ -163,7 +163,7 @@ struct VitalControlsBar: View {
                 }
         }
         .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, 6)
+        .padding(.vertical, Spacing.sm)
         .glassControl(isHighlighted: isDurationFocused)
         .onHover { hovering in
             isHoveringDuration = hovering
@@ -197,7 +197,7 @@ struct VitalControlsBar: View {
                 .foregroundColor(.primary)
         }
         .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, 6)
+        .padding(.vertical, Spacing.sm)
         .glassControl()
         .help("Frame rate is set by the video file")
     }
@@ -224,7 +224,7 @@ struct VitalControlsBar: View {
             .help("Stop")
         }
         .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, 6)
+        .padding(.vertical, Spacing.sm)
         .glassControl()
     }
 

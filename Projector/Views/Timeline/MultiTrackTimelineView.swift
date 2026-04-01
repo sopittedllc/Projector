@@ -1456,7 +1456,6 @@ struct MultiTrackTimelineView: View {
                             .foregroundColor(.secondary.opacity(0.5))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .offset(x: -TimelineLayout.headerWidth / 2)
 
                     // Show preview for all drops (single and multi-file)
                     if (isEmptyAudioDropAllowed || isEmptyAudioDropLoading),
@@ -1532,7 +1531,6 @@ struct MultiTrackTimelineView: View {
                                 .foregroundColor(.secondary.opacity(0.7))
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .offset(x: -TimelineLayout.headerWidth / 2)
                     }
 
                     // Show preview for all drops (single and multi-file)
@@ -1859,7 +1857,7 @@ struct MultiTrackTimelineView: View {
             .background(Color.orange.opacity(0.1))
             .frame(width: clampedWidth, height: max(6, height - 6))
             .offset(x: xOffset)
-            .padding(.vertical, 3)
+            .padding(.vertical, Spacing.xs)
             .allowsHitTesting(false)
     }
 

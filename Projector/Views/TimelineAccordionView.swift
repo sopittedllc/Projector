@@ -82,13 +82,13 @@ struct TimelineAccordionView: View {
 
     private var timelineHint: some View {
         HStack {
-            Spacer()
             Text("Double-click regions to set custom timecode")
                 .font(.system(size: 10))
                 .foregroundColor(.secondary.opacity(0.6))
-                .padding(.trailing, Spacing.md)
+            Spacer()
         }
         .frame(height: PanelLayout.footerHeight)
+        .padding(.horizontal, Spacing.md)
     }
 
     // MARK: - Accordion Header
@@ -169,6 +169,7 @@ struct TimelineAccordionView: View {
             .foregroundColor(.secondary)
             .disabled(!hasTimelineContent || timelineViewModel.zoomLevel >= timelineViewModel.maxZoom)
         }
+        .padding(.trailing, Spacing.xs)
         .help("Zoom timeline")
     }
 

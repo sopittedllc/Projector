@@ -92,8 +92,8 @@ struct GlassButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         if #available(macOS 26, *) {
             configuration.label
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
                 .background {
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .fill(.clear)
@@ -107,8 +107,8 @@ struct GlassButtonStyle: ButtonStyle {
                 .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
         } else {
             configuration.label
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
                 .background(
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .fill(tint?.opacity(0.2) ?? Color(nsColor: .controlBackgroundColor))
@@ -169,8 +169,8 @@ struct GlassActionButtonStyle: ButtonStyle {
         if #available(macOS 26, *) {
             configuration.label
                 .font(.system(size: 11, weight: .medium))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
                 .background {
                     Capsule()
                         .fill(.clear)
@@ -182,8 +182,8 @@ struct GlassActionButtonStyle: ButtonStyle {
         } else {
             configuration.label
                 .font(.system(size: 11, weight: .medium))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
                 .background(
                     Capsule()
                         .fill(tint.opacity(0.15))
@@ -354,8 +354,8 @@ extension Color {
                 Text("01:00:00:00")
                     .font(.system(size: 12, design: .monospaced))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
             .glassControl()
 
             HStack {
@@ -365,8 +365,8 @@ extension Color {
                 Text("24")
                     .font(.system(size: 12, design: .monospaced))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
             .glassControl()
         }
 

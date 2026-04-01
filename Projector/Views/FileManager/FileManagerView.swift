@@ -292,10 +292,10 @@ struct FileManagerView: View {
             Text(title)
                 .font(.system(size: 10, weight: filterType == type ? .semibold : .regular))
                 .foregroundColor(filterType == type ? .accentColor : .secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
                 .background(filterType == type ? Color.accentColor.opacity(0.1) : Color.clear)
-                .cornerRadius(3)
+                .cornerRadius(Spacing.xs)
         }
         .buttonStyle(.plain)
     }

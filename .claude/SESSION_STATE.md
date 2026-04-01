@@ -1,61 +1,38 @@
 # Session State
 
-> **Last Updated**: 2026-03-31T12:40:00Z
-> **Status**: IDLE
+> **Last Updated**: 2026-03-31T12:45:00Z
+> **Status**: ACTIVE
 > **Branch**: feature/cue-sheet-from-audio
 
 ---
 
 ## Current Task
 
-**None** - Session idle, ready for new task
+**Task**: Comprehensive app audit for production readiness
+**Started**: 2026-03-31T12:45:00Z
+**Status**: IN PROGRESS
+
+Auditing:
+- Video playback (multi-reel, frame-accurate seeking)
+- Pro audio routing (multi-channel, per-lane)
+- Frame rate handling (all standard rates)
+- MTC/MMC sync
+- Timeline functionality
+- File handling and persistence
+- Edge cases and error handling
 
 ---
 
 ## Active Todos
 
-_No active todos_
-
----
-
-## Recent Completions (This Session)
-
-| Time | Task | Files |
-|------|------|-------|
-| 12:40 | Remove licensing system | `LicenseManager.swift` (deleted), `LicenseEntryView.swift` (deleted), `ContentView.swift` |
-| 12:20 | Session tracking system | `.claude/SESSION_STATE.md`, `.claude/RESUME_PROMPT.md`, `.claude/resume`, `CLAUDE.md` |
-
----
-
-## Modified Files (Uncommitted)
-
-```
-(none - all committed)
-```
-
----
-
-## Context for Resume
-
-If resuming after crash/disconnect:
-
-**Last Action**: Removed licensing system (-739 lines) for Gumroad charity-download model.
-
-**What's Complete**:
-1. Licensing system removed (LicenseManager, LicenseEntryView, ContentView integrations)
-2. App now launches directly without license/trial gates
-3. Build verified successful
-4. All changes committed
-
-**Next Suggested Action**: Ready for Gumroad setup or other tasks.
-
----
-
-## Session History
-
-| Session Start | Summary | Outcome |
-|---------------|---------|---------|
-| 2026-03-31 | Licensing removal + session tracking | Complete |
+- [ ] Audit core playback engine
+- [ ] Audit audio routing system
+- [ ] Audit frame rate handling
+- [ ] Audit MTC/MMC sync
+- [ ] Audit timeline operations
+- [ ] Audit file persistence
+- [ ] Fix any issues found
+- [ ] Verify build and test
 
 ---
 

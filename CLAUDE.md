@@ -168,6 +168,45 @@ enum SyncConstants {
 
 ---
 
+## UI Audit Checklist (MANDATORY for Production Audits)
+
+**LESSON LEARNED**: Backend code audits catch runtime bugs. UI audits catch UX bugs. **Both are required.**
+
+When auditing for production readiness, check:
+
+### 1. Spacing Consistency
+```bash
+# Find hardcoded padding (should use Spacing.xs/sm/md/lg/xl/xxl)
+grep -rn "padding.*[0-9])" Views/
+grep -rn "\.frame(width: [0-9]" Views/
+```
+- All padding should use `Spacing.xs` (4pt), `Spacing.sm` (8pt), `Spacing.md` (12pt), `Spacing.lg` (16pt), `Spacing.xl` (20pt), `Spacing.xxl` (24pt)
+- No magic numbers: 3, 6, 10 are **forbidden**
+
+### 2. Alignment
+- Compare left padding of panel headers vs content headers
+- Track/lane headers should match accordion header padding
+- Empty states should use `.frame(maxWidth: .infinity)` not `.offset()`
+
+### 3. Edge Margins
+- All controls must have proper edge padding (not flush to container edge)
+- Toolbars need trailing padding on rightmost control
+- Footer/hint text needs consistent horizontal padding
+
+### 4. macOS HIG Compliance
+- Icon sizes: 16pt (secondary), 18pt (standard), 20pt (prominent), 24pt (large)
+- Touch targets: 44pt minimum
+- 4pt grid system respected
+
+### 5. Visual Inspection
+If possible, run the app and visually check:
+- [ ] Panel headers align horizontally
+- [ ] Controls have breathing room on all edges
+- [ ] Empty states are centered
+- [ ] Related buttons have consistent spacing
+
+---
+
 ## Performance Rules
 
 1. **NO single-tap gestures in scrollable content** - Causes trackpad scroll delay

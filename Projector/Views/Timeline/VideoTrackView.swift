@@ -60,28 +60,35 @@ struct VideoTrackView: View {
     // MARK: - Track Header
 
     private var trackHeader: some View {
-        Color.clear
-            .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.videoTrackHeight)
-            .overlay(
-                VStack(spacing: Spacing.xs) {
-                    Text("Video")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.primary)
+        HStack(spacing: 0) {
+            // Left padding to align with panel header
+            Spacer()
+                .frame(width: Spacing.md)
 
-                    // Show metadata for first reel if available
-                    if let firstReel = timelineManager.timeline.videoReels.first {
-                        videoMetadataView(for: firstReel)
-                    } else {
-                        Image(systemName: "video")
-                            .frame(width: 14, height: 14)
-                            .foregroundColor(.secondary)
+            VStack(spacing: Spacing.xs) {
+                Text("Video")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.primary)
 
-                        Text("No reels")
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary.opacity(0.5))
-                    }
+                // Show metadata for first reel if available
+                if let firstReel = timelineManager.timeline.videoReels.first {
+                    videoMetadataView(for: firstReel)
+                } else {
+                    Image(systemName: "video")
+                        .frame(width: 14, height: 14)
+                        .foregroundColor(.secondary)
+
+                    Text("No reels")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary.opacity(0.5))
                 }
-            )
+            }
+            .frame(maxWidth: .infinity)
+
+            Spacer()
+                .frame(width: Spacing.sm)
+        }
+        .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.videoTrackHeight)
     }
 
     @ViewBuilder
@@ -170,7 +177,7 @@ struct VideoTrackView: View {
                 .font(.system(size: 10))
                 .foregroundColor(.secondary.opacity(0.6))
         }
-        .offset(x: -TimelineLayout.headerWidth / 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func dropPreviewOverlay(frame: Int, height: CGFloat, width: CGFloat) -> some View {
@@ -184,7 +191,7 @@ struct VideoTrackView: View {
             .background(Color.orange.opacity(0.1))
             .frame(width: clampedWidth, height: max(6, height - 6))
             .offset(x: xOffset)
-            .padding(.vertical, 3)
+            .padding(.vertical, Spacing.xs)
             .allowsHitTesting(false)
     }
 
