@@ -220,6 +220,64 @@ Before using ANY external SwiftUI view:
 | `PROJECT_ROADMAP.md` | Progress tracking | the-lead |
 | `FEATURES.md` | Feature registry with files, state, and integration points | the-lead |
 | `KNOWLEDGE_BASE.md` | Patterns and lessons | the-librarian |
+| `.claude/SESSION_STATE.md` | Real-time session tracking (survives crashes) | Active agent |
+
+---
+
+## Session State Tracking (Crash Recovery)
+
+**PURPOSE**: Ensure work survives terminal crashes, disconnects, and context compaction.
+
+### File: `.claude/SESSION_STATE.md`
+
+This file is **updated in real-time** during work and contains:
+- Current task being worked on
+- Active todos
+- Modified files (uncommitted)
+- Context for resume
+- Session history
+
+### MANDATORY: Update Session State
+
+**Update `.claude/SESSION_STATE.md` at these checkpoints:**
+
+1. **Session Start**: Set status to `ACTIVE`, record current task
+2. **After Each Significant Action**: Update modified files, completed items
+3. **Before Long Operations**: Record what you're about to do
+4. **Session End**: Set status to `IDLE`, summarize completions
+
+### Template for Session State Updates
+
+```markdown
+## Current Task
+
+**Task**: [What you're working on]
+**Started**: [Timestamp]
+**Files**: [Files being modified]
+
+## Active Todos
+
+- [ ] Todo 1
+- [x] Todo 2 (completed)
+```
+
+### Resume from Crash
+
+**CLI Command** (run from project root):
+```bash
+.claude/resume
+```
+
+**Or paste this into new Claude Code session:**
+```
+Resume from .claude/SESSION_STATE.md - read it, summarize status, continue work.
+```
+
+### Why This Matters
+
+- **Terminal crash**: SESSION_STATE.md persists on disk
+- **Context compaction**: File contains full context to resume
+- **Session timeout**: Instant context recovery vs. archaeology
 
 ---
 
