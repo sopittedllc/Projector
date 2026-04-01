@@ -146,6 +146,17 @@ struct ContentView: View {
     // Batch timecode detection state (for multiple file drops)
     @State var pendingBatchTimecode: PendingBatchTimecode?
 
+    // Spot media sheet state (for single file drops with enhanced placement options)
+    @State var pendingSpotURL: URL?
+    @State var pendingSpotFilenameTC: String?
+    @State var pendingSpotMetadataTC: EmbeddedTimecodeResult?
+    @State var pendingSpotDropFrame: Int = 0
+    @State var pendingSpotIsVideo: Bool = true
+    @State var pendingSpotLaneId: UUID?
+
+    /// User's remembered spot placement choice for the session (nil = ask each time)
+    @State var rememberedSpotChoice: SpotPlacementOption?
+
     /// Flag to prevent concurrent timecode detection from multiple drop events
     @State var isProcessingTimecodeDetection = false
 

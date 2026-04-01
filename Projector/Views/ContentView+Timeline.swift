@@ -26,6 +26,11 @@ extension ContentView {
         alerts.activeAlert?.id == "videoInsert"
     }
 
+    /// Whether the spot media sheet is currently showing
+    var isShowingSpotMediaSheet: Bool {
+        alerts.activeAlert?.id == "spotMedia"
+    }
+
     // MARK: - Drop Handlers
 
     /// Handle video files dropped on the timeline video track
@@ -33,8 +38,8 @@ extension ContentView {
         debugPrint("handleVideoDropOnTimeline: ENTRY with \(urls.count) URLs: \(urls.map { $0.lastPathComponent })")
 
         // Guard: Don't process new drops while timecode detection is in progress or a sheet is visible
-        guard !isProcessingTimecodeDetection, !isShowingBatchTimecodeSheet, !isShowingEmbeddedTimecodeAlert else {
-            debugPrint("handleVideoDropOnTimeline: BLOCKED - isProcessing=\(isProcessingTimecodeDetection), showBatch=\(isShowingBatchTimecodeSheet), showSingle=\(isShowingEmbeddedTimecodeAlert)")
+        guard !isProcessingTimecodeDetection, !isShowingBatchTimecodeSheet, !isShowingEmbeddedTimecodeAlert, !isShowingSpotMediaSheet else {
+            debugPrint("handleVideoDropOnTimeline: BLOCKED - isProcessing=\(isProcessingTimecodeDetection), showBatch=\(isShowingBatchTimecodeSheet), showSingle=\(isShowingEmbeddedTimecodeAlert), showSpot=\(isShowingSpotMediaSheet)")
             return
         }
 
@@ -45,7 +50,7 @@ extension ContentView {
         Task { @MainActor in
             defer {
                 // Clear processing flag when Task completes (unless a sheet is being shown)
-                if !isShowingBatchTimecodeSheet, !isShowingEmbeddedTimecodeAlert {
+                if !isShowingBatchTimecodeSheet, !isShowingEmbeddedTimecodeAlert, !isShowingSpotMediaSheet {
                     isProcessingTimecodeDetection = false
                 }
             }
@@ -363,17 +368,34 @@ extension ContentView {
     ///   - atFrame: Target frame position (nil = auto-place at end)
     ///   - checkTimecode: Whether to check for embedded timecode and prompt user
     func addVideoToTimeline(url: URL, atFrame: Int?, checkTimecode: Bool = true) async {
-        // Check for embedded timecode if requested and not already handling a pending choice
-        if checkTimecode, !isShowingEmbeddedTimecodeAlert, !isShowingBatchTimecodeSheet, pendingTimecodeURL == nil {
-            if let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
-                debugPrint("addVideoToTimeline: Found embedded timecode! \(result.formattedTimecode)")
+        // Check for timecode if requested and not already handling a pending choice
+        if checkTimecode, !isShowingEmbeddedTimecodeAlert, !isShowingBatchTimecodeSheet, !isShowingSpotMediaSheet, pendingSpotURL == nil {
+            // If user has a remembered choice, use it directly
+            if let rememberedChoice = rememberedSpotChoice {
+                debugPrint("addVideoToTimeline: Using remembered spot choice: \(rememberedChoice)")
+                await handleRememberedSpotChoice(
+                    url: url,
+                    choice: rememberedChoice,
+                    atFrame: atFrame ?? 0
+                )
+                return
+            }
+
+            // Detect both filename and metadata timecode
+            let filenameTC = detectTimecodeFromFilename(url.lastPathComponent)
+            let metadataTC = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil)
+
+            // If either timecode source is available, show spot dialog
+            if filenameTC != nil || metadataTC != nil {
+                debugPrint("addVideoToTimeline: Found timecode - filename=\(filenameTC ?? "nil"), metadata=\(metadataTC?.formattedTimecode ?? "nil")")
                 await MainActor.run {
-                    pendingTimecodeResult = result
-                    pendingTimecodeURL = url
-                    pendingTimecodeDropFrame = atFrame ?? 0
-                    pendingTimecodeIsVideo = true
-                    pendingTimecodeLaneId = nil
-                    showEmbeddedTimecodeAlertViaCoordinator()
+                    pendingSpotURL = url
+                    pendingSpotFilenameTC = filenameTC
+                    pendingSpotMetadataTC = metadataTC
+                    pendingSpotDropFrame = atFrame ?? 0
+                    pendingSpotIsVideo = true
+                    pendingSpotLaneId = nil
+                    showSpotMediaSheetViaCoordinator()
                 }
                 return
             }
@@ -1263,5 +1285,119 @@ extension ContentView {
                 }
             }
         ))
+    }
+
+    // MARK: - Spot Media Sheet
+
+    /// Show the spot media sheet via AlertCoordinator
+    func showSpotMediaSheetViaCoordinator() {
+        guard let url = pendingSpotURL else { return }
+
+        // Determine if we should show "Set as Timeline Start" option
+        let config = timelineManager.timeline.config
+        let isTimelineEmpty = timelineManager.timeline.videoReels.isEmpty && timelineManager.timeline.audioLanes.allSatisfy { $0.clips.isEmpty }
+        let isDefaultStart = config.startTimecode.frameCount.wholeFrames == 0
+        let showSetTimelineStart = isTimelineEmpty || isDefaultStart
+
+        // Get current playhead timecode
+        let playheadFrame = playbackEngine.currentFrame
+        let playheadTimecode = playbackEngine.currentTimecode.stringValue()
+
+        alerts.show(.spotMedia(
+            url: url,
+            filenameTimecode: pendingSpotFilenameTC,
+            metadataTimecode: pendingSpotMetadataTC,
+            playheadTimecode: playheadTimecode,
+            playheadFrame: playheadFrame,
+            frameRate: config.frameRate,
+            startTimecode: config.startTimecode,
+            showSetTimelineStart: showSetTimelineStart,
+            onSpot: { result in
+                self.handleSpotResult(result)
+            },
+            onCancel: {
+                self.clearPendingSpotMedia()
+            }
+        ))
+    }
+
+    /// Handle the result from the SpotMediaSheet
+    func handleSpotResult(_ result: SpotResult) {
+        Task { @MainActor in
+            // Remember choice if requested
+            if result.rememberChoice {
+                rememberedSpotChoice = result.option
+            }
+
+            // Handle set timeline start if requested
+            if result.setTimelineStart && pendingSpotIsVideo {
+                // Calculate what the new timeline start should be
+                let config = timelineManager.timeline.config
+                let newStartTC = Timecode(.frames(result.targetFrame), at: config.frameRate, by: .clamping)
+                var updatedConfig = config
+                updatedConfig.startTimecode = newStartTC
+                timelineManager.updateConfig(updatedConfig)
+            }
+
+            // Add the media
+            if pendingSpotIsVideo {
+                await addVideoToTimeline(url: result.url, atFrame: result.targetFrame, checkTimecode: false)
+            } else if let laneId = pendingSpotLaneId {
+                _ = await addAudioToTimeline(url: result.url, laneId: laneId, atFrame: result.targetFrame)
+            }
+
+            clearPendingSpotMedia()
+        }
+    }
+
+    /// Handle a remembered spot choice without showing the dialog
+    func handleRememberedSpotChoice(url: URL, choice: SpotPlacementOption, atFrame: Int) async {
+        let config = timelineManager.timeline.config
+
+        let targetFrame: Int
+        switch choice {
+        case .filename:
+            if let tc = detectTimecodeFromFilename(url.lastPathComponent),
+               let parsed = Timecode(tc, at: config.frameRate, by: .clamping) {
+                let startFrames = config.startTimecode.frameCount.wholeFrames
+                targetFrame = max(0, parsed.frameCount.wholeFrames - startFrames)
+            } else {
+                // Fall back to drop frame if filename parsing fails
+                targetFrame = atFrame
+            }
+
+        case .metadata:
+            if let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
+                let startFrames = config.startTimecode.frameCount.wholeFrames
+                let convertedFrames = result.convertedFrames(to: config.frameRate.fps)
+                targetFrame = max(0, convertedFrames - startFrames)
+            } else {
+                // Fall back to drop frame if no metadata
+                targetFrame = atFrame
+            }
+
+        case .manual:
+            // Manual entry can't be "remembered" - fall back to playhead
+            targetFrame = playbackEngine.currentFrameNumber
+
+        case .playhead:
+            targetFrame = playbackEngine.currentFrameNumber
+        }
+
+        await addVideoToTimeline(url: url, atFrame: targetFrame, checkTimecode: false)
+    }
+
+    /// Clear pending spot media state
+    func clearPendingSpotMedia() {
+        if isShowingSpotMediaSheet {
+            alerts.dismiss()
+        }
+        pendingSpotURL = nil
+        pendingSpotFilenameTC = nil
+        pendingSpotMetadataTC = nil
+        pendingSpotDropFrame = 0
+        pendingSpotIsVideo = true
+        pendingSpotLaneId = nil
+        isProcessingTimecodeDetection = false
     }
 }

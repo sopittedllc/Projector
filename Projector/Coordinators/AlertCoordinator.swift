@@ -71,6 +71,18 @@ final class AlertCoordinator: ObservableObject {
             onConfirm: (Bool) -> Void,
             onCancel: () -> Void
         )
+        case spotMedia(
+            url: URL,
+            filenameTimecode: String?,
+            metadataTimecode: EmbeddedTimecodeResult?,
+            playheadTimecode: String,
+            playheadFrame: Int,
+            frameRate: TimecodeFrameRate,
+            startTimecode: Timecode,
+            showSetTimelineStart: Bool,
+            onSpot: (SpotResult) -> Void,
+            onCancel: () -> Void
+        )
         case saveProject(content: AnyView)
         case settings(content: AnyView)
 
@@ -85,6 +97,7 @@ final class AlertCoordinator: ObservableObject {
             case .embeddedTimecode: return "embeddedTimecode"
             case .videoInsert: return "videoInsert"
             case .batchTimecode: return "batchTimecode"
+            case .spotMedia: return "spotMedia"
             case .saveProject: return "saveProject"
             case .settings: return "settings"
             }
@@ -181,7 +194,7 @@ private struct AlertCoordinatorModifier: ViewModifier {
                         secondaryButton: .cancel(Text("Cancel"), action: onCancel)
                     )
 
-                case .embeddedTimecode, .videoInsert, .batchTimecode, .saveProject, .settings:
+                case .embeddedTimecode, .videoInsert, .batchTimecode, .spotMedia, .saveProject, .settings:
                     // These are sheets, handled below
                     return Alert(title: Text(""))
                 }
@@ -191,7 +204,7 @@ private struct AlertCoordinatorModifier: ViewModifier {
                     // Only return sheet-type alerts
                     guard let alert = coordinator.activeAlert else { return nil }
                     switch alert {
-                    case .embeddedTimecode, .videoInsert, .batchTimecode, .saveProject, .settings:
+                    case .embeddedTimecode, .videoInsert, .batchTimecode, .spotMedia, .saveProject, .settings:
                         return alert
                     default:
                         return nil
@@ -229,6 +242,20 @@ private struct AlertCoordinatorModifier: ViewModifier {
                 batch: batch,
                 showSetTimelineStartOption: showSetTimelineStart,
                 onConfirm: onConfirm,
+                onCancel: onCancel
+            )
+
+        case .spotMedia(let url, let filenameTimecode, let metadataTimecode, let playheadTimecode, let playheadFrame, let frameRate, let startTimecode, let showSetTimelineStart, let onSpot, let onCancel):
+            SpotMediaSheet(
+                url: url,
+                filenameTimecode: filenameTimecode,
+                metadataTimecode: metadataTimecode,
+                playheadTimecode: playheadTimecode,
+                playheadFrame: playheadFrame,
+                frameRate: frameRate,
+                startTimecode: startTimecode,
+                showSetTimelineStartOption: showSetTimelineStart,
+                onSpot: onSpot,
                 onCancel: onCancel
             )
 

@@ -67,6 +67,7 @@
 		B19B58C12F088CFF00FA33EC /* VitalControlsBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58C02F088CFF00FA33EC /* VitalControlsBar.swift */; };
 		BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */; };
 		BTCS0001BATCHSHEET01 /* BatchTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */; };
+		SPOT0001SPOTMEDIA01 /* SpotMediaSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPOT0002SPOTMEDIA02 /* SpotMediaSheet.swift */; };
 		C1CONSOLID0001 /* ConsolidateMediaButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1CONSOLID0002 /* ConsolidateMediaButton.swift */; };
 		C1CONSOLID0003 /* ConsolidationSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1CONSOLID0004 /* ConsolidationSheetView.swift */; };
 		C1LIQUIDGLASS0001 /* LiquidGlassStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1LIQUIDGLASS0002 /* LiquidGlassStyles.swift */; };
@@ -210,6 +211,7 @@
 		B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineViewModel.swift; sourceTree = "<group>"; };
 		B19B58C02F088CFF00FA33EC /* VitalControlsBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalControlsBar.swift; sourceTree = "<group>"; };
 		BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTimecodeSheetView.swift; sourceTree = "<group>"; };
+		SPOT0002SPOTMEDIA02 /* SpotMediaSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotMediaSheet.swift; sourceTree = "<group>"; };
 		C1CONSOLID0002 /* ConsolidateMediaButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidateMediaButton.swift; sourceTree = "<group>"; };
 		C1CONSOLID0004 /* ConsolidationSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidationSheetView.swift; sourceTree = "<group>"; };
 		C1LIQUIDGLASS0002 /* LiquidGlassStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidGlassStyles.swift; sourceTree = "<group>"; };
@@ -437,6 +439,7 @@
 				VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */,
 				ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */,
 				BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */,
+				SPOT0002SPOTMEDIA02 /* SpotMediaSheet.swift */,
 				VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */,
 				FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */,
 			);
@@ -835,6 +838,7 @@
 				VINS0001VIDEOINSERT01 /* VideoInsertSheetView.swift in Sources */,
 				ETCS0001EMBEDDEDSHEET01 /* EmbeddedTimecodeSheetView.swift in Sources */,
 				BTCS0001BATCHSHEET01 /* BatchTimecodeSheetView.swift in Sources */,
+				SPOT0001SPOTMEDIA01 /* SpotMediaSheet.swift in Sources */,
 				VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */,
 				FSVV0001FULLSCREENVIDEO01 /* FullScreenVideoView.swift in Sources */,
 			);
