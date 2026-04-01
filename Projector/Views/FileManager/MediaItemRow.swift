@@ -81,8 +81,8 @@ struct MediaItemRow: View {
                 .frame(width: 16, height: 16)
                 .foregroundColor(.secondary)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
         .background(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
         .contentShape(Rectangle())
         // Use Button instead of onTapGesture to avoid ScrollView latency (GP-003)
@@ -150,8 +150,8 @@ struct MediaItemRow: View {
         Text(item.fileExtension.uppercased())
             .font(.system(size: 8, weight: .bold))
             .foregroundColor(.white)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 2)
+            .padding(.horizontal, Spacing.xs)
+            .padding(.vertical, 2) // Intentionally small for compact badge
             .background(typeLabelColor)
             .cornerRadius(2)
     }

@@ -95,8 +95,8 @@ struct VideoReelClipView: View {
 
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
 
             // Active highlight border
             if isActive {

@@ -59,8 +59,8 @@ struct SyncStatusIndicator: View {
                     .foregroundColor(.secondary.opacity(0.7))
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.xs)
         .background(backgroundView)
         .onTapGesture {
             withAnimation(.easeInOut(duration: 0.2)) {

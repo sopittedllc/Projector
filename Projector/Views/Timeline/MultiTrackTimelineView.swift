@@ -570,7 +570,7 @@ struct MultiTrackTimelineView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, Spacing.md)
             .frame(height: TimelineLayout.toolbarHeight)
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
 
@@ -609,7 +609,7 @@ struct MultiTrackTimelineView: View {
             .buttonStyle(.plain)
             .disabled(!playbackEngine.hasContent)
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Spacing.sm)
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6)
@@ -655,6 +655,8 @@ struct MultiTrackTimelineView: View {
             Text("Start TC:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize()
 
             TextField("00:00:00:00", text: $editingStartTCText)
                 .textFieldStyle(.plain)
@@ -671,7 +673,7 @@ struct MultiTrackTimelineView: View {
                     applyStartTimecode()
                 }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Spacing.sm)
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6)
@@ -704,6 +706,8 @@ struct MultiTrackTimelineView: View {
             Text("Duration:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize()
 
             TextField("00:00:00:00", text: $editingDurationText)
                 .textFieldStyle(.plain)
@@ -720,7 +724,7 @@ struct MultiTrackTimelineView: View {
                     applyDuration()
                 }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Spacing.sm)
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6)
@@ -758,6 +762,8 @@ struct MultiTrackTimelineView: View {
             Text("FPS:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize()
 
             Menu {
                 ForEach(availableFrameRates, id: \.self) { rate in
@@ -773,7 +779,7 @@ struct MultiTrackTimelineView: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Spacing.sm)
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6)
