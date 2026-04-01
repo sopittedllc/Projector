@@ -1,6 +1,6 @@
 # Projector Knowledge Base
 
-> **Last Updated**: 2026-01-19 (GP-024, GP-025, GP-026 added - Cue Detection UI Patterns)
+> **Last Updated**: 2026-03-31 (GP-027 added - Optional ViewModel Pattern)
 > **Maintainer**: The Librarian Agent
 >
 > This document captures institutional knowledge extracted from the Projector codebase.
@@ -3010,6 +3010,58 @@ struct CuesPanelView {
 #### Related Files
 - `Projector/Views/CueSheet/CuesPanelView.swift`
 - `Projector/Managers/WaveformCache.swift`
+
+---
+
+### GP-027: Optional ViewModel for Graceful Degradation
+**Added**: 2026-03-31
+**Source**: `Projector/Views/SettingsView.swift`
+**Category**: UI Architecture
+
+#### Problem
+A settings panel needs to display live data from a ViewModel, but the ViewModel may not always be available (e.g., during previews, testing, or when the feature is disabled). Making the ViewModel required causes crashes or requires mock objects everywhere.
+
+#### Solution
+Make the ViewModel optional and use `if let` to conditionally render the dependent UI:
+
+```swift
+struct SettingsView: View {
+    @ObservedObject var audioManager: AudioOutputManager
+    var midiSyncViewModel: MIDISyncViewModel?  // ← Optional
+
+    var body: some View {
+        VStack {
+            // Live status only shown when ViewModel available
+            if let viewModel = midiSyncViewModel {
+                HStack {
+                    Circle()
+                        .fill(viewModel.syncStatusColor)
+                        .frame(width: 8, height: 8)
+                    Text(viewModel.syncStatusText)
+                }
+            }
+
+            // Static settings always shown
+            Slider(value: $settings.syncDriftThreshold, in: 1...15)
+        }
+    }
+}
+```
+
+#### Why It Works
+- **Preview-friendly**: Previews work without mocking the entire ViewModel
+- **Graceful degradation**: View renders with reduced functionality, not a crash
+- **Separation of concerns**: Static settings (AppSettings) vs live state (ViewModel)
+- **Testable**: Can test static UI without ViewModel dependency
+
+#### When to Use
+- Settings views that combine static preferences with live status
+- Optional features that may be disabled
+- Views used in both full app and limited contexts (previews, extensions)
+
+#### Related Files
+- `Projector/Views/SettingsView.swift`
+- `Projector/ViewModels/MIDISyncViewModel.swift`
 
 ---
 

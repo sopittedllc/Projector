@@ -1,8 +1,8 @@
 # Projector - Project Roadmap
 
-> **Last Updated**: 2026-01-19 (Cue Sheet Detection UI Complete)
+> **Last Updated**: 2026-03-31 (Sync Settings UI & App Store Entitlements Complete)
 > **Owner**: the-lead agent
-> **Overall Progress**: 95% (Cue sheet detection from audio implemented)
+> **Overall Progress**: 98% (Drift compensation UI, App Store entitlements complete)
 
 ---
 
@@ -16,18 +16,18 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         PROJECT COMPLETION: 95%                              │
+│                         PROJECT COMPLETION: 98%                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  ████████████████████████████████████████████████████████████████████████ 95%   │
+│  ██████████████████████████████████████████████████████████████████████████ 98%   │
 │                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Core Playback      ████████████████████████████████████████████████  95%   │
 │  Timeline UI        ████████████████████████████████████████████████  95%   │
-│  MTC/MMC Sync       ████████████████████████████████████████████████  95%   │
+│  MTC/MMC Sync       ██████████████████████████████████████████████████ 100%   │
 │  Audio Routing      ██████████████████████████████████████████████████ 100%   │
-│  Architecture       ██████████████████████████████████████████████████  90%   │
-│  Documentation      ██████████████████████████████████░░░░░░░░░░░░░░  70%   │
+│  Architecture       ██████████████████████████████████████████████████ 100%   │
+│  Documentation      ██████████████████████████████████████████████░░  90%   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -61,7 +61,7 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | Cue sheet detection UI | ✅ Complete | Auto-detect cue points from audio |
 | **Remaining** | 🔄 In Progress | Performance optimization for large projects |
 
-### 3. MTC/MMC Sync (95%)
+### 3. MTC/MMC Sync (100%) ✅
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -69,7 +69,9 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | MMC receive | ✅ Complete | Play/Stop/Locate |
 | Basic sync | ✅ Complete | Follows external TC |
 | Thread-safe actor | ✅ Complete | MIDISyncActor refactor done |
-| **Remaining** | ❌ Not Started | Drift compensation UI |
+| Drift monitoring | ✅ Complete | Live drift display in SyncStatusIndicator |
+| Drift compensation UI | ✅ Complete | Settings → Sync section with threshold slider |
+| Auto-play/pause | ✅ Complete | Configurable MTC-triggered playback |
 
 > **Scope Update (2026-01-06)**: MTC transmit removed from scope - not needed for project requirements.
 
@@ -86,7 +88,7 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | MatrixMixer timing | ✅ Complete | Parameters set AFTER engine.start() |
 | **Future Enhancement** | 🔶 Optional | Audio metering (not required for v1.0) |
 
-### 5. Architecture Compliance (90%)
+### 5. Architecture Compliance (100%) ✅
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -95,6 +97,9 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | MIDISyncServiceProtocol | ✅ Complete | First CONTRACT defined |
 | MIDISyncActor | ✅ Complete | Thread-safe MIDI handling |
 | MIDISyncViewModel | ✅ Complete | Clean layer separation |
+| TransportServiceProtocol | ✅ Complete | Full contract with state types (454 lines) |
+| TransportActor | ✅ Complete | Actor-isolated state management (441 lines) |
+| TransportViewModel | ✅ Complete | Observes AsyncStream from service |
 | TimelineViewModel | ✅ Complete | Timeline UI state management |
 | VitalControlsBar | ✅ Complete | Transport/timecode/zoom extracted |
 | TimelineAccordionView | ✅ Complete | Accordion panel extracted |
@@ -102,9 +107,8 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | AccordionResizeHandle | ✅ Complete | Resize handle utility extracted |
 | ContentView decomposition | ✅ Complete | 1696 → 1103 lines (35% reduction) |
 | Magic numbers cleanup | ✅ Complete | All timeline views use LayoutConstants |
-| **Remaining** | ❌ High | TransportServiceProtocol |
 
-### 6. Documentation (70%)
+### 6. Documentation (90%)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -116,9 +120,11 @@ Projector is a professional macOS video playback application with MTC/MMC synchr
 | AudioOutputManager DocC | ✅ Complete | 90 doc comments |
 | TimelineManager DocC | ✅ Complete | 105 doc comments |
 | WaveformGenerator DocC | ✅ Complete | 43 doc comments |
+| WaveformCache DocC | ✅ Complete | 211 doc comments (33% of file) |
+| ProjectMediaLibrary DocC | ✅ Complete | 161 doc comments (25% of file) |
 | PlaybackEngine DocC | ✅ Partial | 54 doc comments (basic coverage) |
-| **Remaining** | 🔶 Low | WaveformCache, ProjectMediaLibrary |
-| **Remaining** | ❌ Low | User documentation |
+| App Store docs | ✅ Complete | Submission checklists, notarization guide |
+| **Remaining** | 🔶 Low | User documentation |
 
 ---
 
@@ -226,6 +232,37 @@ All local constant declarations removed and replaced with `LayoutConstants` refe
 ---
 
 ## Recent Changes
+
+### 2026-03-31 - Sync Settings UI & App Store Entitlements
+
+**Changes**:
+- Added "Sync" accordion section to SettingsView with:
+  - Live sync status display (state, drift, duration)
+  - Re-sync threshold slider (1-15 frames)
+  - Auto-play/pause on MTC toggles
+  - Respond to MMC toggle
+- Updated App Store entitlements:
+  - Added `com.apple.security.app-sandbox` (required)
+  - Added `com.apple.security.device.midi` (for MTC/MMC)
+  - Added `com.apple.security.device.audio-output`
+  - Added `com.apple.security.assets.movies.read-write`
+  - Added document-scope bookmarks
+- Updated QuickLook extension entitlements
+- Verified roadmap accuracy: TransportServiceProtocol was already complete
+
+**Progress Impact**:
+- MTC/MMC Sync: 95% → 100%
+- Architecture: 90% → 100% (TransportServiceProtocol existed)
+- Documentation: 70% → 90% (WaveformCache, ProjectMediaLibrary confirmed)
+- Overall: 95% → 98%
+
+**Files Modified**:
+- `Projector/Projector.entitlements`
+- `ProjectorQuickLook/ProjectorQuickLook.entitlements`
+- `Projector/Views/SettingsView.swift`
+- `Projector/Views/ContentView.swift`
+
+---
 
 ### 2026-01-19 - Cue Sheet Detection UI Implementation
 

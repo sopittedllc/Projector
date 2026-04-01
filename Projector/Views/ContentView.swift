@@ -164,10 +164,14 @@ struct ContentView: View {
                 get: { alerts.activeAlert?.id == "settings" },
                 set: { if !$0 { alerts.dismiss() } }
             )) {
-                SettingsView(audioManager: audioManager, isPresented: Binding(
-                    get: { alerts.activeAlert?.id == "settings" },
-                    set: { if !$0 { alerts.dismiss() } }
-                ))
+                SettingsView(
+                    audioManager: audioManager,
+                    midiSyncViewModel: midiSyncViewModel,
+                    isPresented: Binding(
+                        get: { alerts.activeAlert?.id == "settings" },
+                        set: { if !$0 { alerts.dismiss() } }
+                    )
+                )
             }
             .frame(minWidth: 640, minHeight: 400)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

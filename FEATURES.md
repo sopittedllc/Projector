@@ -2,7 +2,7 @@
 
 > **Purpose**: Document all features with their associated files, dependencies, and integration points.
 > **Owner**: the-lead agent (updates required after every feature implementation)
-> **Last Updated**: 2026-02-15
+> **Last Updated**: 2026-03-31
 
 ---
 
@@ -123,9 +123,10 @@ Core timeline with video track and multiple audio lanes. Supports drag-and-drop,
 
 **Status**: Active
 **Added**: 2026-01-02
+**Updated**: 2026-03-31 (drift compensation UI)
 
 #### Description
-MIDI Time Code (MTC) and MIDI Machine Control (MMC) synchronization for external device control. Runs on dedicated actor for thread safety.
+MIDI Time Code (MTC) and MIDI Machine Control (MMC) synchronization for external device control. Runs on dedicated actor for thread safety. Includes live drift monitoring, configurable sync thresholds, and auto-play/pause settings.
 
 #### Files
 
@@ -134,6 +135,7 @@ MIDI Time Code (MTC) and MIDI Machine Control (MMC) synchronization for external
 | Protocol | `Contracts/MIDISyncServiceProtocol.swift` | Service interface |
 | Actor | `Managers/MIDISyncActor.swift` | Thread-safe MIDI handling |
 | ViewModel | `ViewModels/MIDISyncViewModel.swift` | UI state bridge |
+| View | `Views/SyncStatusIndicator.swift` | Live sync status display |
 
 #### State Properties
 
@@ -141,17 +143,58 @@ MIDI Time Code (MTC) and MIDI Machine Control (MMC) synchronization for external
 |------|----------|------|---------|
 | `ContentView.swift` | `midiSyncActor` | `MIDISyncActor` | MIDI service |
 | `ContentView.swift` | `midiSyncViewModel` | `MIDISyncViewModel` | UI binding |
+| `AppSettings.swift` | `syncDriftThreshold` | `Int` | Re-sync threshold (frames) |
+| `AppSettings.swift` | `autoPlayOnMTC` | `Bool` | Auto-play when MTC starts |
+| `AppSettings.swift` | `autoPauseOnMTCStop` | `Bool` | Auto-pause when MTC stops |
+| `AppSettings.swift` | `respondToMMC` | `Bool` | Respond to MMC commands |
 
 #### Integration Points
 
 | File | Location | Integration Type |
 |------|----------|------------------|
 | `ContentView.swift` | initialization | Actor creation |
-| `SettingsView.swift` | MIDI settings panel | Configuration UI |
+| `SettingsView.swift` | Sync accordion section | Configuration UI |
 
 #### Dependencies
 - Depends on: MIDIKit (external package)
 - Depended by: None
+
+---
+
+### Transport System
+
+**Status**: Active
+**Added**: 2026-02-XX (exact date from git history)
+
+#### Description
+Thread-safe transport control system using Swift actors. Provides play/pause/stop/seek operations with state streaming to UI layer.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Protocol | `Contracts/TransportServiceProtocol.swift` | Service interface (454 lines) |
+| Actor | `Managers/TransportActor.swift` | Actor-isolated state (441 lines) |
+| ViewModel | `ViewModels/TransportViewModel.swift` | UI state bridge |
+
+#### State Properties
+
+| File | Property | Type | Purpose |
+|------|----------|------|---------|
+| `TransportViewModel.swift` | `isPlaying` | `Bool` | Playback state |
+| `TransportViewModel.swift` | `currentTimecode` | `Timecode?` | Current position |
+| `TransportViewModel.swift` | `transportState` | `TransportState` | Full state |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `VitalControlsBar.swift` | Transport controls | UI binding |
+| `TimelineViewModel.swift` | Playhead position | State observation |
+
+#### Dependencies
+- Depends on: SwiftTimecodeCore (external package)
+- Depended by: MTC/MMC Synchronization, Timeline UI
 
 ---
 
