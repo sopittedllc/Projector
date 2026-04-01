@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AM01AUDIOMETER002 /* AudioMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM01AUDIOMETER001 /* AudioMeterView.swift */; };
 		0F78E7CD06BB4CCBA9AA1A36 /* WindowTitleConfigurator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04AA25E97254C758E8138F0 /* WindowTitleConfigurator.swift */; };
 		1218A8494ECAE07469982AFA /* TestAudioFileFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14506C8D8408E65D66372269 /* TestAudioFileFactory.swift */; };
 		2D32AFD4ED0B4C24B8B2504B /* MediaOptimizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1CB65275AFE49C6AFD24B05 /* MediaOptimizationService.swift */; };
@@ -155,6 +156,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AM01AUDIOMETER001 /* AudioMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMeterView.swift; sourceTree = "<group>"; };
 		020DEC73914C4FCDB4106B0D /* OptimizeMediaButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizeMediaButton.swift; sourceTree = "<group>"; };
 		09CB2A043A720DB7314125A0 /* ProjectorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ProjectorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0D049757BEF1EE1D4B8B48BD /* ProjectorUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ProjectorUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -421,6 +423,7 @@
 				A1000001227D3F0000000013 /* VideoPlayerView.swift */,
 				A1000001227D3F0000000014 /* TransportBarView.swift */,
 				A1000001227D3F0000000073 /* SettingsView.swift */,
+				AM01AUDIOMETER001 /* AudioMeterView.swift */,
 				5BDAFB14BA0E492A986FE676 /* WelcomeOverlayView.swift */,
 				B19B58C02F088CFF00FA33EC /* VitalControlsBar.swift */,
 				C1VISUALFX0000002 /* VisualEffectView.swift */,
@@ -757,6 +760,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AM01AUDIOMETER002 /* AudioMeterView.swift in Sources */,
 				B1294F502F7C94D400783FA8 /* AlertCoordinator.swift in Sources */,
 				753331FCF4CC4E1A8578392C /* MediaOptimizationServiceProtocol.swift in Sources */,
 				2D32AFD4ED0B4C24B8B2504B /* MediaOptimizationService.swift in Sources */,

@@ -68,6 +68,34 @@ struct TransportBarView: View {
             .frame(height: controlBoxHeight)
             .glassControl()
 
+            // Audio meter with toggle
+            HStack(spacing: Spacing.sm) {
+                Button(action: {
+                    if playbackEngine.isMeteringEnabled {
+                        playbackEngine.disableMetering()
+                    } else {
+                        playbackEngine.enableMetering()
+                    }
+                }) {
+                    Image(systemName: playbackEngine.isMeteringEnabled ? "speaker.wave.2.fill" : "speaker.wave.2")
+                        .frame(width: 16, height: 16)
+                        .foregroundColor(playbackEngine.isMeteringEnabled ? .accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help(playbackEngine.isMeteringEnabled ? "Disable audio metering" : "Enable audio metering")
+
+                if playbackEngine.isMeteringEnabled {
+                    AudioMeterView(
+                        leftLevel: playbackEngine.meterLevelLeft,
+                        rightLevel: playbackEngine.meterLevelRight,
+                        isEnabled: playbackEngine.isMeteringEnabled
+                    )
+                }
+            }
+            .padding(.horizontal, Spacing.sm)
+            .frame(height: controlBoxHeight)
+            .glassControl()
+
             Spacer()
 
             // Right: Settings

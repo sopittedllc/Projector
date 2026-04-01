@@ -108,8 +108,25 @@ final class PlaybackEngine: ObservableObject {
     /// Whether we're in MTC sync mode (following external timecode)
     @Published private(set) var isMTCSynced = false
 
+    // MARK: - Audio Metering
+
+    /// Left channel meter level (0.0-1.0, RMS normalized)
+    @Published private(set) var meterLevelLeft: Float = 0
+
+    /// Right channel meter level (0.0-1.0, RMS normalized)
+    @Published private(set) var meterLevelRight: Float = 0
+
+    /// Whether audio metering is enabled
+    @Published private(set) var isMeteringEnabled = false
+
     /// Target frame from MTC (for drift calculation)
     private var mtcTargetFrame: Int = 0
+
+    /// Meter decay coefficient for smooth falloff
+    private let meterDecay: Float = 0.9
+
+    /// Whether meter tap is installed
+    private var meterTapInstalled = false
 
     // MARK: - Timeline Reference
 
@@ -405,6 +422,116 @@ final class PlaybackEngine: ObservableObject {
     /// can trigger auto-play again.
     func clearTransportOverride() {
         transportOverride = false
+    }
+
+    // MARK: - Audio Metering
+
+    /// Enables audio metering by installing a tap on the main mixer.
+    ///
+    /// When enabled, `meterLevelLeft` and `meterLevelRight` are updated
+    /// in real-time with RMS audio levels (0.0-1.0).
+    func enableMetering() {
+        guard !isMeteringEnabled else { return }
+        isMeteringEnabled = true
+        installMeterTap()
+    }
+
+    /// Disables audio metering and removes the tap.
+    func disableMetering() {
+        guard isMeteringEnabled else { return }
+        isMeteringEnabled = false
+        removeMeterTap()
+        meterLevelLeft = 0
+        meterLevelRight = 0
+    }
+
+    /// Installs the audio meter tap on the main mixer node.
+    private func installMeterTap() {
+        guard !meterTapInstalled else { return }
+
+        let mainMixer = audioEngine.mainMixerNode
+        let format = mainMixer.outputFormat(forBus: 0)
+
+        // Only install if we have a valid format
+        guard format.channelCount > 0, format.sampleRate > 0 else {
+            debugPrint("PlaybackEngine: Cannot install meter tap - invalid format")
+            return
+        }
+
+        // Buffer size: ~20ms at the current sample rate for responsive metering
+        let bufferSize = AVAudioFrameCount(format.sampleRate * 0.02)
+
+        mainMixer.installTap(onBus: 0, bufferSize: bufferSize, format: format) { [weak self] buffer, _ in
+            self?.processMeterBuffer(buffer)
+        }
+
+        meterTapInstalled = true
+        debugPrint("PlaybackEngine: Meter tap installed (\(format.channelCount) channels, \(format.sampleRate)Hz)")
+    }
+
+    /// Removes the audio meter tap from the main mixer node.
+    private func removeMeterTap() {
+        guard meterTapInstalled else { return }
+
+        audioEngine.mainMixerNode.removeTap(onBus: 0)
+        meterTapInstalled = false
+        debugPrint("PlaybackEngine: Meter tap removed")
+    }
+
+    /// Processes an audio buffer to calculate RMS meter levels.
+    ///
+    /// - Parameter buffer: The audio buffer from the meter tap
+    private nonisolated func processMeterBuffer(_ buffer: AVAudioPCMBuffer) {
+        guard let floatData = buffer.floatChannelData else { return }
+
+        let channelCount = Int(buffer.format.channelCount)
+        let frameLength = Int(buffer.frameLength)
+        guard frameLength > 0, channelCount > 0 else { return }
+
+        // Calculate RMS for left channel (or mono)
+        var leftRMS: Float = 0
+        let leftChannel = floatData[0]
+        for i in 0..<frameLength {
+            let sample = leftChannel[i]
+            leftRMS += sample * sample
+        }
+        leftRMS = sqrt(leftRMS / Float(frameLength))
+
+        // Calculate RMS for right channel (if stereo+)
+        var rightRMS: Float = 0
+        if channelCount >= 2 {
+            let rightChannel = floatData[1]
+            for i in 0..<frameLength {
+                let sample = rightChannel[i]
+                rightRMS += sample * sample
+            }
+            rightRMS = sqrt(rightRMS / Float(frameLength))
+        } else {
+            rightRMS = leftRMS // Mono: use same level for both
+        }
+
+        // Convert to normalized 0-1 scale with soft compression
+        // RMS of full-scale sine is ~0.707, so we normalize accordingly
+        let normalizedLeft = min(1.0, leftRMS * 1.414)
+        let normalizedRight = min(1.0, rightRMS * 1.414)
+
+        // Update on main thread with decay for smooth falloff
+        Task { @MainActor [weak self] in
+            guard let self, self.isMeteringEnabled else { return }
+
+            // Apply decay: only update if new value is higher, otherwise decay
+            if normalizedLeft > self.meterLevelLeft {
+                self.meterLevelLeft = normalizedLeft
+            } else {
+                self.meterLevelLeft = max(0, self.meterLevelLeft * self.meterDecay)
+            }
+
+            if normalizedRight > self.meterLevelRight {
+                self.meterLevelRight = normalizedRight
+            } else {
+                self.meterLevelRight = max(0, self.meterLevelRight * self.meterDecay)
+            }
+        }
     }
 
     /// Sets MTC sync mode.
@@ -1959,6 +2086,10 @@ final class PlaybackEngine: ObservableObject {
             player.removeTimeObserver(observer)
         }
         timeObserver = nil
+
+        // Remove meter tap
+        removeMeterTap()
+        isMeteringEnabled = false
 
         // Remove sample rate change listener before releasing audio engine
         removeSampleRateListener()
