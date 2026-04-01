@@ -46,27 +46,28 @@ struct VitalControlsBar: View {
     // MARK: - Body
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Left: TC controls (takes available space, left-aligned)
+        HStack(spacing: Spacing.md) {
+            // Left: TC controls (fixed size, don't shrink)
             HStack(spacing: Spacing.md) {
                 startTCControl
                 durationControl
                 fpsControl
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize()
 
-            // Center: Transport controls (fixed width, centered)
+            Spacer()
+
+            // Center: Transport controls
             transportControls
 
-            // Right: Settings (takes available space, right-aligned)
-            HStack {
-                Button(action: onSettingsPressed) {
-                    Image(systemName: "gearshape")
-                        .frame(width: 18, height: 18)
-                }
-                .buttonStyle(.plain)
+            Spacer()
+
+            // Right: Settings
+            Button(action: onSettingsPressed) {
+                Image(systemName: "gearshape")
+                    .frame(width: 18, height: 18)
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
