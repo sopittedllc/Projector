@@ -98,8 +98,6 @@
 		FILEHANDL002CONTENTVIEW /* ContentView+FileHandling.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEHANDL001CONTENTVIEW /* ContentView+FileHandling.swift */; };
 		FSVV0001FULLSCREENVIDEO01 /* FullScreenVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */; };
 		HELPERS002CONTENTVIEW /* ContentView+Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = HELPERS001CONTENTVIEW /* ContentView+Helpers.swift */; };
-		LSQLICENSE000011 /* LicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = LSQLICENSE000010 /* LicenseManager.swift */; };
-		LSQLICENSE000021 /* LicenseEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LSQLICENSE000020 /* LicenseEntryView.swift */; };
 		MFRS001MISSINGFILE01 /* MissingFileResolutionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */; };
 		MIC001MEDIAIMPORT01 /* MediaImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */; };
 		MODIFIERS002CONTENTVIEW /* ContentViewModifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = MODIFIERS001CONTENTVIEW /* ContentViewModifiers.swift */; };
@@ -245,8 +243,6 @@
 		FILEHANDL001CONTENTVIEW /* ContentView+FileHandling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+FileHandling.swift"; sourceTree = "<group>"; };
 		FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullScreenVideoView.swift; sourceTree = "<group>"; };
 		HELPERS001CONTENTVIEW /* ContentView+Helpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Helpers.swift"; sourceTree = "<group>"; };
-		LSQLICENSE000010 /* LicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseManager.swift; sourceTree = "<group>"; };
-		LSQLICENSE000020 /* LicenseEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseEntryView.swift; sourceTree = "<group>"; };
 		MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingFileResolutionService.swift; sourceTree = "<group>"; };
 		MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaImportCoordinator.swift; sourceTree = "<group>"; };
 		MODIFIERS001CONTENTVIEW /* ContentViewModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewModifiers.swift; sourceTree = "<group>"; };
@@ -401,7 +397,6 @@
 				B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */,
 				CECA2DAB208F6AEF41EA14F6 /* EmbeddedTimecodeService.swift */,
 				A1000001227D3F0000000071 /* AudioOutputManager.swift */,
-				LSQLICENSE000010 /* LicenseManager.swift */,
 				A1000001227D3F0000000083 /* WaveformGenerator.swift */,
 				A1000001227D3F0000000090 /* TimecodeOCRManager.swift */,
 				C1TIMELINE00000007 /* TimelineManager.swift */,
@@ -427,7 +422,6 @@
 				A1000001227D3F0000000014 /* TransportBarView.swift */,
 				A1000001227D3F0000000073 /* SettingsView.swift */,
 				5BDAFB14BA0E492A986FE676 /* WelcomeOverlayView.swift */,
-				LSQLICENSE000020 /* LicenseEntryView.swift */,
 				B19B58C02F088CFF00FA33EC /* VitalControlsBar.swift */,
 				C1VISUALFX0000002 /* VisualEffectView.swift */,
 				C1LIQUIDGLASS0002 /* LiquidGlassStyles.swift */,
@@ -792,10 +786,8 @@
 				A1000001227D3F00000000B3 /* VideoPlayerView.swift in Sources */,
 				A1000001227D3F00000000B4 /* TransportBarView.swift in Sources */,
 				A1000001227D3F0000000072 /* AudioOutputManager.swift in Sources */,
-				LSQLICENSE000011 /* LicenseManager.swift in Sources */,
 				A1000001227D3F0000000074 /* SettingsView.swift in Sources */,
 				A06C07CF5E2F4619BBD1F685 /* WelcomeOverlayView.swift in Sources */,
-				LSQLICENSE000021 /* LicenseEntryView.swift in Sources */,
 				A1000001227D3F0000000076 /* AppSettings.swift in Sources */,
 				A1000001227D3F00000000D0 /* ProjectDocument.swift in Sources */,
 				A1000001227D3F00000000C2 /* WaveformData.swift in Sources */,

@@ -103,15 +103,11 @@ struct ContentView: View {
         ))
     }
 
-    // MARK: - License
-    @StateObject private var licenseManager = LicenseManager.shared
-
     // MARK: - Alert & Sheet Coordination
     @StateObject var alerts = AlertCoordinator()
 
     // MARK: - UI State
     // Note: Some properties use internal access to allow extension in ContentView+Timeline.swift and ContentView+Setup.swift
-    @State private var showLicenseOverlay = false
     @State private var showWelcomeOverlay = false
     @State var isLoadingMedia = false
     @State var midiCancellables = Set<AnyCancellable>()
@@ -176,12 +172,7 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(WindowGlassBackground())
         .overlay {
-            if showLicenseOverlay {
-                LicenseOverlayView(isPresented: $showLicenseOverlay)
-            }
-        }
-        .overlay {
-            if showWelcomeOverlay && !showLicenseOverlay {
+            if showWelcomeOverlay {
                 WelcomeOverlayView(isPresented: $showWelcomeOverlay)
             }
         }
@@ -211,24 +202,9 @@ struct ContentView: View {
             setupPersistenceServiceCallbacks()
             setupMediaImportCoordinatorCallbacks()
 
-            // Check license status
-            if !licenseManager.isLicensed {
-                showLicenseOverlay = true
-            }
-
-            // Show welcome overlay if user hasn't completed it (and is licensed)
-            if !AppSettings.shared.hasCompletedWelcome && !showLicenseOverlay {
+            // Show welcome overlay if user hasn't completed it
+            if !AppSettings.shared.hasCompletedWelcome {
                 showWelcomeOverlay = true
-            }
-        }
-        // Update license overlay when license status changes
-        .onChange(of: licenseManager.isLicensed) { _, isLicensed in
-            if isLicensed {
-                showLicenseOverlay = false
-                // Show welcome after license activation if not completed
-                if !AppSettings.shared.hasCompletedWelcome {
-                    showWelcomeOverlay = true
-                }
             }
         }
         // Sync unsaved changes state with AppDelegate for quit confirmation
