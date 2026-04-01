@@ -37,8 +37,8 @@ final class LicenseManager: ObservableObject {
     // MARK: - Configuration
 
     /// Beta testing mode - bypasses all license checks
-    /// TODO: Set to false before release
-    private let betaTestingMode = true
+    /// Set to true only for development/testing
+    private let betaTestingMode = false
 
     /// Your Gumroad Product ID - found on product edit page under "License key" section
     private let gumroadProductId = "XsgvPVSBpikK-Q1Q2vLNSQ=="
