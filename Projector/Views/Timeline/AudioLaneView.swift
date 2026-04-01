@@ -325,16 +325,16 @@ struct AudioLaneView: View {
     }
 
     private var emptyDropPrompt: some View {
-        HStack(spacing: Spacing.xs) {
+        VStack(spacing: Spacing.xs) {
             Image(systemName: "music.note.list")
-                .frame(width: 14, height: 14)
-                .foregroundColor(.secondary.opacity(0.5))
+                .frame(width: 20, height: 20)
+                .foregroundColor(.secondary.opacity(0.6))
 
-            Text("Drop audio files")
-                .font(.system(size: 9))
-                .foregroundColor(.secondary.opacity(0.5))
+            Text("Drop audio files here")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary.opacity(0.6))
         }
-        .offset(x: -TimelineLayout.headerWidth / 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func dropPreviewOverlay(frame: Int, height: CGFloat, width: CGFloat) -> some View {

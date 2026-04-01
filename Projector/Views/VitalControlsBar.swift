@@ -162,7 +162,7 @@ struct VitalControlsBar: View {
                     applyDuration()
                 }
         }
-        .padding(.horizontal, Spacing.sm)
+        .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
         .glassControl(isHighlighted: isDurationFocused)
         .onHover { hovering in
@@ -196,7 +196,7 @@ struct VitalControlsBar: View {
                 .frame(minWidth: 45)
                 .foregroundColor(.primary)
         }
-        .padding(.horizontal, Spacing.sm)
+        .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
         .glassControl()
         .help("Frame rate is set by the video file")
@@ -223,7 +223,7 @@ struct VitalControlsBar: View {
             .buttonStyle(.plain)
             .help("Stop")
         }
-        .padding(.horizontal, Spacing.sm)
+        .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
         .glassControl()
     }
