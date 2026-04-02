@@ -157,7 +157,7 @@ struct OptimizationSuggestionBanner: View {
                 )
         )
         .scaleEffect(isHovered ? 1.01 : 1.0)
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
+        .animation(AppAnimations.quick, value: isHovered)
         .onHover { hovering in
             isHovered = hovering
         }

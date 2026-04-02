@@ -376,7 +376,7 @@ struct SpotMediaSheet: View {
         }
         .buttonStyle(.plain)
         .disabled(disabled)
-        .animation(.easeInOut(duration: 0.15), value: selectedOption)
+        .animation(AppAnimations.quick, value: selectedOption)
         .accessibilityLabel("\(option.label), \(timecodeString ?? "not available")")
         .accessibilityAddTraits(selectedOption == option ? .isSelected : [])
     }
@@ -449,7 +449,7 @@ struct SpotMediaSheet: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .animation(.easeInOut(duration: 0.15), value: selectedOption)
+            .animation(AppAnimations.quick, value: selectedOption)
 
             if let error = manualError {
                 Text(error)

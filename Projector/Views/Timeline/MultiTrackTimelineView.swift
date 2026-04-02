@@ -470,7 +470,7 @@ struct MultiTrackTimelineView: View {
 
             TextField("00:00:00:00", text: $timecodeEntryText)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                .font(Typography.monoDisplay)
                 .frame(width: 150)
                 .onChange(of: timecodeEntryText) { _, newValue in
                     timecodeEntryText = formatTimecodeInput(newValue)
@@ -640,7 +640,7 @@ struct MultiTrackTimelineView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                .stroke(AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
         )
     }
 
@@ -704,7 +704,7 @@ struct MultiTrackTimelineView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(isStartTCFocused ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: 1)
+                .stroke(isStartTCFocused ? Color.accentColor : AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
         )
         .onHover { hovering in
             isHoveringStartTC = hovering
@@ -755,7 +755,7 @@ struct MultiTrackTimelineView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(isDurationFocused ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: 1)
+                .stroke(isDurationFocused ? Color.accentColor : AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
         )
         .onHover { hovering in
             isHoveringDuration = hovering
@@ -810,7 +810,7 @@ struct MultiTrackTimelineView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                .stroke(AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
         )
     }
 
@@ -1596,7 +1596,7 @@ struct MultiTrackTimelineView: View {
         }
         .frame(height: baseHeight)
         .frame(maxHeight: .infinity, alignment: .top)
-        .animation(.easeInOut(duration: 0.12), value: isActive)
+        .animation(AppAnimations.instant, value: isActive)
     }
 
     private func handleNewLaneDragEntered(
@@ -2013,19 +2013,19 @@ struct MultiTrackTimelineView: View {
     private let zoomStep: CGFloat = 0.1
 
     private func zoomIn() {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(AppAnimations.standard) {
             zoomLevel = min(maxZoom, zoomLevel + zoomStep)
         }
     }
 
     private func zoomOut() {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(AppAnimations.standard) {
             zoomLevel = max(minZoom, zoomLevel - zoomStep)
         }
     }
 
     private func resetZoom() {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(AppAnimations.standard) {
             zoomLevel = minZoom
         }
     }

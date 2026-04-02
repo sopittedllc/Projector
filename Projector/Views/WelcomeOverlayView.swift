@@ -24,14 +24,14 @@ struct WelcomeOverlayView: View {
                         .frame(width: 80, height: 80)
 
                     Text("Welcome to Projector!")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .font(Typography.displayTitle)
                         .foregroundColor(.primary)
                 }
-                .padding(.top, 32)
-                .padding(.bottom, 24)
+                .padding(.top, Spacing.xxl)
+                .padding(.bottom, Spacing.xl)
 
                 Divider()
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, Spacing.xxl)
 
                 // Steps
                 VStack(alignment: .leading, spacing: Spacing.xl) {
@@ -63,19 +63,19 @@ struct WelcomeOverlayView: View {
                         description: "Choose your audio interface and custom map outputs in Settings"
                     )
                 }
-                .padding(.horizontal, 32)
-                .padding(.vertical, 28)
+                .padding(.horizontal, Spacing.xxl)
+                .padding(.vertical, Spacing.xxl)
 
                 Divider()
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, Spacing.xxl)
 
                 // Button
                 Button(action: dismissWelcome) {
                     Text("I'm ready!")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(Typography.title)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
+                        .padding(.vertical, Spacing.md)
                         .background(
                             LinearGradient(
                                 colors: [Color.accentColor, Color.accentColor.opacity(0.8)],
@@ -83,28 +83,28 @@ struct WelcomeOverlayView: View {
                                 endPoint: .bottom
                             )
                         )
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .clipShape(RoundedRectangle(cornerRadius: PanelLayout.cornerRadius))
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 32)
-                .padding(.top, 20)
-                .padding(.bottom, 28)
+                .padding(.horizontal, Spacing.xxl)
+                .padding(.top, Spacing.xl)
+                .padding(.bottom, Spacing.xxl)
             }
             .frame(width: 480)
             .background(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: Spacing.lg)
                     .fill(Color(nsColor: .windowBackgroundColor))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                RoundedRectangle(cornerRadius: Spacing.lg)
+                    .stroke(AppColors.borderSubtle, lineWidth: PanelLayout.borderWidth)
             )
             .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
             .scaleEffect(appearAnimation ? 1.0 : 0.9)
             .opacity(appearAnimation ? 1.0 : 0.0)
         }
         .onAppear {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            withAnimation(AppAnimations.smoothSpring) {
                 appearAnimation = true
             }
         }
@@ -119,22 +119,22 @@ struct WelcomeOverlayView: View {
     ) -> some View {
         HStack(alignment: .top, spacing: Spacing.lg) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
                     .fill(iconColor.opacity(0.15))
                     .frame(width: 44, height: 44)
 
                 Image(systemName: icon)
-                    .font(.system(size: 20, weight: .medium))
+                    .font(Typography.displaySubtitle)
                     .foregroundColor(iconColor)
             }
 
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(Typography.title)
                     .foregroundColor(.primary)
 
                 Text(description)
-                    .font(.system(size: 13))
+                    .font(Typography.heading)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -144,11 +144,11 @@ struct WelcomeOverlayView: View {
     }
 
     private func dismissWelcome() {
-        withAnimation(.easeOut(duration: 0.2)) {
+        withAnimation(AppAnimations.quick) {
             appearAnimation = false
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + AppAnimations.durationQuick) {
             settings.hasCompletedWelcome = true
             isPresented = false
         }

@@ -43,21 +43,21 @@ struct AudioClipView: View {
                 // Header with filename and timecode
                 HStack(spacing: Spacing.xs) {
                     Text(clip.displayName)
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(Typography.labelSmall)
                         .foregroundColor(.white)
                         .lineLimit(1)
 
                     // Optimization indicator
                     if isOptimized {
                         Image(systemName: "stopwatch.fill")
-                            .font(.system(size: 8))
+                            .font(Typography.iconTiny)
                             .foregroundColor(.green)
                     }
 
                     // Sprint 5: Timeline start timecode
                     if let tc = timelineStartTimecode, clipWidth > 120 {
                         Text(tc)
-                            .font(.system(size: 7, weight: .medium, design: .monospaced))
+                            .font(Typography.monoTiny)
                             .foregroundColor(.white.opacity(0.7))
                             .padding(.horizontal, 3)
                             .padding(.vertical, 1)
@@ -77,7 +77,7 @@ struct AudioClipView: View {
                     // Volume indicator if not default
                     if clip.volume != 1.0 && !clip.isMuted {
                         Text(String(format: "%.0f%%", clip.volume * 100))
-                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .font(Typography.monoTiny)
                             .foregroundColor(.white.opacity(0.8))
                     }
                 }

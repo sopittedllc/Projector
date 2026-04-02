@@ -131,7 +131,7 @@ struct GlassTransportButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 14, weight: .medium))
+            .font(Typography.buttonLarge)
             .foregroundColor(isActive ? .accentColor : .primary)
             .frame(width: 32, height: 28)
             .background(
@@ -143,7 +143,7 @@ struct GlassTransportButtonStyle: ButtonStyle {
                     .fill(configuration.isPressed ? Color.white.opacity(0.1) : Color.clear)
             )
             .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
-            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+            .animation(AppAnimations.instant, value: configuration.isPressed)
     }
 }
 

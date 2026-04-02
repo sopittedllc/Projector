@@ -51,7 +51,7 @@ struct TimelineRulerView: View {
             if isMajor {
                 let label = formatTime(time)
                 let text = Text(label)
-                    .font(.system(size: 9, weight: .regular, design: .monospaced))
+                    .font(Typography.monoTiny)
                     .foregroundColor(.secondary)
 
                 // Position label slightly to the right of the tick

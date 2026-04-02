@@ -334,7 +334,7 @@ struct ContentView: View {
             .overlay {
                 DropTargetOverlay(isTargeted: $isPlaybackDropTargeted)
             }
-            .animation(.easeInOut(duration: 0.15), value: isPlaybackDropTargeted)
+            .animation(AppAnimations.quick, value: isPlaybackDropTargeted)
             .frame(minWidth: 480, minHeight: 200)
             .frame(height: playbackHeight)
             .transaction { $0.animation = nil }

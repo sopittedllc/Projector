@@ -59,14 +59,14 @@ struct VideoContentView: View {
                     .overlay {
                         VStack(spacing: Spacing.lg) {
                             Image(systemName: "film")
-                                .font(.system(size: 48))
-                                .foregroundColor(.gray)
+                                .font(Typography.displayLarge)
+                                .foregroundColor(AppColors.textTertiary)
                             Text("Drop video files here")
-                                .font(.title2)
-                                .foregroundColor(.gray)
+                                .font(Typography.displaySubtitle)
+                                .foregroundColor(AppColors.textTertiary)
                             Text("to create a timeline")
-                                .font(.caption)
-                                .foregroundColor(.gray.opacity(0.7))
+                                .font(Typography.caption)
+                                .foregroundColor(AppColors.textMuted)
                         }
                     }
             }
@@ -103,18 +103,18 @@ struct TimecodeOverlayView: View {
                 }
 
                 Text(timecode.stringValue())
-                    .font(.system(size: 24, weight: .medium, design: .monospaced))
+                    .font(Typography.monoXLarge)
                     .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.sm)
                     .background(
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
                             .fill(Color.black.opacity(0.6 * opacity))
                     )
                     .opacity(opacity)
-                    .padding(.leading, 16)
-                    .padding(.trailing, 16 + extraTrailingPadding)
-                    .padding(.vertical, 16)
+                    .padding(.leading, Spacing.lg)
+                    .padding(.trailing, Spacing.lg + extraTrailingPadding)
+                    .padding(.vertical, Spacing.lg)
 
                 if position == .topLeft || position == .bottomLeft {
                     Spacer()

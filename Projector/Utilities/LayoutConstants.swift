@@ -20,7 +20,27 @@ import SwiftTimecodeCore
 ///     .font(Typography.mono)
 /// ```
 enum Typography {
-    // MARK: - Display & Headings
+    // MARK: - Display (Onboarding, Welcome, Large UI)
+
+    /// Hero display text for onboarding (28pt bold rounded)
+    static let displayTitle = Font.system(size: 28, weight: .bold, design: .rounded)
+
+    /// Display subtitle for onboarding steps (20pt regular)
+    static let displaySubtitle = Font.system(size: 20, weight: .regular)
+
+    /// Display body for onboarding descriptions (18pt regular)
+    static let displayBody = Font.system(size: 18, weight: .regular)
+
+    /// Large icon/placeholder text (48pt regular)
+    static let displayLarge = Font.system(size: 48, weight: .regular)
+
+    /// Extra large icon text (64pt regular)
+    static let displayIcon = Font.system(size: 64, weight: .regular)
+
+    /// Badge text for onboarding (14pt bold rounded)
+    static let badge = Font.system(size: 14, weight: .bold, design: .rounded)
+
+    // MARK: - Headings
 
     /// Large title for modal headers (16pt semibold)
     static let title = Font.system(size: 16, weight: .semibold)
@@ -64,6 +84,12 @@ enum Typography {
     /// Large monospace for prominent timecode (16pt medium)
     static let monoLarge = Font.system(size: 16, weight: .medium, design: .monospaced)
 
+    /// Extra large monospace for video overlay timecode (24pt medium)
+    static let monoXLarge = Font.system(size: 24, weight: .medium, design: .monospaced)
+
+    /// Display monospace for timeline position (14pt medium)
+    static let monoDisplay = Font.system(size: 14, weight: .medium, design: .monospaced)
+
     /// Small monospace for metadata (10pt regular)
     static let monoSmall = Font.system(size: 10, weight: .regular, design: .monospaced)
 
@@ -71,6 +97,9 @@ enum Typography {
     static let monoTiny = Font.system(size: 9, weight: .medium, design: .monospaced)
 
     // MARK: - Buttons & Actions
+
+    /// Large button text for primary actions (14pt medium)
+    static let buttonLarge = Font.system(size: 14, weight: .medium)
 
     /// Button text (11pt medium)
     static let button = Font.system(size: 11, weight: .medium)

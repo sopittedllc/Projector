@@ -52,9 +52,9 @@ struct StandardPanel<HeaderTrailing: View, Content: View>: View {
     private var panelHeader: some View {
         HStack(spacing: Spacing.sm) {
             // Chevron
-            Button(action: { withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() } }) {
+            Button(action: { withAnimation(AppAnimations.standard) { isExpanded.toggle() } }) {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Typography.icon)
                     .foregroundColor(.secondary)
                     .frame(width: 16, height: 16)
             }

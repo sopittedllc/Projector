@@ -327,19 +327,19 @@ struct OnboardingView: View {
             }
             .frame(width: 560, height: 520)
             .background(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: Spacing.lg)
                     .fill(Color(nsColor: .windowBackgroundColor))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                RoundedRectangle(cornerRadius: Spacing.lg)
+                    .stroke(AppColors.borderSubtle, lineWidth: PanelLayout.borderWidth)
             )
             .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
             .scaleEffect(appearAnimation ? 1.0 : 0.9)
             .opacity(appearAnimation ? 1.0 : 0.0)
         }
         .onAppear {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            withAnimation(AppAnimations.smoothSpring) {
                 appearAnimation = true
             }
         }
@@ -390,7 +390,7 @@ struct OnboardingView: View {
 
             VStack(spacing: Spacing.sm) {
                 Text("Welcome to Projector")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .font(Typography.displayTitle)
 
                 Text("Let's get you set up for video playback synced to your DAW")
                     .font(Typography.body)
@@ -413,7 +413,7 @@ struct OnboardingView: View {
     private func featureRow(icon: String, color: Color, text: String) -> some View {
         HStack(spacing: Spacing.md) {
             Image(systemName: icon)
-                .font(.system(size: 18))
+                .font(Typography.displayBody)
                 .foregroundColor(color)
                 .frame(width: 24)
 
@@ -468,7 +468,7 @@ struct OnboardingView: View {
 
                 // Icon
                 Image(systemName: daw.iconName)
-                    .font(.system(size: 20))
+                    .font(Typography.displaySubtitle)
                     .foregroundColor(.secondary)
                     .frame(width: 28)
 
@@ -507,7 +507,7 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 HStack {
                     Image(systemName: selectedDAW.iconName)
-                        .font(.system(size: 20))
+                        .font(Typography.displaySubtitle)
                         .foregroundColor(.accentColor)
 
                     Text("\(selectedDAW.rawValue) MTC Setup")
@@ -530,7 +530,7 @@ struct OnboardingView: View {
                     // Projector MIDI Port note
                     HStack(spacing: Spacing.md) {
                         Image(systemName: "info.circle")
-                            .font(.system(size: 16))
+                            .font(Typography.title)
                             .foregroundColor(.blue)
 
                         Text("Projector creates a virtual MIDI port called \"Projector MIDI IN\" automatically. It should appear in your DAW's MIDI output list.")
@@ -550,7 +550,7 @@ struct OnboardingView: View {
         HStack(alignment: .top, spacing: Spacing.md) {
             // Step number
             Text("\(step.step)")
-                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .font(Typography.badge)
                 .foregroundColor(.white)
                 .frame(width: 24, height: 24)
                 .background(Color.accentColor)
@@ -614,7 +614,7 @@ struct OnboardingView: View {
                 // Note about audio routing
                 HStack(spacing: Spacing.md) {
                     Image(systemName: "info.circle")
-                        .font(.system(size: 16))
+                        .font(Typography.title)
                         .foregroundColor(.blue)
 
                     Text("You can configure detailed audio routing later from the timeline header or Settings.")
@@ -638,12 +638,12 @@ struct OnboardingView: View {
             Spacer()
 
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 64))
+                .font(Typography.displayIcon)
                 .foregroundColor(.green)
 
             VStack(spacing: Spacing.sm) {
                 Text("You're all set!")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .font(Typography.displayTitle)
 
                 Text("Drag in your video and audio files to get started")
                     .font(Typography.body)
@@ -666,7 +666,7 @@ struct OnboardingView: View {
     private func tipRow(icon: String, text: String) -> some View {
         HStack(spacing: Spacing.md) {
             Image(systemName: icon)
-                .font(.system(size: 16))
+                .font(Typography.title)
                 .foregroundColor(.accentColor)
                 .frame(width: 24)
 
@@ -722,11 +722,11 @@ struct OnboardingView: View {
     // MARK: - Actions
 
     private func completeOnboarding() {
-        withAnimation(.easeOut(duration: 0.2)) {
+        withAnimation(AppAnimations.quick) {
             appearAnimation = false
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + AppAnimations.durationQuick) {
             settings.hasCompletedWelcome = true
             onComplete()
             dismiss()
