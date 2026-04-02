@@ -125,38 +125,25 @@ struct GlassButtonStyle: ButtonStyle {
 // MARK: - Glass Transport Button Style
 
 /// A button style for transport controls (play, stop, etc.)
+/// These buttons sit inside a .glassControl() wrapper, so they should be minimal.
 struct GlassTransportButtonStyle: ButtonStyle {
     var isActive: Bool = false
-    private let cornerRadius: CGFloat = 6
 
     func makeBody(configuration: Configuration) -> some View {
-        if #available(macOS 26, *) {
-            configuration.label
-                .padding(Spacing.sm)
-                .background {
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .fill(.clear)
-                        .glassEffect(
-                            isActive ? .regular.tint(.accentColor) : .regular,
-                            in: RoundedRectangle(cornerRadius: cornerRadius)
-                        )
-                }
-                .opacity(configuration.isPressed ? 0.7 : 1.0)
-                .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
-                .animation(AppAnimations.spring, value: configuration.isPressed)
-        } else {
-            configuration.label
-                .padding(Spacing.sm)
-                .background(
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .fill(isActive ? Color.accentColor.opacity(0.2) : Color(nsColor: .controlBackgroundColor))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
-                )
-                .opacity(configuration.isPressed ? 0.7 : 1.0)
-        }
+        configuration.label
+            .font(.system(size: 14, weight: .medium))
+            .foregroundColor(isActive ? .accentColor : .primary)
+            .frame(width: 32, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isActive ? Color.accentColor.opacity(0.15) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(configuration.isPressed ? Color.white.opacity(0.1) : Color.clear)
+            )
+            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
     }
 }
 
