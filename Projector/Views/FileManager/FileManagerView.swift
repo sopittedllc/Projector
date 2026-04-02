@@ -54,6 +54,9 @@ struct FileManagerView: View {
     /// Active optimization suggestion to display in banner
     @State private var activeSuggestion: OptimizationSuggestion?
 
+    /// Tracks dismissed suggestion types for this session (prevents re-showing after dismiss)
+    @State private var dismissedSuggestionTypes: Set<String> = []
+
     // Focus state for keyboard commands
     @FocusState private var isMediaListFocused: Bool
 
@@ -78,6 +81,17 @@ struct FileManagerView: View {
                         activeSuggestion = nil
                     },
                     onDismiss: {
+                        // Track dismissed type to prevent re-showing
+                        switch suggestion {
+                        case .highBitrateImport:
+                            dismissedSuggestionTypes.insert("highBitrate")
+                        case .proResDetected:
+                            dismissedSuggestionTypes.insert("proRes")
+                        case .playbackStutter:
+                            dismissedSuggestionTypes.insert("stutter")
+                        case .largeProjectSize:
+                            dismissedSuggestionTypes.insert("projectSize")
+                        }
                         activeSuggestion = nil
                     }
                 )
@@ -627,7 +641,7 @@ struct FileManagerView: View {
 
     /// Evaluates media items and determines if an optimization suggestion should be shown
     private func evaluateOptimizationSuggestion() {
-        // Don't show suggestion if already dismissed or sheet is showing
+        // Don't show suggestion if already showing one or sheet is open
         guard activeSuggestion == nil, !showOptimizationSheet else { return }
 
         // Count items that need optimization
@@ -653,12 +667,12 @@ struct FileManagerView: View {
             }
         }
 
-        // Show suggestion based on what we found
-        if proResCount > 0 {
+        // Show suggestion based on what we found (respecting session dismissals)
+        if proResCount > 0 && !dismissedSuggestionTypes.contains("proRes") {
             withAnimation {
                 activeSuggestion = .proResDetected(count: proResCount)
             }
-        } else if highBitrateCount > 0 {
+        } else if highBitrateCount > 0 && !dismissedSuggestionTypes.contains("highBitrate") {
             withAnimation {
                 activeSuggestion = .highBitrateImport(count: highBitrateCount)
             }

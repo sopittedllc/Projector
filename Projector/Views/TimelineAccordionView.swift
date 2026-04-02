@@ -81,15 +81,15 @@ struct TimelineAccordionView: View {
     // MARK: - Timeline Hint
 
     private var timelineHint: some View {
-        HStack {
+        HStack(alignment: .center) {
             Text("Double-click regions to set custom timecode")
                 .font(Typography.caption)
                 .foregroundColor(AppColors.textTertiary)
             Spacer()
         }
-        .frame(height: PanelLayout.footerHeight, alignment: .center)
+        .frame(maxWidth: .infinity)
+        .frame(height: PanelLayout.footerHeight + Spacing.md) // Include space for resize handle
         .padding(.horizontal, Spacing.md)
-        .padding(.bottom, Spacing.md) // Account for resize handle overlay
     }
 
     // MARK: - Accordion Header
@@ -207,10 +207,12 @@ struct TimelineAccordionView: View {
             .frame(height: Spacing.md)
             .contentShape(Rectangle())
             .overlay {
-                // Visible drag indicator line
-                Rectangle()
-                    .fill(isResizingTimeline ? Color.accentColor : AppColors.borderLight)
-                    .frame(height: PanelLayout.borderWidth)
+                // Only show indicator line when actively resizing (panel border is visible otherwise)
+                if isResizingTimeline {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(height: 2)
+                }
             }
             .accessibilityLabel("Resize timeline")
             .onHover { hovering in

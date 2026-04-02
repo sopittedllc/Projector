@@ -218,11 +218,14 @@ private struct AlertCoordinatorModifier: ViewModifier {
             }
             .sheet(item: Binding(
                 get: {
-                    // Only return sheet-type alerts
+                    // Only return sheet-type alerts (excluding settings, which is handled by ContentView)
                     guard let alert = coordinator.activeAlert else { return nil }
                     switch alert {
-                    case .embeddedTimecode, .videoInsert, .batchTimecode, .spotMedia, .saveProject, .settings:
+                    case .embeddedTimecode, .videoInsert, .batchTimecode, .spotMedia, .saveProject:
                         return alert
+                    case .settings:
+                        // Settings sheet is handled separately by ContentView
+                        return nil
                     default:
                         return nil
                     }
