@@ -7,7 +7,7 @@
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
-			<key>CFBundleTypeIconFile</key>
+			<key>CFBundleTypeIconName</key>
 			<string>DocumentIcon</string>
 			<key>CFBundleTypeName</key>
 			<string>Projector Document</string>
@@ -70,7 +70,7 @@
 			</array>
 			<key>UTTypeDescription</key>
 			<string>Projector Project</string>
-			<key>UTTypeIconFile</key>
+			<key>UTTypeIconName</key>
 			<string>DocumentIcon</string>
 			<key>UTTypeIdentifier</key>
 			<string>com.keegandewitt.projector.project</string>
