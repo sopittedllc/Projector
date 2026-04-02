@@ -487,6 +487,7 @@ struct OnboardingView: View {
             }
             .padding(.horizontal, Spacing.md)
             .padding(.vertical, Spacing.sm)
+            .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(isSelected ? AppColors.surfaceLight : Color.clear)
