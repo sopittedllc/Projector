@@ -147,7 +147,23 @@ private struct AlertCoordinatorModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .alert(item: $coordinator.activeAlert) { alert in
+            // IMPORTANT: Only show alert-type alerts here, not sheets
+            // Sheet types are handled by .sheet() below
+            .alert(item: Binding(
+                get: {
+                    // Filter to only return alert types, not sheet types
+                    guard let alert = coordinator.activeAlert else { return nil }
+                    switch alert {
+                    case .error, .videoAlreadyInTimeline, .audioAlreadyInTimeline,
+                         .duplicateMedia, .missingFile, .fpsConflict:
+                        return alert  // These are alerts
+                    case .embeddedTimecode, .videoInsert, .batchTimecode,
+                         .spotMedia, .saveProject, .settings:
+                        return nil    // These are sheets, don't show as alerts
+                    }
+                },
+                set: { coordinator.activeAlert = $0 }
+            )) { alert in
                 switch alert {
                 case .error(let message):
                     return Alert(
@@ -195,9 +211,9 @@ private struct AlertCoordinatorModifier: ViewModifier {
                         secondaryButton: .cancel(Text("Cancel"), action: onCancel)
                     )
 
-                case .embeddedTimecode, .videoInsert, .batchTimecode, .spotMedia, .saveProject, .settings:
-                    // These are sheets, handled below
-                    return Alert(title: Text(""))
+                default:
+                    // Sheet types should never reach here due to binding filter above
+                    return Alert(title: Text("Unexpected Alert"))
                 }
             }
             .sheet(item: Binding(
