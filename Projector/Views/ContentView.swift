@@ -178,7 +178,6 @@ struct ContentView: View {
             )) {
                 SettingsView(
                     audioManager: audioManager,
-                    midiSyncViewModel: midiSyncViewModel,
                     isPresented: Binding(
                         get: { alerts.activeAlert?.id == "settings" },
                         set: { if !$0 { alerts.dismiss() } }

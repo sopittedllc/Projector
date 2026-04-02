@@ -1,21 +1,18 @@
 import SwiftUI
 import AppKit
 
-/// Settings window for audio, display, and sync configuration.
+/// Settings window for audio and display configuration.
 ///
 /// Provides accordion-style sections for:
-/// - MIDI sync status and drift compensation settings
-/// - Audio output device selection and channel mapping
-/// - Display overlay configuration
+/// - Audio: Output device selection and channel mapping
+/// - Display: Timecode overlay configuration
 struct SettingsView: View {
     @ObservedObject var audioManager: AudioOutputManager
     @ObservedObject var settings = AppSettings.shared
-    var midiSyncViewModel: MIDISyncViewModel?
 
     @Binding var isPresented: Bool
 
     // Accordion section states - default to expanded
-    @State private var syncExpanded = true
     @State private var audioExpanded = true
     @State private var displayExpanded = true
 
@@ -40,14 +37,6 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: Spacing.sm) {
                     // MIDI Info Blurb
                     midiInfoSection
-
-                    accordionSection(
-                        title: "Sync",
-                        icon: "arrow.triangle.2.circlepath",
-                        isExpanded: $syncExpanded
-                    ) {
-                        syncSectionContent
-                    }
 
                     accordionSection(
                         title: "Audio",
@@ -156,95 +145,6 @@ struct SettingsView: View {
         .padding(Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassPanel()
-    }
-
-    // MARK: - Sync Section
-
-    private var syncSectionContent: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
-            // Live sync status (if ViewModel is available)
-            if let viewModel = midiSyncViewModel {
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    Text("Current Status")
-                        .font(Typography.subheading)
-                        .foregroundColor(.secondary)
-
-                    // Inline sync status display
-                    HStack(spacing: Spacing.sm) {
-                        Circle()
-                            .fill(viewModel.syncStatusColor)
-                            .frame(width: Spacing.sm, height: Spacing.sm)
-                            .shadow(color: viewModel.syncStatusColor.opacity(0.5), radius: 2)
-
-                        Text(viewModel.syncStatusText)
-                            .font(Typography.monoSmall)
-                            .foregroundColor(.secondary)
-
-                        if viewModel.mtcState == .sync {
-                            HStack(spacing: Spacing.xs) {
-                                Image(systemName: "waveform.path.ecg")
-                                    .font(Typography.iconTiny)
-                                    .foregroundColor(viewModel.driftColor)
-
-                                Text(viewModel.driftString)
-                                    .font(Typography.monoSmall)
-                                    .foregroundColor(viewModel.driftColor)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, Spacing.sm)
-                    .padding(.vertical, Spacing.xs)
-                    .background(
-                        RoundedRectangle(cornerRadius: Spacing.xs)
-                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-                    )
-                    .accessibilityLabel("Sync status: \(viewModel.syncStatusText)")
-                }
-            }
-
-            // Drift threshold
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-                HStack {
-                    Text("Re-sync Threshold")
-                        .font(Typography.subheading)
-
-                    Spacer()
-
-                    Text("\(settings.syncDriftThreshold) frames")
-                        .font(Typography.mono)
-                        .foregroundColor(.secondary)
-                }
-
-                Slider(
-                    value: Binding(
-                        get: { Double(settings.syncDriftThreshold) },
-                        set: { settings.syncDriftThreshold = Int($0) }
-                    ),
-                    in: 1...15,
-                    step: 1
-                )
-                .accessibilityLabel("Re-sync threshold")
-                .accessibilityValue("\(settings.syncDriftThreshold) frames")
-
-                Text("Higher values reduce stuttering during minor drift. Lower values maintain tighter sync accuracy.")
-                    .font(Typography.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Divider()
-
-            // Auto-play/pause settings
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-                Toggle("Auto-play when MTC starts", isOn: $settings.autoPlayOnMTC)
-                    .font(Typography.body)
-
-                Toggle("Auto-pause when MTC stops", isOn: $settings.autoPauseOnMTCStop)
-                    .font(Typography.body)
-
-                Toggle("Respond to MMC commands", isOn: $settings.respondToMMC)
-                    .font(Typography.body)
-            }
-        }
     }
 
     // MARK: - Audio Section
@@ -769,7 +669,6 @@ private extension AudioOutputMappingView {
 #Preview {
     SettingsView(
         audioManager: AudioOutputManager(),
-        midiSyncViewModel: nil,
         isPresented: .constant(true)
     )
 }
