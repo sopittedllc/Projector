@@ -1,26 +1,44 @@
 import Foundation
 import SwiftTimecodeCore
 
-struct LinkedDragPreview: Equatable {
+/// Preview state for linked audio clips being dragged with their parent video reel.
+///
+/// When a video reel is dragged and has linked audio clips, this preview shows
+/// where the linked clips will land on the timeline.
+struct LinkedDragPreview: Equatable, Sendable {
+    /// Source URL of the linked audio clip
     let sourceURL: URL
+    /// Starting frame in the source media
     let sourceStartFrame: Int
+    /// Duration of the clip in frames
     let durationFrames: Int
+    /// Original timeline position (frames)
     let fromFrame: Int
+    /// Target timeline position (frames)
     let toFrame: Int
 }
 
-/// Preview for vertical lane change drag (audio clip moving between lanes)
-struct LaneChangePreview: Equatable {
+/// Preview state for vertical lane change drag (audio clip moving between lanes).
+///
+/// Displayed when an audio clip is being dragged vertically to a different lane,
+/// showing where the clip will land and whether the drop is valid.
+struct LaneChangePreview: Equatable, Sendable {
+    /// ID of the clip being dragged
     let clipId: UUID
+    /// Starting frame position on the timeline
     let timelineStartFrame: Int
+    /// Duration of the clip in frames
     let durationFrames: Int
+    /// Index of the lane the clip is being dragged from
     let sourceLaneIndex: Int
+    /// Index of the lane the clip will be dropped into
     let targetLaneIndex: Int
+    /// Whether the drop target is valid (no overlapping clips)
     let isValidDrop: Bool
 }
 
 /// Master timeline containing video reels and audio lanes
-struct Timeline: Codable, Equatable {
+struct Timeline: Codable, Equatable, Sendable {
     /// Timeline configuration (start/end, frame rate)
     var config: TimelineConfig
 

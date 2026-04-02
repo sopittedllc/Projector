@@ -308,6 +308,12 @@ enum TimelineLayout {
 
     /// Playhead triangle height
     static let playheadTriangleHeight: CGFloat = 8
+
+    /// Default padding in minutes added to timeline end for workspace
+    ///
+    /// This provides extra space at the end of the timeline for easier editing
+    /// and ensures the last clip isn't flush against the edge.
+    static let defaultPaddingMinutes: Double = 20.0
 }
 
 // MARK: - Panel Layout Best Practices

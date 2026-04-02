@@ -171,6 +171,7 @@ struct VideoReelClipView: View {
                 }
             }
         }
+        .drawingGroup() // Rasterize thumbnails to Metal for better zoom/scroll performance
     }
 
     @ViewBuilder

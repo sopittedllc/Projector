@@ -134,7 +134,7 @@ extension ContentView {
                 if urls.count == 1 {
                     let clip = await self.addAudioToTimeline(url: urls[0], laneId: lane.id, atFrame: atFrame)
                     if let clip = clip {
-                        let paddingFrames = Int(20.0 * 60.0 * self.timelineManager.timeline.config.frameRate.fps)
+                        let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * self.timelineManager.timeline.config.frameRate.fps)
                         self.timelineManager.extendTimeline(toEndFrame: clip.timelineEndFrame + paddingFrames)
                     }
                     return
@@ -262,7 +262,7 @@ extension ContentView {
                 let newLane = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
                 let clip = await addAudioToTimeline(url: newAudioURLs[0], laneId: newLane.id, atFrame: atFrame)
                 if let clip = clip {
-                    let paddingFrames = Int(20.0 * 60.0 * timelineManager.timeline.config.frameRate.fps)
+                    let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
                     timelineManager.extendTimeline(toEndFrame: clip.timelineEndFrame + paddingFrames)
                 }
                 return
@@ -317,7 +317,7 @@ extension ContentView {
                 }
 
                 // Add padding after all files
-                let paddingFrames = Int(20.0 * 60.0 * timelineManager.timeline.config.frameRate.fps)
+                let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
                 if let lastReel = timelineManager.timeline.videoReels.last {
                     timelineManager.extendTimeline(toEndFrame: lastReel.timelineEndFrame + paddingFrames)
                 }
@@ -913,7 +913,7 @@ extension ContentView {
 
                 // Add padding after the clip so users can easily drop more files
                 // Add 20 minutes of padding at the timeline frame rate
-                let paddingFrames = Int(20.0 * 60.0 * timelineManager.timeline.config.frameRate.fps)
+                let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
                 if let lastReel = timelineManager.timeline.videoReels.last {
                     timelineManager.extendTimeline(toEndFrame: lastReel.timelineEndFrame + paddingFrames)
                 }
@@ -922,7 +922,7 @@ extension ContentView {
                 _ = await addAudioToTimeline(url: url, laneId: laneId, atFrame: targetFrame, checkTimecode: false)
 
                 // Add padding after the clip
-                let paddingFrames = Int(20.0 * 60.0 * timelineManager.timeline.config.frameRate.fps)
+                let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
                 if let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
                    let lastClip = lane.clips.last {
                     timelineManager.extendTimeline(toEndFrame: lastClip.timelineEndFrame + paddingFrames)
@@ -997,7 +997,7 @@ extension ContentView {
         }
 
         // Add padding after all files
-        let paddingFrames = Int(20.0 * 60.0 * timelineManager.timeline.config.frameRate.fps)
+        let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
         if let lastReel = timelineManager.timeline.videoReels.last {
             timelineManager.extendTimeline(toEndFrame: lastReel.timelineEndFrame + paddingFrames)
         }
@@ -1018,7 +1018,7 @@ extension ContentView {
         }
 
         // Add padding after all files
-        let paddingFrames = Int(20.0 * 60.0 * timelineManager.timeline.config.frameRate.fps)
+        let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
         if let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
            let lastClip = lane.clips.last {
             timelineManager.extendTimeline(toEndFrame: lastClip.timelineEndFrame + paddingFrames)
@@ -1058,7 +1058,7 @@ extension ContentView {
         }
 
         // Add padding after all files
-        let paddingFrames = Int(20.0 * 60.0 * timelineManager.timeline.config.frameRate.fps)
+        let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
         if let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
            let lastClip = lane.clips.last {
             timelineManager.extendTimeline(toEndFrame: lastClip.timelineEndFrame + paddingFrames)
@@ -1171,7 +1171,7 @@ extension ContentView {
             }
 
             // Add padding after all files
-            let paddingFrames = Int(20.0 * 60.0 * timelineFPS)
+            let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineFPS)
             var maxEndFrame = 0
 
             if let lastReel = timelineManager.timeline.videoReels.last {

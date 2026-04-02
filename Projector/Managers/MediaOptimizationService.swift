@@ -353,14 +353,15 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         case kCMVideoCodecType_JPEG: return "JPEG"
         case kCMVideoCodecType_MPEG4Video: return "MPEG-4"
         default:
-            // Convert FourCC to string
-            let chars = [
-                Character(UnicodeScalar((fourCC >> 24) & 0xFF)!),
-                Character(UnicodeScalar((fourCC >> 16) & 0xFF)!),
-                Character(UnicodeScalar((fourCC >> 8) & 0xFF)!),
-                Character(UnicodeScalar(fourCC & 0xFF)!)
+            // Convert FourCC to string safely
+            let bytes = [
+                (fourCC >> 24) & 0xFF,
+                (fourCC >> 16) & 0xFF,
+                (fourCC >> 8) & 0xFF,
+                fourCC & 0xFF
             ]
-            return String(chars)
+            let chars = bytes.compactMap { UnicodeScalar($0) }.map { Character($0) }
+            return chars.count == 4 ? String(chars) : String(format: "0x%08X", fourCC)
         }
     }
 
