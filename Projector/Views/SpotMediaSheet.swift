@@ -40,10 +40,20 @@ enum SpotPlacementOption: String, CaseIterable, Identifiable {
     /// SF Symbol icon for this option
     var iconName: String {
         switch self {
-        case .filename: return "doc.text"
-        case .metadata: return "film"
-        case .manual: return "keyboard"
-        case .playhead: return "play.circle"
+        case .filename: return "doc.text.fill"
+        case .metadata: return "film.stack.fill"
+        case .manual: return "keyboard.fill"
+        case .playhead: return "play.circle.fill"
+        }
+    }
+
+    /// Icon color for this option
+    var iconColor: Color {
+        switch self {
+        case .filename: return .orange
+        case .metadata: return .blue
+        case .manual: return .purple
+        case .playhead: return .green
         }
     }
 }
@@ -262,10 +272,12 @@ struct SpotMediaSheet: View {
     private var placementOptionsView: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             Text("Place at:")
-                .font(Typography.label)
+                .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.secondary)
+                .textCase(.uppercase)
+                .tracking(0.5)
 
-            VStack(spacing: Spacing.sm) {
+            VStack(spacing: Spacing.xs) {
                 // Filename option
                 optionRow(
                     option: .filename,
@@ -307,20 +319,23 @@ struct SpotMediaSheet: View {
         Button(action: { selectedOption = option }) {
             HStack(spacing: Spacing.md) {
                 // Radio indicator
-                Circle()
-                    .strokeBorder(selectedOption == option ? Color.accentColor : AppColors.borderMedium, lineWidth: 2)
-                    .background(
-                        Circle()
-                            .fill(selectedOption == option ? Color.accentColor : Color.clear)
-                            .padding(3)
-                    )
-                    .frame(width: 18, height: 18)
+                ZStack {
+                    Circle()
+                        .strokeBorder(selectedOption == option ? Color.accentColor : AppColors.borderMedium, lineWidth: 2)
+                        .frame(width: 20, height: 20)
 
-                // Icon
+                    if selectedOption == option {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 10, height: 10)
+                    }
+                }
+
+                // Colored icon
                 Image(systemName: option.iconName)
-                    .font(Typography.icon)
-                    .foregroundColor(disabled ? .secondary.opacity(0.5) : .secondary)
-                    .frame(width: 20)
+                    .font(.system(size: 16))
+                    .foregroundColor(disabled ? .secondary.opacity(0.4) : option.iconColor)
+                    .frame(width: 24, height: 24)
 
                 // Label
                 Text(option.label)
@@ -329,36 +344,39 @@ struct SpotMediaSheet: View {
 
                 Spacer()
 
-                // Timecode or badge
+                // Timecode
                 if let tc = timecodeString {
                     Text(tc)
                         .font(Typography.mono)
-                        .foregroundColor(disabled ? .secondary.opacity(0.5) : .accentColor)
+                        .foregroundColor(disabled ? .secondary.opacity(0.4) : .green)
                 }
 
+                // Badge (source info)
                 if let badgeText = badge {
                     Text(badgeText)
-                        .font(Typography.captionSmall)
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.secondary)
-                        .padding(.horizontal, Spacing.xs)
-                        .padding(.vertical, 2)
-                        .background(AppColors.surfaceLight)
+                        .padding(.horizontal, Spacing.sm)
+                        .padding(.vertical, 3)
+                        .background(AppColors.surfaceMedium)
                         .cornerRadius(4)
                 }
             }
             .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
+            .padding(.vertical, Spacing.sm + 2)
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(selectedOption == option ? AppColors.surfaceLight : Color.clear)
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(selectedOption == option ? Color.accentColor.opacity(0.1) : Color.clear)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(selectedOption == option ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(selectedOption == option ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
             )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(disabled)
+        .animation(.easeInOut(duration: 0.15), value: selectedOption)
         .accessibilityLabel("\(option.label), \(timecodeString ?? "not available")")
         .accessibilityAddTraits(selectedOption == option ? .isSelected : [])
     }
@@ -370,20 +388,23 @@ struct SpotMediaSheet: View {
             Button(action: { selectedOption = .manual }) {
                 HStack(spacing: Spacing.md) {
                     // Radio indicator
-                    Circle()
-                        .strokeBorder(selectedOption == .manual ? Color.accentColor : AppColors.borderMedium, lineWidth: 2)
-                        .background(
-                            Circle()
-                                .fill(selectedOption == .manual ? Color.accentColor : Color.clear)
-                                .padding(3)
-                        )
-                        .frame(width: 18, height: 18)
+                    ZStack {
+                        Circle()
+                            .strokeBorder(selectedOption == .manual ? Color.accentColor : AppColors.borderMedium, lineWidth: 2)
+                            .frame(width: 20, height: 20)
 
-                    // Icon
+                        if selectedOption == .manual {
+                            Circle()
+                                .fill(Color.accentColor)
+                                .frame(width: 10, height: 10)
+                        }
+                    }
+
+                    // Colored icon
                     Image(systemName: SpotPlacementOption.manual.iconName)
-                        .font(Typography.icon)
-                        .foregroundColor(.secondary)
-                        .frame(width: 20)
+                        .font(.system(size: 16))
+                        .foregroundColor(SpotPlacementOption.manual.iconColor)
+                        .frame(width: 24, height: 24)
 
                     // Label
                     Text(SpotPlacementOption.manual.label)
@@ -396,15 +417,15 @@ struct SpotMediaSheet: View {
                     TextField("00:00:00:00", text: $manualTimecode)
                         .font(Typography.mono)
                         .textFieldStyle(.plain)
-                        .frame(width: 100)
+                        .frame(width: 110)
                         .padding(.horizontal, Spacing.sm)
-                        .padding(.vertical, Spacing.xs)
+                        .padding(.vertical, Spacing.xs + 2)
                         .background(
-                            RoundedRectangle(cornerRadius: 4)
+                            RoundedRectangle(cornerRadius: 6)
                                 .fill(AppColors.surfaceMedium)
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 4)
+                            RoundedRectangle(cornerRadius: 6)
                                 .strokeBorder(manualError != nil ? AppColors.error : AppColors.borderLight, lineWidth: 1)
                         )
                         .onChange(of: manualTimecode) { _, newValue in
@@ -416,23 +437,25 @@ struct SpotMediaSheet: View {
                         }
                 }
                 .padding(.horizontal, Spacing.md)
-                .padding(.vertical, Spacing.sm)
+                .padding(.vertical, Spacing.sm + 2)
                 .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(selectedOption == .manual ? AppColors.surfaceLight : Color.clear)
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(selectedOption == .manual ? Color.accentColor.opacity(0.1) : Color.clear)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(selectedOption == .manual ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(selectedOption == .manual ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
                 )
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .animation(.easeInOut(duration: 0.15), value: selectedOption)
 
             if let error = manualError {
                 Text(error)
                     .font(Typography.captionSmall)
                     .foregroundColor(AppColors.error)
-                    .padding(.leading, 40)
+                    .padding(.leading, 48)
             }
         }
     }

@@ -287,11 +287,8 @@ struct FileManagerView: View {
                 // Filter buttons
                 filterButtons
 
-                // Optimize button (only show if there are unoptimized items)
-                OptimizeMediaButton(
-                    showSheet: $showOptimizationSheet,
-                    hasUnoptimizedFiles: mediaLibrary.items.contains { !$0.isOptimized }
-                )
+                // Note: Optimize button removed - the contextual banner handles this better
+                // The banner appears when high-bitrate media is detected and is more informative
 
                 // Consolidate button (only show if there are external files or project unsaved)
                 ConsolidateMediaButton(
