@@ -241,7 +241,8 @@ struct VitalControlsBar: View {
             .accessibilityLabel("Stop")
             .help("Stop and return to start")
         }
-        .padding(.horizontal, Spacing.sm)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)  // Match other control groups
         .glassControl()
     }
 
