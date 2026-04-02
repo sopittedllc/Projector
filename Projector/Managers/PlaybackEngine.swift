@@ -1553,8 +1553,28 @@ final class PlaybackEngine: ObservableObject {
             return lastResort
         }
 
-        // This should never happen, but if it does, create a minimal valid format
-        fatalError("CRITICAL: Unable to create any valid audio format - CoreAudio may be in an invalid state")
+        // Final fallback: try 44.1kHz mono (should always work)
+        if let monoFormat = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1) {
+            debugPrint("CRITICAL: makeOutputFormat using 44.1kHz mono as emergency fallback")
+            return monoFormat
+        }
+
+        // This should truly never happen - log and return a manually constructed format
+        debugPrint("CRITICAL: All standard AVAudioFormat initializers failed - CoreAudio may be corrupted")
+        // Construct format directly from AudioStreamBasicDescription as absolute last resort
+        var asbd = AudioStreamBasicDescription(
+            mSampleRate: 44100,
+            mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved,
+            mBytesPerPacket: 4,
+            mFramesPerPacket: 1,
+            mBytesPerFrame: 4,
+            mChannelsPerFrame: 2,
+            mBitsPerChannel: 32,
+            mReserved: 0
+        )
+        // Force unwrap is safe here - we're using known-valid ASBD parameters
+        return AVAudioFormat(streamDescription: &asbd)!
     }
 
     private func updateAudioOutputDeviceSettings() {

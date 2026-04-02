@@ -999,7 +999,10 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
     /// URL for the debug log file.
     private static let debugLogURL: URL = {
-        let containerURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        guard let containerURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            // Fallback to temporary directory if Application Support is unavailable
+            return FileManager.default.temporaryDirectory.appendingPathComponent("Projector/midi_sync_debug.log")
+        }
         let logDir = containerURL.appendingPathComponent("Projector", isDirectory: true)
         try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
         return logDir.appendingPathComponent("midi_sync_debug.log")

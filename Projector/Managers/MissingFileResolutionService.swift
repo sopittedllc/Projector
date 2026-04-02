@@ -7,7 +7,6 @@
 //
 
 import Foundation
-import SwiftUI
 import AppKit
 
 /// Info about a missing file that needs to be located

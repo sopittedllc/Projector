@@ -1,0 +1,15 @@
+# Incidents Directory
+
+This directory stores post-mortems for production issues.
+Use the 5 Whys process to identify root causes.
+
+## File Format
+
+Each incident should be a markdown file with:
+- Date
+- Summary
+- Impact
+- 5 Whys analysis
+- Root cause
+- Fixes applied
+- Agent updates (if any)
