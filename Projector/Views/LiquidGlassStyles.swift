@@ -66,7 +66,7 @@ struct GlassControlModifier: ViewModifier {
                 }
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
+                        .stroke(AppColors.borderMedium, lineWidth: PanelLayout.borderWidth)
                 )
         } else {
             content
@@ -76,7 +76,7 @@ struct GlassControlModifier: ViewModifier {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(AppColors.borderStrong, lineWidth: PanelLayout.borderWidth)
+                        .stroke(AppColors.borderMedium, lineWidth: PanelLayout.borderWidth)
                 )
         }
     }
@@ -330,7 +330,7 @@ struct GlassIconButtonStyle: ButtonStyle {
             }
             .overlay(
                 Circle()
-                    .stroke(configuration.isPressed ? AppColors.borderStrong : AppColors.borderSubtle, lineWidth: PanelLayout.borderWidth)
+                    .stroke(configuration.isPressed ? AppColors.borderStrong : AppColors.borderMedium, lineWidth: PanelLayout.borderWidth)
             )
             .opacity(configuration.isPressed ? 0.7 : 1.0)
             .scaleEffect(configuration.isPressed ? 0.9 : 1.0)

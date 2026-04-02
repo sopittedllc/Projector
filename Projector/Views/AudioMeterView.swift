@@ -39,10 +39,13 @@ struct AudioMeterView: View {
     /// Meter width
     private let meterWidth: CGFloat = 80
 
+    /// Spacing between meter bars
+    private let barSpacing: CGFloat = 2
+
     var body: some View {
         HStack(spacing: Spacing.xs) {
             // Channel labels
-            VStack(alignment: .trailing, spacing: 2) {
+            VStack(alignment: .trailing, spacing: barSpacing) {
                 Text("L")
                     .font(Typography.labelTiny)
                     .foregroundColor(.secondary)
@@ -52,7 +55,7 @@ struct AudioMeterView: View {
             }
 
             // Meter bars
-            VStack(spacing: 2) {
+            VStack(spacing: barSpacing) {
                 MeterBar(level: CGFloat(leftLevel), isEnabled: isEnabled)
                     .frame(width: meterWidth, height: barHeight)
 
@@ -69,8 +72,11 @@ struct AudioMeterView: View {
         .help(isEnabled ? "Audio levels: L=\(Int(leftLevel * 100))% R=\(Int(rightLevel * 100))%" : "Audio metering disabled")
     }
 
+    /// Corner radius for the background
+    private let backgroundCornerRadius: CGFloat = 4
+
     private var backgroundView: some View {
-        RoundedRectangle(cornerRadius: Spacing.xs)
+        RoundedRectangle(cornerRadius: backgroundCornerRadius)
             .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
     }
 }
@@ -152,9 +158,15 @@ struct AudioMeterCompact: View {
     /// Whether metering is active
     let isEnabled: Bool
 
+    /// Compact meter width
+    private let compactWidth: CGFloat = 40
+
+    /// Compact meter height
+    private let compactHeight: CGFloat = 3
+
     var body: some View {
         MeterBar(level: CGFloat(level), isEnabled: isEnabled)
-            .frame(width: 40, height: 3)
+            .frame(width: compactWidth, height: compactHeight)
     }
 }
 

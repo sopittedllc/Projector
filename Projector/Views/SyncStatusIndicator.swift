@@ -29,12 +29,26 @@ struct SyncStatusIndicator: View {
     /// Whether to show the expanded view with progress bar.
     @State private var isExpanded: Bool = false
 
+    // MARK: - Layout Constants
+
+    /// Size of the status indicator dot
+    private let dotSize: CGFloat = 8
+
+    /// Width of the lock progress bar
+    private let progressBarWidth: CGFloat = 40
+
+    /// Height of the lock progress bar
+    private let progressBarHeight: CGFloat = 4
+
+    /// Corner radius for backgrounds
+    private let backgroundCornerRadius: CGFloat = 4
+
     var body: some View {
         HStack(spacing: Spacing.sm) {
             // Status dot
             Circle()
                 .fill(viewModel.syncStatusColor)
-                .frame(width: Spacing.sm, height: Spacing.sm)
+                .frame(width: dotSize, height: dotSize)
                 .shadow(color: viewModel.syncStatusColor.opacity(0.5), radius: 2)
 
             // Status text
@@ -102,13 +116,13 @@ struct SyncStatusIndicator: View {
                     .frame(width: geometry.size.width * viewModel.lockProgressPercent)
             }
         }
-        .frame(width: 40, height: Spacing.xs)
+        .frame(width: progressBarWidth, height: progressBarHeight)
         .accessibilityLabel("Lock progress: \(Int(viewModel.lockProgressPercent * 100)) percent")
     }
 
     /// Background with subtle styling.
     private var backgroundView: some View {
-        RoundedRectangle(cornerRadius: Spacing.xs)
+        RoundedRectangle(cornerRadius: backgroundCornerRadius)
             .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
     }
 
