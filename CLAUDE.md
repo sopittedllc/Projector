@@ -29,17 +29,38 @@ This project follows **Airtight Standards** with a fully automated agent workflo
 │  4. AUDIT (qa-auditor)                                                      │
 │     └─ DocC coverage, edge cases, thread safety, standards                  │
 │                              ↓                                               │
-│  5. ROADMAP & PUSH (the-lead)                                              │
-│     └─ Update PROJECT_ROADMAP.md, git commit (after QA approval)           │
+│  5. 🚨 USER VERIFICATION (for UI changes)                                   │
+│     └─ User must RUN THE APP and verify:                                    │
+│        • Click new/modified buttons - correct behavior?                     │
+│        • Test drag-drop flows - right dialogs appear?                       │
+│        • Check visual layout - alignment, spacing, styling?                 │
+│        • Dismiss dialogs/banners - do they stay dismissed?                  │
+│     └─ ⚠️  CODE AUDITS CANNOT REPLACE RUNTIME TESTING                       │
 │                              ↓                                               │
-│  6. REGISTER (the-lead)                                                     │
+│  6. ROADMAP & PUSH (the-lead)                                              │
+│     └─ Update PROJECT_ROADMAP.md, git commit (after USER approval)         │
+│                              ↓                                               │
+│  7. REGISTER (the-lead)                                                     │
 │     └─ Add/update feature entry in FEATURES.md                             │
 │                              ↓                                               │
-│  7. LEARN (the-librarian)                                                   │
+│  8. LEARN (the-librarian)                                                   │
 │     └─ Capture Golden Patterns in KNOWLEDGE_BASE.md                         │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### ⚠️ CRITICAL: Code Audits vs Runtime Testing
+
+**Code audits (Clare, qa-auditor) check:**
+- Syntax, types, layer violations, documentation
+
+**Code audits CANNOT check:**
+- Whether clicking a button shows the right dialog
+- Whether UI elements are visually aligned
+- Whether dialogs stay dismissed after user closes them
+- Whether drag-drop flows work end-to-end
+
+**No UI feature is complete until the user runs the app and verifies it works.**
 
 ---
 
