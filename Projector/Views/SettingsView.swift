@@ -138,14 +138,7 @@ struct SettingsView: View {
                 .padding(.bottom, Spacing.md)
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
-                .stroke(AppColors.borderMedium, lineWidth: PanelLayout.borderWidth)
-        )
+        .glassPanel()
     }
 
     // MARK: - MIDI Info Section
@@ -162,14 +155,7 @@ struct SettingsView: View {
         }
         .padding(Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
-                .stroke(AppColors.borderMedium, lineWidth: PanelLayout.borderWidth)
-        )
+        .glassPanel()
     }
 
     // MARK: - Sync Section

@@ -149,11 +149,11 @@ struct OptimizationSuggestionBanner: View {
         }
         .padding(Spacing.md)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
                 .fill(suggestion.accentColor.opacity(0.1))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(suggestion.accentColor.opacity(0.3), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
+                        .strokeBorder(suggestion.accentColor.opacity(0.3), lineWidth: PanelLayout.borderWidth)
                 )
         )
         .scaleEffect(isHovered ? 1.01 : 1.0)

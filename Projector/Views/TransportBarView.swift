@@ -103,7 +103,7 @@ struct TransportBarView: View {
                     )
                 }
             }
-            .padding(.horizontal, Spacing.sm)
+            .padding(.horizontal, Spacing.md)
             .frame(height: controlBoxHeight)
             .glassControl()
 

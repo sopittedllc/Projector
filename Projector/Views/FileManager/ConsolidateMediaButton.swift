@@ -17,16 +17,10 @@ struct ConsolidateMediaButton: View {
             Button(action: { showSheet = true }) {
                 HStack(spacing: Spacing.xs) {
                     Image(systemName: "arrow.down.doc")
-                        .font(.system(size: 10))
                     Text("Consolidate")
-                        .font(.system(size: 11))
                 }
-                .padding(.horizontal, Spacing.sm)
-                .padding(.vertical, Spacing.xs)
-                .background(Color.orange.opacity(0.15))
-                .cornerRadius(4)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(GlassActionButtonStyle(tint: .orange))
             .help("Copy external media files into the project folder")
         }
     }

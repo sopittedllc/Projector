@@ -145,17 +145,17 @@ struct ComponentCatalog: View {
                         Button(action: {}) {
                             Image(systemName: "play.fill")
                         }
-                        .buttonStyle(GlassTransportButtonStyle(tint: .green))
+                        .buttonStyle(GlassTransportButtonStyle(isActive: true))
 
                         Button(action: {}) {
                             Image(systemName: "pause.fill")
                         }
-                        .buttonStyle(GlassTransportButtonStyle(tint: .yellow))
+                        .buttonStyle(GlassTransportButtonStyle())
 
                         Button(action: {}) {
                             Image(systemName: "stop.fill")
                         }
-                        .buttonStyle(GlassTransportButtonStyle(tint: .red))
+                        .buttonStyle(GlassTransportButtonStyle())
                     }
                 }
 
@@ -191,10 +191,10 @@ struct ComponentCatalog: View {
 
                     HStack(spacing: Spacing.sm) {
                         Button("Grid") {}
-                            .buttonStyle(GlassToggleButtonStyle(isSelected: true))
+                            .buttonStyle(GlassToggleButtonStyle(isOn: true))
 
                         Button("List") {}
-                            .buttonStyle(GlassToggleButtonStyle(isSelected: false))
+                            .buttonStyle(GlassToggleButtonStyle(isOn: false))
                     }
                 }
             }
@@ -394,27 +394,27 @@ struct ComponentCatalog: View {
                     Button(action: {}) {
                         Image(systemName: "backward.fill")
                     }
-                    .buttonStyle(GlassTransportButtonStyle(tint: .accentColor))
+                    .buttonStyle(GlassTransportButtonStyle())
 
                     Button(action: {}) {
                         Image(systemName: "play.fill")
                     }
-                    .buttonStyle(GlassTransportButtonStyle(tint: .green))
+                    .buttonStyle(GlassTransportButtonStyle(isActive: true))
 
                     Button(action: {}) {
                         Image(systemName: "pause.fill")
                     }
-                    .buttonStyle(GlassTransportButtonStyle(tint: .yellow))
+                    .buttonStyle(GlassTransportButtonStyle())
 
                     Button(action: {}) {
                         Image(systemName: "stop.fill")
                     }
-                    .buttonStyle(GlassTransportButtonStyle(tint: .red))
+                    .buttonStyle(GlassTransportButtonStyle())
 
                     Button(action: {}) {
                         Image(systemName: "forward.fill")
                     }
-                    .buttonStyle(GlassTransportButtonStyle(tint: .accentColor))
+                    .buttonStyle(GlassTransportButtonStyle())
                 }
 
                 Spacer()
