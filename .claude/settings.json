@@ -4,12 +4,8 @@
   "hooks": {
     "Stop": [
       {
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/auto-lead.sh"
-          }
-        ]
+        "type": "command",
+        "command": ".claude/hooks/auto-lead.sh"
       }
     ]
   }
