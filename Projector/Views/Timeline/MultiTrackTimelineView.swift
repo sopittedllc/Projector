@@ -116,6 +116,8 @@ struct MultiTrackTimelineView: View {
     // Clipboard state for cut/copy/paste
     @State private var clipboardVideoReelIds: Set<UUID> = []
     @State private var clipboardAudioClipIds: Set<UUID> = []
+    @State private var showPasteError = false
+    @State private var pasteErrorMessage = ""
 
     // Marquee selection state
     @State private var isMarqueeSelecting = false
@@ -239,6 +241,11 @@ struct MultiTrackTimelineView: View {
         }
         .sheet(isPresented: $showTimecodeEntryDialog) {
             timecodeEntryDialogContent
+        }
+        .alert("Paste Failed", isPresented: $showPasteError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(pasteErrorMessage)
         }
         // Take focus when a clip is selected
         .onChange(of: selectedVideoReelId) { _, newValue in
@@ -2209,7 +2216,7 @@ struct MultiTrackTimelineView: View {
         for reelId in clipboardVideoReelIds {
             guard let reel = timeline.videoReels.first(where: { $0.id == reelId }) else { continue }
             // Create a copy at playhead position
-            Task {
+            Task { @MainActor in
                 do {
                     _ = try await timelineManager.addVideoReel(
                         from: reel.sourceURL,
@@ -2217,7 +2224,8 @@ struct MultiTrackTimelineView: View {
                         mediaItemId: reel.mediaItemId
                     )
                 } catch {
-                    debugPrint("Failed to paste video reel: \(error)")
+                    pasteErrorMessage = "Failed to paste video: \(error.localizedDescription)"
+                    showPasteError = true
                 }
             }
         }
@@ -2227,7 +2235,7 @@ struct MultiTrackTimelineView: View {
             for lane in timeline.audioLanes {
                 guard let clip = lane.clips.first(where: { $0.id == clipId }) else { continue }
                 // Create a copy at playhead position in the same lane
-                Task {
+                Task { @MainActor in
                     do {
                         _ = try await timelineManager.addAudioClip(
                             from: clip.sourceURL,
@@ -2235,7 +2243,8 @@ struct MultiTrackTimelineView: View {
                             at: playheadFrame
                         )
                     } catch {
-                        debugPrint("Failed to paste audio clip: \(error)")
+                        pasteErrorMessage = "Failed to paste audio: \(error.localizedDescription)"
+                        showPasteError = true
                     }
                 }
                 break

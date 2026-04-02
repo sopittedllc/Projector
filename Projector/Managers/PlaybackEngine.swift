@@ -366,7 +366,11 @@ final class PlaybackEngine: ObservableObject {
 
             if currentPlayer == nil || currentReelId != reel.id {
                 Task {
-                    try? await loadReel(reel)
+                    do {
+                        try await loadReel(reel)
+                    } catch {
+                        debugPrint("PlaybackEngine.play: Failed to load reel '\(reel.sourceURL.lastPathComponent)': \(error)")
+                    }
                     seekWithinReel(reel, timelineFrame: currentFrame, resumeAfterSeek: true) {}
                 }
             } else {
@@ -556,7 +560,11 @@ final class PlaybackEngine: ObservableObject {
 
                 if currentPlayer == nil || currentReelId != reel.id {
                     Task {
-                        try? await loadReel(reel)
+                        do {
+                            try await loadReel(reel)
+                        } catch {
+                            debugPrint("PlaybackEngine.resume: Failed to load reel '\(reel.sourceURL.lastPathComponent)': \(error)")
+                        }
                         seekWithinReel(reel, timelineFrame: currentFrame, resumeAfterSeek: true) {}
                     }
                 } else {
@@ -679,7 +687,11 @@ final class PlaybackEngine: ObservableObject {
 
             Task { [weak self] in
                 guard let self else { return }
-                try? await self.loadReel(reel)
+                do {
+                    try await self.loadReel(reel)
+                } catch {
+                    debugPrint("PlaybackEngine.handleExternalSeek: Failed to load reel '\(reel.sourceURL.lastPathComponent)': \(error)")
+                }
                 self.seekWithinReel(reel, timelineFrame: targetFrame, resumeAfterSeek: true) { [weak self] in
                     self?.syncAudioClips()
                 }
@@ -914,7 +926,11 @@ final class PlaybackEngine: ObservableObject {
 
             // Load and play the reel
             Task {
-                try? await loadReel(reel)
+                do {
+                    try await loadReel(reel)
+                } catch {
+                    debugPrint("PlaybackEngine.advanceGapTime: Failed to load reel '\(reel.sourceURL.lastPathComponent)': \(error)")
+                }
                 seekWithinReel(reel, timelineFrame: currentFrame, resumeAfterSeek: isPlaying) {}
             }
         }
@@ -1519,10 +1535,26 @@ final class PlaybackEngine: ObservableObject {
             debugPrint("WARNING: makeOutputFormat failed to create \(channels)-channel layout")
         }
 
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: AVAudioChannelCount(channels))
-            ?? AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
-        debugPrint("makeOutputFormat: Created \(format.channelCount)-channel standard format")
-        return format
+        // Try to create format with requested parameters, fall back to safe defaults
+        if let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: AVAudioChannelCount(channels)) {
+            debugPrint("makeOutputFormat: Created \(format.channelCount)-channel standard format")
+            return format
+        }
+
+        // Fallback: try 48kHz stereo (most universally supported)
+        if let fallbackFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2) {
+            debugPrint("WARNING: makeOutputFormat failed for \(channels)ch/\(sampleRate)Hz, using 48kHz stereo fallback")
+            return fallbackFormat
+        }
+
+        // Last resort: try 44.1kHz stereo
+        if let lastResort = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2) {
+            debugPrint("WARNING: makeOutputFormat using 44.1kHz stereo as last resort")
+            return lastResort
+        }
+
+        // This should never happen, but if it does, create a minimal valid format
+        fatalError("CRITICAL: Unable to create any valid audio format - CoreAudio may be in an invalid state")
     }
 
     private func updateAudioOutputDeviceSettings() {
@@ -1971,7 +2003,11 @@ final class PlaybackEngine: ObservableObject {
             } else {
                 // Need to load the next reel
                 Task {
-                    try? await loadReel(nextReel)
+                    do {
+                        try await loadReel(nextReel)
+                    } catch {
+                        debugPrint("PlaybackEngine.handleReelEnd: Failed to load next reel '\(nextReel.sourceURL.lastPathComponent)': \(error)")
+                    }
                     if isPlaying {
                         currentPlayer?.play()
                     }
@@ -2036,7 +2072,11 @@ final class PlaybackEngine: ObservableObject {
             if reel.id != currentReelId {
                 Task { [weak self] in
                     guard let self else { return }
-                    try? await self.loadReel(reel)
+                    do {
+                        try await self.loadReel(reel)
+                    } catch {
+                        debugPrint("PlaybackEngine.seek: Failed to load reel '\(reel.sourceURL.lastPathComponent)': \(error)")
+                    }
                     self.seekWithinReel(reel, timelineFrame: frame, resumeAfterSeek: false, completion: completion)
                 }
             } else {

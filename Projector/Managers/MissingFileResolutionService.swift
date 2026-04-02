@@ -156,19 +156,23 @@ final class MissingFileResolutionService: ObservableObject {
         if panel.runModal() == .OK, let newURL = panel.url {
             // Check if we should offer to copy to project folder
             var finalURL = newURL
-            if let projectURL = projectDocument.fileURL,
-               !newURL.path.hasPrefix(projectURL.path) {
-                // File is external - offer to consolidate
-                let consolidateAlert = NSAlert()
-                consolidateAlert.messageText = "Copy to Project Folder?"
-                consolidateAlert.informativeText = "Would you like to copy this file into the project folder? This ensures the project remains portable."
-                consolidateAlert.addButton(withTitle: "Copy to Project")
-                consolidateAlert.addButton(withTitle: "Keep External Reference")
+            // Use canonical paths to prevent path traversal attacks
+            if let projectURL = projectDocument.fileURL {
+                let projectCanonical = projectURL.resolvingSymlinksInPath()
+                let fileCanonical = newURL.resolvingSymlinksInPath()
+                if !fileCanonical.path.hasPrefix(projectCanonical.path) {
+                    // File is external - offer to consolidate
+                    let consolidateAlert = NSAlert()
+                    consolidateAlert.messageText = "Copy to Project Folder?"
+                    consolidateAlert.informativeText = "Would you like to copy this file into the project folder? This ensures the project remains portable."
+                    consolidateAlert.addButton(withTitle: "Copy to Project")
+                    consolidateAlert.addButton(withTitle: "Keep External Reference")
 
-                if consolidateAlert.runModal() == .alertFirstButtonReturn {
-                    // Copy the file to project Media folder
-                    if let copiedURL = copyFileToProject(sourceURL: newURL, projectURL: projectURL) {
-                        finalURL = copiedURL
+                    if consolidateAlert.runModal() == .alertFirstButtonReturn {
+                        // Copy the file to project Media folder
+                        if let copiedURL = copyFileToProject(sourceURL: newURL, projectURL: projectURL) {
+                            finalURL = copiedURL
+                        }
                     }
                 }
             }

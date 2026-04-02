@@ -29,9 +29,5 @@
 	<!-- MIDI: Access MIDI devices for MTC/MMC synchronization -->
 	<key>com.apple.security.device.midi</key>
 	<true/>
-
-	<!-- Network: Outgoing connections for license validation -->
-	<key>com.apple.security.network.client</key>
-	<true/>
 </dict>
 </plist>
