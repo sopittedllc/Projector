@@ -50,29 +50,13 @@ enum OptimizationSuggestion: Equatable {
     }
 
     var iconName: String {
-        switch self {
-        case .playbackStutter:
-            return "speedometer"
-        case .largeProjectSize:
-            return "internaldrive"
-        case .highBitrateImport:
-            return "arrow.down.doc"
-        case .proResDetected:
-            return "film"
-        }
+        // Use consistent bolt icon for all optimization suggestions
+        return "bolt.fill"
     }
 
     var accentColor: Color {
-        switch self {
-        case .playbackStutter:
-            return .orange
-        case .largeProjectSize:
-            return .blue
-        case .highBitrateImport:
-            return .yellow
-        case .proResDetected:
-            return .purple
-        }
+        // Use consistent green for all optimization suggestions
+        return AppColors.accentGreen
     }
 }
 

@@ -25,6 +25,20 @@ struct FileManagerView: View {
         if projectDocument.fileURL == nil { return true }
         return hasExternalFiles
     }
+
+    /// Height for the optimization banner when visible
+    private static let bannerHeight: CGFloat = 70
+
+    /// Calculate minimum height based on expanded state and banner visibility
+    private func calculateMinHeight() -> CGFloat {
+        if !isExpanded {
+            return FileManagerLayout.collapsedHeight
+        }
+        let baseHeight = FileManagerLayout.expandedHeight
+        let bannerExtra = activeSuggestion != nil ? Self.bannerHeight : 0
+        return baseHeight + bannerExtra
+    }
+
     @EnvironmentObject private var dragContext: DragContext
 
     @State private var selectedItemIds: Set<UUID> = []
@@ -103,7 +117,7 @@ struct FileManagerView: View {
             Divider()
             contentArea
         }
-        .frame(minHeight: isExpanded ? FileManagerLayout.expandedHeight : FileManagerLayout.collapsedHeight, alignment: .top)
+        .frame(minHeight: calculateMinHeight(), alignment: .top)
         .frame(maxHeight: isExpanded ? .infinity : FileManagerLayout.collapsedHeight)
         .contentShape(Rectangle())
         .clipped()
