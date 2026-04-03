@@ -103,7 +103,8 @@ struct FileManagerView: View {
             Divider()
             contentArea
         }
-        .frame(height: isExpanded ? FileManagerLayout.expandedHeight : FileManagerLayout.collapsedHeight, alignment: .top)
+        .frame(minHeight: isExpanded ? FileManagerLayout.expandedHeight : FileManagerLayout.collapsedHeight, alignment: .top)
+        .frame(maxHeight: isExpanded ? .infinity : FileManagerLayout.collapsedHeight)
         .contentShape(Rectangle())
         .clipped()
         .glassPanel()

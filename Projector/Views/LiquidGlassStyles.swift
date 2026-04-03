@@ -126,17 +126,18 @@ struct GlassButtonStyle: ButtonStyle {
 
 /// A button style for transport controls (play, stop, etc.)
 /// These buttons sit inside a .glassControl() wrapper, so they should be minimal.
+/// Uses the brand accent color (hot pink) for active state.
 struct GlassTransportButtonStyle: ButtonStyle {
     var isActive: Bool = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(Typography.buttonLarge)
-            .foregroundColor(isActive ? .accentColor : .primary)
+            .foregroundColor(isActive ? AppColors.accent : .primary)
             .frame(width: 32, height: 28)
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(isActive ? Color.accentColor.opacity(0.15) : Color.clear)
+                    .fill(isActive ? AppColors.accent.opacity(0.15) : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
@@ -150,8 +151,9 @@ struct GlassTransportButtonStyle: ButtonStyle {
 // MARK: - Glass Action Button Style
 
 /// A button style for action buttons (Import, Optimize, etc.)
+/// Defaults to the brand accent color (hot pink).
 struct GlassActionButtonStyle: ButtonStyle {
-    var tint: Color = .accentColor
+    var tint: Color = AppColors.accent
 
     func makeBody(configuration: Configuration) -> some View {
         if #available(macOS 26, *) {
@@ -341,6 +343,7 @@ struct GlassIconButtonStyle: ButtonStyle {
 // MARK: - Glass Toggle Button Style
 
 /// A button style for toggle buttons that show on/off state
+/// Uses the brand accent color (hot pink) for active state.
 struct GlassToggleButtonStyle: ButtonStyle {
     var isOn: Bool
 
@@ -355,17 +358,17 @@ struct GlassToggleButtonStyle: ButtonStyle {
                     Capsule()
                         .fill(.clear)
                         .glassEffect(
-                            isOn ? .regular.tint(.accentColor) : .clear,
+                            isOn ? .regular.tint(AppColors.accent) : .clear,
                             in: Capsule()
                         )
                 } else {
                     Capsule()
-                        .fill(isOn ? Color.accentColor.opacity(0.3) : Color.clear)
+                        .fill(isOn ? AppColors.accent.opacity(0.3) : Color.clear)
                 }
             }
             .overlay(
                 Capsule()
-                    .stroke(isOn ? Color.accentColor : AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
+                    .stroke(isOn ? AppColors.accent : AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
             )
             .opacity(configuration.isPressed ? 0.7 : 1.0)
             .animation(AppAnimations.quick, value: configuration.isPressed)

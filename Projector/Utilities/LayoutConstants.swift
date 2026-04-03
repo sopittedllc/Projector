@@ -217,6 +217,32 @@ enum AppColors {
 
     /// Multi-select marquee border
     static let marqueeBorder = Color.accentColor
+
+    // MARK: - Brand Palette (Logic Pro-inspired)
+
+    /// Primary brand accent - warm magenta/hot pink
+    static let accentPink = Color(red: 1.0, green: 0.2, blue: 0.55)
+
+    /// Secondary brand accent - warm blue
+    static let accentBlue = Color(red: 0.3, green: 0.5, blue: 1.0)
+
+    /// Tertiary - vibrant green (for success/active states)
+    static let accentGreen = Color(red: 0.4, green: 0.9, blue: 0.4)
+
+    /// Tertiary - warm yellow (for warnings/highlights)
+    static let accentYellow = Color(red: 0.95, green: 0.85, blue: 0.2)
+
+    /// Tertiary - purple (for special states)
+    static let accentPurple = Color(red: 0.7, green: 0.3, blue: 1.0)
+
+    /// Primary accent (defaults to pink)
+    static let accent = accentPink
+
+    /// Subtle accent background
+    static let accentSubtle = accent.opacity(0.15)
+
+    /// Accent for borders
+    static let accentBorder = accent.opacity(0.4)
 }
 
 // ============================================================================
@@ -288,6 +314,25 @@ enum SettingsLayout {
 
     /// Settings window size as CGSize
     static let size = CGSize(width: width, height: height)
+}
+
+// ============================================================================
+// MARK: - Horizontal Layout Constants
+// ============================================================================
+
+/// Layout constants for the horizontal split layout (video left, panels right)
+enum HorizontalLayoutConstants {
+    /// Minimum width for the video player section
+    static let minVideoWidth: CGFloat = 320
+
+    /// Default width for the video player section
+    static let defaultVideoWidth: CGFloat = 480
+
+    /// Minimum width for the right panel section (timeline + media)
+    static let minPanelWidth: CGFloat = 300
+
+    /// Default width for the right panel section
+    static let defaultPanelWidth: CGFloat = 400
 }
 
 // ============================================================================
