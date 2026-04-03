@@ -193,23 +193,18 @@ struct SettingsAccordionView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
-                .frame(minWidth: 180)
-
-                Spacer()
-
-                Text("\(audioManager.selectedDeviceChannelCount) channels")
-                    .font(Typography.caption)
-                    .foregroundColor(AppColors.textTertiary)
             }
 
-            // Channel grid
-            ChannelGridView(
-                totalChannels: audioManager.selectedDeviceChannelCount,
-                outputs: settings.mappedOutputs(for: audioManager.selectedDeviceUID),
-                onOutputsChanged: { newOutputs in
-                    settings.setMappedOutputs(newOutputs, for: audioManager.selectedDeviceUID)
-                }
-            )
+            // Channel grid (only if device has channels)
+            if audioManager.selectedDeviceChannelCount > 0 {
+                ChannelGridView(
+                    totalChannels: audioManager.selectedDeviceChannelCount,
+                    outputs: settings.mappedOutputs(for: audioManager.selectedDeviceUID),
+                    onOutputsChanged: { newOutputs in
+                        settings.setMappedOutputs(newOutputs, for: audioManager.selectedDeviceUID)
+                    }
+                )
+            }
         }
     }
 
@@ -326,24 +321,25 @@ private struct ChannelGridView: View {
             ForEach(channelItems) { item in
                 switch item {
                 case .inactive(let channel):
-                    // Check if this channel is part of a link preview
-                    if let pair = linkPreviewPair {
-                        if channel == pair.0 {
-                            // First channel of pair - show LinkPreviewView
-                            LinkPreviewView(
-                                channels: pair,
-                                onLink: { linkChannels(pair.0, pair.1) }
-                            )
-                        } else if channel == pair.1 {
-                            // Second channel of pair - skip (already shown in LinkPreviewView)
-                            EmptyView()
-                        } else {
-                            // Not part of pair - show normal cell
-                            normalChannelCell(channel: channel)
-                        }
+                    // Check if this is the first channel of a link preview pair
+                    if let pair = linkPreviewPair, channel == pair.0 {
+                        // Show LinkPreviewView that overlays both cells
+                        LinkPreviewView(
+                            channels: pair,
+                            onLink: { linkChannels(pair.0, pair.1) },
+                            onHoverChanged: { isHovered in
+                                // Keep hover state alive while over preview
+                                if !isHovered {
+                                    hoveredChannel = nil
+                                }
+                            }
+                        )
+                    } else if let pair = linkPreviewPair, channel == pair.1 {
+                        // Second cell of pair - skip, already rendered in LinkPreviewView
+                        EmptyView()
                     } else {
-                        // No link preview - show normal cell
-                        normalChannelCell(channel: channel)
+                        // Normal cell
+                        channelCell(channel: channel)
                     }
 
                 case .mono(let channel, _):
@@ -367,7 +363,7 @@ private struct ChannelGridView: View {
     }
 
     @ViewBuilder
-    private func normalChannelCell(channel: Int) -> some View {
+    private func channelCell(channel: Int) -> some View {
         ChannelCellView(
             channel: channel,
             state: .inactive,
@@ -503,45 +499,48 @@ private struct ChannelGridView: View {
 // MARK: - Stereo Group View
 
 /// A grouped view showing two linked stereo channels as a single unit
+/// Sized to match two cell widths for consistent grid layout
 private struct StereoGroupView: View {
     let channels: (Int, Int)
     let onUnlink: () -> Void
 
     @State private var isHovered = false
 
+    // Width to cover both cells plus the spacing between them
+    private var totalWidth: CGFloat {
+        SettingsLayout.channelCellSize * 2 + SettingsLayout.channelCellSpacing
+    }
+
     var body: some View {
         Button(action: onUnlink) {
             ZStack {
                 // Channel numbers with link icon (dimmed on hover)
-                HStack(spacing: 2) {
+                HStack(spacing: 4) {
                     Text("\(channels.0)")
                         .font(Typography.captionSmall)
                         .foregroundColor(isHovered ? .primary.opacity(0.2) : .primary)
-                        .frame(width: 20, height: SettingsLayout.channelCellSize - 8)
 
                     Image(systemName: "link")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundColor(isHovered ? AppColors.accentGreen.opacity(0.2) : AppColors.accentGreen.opacity(0.8))
 
                     Text("\(channels.1)")
                         .font(Typography.captionSmall)
                         .foregroundColor(isHovered ? .primary.opacity(0.2) : .primary)
-                        .frame(width: 20, height: SettingsLayout.channelCellSize - 8)
                 }
 
                 // "Unlink?" overlay on hover with icon
                 if isHovered {
                     HStack(spacing: 3) {
                         Image(systemName: "link.badge.minus")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: 11, weight: .semibold))
                         Text("Unlink?")
-                            .font(Typography.labelSmall)
+                            .font(Typography.label)
                     }
                     .foregroundColor(AppColors.accentPink)
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
+            .frame(width: totalWidth, height: SettingsLayout.channelCellSize)
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(isHovered ? AppColors.accentPink.opacity(0.35) : AppColors.accentGreen.opacity(0.2))
@@ -564,41 +563,45 @@ private struct StereoGroupView: View {
 // MARK: - Link Preview View
 
 /// Preview overlay showing two channels about to be linked
+/// Sized to span both cell positions (2 cells + spacing)
 private struct LinkPreviewView: View {
     let channels: (Int, Int)
     let onLink: () -> Void
+    let onHoverChanged: (Bool) -> Void
+
+    // Width to cover both cells plus the spacing between them
+    private var totalWidth: CGFloat {
+        SettingsLayout.channelCellSize * 2 + SettingsLayout.channelCellSpacing
+    }
 
     var body: some View {
         Button(action: onLink) {
             ZStack {
                 // Channel numbers (dimmed)
-                HStack(spacing: 2) {
+                HStack(spacing: 4) {
                     Text("\(channels.0)")
                         .font(Typography.captionSmall)
-                        .foregroundColor(.primary.opacity(0.2))
-                        .frame(width: 20, height: SettingsLayout.channelCellSize - 8)
+                        .foregroundColor(.primary.opacity(0.25))
 
                     Image(systemName: "link")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(AppColors.accentGreen.opacity(0.2))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(AppColors.accentGreen.opacity(0.3))
 
                     Text("\(channels.1)")
                         .font(Typography.captionSmall)
-                        .foregroundColor(.primary.opacity(0.2))
-                        .frame(width: 20, height: SettingsLayout.channelCellSize - 8)
+                        .foregroundColor(.primary.opacity(0.25))
                 }
 
                 // "Link?" overlay with icon
                 HStack(spacing: 3) {
                     Image(systemName: "link.badge.plus")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                     Text("Link?")
-                        .font(Typography.labelSmall)
+                        .font(Typography.label)
                 }
                 .foregroundColor(AppColors.accentGreen)
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
+            .frame(width: totalWidth, height: SettingsLayout.channelCellSize)
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(AppColors.accentGreen.opacity(0.35))
@@ -609,6 +612,9 @@ private struct LinkPreviewView: View {
             )
         }
         .buttonStyle(.plain)
+        .onHover { isHovered in
+            onHoverChanged(isHovered)
+        }
     }
 }
 
