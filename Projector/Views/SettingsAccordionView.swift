@@ -4,10 +4,20 @@
 //
 //  Collapsible settings panel with two-column layout.
 //  Top: Timecode Overlay (left) | Playback Behavior (right)
-//  Bottom: Audio section with device and output ports
+//  Bottom: Audio section with channel-first output configuration
 //
 
 import SwiftUI
+
+// MARK: - Channel State
+
+/// Represents the state of a single channel in the audio output grid
+enum ChannelState: Equatable {
+    case inactive
+    case activeMono(outputId: UUID)
+    case stereoPrimary(outputId: UUID)
+    case stereoSecondary(outputId: UUID)
+}
 
 /// Collapsible settings section for the right panel
 struct SettingsAccordionView: View {
@@ -15,15 +25,10 @@ struct SettingsAccordionView: View {
     @Binding var isExpanded: Bool
     @ObservedObject private var settings = AppSettings.shared
 
-    // State for add output popover
-    @State private var showAddOutputPopover = false
-
     var body: some View {
         VStack(spacing: 0) {
-            // Header bar (always visible)
             accordionHeader
 
-            // Content (only when expanded)
             if isExpanded {
                 Divider()
                 settingsContent
@@ -69,16 +74,14 @@ struct SettingsAccordionView: View {
 
     private var settingsContent: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
-            // TOP ROW: Two columns
+            // TOP ROW: Two columns with aligned controls
             HStack(alignment: .top, spacing: Spacing.lg) {
-                // LEFT: Timecode Overlay
                 timecodeOverlaySection
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Divider()
-                    .frame(height: 80)
+                    .frame(height: 100)
 
-                // RIGHT: Playback Behavior
                 playbackBehaviorSection
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -97,12 +100,7 @@ struct SettingsAccordionView: View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             sectionHeader("Timecode Overlay")
 
-            // Show Overlay row - label and control together
-            HStack(spacing: Spacing.sm) {
-                Text("Show Overlay")
-                    .font(Typography.body)
-                    .foregroundColor(.primary)
-
+            settingsRow(label: "Show Overlay") {
                 Toggle("", isOn: $settings.showTimecodeOverlay)
                     .labelsHidden()
                     .toggleStyle(.switch)
@@ -110,12 +108,7 @@ struct SettingsAccordionView: View {
             }
 
             if settings.showTimecodeOverlay {
-                // Position row - label and control together
-                HStack(spacing: Spacing.sm) {
-                    Text("Position")
-                        .font(Typography.body)
-                        .foregroundColor(.primary)
-
+                settingsRow(label: "Position") {
                     Picker("", selection: $settings.timecodeOverlayPosition) {
                         Text("Top Left").tag(TimecodeOverlayPosition.topLeft)
                         Text("Top Right").tag(TimecodeOverlayPosition.topRight)
@@ -124,7 +117,7 @@ struct SettingsAccordionView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
-                    .frame(width: 130)
+                    .frame(minWidth: 120)
                 }
             }
         }
@@ -136,34 +129,21 @@ struct SettingsAccordionView: View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             sectionHeader("Playback Behavior")
 
-            // Each row: label + control together, no spacer
-            HStack(spacing: Spacing.sm) {
-                Text("Auto-play on MTC")
-                    .font(Typography.body)
-                    .foregroundColor(.primary)
-
+            settingsRow(label: "Auto-play on MTC") {
                 Toggle("", isOn: $settings.autoPlayOnMTC)
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.small)
             }
 
-            HStack(spacing: Spacing.sm) {
-                Text("Auto-pause on MTC Stop")
-                    .font(Typography.body)
-                    .foregroundColor(.primary)
-
+            settingsRow(label: "Auto-pause on MTC Stop") {
                 Toggle("", isOn: $settings.autoPauseOnMTCStop)
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.small)
             }
 
-            HStack(spacing: Spacing.sm) {
-                Text("Respond to MMC")
-                    .font(Typography.body)
-                    .foregroundColor(.primary)
-
+            settingsRow(label: "Respond to MMC") {
                 Toggle("", isOn: $settings.respondToMMC)
                     .labelsHidden()
                     .toggleStyle(.switch)
@@ -175,20 +155,15 @@ struct SettingsAccordionView: View {
     // MARK: - Audio Section
 
     private var audioSection: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
+        VStack(alignment: .leading, spacing: Spacing.md) {
             sectionHeader("Audio Output")
 
-            // Device picker row - label directly next to control
-            HStack(spacing: Spacing.sm) {
-                Text("Device")
-                    .font(Typography.body)
-                    .foregroundColor(.secondary)
-
+            // Device picker row
+            settingsRow(label: "Device") {
                 Picker("", selection: Binding<String>(
                     get: { audioManager.selectedDeviceUID ?? "" },
                     set: { newValue in
                         audioManager.selectedDeviceUID = newValue.isEmpty ? nil : newValue
-                        createDefaultOutputsIfNeeded()
                     }
                 )) {
                     Text("System Default").tag("")
@@ -202,238 +177,20 @@ struct SettingsAccordionView: View {
 
                 Spacer()
 
-                Text("\(audioManager.selectedDeviceChannelCount) ch")
+                Text("\(audioManager.selectedDeviceChannelCount) channels")
                     .font(Typography.caption)
                     .foregroundColor(AppColors.textTertiary)
             }
-            .padding(.vertical, Spacing.xs)
 
-            // Output ports header with add button
-            HStack {
-                Text("Output Ports")
-                    .font(Typography.label)
-                    .foregroundColor(AppColors.textTertiary)
-
-                Spacer()
-
-                // Add output button
-                if canAddMoreOutputs {
-                    Button(action: { showAddOutputPopover = true }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "plus")
-                                .font(Typography.iconSmall)
-                            Text("Add")
-                                .font(Typography.caption)
-                        }
-                        .foregroundColor(AppColors.accentBlue)
-                    }
-                    .buttonStyle(.plain)
-                    .popover(isPresented: $showAddOutputPopover, arrowEdge: .bottom) {
-                        AddOutputPopover(
-                            totalChannels: audioManager.selectedDeviceChannelCount,
-                            assignedChannels: assignedChannels,
-                            onAdd: { name, channelStart, isStereo in
-                                addOutput(name: name, channelStart: channelStart, isStereo: isStereo)
-                                showAddOutputPopover = false
-                            },
-                            onCancel: { showAddOutputPopover = false }
-                        )
-                    }
+            // Channel grid
+            ChannelGridView(
+                totalChannels: audioManager.selectedDeviceChannelCount,
+                outputs: settings.mappedOutputs(for: audioManager.selectedDeviceUID),
+                onOutputsChanged: { newOutputs in
+                    settings.setMappedOutputs(newOutputs, for: audioManager.selectedDeviceUID)
                 }
-            }
-            .padding(.top, Spacing.xs)
-
-            // Output ports list
-            outputPortsList
-
-            // Unassigned channels indicator
-            if !unassignedChannels.isEmpty {
-                unassignedChannelsRow
-            }
+            )
         }
-    }
-
-    // MARK: - Output Ports List
-
-    private var outputPortsList: some View {
-        let outputs = settings.mappedOutputs(for: audioManager.selectedDeviceUID)
-
-        return VStack(spacing: 4) {
-            if outputs.isEmpty {
-                // Empty state
-                HStack {
-                    Image(systemName: "speaker.slash")
-                        .font(Typography.icon)
-                        .foregroundColor(.secondary)
-
-                    Text("No outputs configured")
-                        .font(Typography.body)
-                        .foregroundColor(.secondary)
-
-                    Spacer()
-
-                    Button("Create Defaults") {
-                        createDefaultOutputs()
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundColor(AppColors.accentBlue)
-                }
-                .padding(Spacing.md)
-                .background(AppColors.surfaceLight.opacity(0.5))
-                .cornerRadius(PanelLayout.cornerRadius)
-            } else {
-                ForEach(outputs) { output in
-                    OutputPortConfigRow(
-                        output: output,
-                        totalChannels: audioManager.selectedDeviceChannelCount,
-                        assignedChannels: assignedChannels,
-                        onNameChange: { newName in
-                            updateOutputName(output.id, newName: newName)
-                        },
-                        onFormatChange: { isStereo in
-                            updateOutputFormat(output.id, isStereo: isStereo)
-                        },
-                        onDelete: {
-                            deleteOutput(output.id)
-                        }
-                    )
-                }
-            }
-        }
-    }
-
-    // MARK: - Unassigned Channels Row
-
-    private var unassignedChannelsRow: some View {
-        HStack(spacing: Spacing.sm) {
-            // Channel indicators
-            HStack(spacing: 4) {
-                ForEach(unassignedChannels.prefix(8), id: \.self) { channel in
-                    ChannelPill(channel: channel, isAssigned: false)
-                }
-                if unassignedChannels.count > 8 {
-                    Text("+\(unassignedChannels.count - 8)")
-                        .font(Typography.captionSmall)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Text("Unassigned")
-                .font(Typography.caption)
-                .foregroundColor(AppColors.textTertiary)
-
-            Spacer()
-        }
-        .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, Spacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
-                .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                .foregroundColor(AppColors.borderLight)
-        )
-    }
-
-    // MARK: - Channel Tracking
-
-    /// Set of all channel numbers currently assigned to outputs
-    private var assignedChannels: Set<Int> {
-        let outputs = settings.mappedOutputs(for: audioManager.selectedDeviceUID)
-        var channels = Set<Int>()
-        for output in outputs {
-            for ch in output.channelStart..<(output.channelStart + output.channelCount) {
-                channels.insert(ch)
-            }
-        }
-        return channels
-    }
-
-    /// Array of unassigned channel numbers
-    private var unassignedChannels: [Int] {
-        let total = audioManager.selectedDeviceChannelCount
-        guard total > 0 else { return [] }
-        let assigned = assignedChannels
-        return (1...total).filter { !assigned.contains($0) }
-    }
-
-    /// Whether we can add more outputs
-    private var canAddMoreOutputs: Bool {
-        !unassignedChannels.isEmpty
-    }
-
-    // MARK: - Output Port Management
-
-    private func createDefaultOutputsIfNeeded() {
-        let outputs = settings.mappedOutputs(for: audioManager.selectedDeviceUID)
-        if outputs.isEmpty {
-            createDefaultOutputs()
-        }
-    }
-
-    private func createDefaultOutputs() {
-        let channelCount = audioManager.selectedDeviceChannelCount
-        var outputs: [MappedAudioOutput] = []
-
-        // Create stereo pairs
-        var channel = 1
-        var pairIndex = 1
-        while channel + 1 <= channelCount {
-            let name = pairIndex == 1 ? "Main" : "Output \(pairIndex)"
-            outputs.append(MappedAudioOutput(
-                name: name,
-                channelStart: channel,
-                channelCount: 2
-            ))
-            channel += 2
-            pairIndex += 1
-        }
-
-        settings.setMappedOutputs(outputs, for: audioManager.selectedDeviceUID)
-    }
-
-    private func updateOutputName(_ id: UUID, newName: String) {
-        var outputs = settings.mappedOutputs(for: audioManager.selectedDeviceUID)
-        if let index = outputs.firstIndex(where: { $0.id == id }) {
-            outputs[index].name = newName
-            settings.setMappedOutputs(outputs, for: audioManager.selectedDeviceUID)
-        }
-    }
-
-    private func updateOutputFormat(_ id: UUID, isStereo: Bool) {
-        var outputs = settings.mappedOutputs(for: audioManager.selectedDeviceUID)
-        guard let index = outputs.firstIndex(where: { $0.id == id }) else { return }
-
-        let output = outputs[index]
-        let newChannelCount = isStereo ? 2 : 1
-
-        // Check if we can expand to stereo
-        if isStereo && output.channelCount == 1 {
-            let nextChannel = output.channelStart + 1
-            // Check if next channel is available or out of bounds
-            if nextChannel > audioManager.selectedDeviceChannelCount || assignedChannels.contains(nextChannel) {
-                return // Can't expand
-            }
-        }
-
-        outputs[index].channelCount = newChannelCount
-        settings.setMappedOutputs(outputs, for: audioManager.selectedDeviceUID)
-    }
-
-    private func deleteOutput(_ id: UUID) {
-        var outputs = settings.mappedOutputs(for: audioManager.selectedDeviceUID)
-        outputs.removeAll { $0.id == id }
-        settings.setMappedOutputs(outputs, for: audioManager.selectedDeviceUID)
-    }
-
-    private func addOutput(name: String, channelStart: Int, isStereo: Bool) {
-        var outputs = settings.mappedOutputs(for: audioManager.selectedDeviceUID)
-        outputs.append(MappedAudioOutput(
-            name: name,
-            channelStart: channelStart,
-            channelCount: isStereo ? 2 : 1
-        ))
-        // Sort by channel start for consistent ordering
-        outputs.sort { $0.channelStart < $1.channelStart }
-        settings.setMappedOutputs(outputs, for: audioManager.selectedDeviceUID)
     }
 
     // MARK: - Helpers
@@ -444,66 +201,406 @@ struct SettingsAccordionView: View {
             .foregroundColor(AppColors.textTertiary)
             .padding(.bottom, Spacing.xs)
     }
-}
 
-// MARK: - Channel Pill
+    @ViewBuilder
+    private func settingsRow<Content: View>(
+        label: String,
+        @ViewBuilder control: () -> Content
+    ) -> some View {
+        HStack(spacing: Spacing.sm) {
+            Text(label)
+                .font(Typography.body)
+                .foregroundColor(.primary)
+                .frame(width: SettingsLayout.labelWidth, alignment: .leading)
 
-/// Small visual indicator for a channel number
-private struct ChannelPill: View {
-    let channel: Int
-    let isAssigned: Bool
-
-    var body: some View {
-        Text("\(channel)")
-            .font(Typography.captionSmall)
-            .foregroundColor(isAssigned ? .primary : .secondary)
-            .frame(width: 20, height: 20)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(isAssigned ? AppColors.accentBlue.opacity(0.2) : AppColors.surfaceLight)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(isAssigned ? AppColors.accentBlue.opacity(0.5) : AppColors.borderLight, lineWidth: 1)
-            )
+            control()
+        }
     }
 }
 
-// MARK: - Output Port Config Row
+// MARK: - Channel Grid View
 
-/// Enhanced output port row with hover states and edit affordances
-private struct OutputPortConfigRow: View {
-    let output: MappedAudioOutput
+/// Channel-first grid showing all device channels with activation/linking support
+private struct ChannelGridView: View {
     let totalChannels: Int
-    let assignedChannels: Set<Int>
-    let onNameChange: (String) -> Void
-    let onFormatChange: (Bool) -> Void
+    let outputs: [MappedAudioOutput]
+    let onOutputsChanged: ([MappedAudioOutput]) -> Void
+
+    @State private var selectedChannels: Set<Int> = []
+    @State private var editingOutputId: UUID?
+    @State private var editedName: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            // Channels header
+            HStack {
+                Text("Channels")
+                    .font(Typography.label)
+                    .foregroundColor(AppColors.textTertiary)
+
+                Spacer()
+
+                // Link button appears when 2 adjacent channels selected
+                if canLinkSelected {
+                    Button(action: linkSelectedChannels) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "link")
+                                .font(Typography.iconSmall)
+                            Text("Link Stereo")
+                                .font(Typography.caption)
+                        }
+                        .foregroundColor(AppColors.accentBlue)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // Channel cells grid
+            if totalChannels > 0 {
+                channelGrid
+            } else {
+                Text("No audio device selected")
+                    .font(Typography.body)
+                    .foregroundColor(.secondary)
+                    .padding(Spacing.md)
+            }
+
+            // Configured outputs list
+            if !outputs.isEmpty {
+                outputsList
+            }
+        }
+    }
+
+    // MARK: - Channel Grid
+
+    private var channelGrid: some View {
+        HStack(spacing: SettingsLayout.channelCellSpacing) {
+            ForEach(Array(1...totalChannels), id: \.self) { channel in
+                let state = channelState(for: channel)
+
+                ChannelCellView(
+                    channel: channel,
+                    state: state,
+                    isSelected: selectedChannels.contains(channel),
+                    onTap: { handleChannelTap(channel) },
+                    onActivate: { activateChannel(channel) }
+                )
+            }
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Outputs List
+
+    private var outputsList: some View {
+        VStack(spacing: 4) {
+            ForEach(outputs) { output in
+                OutputRowView(
+                    output: output,
+                    isEditing: editingOutputId == output.id,
+                    editedName: editingOutputId == output.id ? $editedName : .constant(""),
+                    onStartEdit: {
+                        editedName = output.name
+                        editingOutputId = output.id
+                    },
+                    onCommitEdit: {
+                        commitRename(output.id)
+                    },
+                    onCancelEdit: {
+                        editingOutputId = nil
+                    },
+                    onUnlink: output.channelCount > 1 ? { unlinkOutput(output.id) } : nil,
+                    onDelete: { deleteOutput(output.id) }
+                )
+            }
+        }
+    }
+
+    // MARK: - Channel State
+
+    private func channelState(for channel: Int) -> ChannelState {
+        for output in outputs {
+            let endChannel = output.channelStart + output.channelCount - 1
+            if channel >= output.channelStart && channel <= endChannel {
+                if output.channelCount == 1 {
+                    return .activeMono(outputId: output.id)
+                } else if channel == output.channelStart {
+                    return .stereoPrimary(outputId: output.id)
+                } else {
+                    return .stereoSecondary(outputId: output.id)
+                }
+            }
+        }
+        return .inactive
+    }
+
+    // MARK: - Selection & Linking
+
+    private var canLinkSelected: Bool {
+        guard selectedChannels.count == 2 else { return false }
+        let sorted = selectedChannels.sorted()
+        // Must be adjacent and both inactive
+        guard sorted[1] - sorted[0] == 1 else { return false }
+        return channelState(for: sorted[0]) == .inactive && channelState(for: sorted[1]) == .inactive
+    }
+
+    private func handleChannelTap(_ channel: Int) {
+        let state = channelState(for: channel)
+
+        switch state {
+        case .inactive:
+            // Toggle selection for linking
+            if selectedChannels.contains(channel) {
+                selectedChannels.remove(channel)
+            } else {
+                selectedChannels.insert(channel)
+                // Limit to 2 selections
+                if selectedChannels.count > 2 {
+                    selectedChannels.remove(selectedChannels.min()!)
+                }
+            }
+        case .activeMono, .stereoPrimary, .stereoSecondary:
+            // Clear selection when tapping active channel
+            selectedChannels.removeAll()
+        }
+    }
+
+    private func activateChannel(_ channel: Int) {
+        var newOutputs = outputs
+        newOutputs.append(MappedAudioOutput(
+            name: "Ch \(channel)",
+            channelStart: channel,
+            channelCount: 1
+        ))
+        newOutputs.sort { $0.channelStart < $1.channelStart }
+        onOutputsChanged(newOutputs)
+        selectedChannels.removeAll()
+    }
+
+    private func linkSelectedChannels() {
+        guard canLinkSelected else { return }
+        let sorted = selectedChannels.sorted()
+
+        var newOutputs = outputs
+        newOutputs.append(MappedAudioOutput(
+            name: "Ch \(sorted[0])-\(sorted[1])",
+            channelStart: sorted[0],
+            channelCount: 2
+        ))
+        newOutputs.sort { $0.channelStart < $1.channelStart }
+        onOutputsChanged(newOutputs)
+        selectedChannels.removeAll()
+    }
+
+    // MARK: - Output Management
+
+    private func commitRename(_ id: UUID) {
+        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            editingOutputId = nil
+            return
+        }
+
+        var newOutputs = outputs
+        if let index = newOutputs.firstIndex(where: { $0.id == id }) {
+            newOutputs[index].name = trimmed
+            onOutputsChanged(newOutputs)
+        }
+        editingOutputId = nil
+    }
+
+    private func unlinkOutput(_ id: UUID) {
+        var newOutputs = outputs
+        newOutputs.removeAll { $0.id == id }
+        onOutputsChanged(newOutputs)
+    }
+
+    private func deleteOutput(_ id: UUID) {
+        var newOutputs = outputs
+        newOutputs.removeAll { $0.id == id }
+        onOutputsChanged(newOutputs)
+    }
+}
+
+
+// MARK: - Channel Cell View
+
+/// Individual channel cell in the grid
+private struct ChannelCellView: View {
+    let channel: Int
+    let state: ChannelState
+    let isSelected: Bool
+    let onTap: () -> Void
+    let onActivate: () -> Void
+
+    @State private var isHovered = false
+
+    private var isInactive: Bool {
+        if case .inactive = state { return true }
+        return false
+    }
+
+    private var isActive: Bool {
+        switch state {
+        case .activeMono, .stereoPrimary, .stereoSecondary:
+            return true
+        case .inactive:
+            return false
+        }
+    }
+
+    private var isStereoSecondary: Bool {
+        if case .stereoSecondary = state { return true }
+        return false
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            ZStack {
+                // Background
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(backgroundColor)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(borderColor, lineWidth: isSelected ? 2 : 1)
+                    )
+
+                // Channel number
+                Text("\(channel)")
+                    .font(Typography.mono)
+                    .foregroundColor(textColor)
+
+                // Stereo link indicator (left side for secondary channel)
+                if isStereoSecondary {
+                    HStack(spacing: 0) {
+                        Rectangle()
+                            .fill(AppColors.accentBlue)
+                            .frame(width: 4)
+                        Spacer()
+                    }
+                }
+
+                // Stereo link indicator (right side for primary channel)
+                if case .stereoPrimary = state {
+                    HStack(spacing: 0) {
+                        Spacer()
+                        Rectangle()
+                            .fill(AppColors.accentBlue)
+                            .frame(width: 4)
+                    }
+                }
+
+                // Hover affordance for inactive
+                if isInactive && isHovered && !isSelected {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(AppColors.accentBlue.opacity(0.8))
+                        .offset(x: 8, y: -8)
+                }
+            }
+            .frame(width: SettingsLayout.channelCellSize, height: SettingsLayout.channelCellSize)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(AppAnimations.quick) {
+                isHovered = hovering
+            }
+        }
+        .contextMenu {
+            if isInactive {
+                Button("Activate as Mono") { onActivate() }
+            }
+        }
+        .help(helpText)
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return AppColors.accentYellow.opacity(0.3)
+        }
+        switch state {
+        case .inactive:
+            return isHovered ? AppColors.surfaceMedium : AppColors.surfaceLight.opacity(0.5)
+        case .activeMono:
+            return AppColors.accentBlue.opacity(isHovered ? 0.35 : 0.25)
+        case .stereoPrimary, .stereoSecondary:
+            return AppColors.accentBlue.opacity(isHovered ? 0.35 : 0.25)
+        }
+    }
+
+    private var borderColor: Color {
+        if isSelected {
+            return AppColors.accentYellow
+        }
+        switch state {
+        case .inactive:
+            return isHovered ? AppColors.borderMedium : AppColors.borderLight
+        case .activeMono, .stereoPrimary, .stereoSecondary:
+            return AppColors.accentBlue.opacity(0.5)
+        }
+    }
+
+    private var textColor: Color {
+        if isSelected {
+            return .primary
+        }
+        switch state {
+        case .inactive:
+            return isHovered ? .primary : .secondary
+        case .activeMono, .stereoPrimary, .stereoSecondary:
+            return .primary
+        }
+    }
+
+    private var helpText: String {
+        switch state {
+        case .inactive:
+            return isSelected ? "Click another adjacent channel to link, or right-click to activate as mono"
+                : "Click to select for linking, right-click to activate as mono"
+        case .activeMono:
+            return "Active mono output"
+        case .stereoPrimary, .stereoSecondary:
+            return "Part of stereo pair"
+        }
+    }
+}
+
+// MARK: - Output Row View
+
+/// Row showing a configured output with rename/delete controls
+private struct OutputRowView: View {
+    let output: MappedAudioOutput
+    let isEditing: Bool
+    @Binding var editedName: String
+    let onStartEdit: () -> Void
+    let onCommitEdit: () -> Void
+    let onCancelEdit: () -> Void
+    let onUnlink: (() -> Void)?
     let onDelete: () -> Void
 
     @State private var isHovered = false
-    @State private var isEditing = false
-    @State private var editedName: String = ""
     @FocusState private var isNameFocused: Bool
-
-    /// Whether this output can be expanded to stereo
-    private var canExpandToStereo: Bool {
-        if output.channelCount == 2 { return true } // Already stereo
-        let nextChannel = output.channelStart + 1
-        return nextChannel <= totalChannels && !assignedChannels.contains(nextChannel)
-    }
 
     var body: some View {
         HStack(spacing: Spacing.sm) {
-            // Channel pills
-            HStack(spacing: 4) {
+            // Channel indicator
+            HStack(spacing: 2) {
                 ForEach(0..<output.channelCount, id: \.self) { offset in
-                    ChannelPill(
-                        channel: output.channelStart + offset,
-                        isAssigned: true
-                    )
+                    Text("\(output.channelStart + offset)")
+                        .font(Typography.captionSmall)
+                        .foregroundColor(.primary)
+                        .frame(width: 20, height: 20)
+                        .background(AppColors.accentBlue.opacity(0.2))
+                        .cornerRadius(4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(AppColors.accentBlue.opacity(0.4), lineWidth: 1)
+                        )
                 }
             }
-            .frame(width: 48, alignment: .leading)
+            .frame(width: 50, alignment: .leading)
 
             // Name (editable)
             if isEditing {
@@ -519,8 +616,13 @@ private struct OutputPortConfigRow: View {
                             .stroke(AppColors.accentBlue, lineWidth: 1)
                     )
                     .focused($isNameFocused)
-                    .onSubmit { commitEdit() }
-                    .onExitCommand { cancelEdit() }
+                    .onSubmit { onCommitEdit() }
+                    .onExitCommand { onCancelEdit() }
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            isNameFocused = true
+                        }
+                    }
             } else {
                 HStack(spacing: 4) {
                     Text(output.name)
@@ -528,7 +630,6 @@ private struct OutputPortConfigRow: View {
                         .foregroundColor(.primary)
                         .lineLimit(1)
 
-                    // Edit affordance (pencil icon visible on hover)
                     if isHovered {
                         Image(systemName: "pencil")
                             .font(.system(size: 10))
@@ -536,45 +637,30 @@ private struct OutputPortConfigRow: View {
                     }
                 }
                 .contentShape(Rectangle())
-                .onTapGesture { startEdit() }
+                .onTapGesture { onStartEdit() }
             }
 
             Spacer()
 
-            // Format selector (Mono/Stereo)
-            Menu {
-                Button(action: { onFormatChange(false) }) {
-                    HStack {
-                        Text("Mono")
-                        if output.channelCount == 1 {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-
-                Button(action: { onFormatChange(true) }) {
-                    HStack {
-                        Text("Stereo")
-                        if output.channelCount == 2 {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-                .disabled(!canExpandToStereo && output.channelCount == 1)
-            } label: {
-                HStack(spacing: 4) {
-                    Text(output.channelCount == 2 ? "Stereo" : "Mono")
-                        .font(Typography.caption)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8))
-                }
+            // Format badge
+            Text(output.channelCount == 2 ? "Stereo" : "Mono")
+                .font(Typography.captionSmall)
                 .foregroundColor(.secondary)
                 .padding(.horizontal, Spacing.sm)
-                .padding(.vertical, 4)
+                .padding(.vertical, 2)
                 .background(AppColors.surfaceMedium.opacity(0.5))
                 .cornerRadius(4)
+
+            // Unlink button (for stereo)
+            if let onUnlink = onUnlink, isHovered {
+                Button(action: onUnlink) {
+                    Image(systemName: "link.badge.minus")
+                        .font(Typography.iconSmall)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Unlink stereo pair")
             }
-            .buttonStyle(.plain)
 
             // Delete button
             Button(action: onDelete) {
@@ -583,7 +669,8 @@ private struct OutputPortConfigRow: View {
                     .foregroundColor(isHovered ? AppColors.accentPink : .secondary)
             }
             .buttonStyle(.plain)
-            .opacity(isHovered ? 1.0 : 0.5)
+            .opacity(isHovered ? 1.0 : 0.4)
+            .help("Remove output")
         }
         .padding(.horizontal, Spacing.sm)
         .padding(.vertical, Spacing.sm)
@@ -597,141 +684,6 @@ private struct OutputPortConfigRow: View {
             }
         }
     }
-
-    private func startEdit() {
-        editedName = output.name
-        isEditing = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            isNameFocused = true
-        }
-    }
-
-    private func commitEdit() {
-        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty && trimmed != output.name {
-            onNameChange(trimmed)
-        }
-        isEditing = false
-    }
-
-    private func cancelEdit() {
-        isEditing = false
-    }
-}
-
-// MARK: - Add Output Popover
-
-/// Popover for creating new audio outputs
-private struct AddOutputPopover: View {
-    let totalChannels: Int
-    let assignedChannels: Set<Int>
-    let onAdd: (String, Int, Bool) -> Void
-    let onCancel: () -> Void
-
-    @State private var name: String = ""
-    @State private var isStereo: Bool = true
-    @State private var selectedChannel: Int = 1
-
-    /// Available channels that can start a new output
-    private var availableStartChannels: [Int] {
-        let unassigned = (1...totalChannels).filter { !assignedChannels.contains($0) }
-        if isStereo {
-            // For stereo, need consecutive pairs
-            return unassigned.filter { ch in
-                ch + 1 <= totalChannels && !assignedChannels.contains(ch + 1)
-            }
-        }
-        return unassigned
-    }
-
-    private var canCreate: Bool {
-        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        availableStartChannels.contains(selectedChannel)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
-            Text("Create Output")
-                .font(Typography.subheading)
-                .foregroundColor(.primary)
-
-            // Name field
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Name")
-                    .font(Typography.caption)
-                    .foregroundColor(.secondary)
-
-                TextField("Output name", text: $name)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 180)
-            }
-
-            // Format selector
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Format")
-                    .font(Typography.caption)
-                    .foregroundColor(.secondary)
-
-                Picker("", selection: $isStereo) {
-                    Text("Stereo").tag(true)
-                    Text("Mono").tag(false)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 180)
-                .onChange(of: isStereo) { _, _ in
-                    // Reset channel selection if current is invalid
-                    if !availableStartChannels.contains(selectedChannel) {
-                        selectedChannel = availableStartChannels.first ?? 1
-                    }
-                }
-            }
-
-            // Channel selector
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Start Channel")
-                    .font(Typography.caption)
-                    .foregroundColor(.secondary)
-
-                Picker("", selection: $selectedChannel) {
-                    ForEach(availableStartChannels, id: \.self) { channel in
-                        if isStereo {
-                            Text("Ch \(channel)-\(channel + 1)").tag(channel)
-                        } else {
-                            Text("Ch \(channel)").tag(channel)
-                        }
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(width: 180)
-                .disabled(availableStartChannels.isEmpty)
-            }
-
-            // Buttons
-            HStack {
-                Button("Cancel") { onCancel() }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.secondary)
-
-                Spacer()
-
-                Button("Create") {
-                    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                    onAdd(trimmedName, selectedChannel, isStereo)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!canCreate)
-            }
-        }
-        .padding(Spacing.md)
-        .frame(width: 220)
-        .onAppear {
-            // Set default name
-            let existingCount = totalChannels > 0 ? (totalChannels - availableStartChannels.count) / 2 + 1 : 1
-            name = "Output \(existingCount)"
-            // Set default channel
-            selectedChannel = availableStartChannels.first ?? 1
-        }
-    }
 }
 
 // MARK: - Preview
@@ -743,7 +695,7 @@ struct SettingsAccordionView_Previews: PreviewProvider {
             audioManager: AudioOutputManager(),
             isExpanded: .constant(true)
         )
-        .frame(width: 500)
+        .frame(width: 550)
         .padding()
         .background(Color(nsColor: .windowBackgroundColor))
     }

@@ -325,8 +325,8 @@ struct ContentView: View {
                     playbackEngine: playbackEngine,
                     timelineViewModel: timelineViewModel
                 )
-                .padding(.horizontal, Spacing.md)
                 .padding(.top, Spacing.md)
+                .padding(.horizontal, Spacing.md)
                 .padding(.bottom, Spacing.sm)
                 .background(
                     GeometryReader { proxy in

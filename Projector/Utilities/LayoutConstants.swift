@@ -314,6 +314,15 @@ enum SettingsLayout {
 
     /// Settings window size as CGSize
     static let size = CGSize(width: width, height: height)
+
+    /// Fixed width for setting row labels (for alignment)
+    static let labelWidth: CGFloat = 160
+
+    /// Size of channel cells in the audio grid
+    static let channelCellSize: CGFloat = 32
+
+    /// Spacing between channel cells
+    static let channelCellSpacing: CGFloat = 4
 }
 
 // ============================================================================
