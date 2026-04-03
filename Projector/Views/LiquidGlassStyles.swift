@@ -152,10 +152,25 @@ struct GlassTransportButtonStyle: ButtonStyle {
 
 /// A button style for action buttons (Import, Optimize, etc.)
 /// Defaults to the brand accent color (hot pink).
+/// Includes hover state for polished feel.
 struct GlassActionButtonStyle: ButtonStyle {
     var tint: Color = AppColors.accent
 
     func makeBody(configuration: Configuration) -> some View {
+        GlassActionButtonBody(
+            configuration: configuration,
+            tint: tint
+        )
+    }
+}
+
+/// Internal view that handles hover state for action buttons
+private struct GlassActionButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let tint: Color
+    @State private var isHovered = false
+
+    var body: some View {
         if #available(macOS 26, *) {
             configuration.label
                 .font(Typography.button)
@@ -164,12 +179,16 @@ struct GlassActionButtonStyle: ButtonStyle {
                 .padding(.vertical, Spacing.sm)
                 .background {
                     Capsule()
-                        .fill(tint.opacity(0.7))
+                        .fill(tint.opacity(isHovered ? 0.85 : 0.65))
                         .glassEffect(.regular, in: Capsule())
                 }
-                .opacity(configuration.isPressed ? 0.8 : 1.0)
-                .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+                .scaleEffect(configuration.isPressed ? 0.96 : (isHovered ? 1.02 : 1.0))
+                .brightness(isHovered ? 0.05 : 0)
                 .animation(AppAnimations.quick, value: configuration.isPressed)
+                .animation(AppAnimations.quick, value: isHovered)
+                .onHover { hovering in
+                    isHovered = hovering
+                }
         } else {
             configuration.label
                 .font(Typography.button)
@@ -178,14 +197,86 @@ struct GlassActionButtonStyle: ButtonStyle {
                 .padding(.vertical, Spacing.sm)
                 .background(
                     Capsule()
-                        .fill(tint.opacity(0.6))
+                        .fill(tint.opacity(isHovered ? 0.75 : 0.6))
                 )
                 .overlay(
                     Capsule()
-                        .stroke(tint.opacity(0.3), lineWidth: PanelLayout.borderWidth)
+                        .stroke(tint.opacity(isHovered ? 0.5 : 0.3), lineWidth: PanelLayout.borderWidth)
                 )
-                .opacity(configuration.isPressed ? 0.8 : 1.0)
+                .scaleEffect(configuration.isPressed ? 0.96 : (isHovered ? 1.02 : 1.0))
+                .animation(AppAnimations.quick, value: configuration.isPressed)
+                .animation(AppAnimations.quick, value: isHovered)
+                .onHover { hovering in
+                    isHovered = hovering
+                }
         }
+    }
+}
+
+// MARK: - Glass Text Button Style
+
+/// A subtle text-only button for secondary actions (links, less prominent actions)
+/// Use for things like "Configure...", "Change", "Audio Routing"
+struct GlassTextButtonStyle: ButtonStyle {
+    var tint: Color = AppColors.accentBlue
+
+    func makeBody(configuration: Configuration) -> some View {
+        GlassTextButtonBody(configuration: configuration, tint: tint)
+    }
+}
+
+private struct GlassTextButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let tint: Color
+    @State private var isHovered = false
+
+    var body: some View {
+        configuration.label
+            .font(Typography.label)
+            .foregroundColor(isHovered ? tint : tint.opacity(0.8))
+            .underline(isHovered)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(AppAnimations.quick, value: configuration.isPressed)
+            .animation(AppAnimations.quick, value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+    }
+}
+
+// MARK: - Glass Icon Button Style
+
+/// A compact icon-only button with hover feedback
+struct GlassIconButtonStyle: ButtonStyle {
+    var size: CGFloat = 24
+    var isActive: Bool = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        GlassIconButtonBody(configuration: configuration, size: size, isActive: isActive)
+    }
+}
+
+private struct GlassIconButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let size: CGFloat
+    let isActive: Bool
+    @State private var isHovered = false
+
+    var body: some View {
+        configuration.label
+            .font(.system(size: size * 0.6, weight: .medium))
+            .foregroundColor(isActive ? .accentColor : (isHovered ? .primary : .secondary))
+            .frame(width: size, height: size)
+            .background(
+                Circle()
+                    .fill(isActive ? Color.accentColor.opacity(0.15) : (isHovered ? AppColors.surfaceMedium : Color.clear))
+            )
+            .scaleEffect(configuration.isPressed ? 0.9 : (isHovered ? 1.05 : 1.0))
+            .animation(AppAnimations.quick, value: configuration.isPressed)
+            .animation(AppAnimations.quick, value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
     }
 }
 
@@ -305,40 +396,6 @@ private struct LegacyVisualEffectBackground: NSViewRepresentable {
         nsView.material = .hudWindow
         nsView.blendingMode = .behindWindow
         nsView.layer?.cornerRadius = cornerRadius
-    }
-}
-
-// MARK: - Glass Icon Button Style
-
-/// A button style for icon-only buttons (settings gear, close, etc.)
-struct GlassIconButtonStyle: ButtonStyle {
-    var size: CGFloat = 18
-    var isActive: Bool = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .frame(width: size, height: size)
-            .padding(Spacing.sm)
-            .background {
-                if #available(macOS 26, *) {
-                    Circle()
-                        .fill(.clear)
-                        .glassEffect(
-                            isActive ? .regular.tint(.accentColor) : .clear,
-                            in: Circle()
-                        )
-                } else {
-                    Circle()
-                        .fill(isActive ? Color.accentColor.opacity(0.2) : Color.clear)
-                }
-            }
-            .overlay(
-                Circle()
-                    .stroke(configuration.isPressed ? AppColors.borderStrong : AppColors.borderMedium, lineWidth: PanelLayout.borderWidth)
-            )
-            .opacity(configuration.isPressed ? 0.7 : 1.0)
-            .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
-            .animation(AppAnimations.quick, value: configuration.isPressed)
     }
 }
 

@@ -184,33 +184,27 @@ struct AudioRoutingSheet: View {
         VStack(spacing: 0) {
             // Header
             headerView
+
+            // Scrollable content
+            ScrollView {
+                VStack(spacing: Spacing.md) {
+                    // Device info card
+                    deviceInfoView
+
+                    // Preset selection
+                    presetSelectionView
+
+                    // Preview of lane configuration
+                    lanePreviewView
+                }
                 .padding(Spacing.lg)
-
-            Divider()
-
-            // Device info
-            deviceInfoView
-                .padding(Spacing.lg)
-
-            Divider()
-
-            // Preset selection
-            presetSelectionView
-                .padding(Spacing.lg)
-
-            Divider()
-
-            // Preview of lane configuration
-            lanePreviewView
-                .padding(Spacing.lg)
-
-            Divider()
+            }
 
             // Footer with buttons
             footerView
-                .padding(Spacing.lg)
         }
-        .frame(width: 520, height: 580)
+        .frame(width: 500, height: 560)
+        .glassPanel()
         .onAppear {
             // Default to stereo if device doesn't support stems
             if availableChannels < 6 {
@@ -222,153 +216,90 @@ struct AudioRoutingSheet: View {
     // MARK: - Header
 
     private var headerView: some View {
-        HStack {
-            Image(systemName: "speaker.wave.3")
-                .font(.system(size: 24))
-                .foregroundColor(.accentColor)
+        HStack(spacing: Spacing.md) {
+            Image(systemName: "slider.horizontal.3")
+                .font(Typography.icon)
+                .foregroundColor(AppColors.accentBlue)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Audio Routing")
-                    .font(Typography.title)
-                Text("Configure how audio lanes route to your interface")
-                    .font(Typography.caption)
-                    .foregroundColor(.secondary)
-            }
+            Text("Audio Routing")
+                .font(Typography.heading)
+                .foregroundColor(.primary)
 
             Spacer()
 
             Button(action: { onCancel(); dismiss() }) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundColor(.secondary)
+                Image(systemName: "xmark")
+                    .font(Typography.iconSmall)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(GlassIconButtonStyle())
+            .keyboardShortcut(.escape)
             .accessibilityLabel("Close")
         }
+        .frame(height: PanelLayout.headerHeight)
+        .padding(.horizontal, Spacing.lg)
     }
 
     // MARK: - Device Info
 
     private var deviceInfoView: some View {
-        HStack(spacing: Spacing.md) {
-            Image(systemName: "hifispeaker.2")
-                .font(.system(size: 28))
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            // Section label
+            Text("Output Device")
+                .font(Typography.label)
                 .foregroundColor(.secondary)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(deviceDisplayName)
-                    .font(Typography.heading)
+            // Device card
+            HStack(spacing: Spacing.md) {
+                Image(systemName: "hifispeaker.2")
+                    .font(.system(size: 24, weight: .regular))
+                    .foregroundColor(AppColors.accentBlue)
+                    .frame(width: 32)
 
-                Text("\(availableChannels) output channels available")
-                    .font(Typography.caption)
-                    .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(deviceDisplayName)
+                        .font(Typography.body)
+                        .foregroundColor(.primary)
+
+                    Text("\(availableChannels) channels")
+                        .font(Typography.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
             }
-
-            Spacer()
-
-            // Link to change device in settings
-            Button("Change") {
-                // This would open settings to device selection
-            }
-            .buttonStyle(.plain)
-            .foregroundColor(.accentColor)
-            .font(Typography.bodySmall)
+            .padding(Spacing.md)
+            .glassControl()
         }
-        .padding(Spacing.md)
-        .background(AppColors.surfaceLight)
-        .cornerRadius(8)
     }
 
     // MARK: - Preset Selection
 
     private var presetSelectionView: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             Text("Quick Setup")
                 .font(Typography.label)
                 .foregroundColor(.secondary)
 
-            VStack(spacing: Spacing.sm) {
+            VStack(spacing: Spacing.xs) {
                 ForEach(availablePresets) { preset in
-                    presetRow(preset)
-                }
-            }
-        }
-    }
-
-    private func presetRow(_ preset: LanePreset) -> some View {
-        let isAvailable = preset.requiredChannels <= availableChannels || preset == .custom
-        let isSelected = selectedPreset == preset
-
-        return Button(action: { selectedPreset = preset }) {
-            HStack(spacing: Spacing.md) {
-                // Radio indicator
-                Circle()
-                    .strokeBorder(isSelected ? Color.accentColor : AppColors.borderMedium, lineWidth: 2)
-                    .background(
-                        Circle()
-                            .fill(isSelected ? Color.accentColor : Color.clear)
-                            .padding(3)
-                    )
-                    .frame(width: 18, height: 18)
-
-                // Icon
-                Image(systemName: preset.iconName)
-                    .font(Typography.icon)
-                    .foregroundColor(isAvailable ? .secondary : .secondary.opacity(0.5))
-                    .frame(width: 24)
-
-                // Label and description
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack {
-                        Text(preset.displayName)
-                            .font(Typography.body)
-                            .foregroundColor(isAvailable ? .primary : .secondary.opacity(0.5))
-
-                        if preset != .custom && preset != .stereoMix {
-                            Text("(\(preset.requiredChannels) ch)")
-                                .font(Typography.captionSmall)
-                                .foregroundColor(.secondary)
-                        }
+                    PresetRowView(
+                        preset: preset,
+                        isSelected: selectedPreset == preset,
+                        isAvailable: preset.requiredChannels <= availableChannels || preset == .custom
+                    ) {
+                        selectedPreset = preset
                     }
-
-                    Text(preset.description)
-                        .font(Typography.captionSmall)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                // Unavailable badge
-                if !isAvailable {
-                    Text("Needs \(preset.requiredChannels) ch")
-                        .font(Typography.captionSmall)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, Spacing.xs)
-                        .padding(.vertical, 2)
-                        .background(AppColors.surfaceMedium)
-                        .cornerRadius(4)
                 }
             }
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isSelected ? AppColors.surfaceLight : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
-            )
+            .padding(Spacing.sm)
+            .glassControl()
         }
-        .buttonStyle(.plain)
-        .disabled(!isAvailable)
     }
 
     // MARK: - Lane Preview
 
     private var lanePreviewView: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack {
                 Text("Lane Configuration")
                     .font(Typography.label)
@@ -377,54 +308,62 @@ struct AudioRoutingSheet: View {
                 Spacer()
 
                 if selectedPreset == .custom {
-                    Button("Edit") {
-                        showCustomEditor = true
+                    Button(action: { showCustomEditor = true }) {
+                        HStack(spacing: Spacing.xs) {
+                            Image(systemName: "pencil")
+                                .font(Typography.iconSmall)
+                            Text("Edit")
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.accentColor)
-                    .font(Typography.bodySmall)
+                    .buttonStyle(GlassTextButtonStyle())
                 }
             }
 
             if selectedPreset == .custom && customLanes.isEmpty {
                 // Custom with no lanes
-                VStack(spacing: Spacing.sm) {
+                VStack(spacing: Spacing.md) {
                     Image(systemName: "plus.circle")
-                        .font(.system(size: 32))
+                        .font(.system(size: 32, weight: .regular))
                         .foregroundColor(.secondary.opacity(0.5))
 
                     Text("No lanes configured")
                         .font(Typography.body)
                         .foregroundColor(.secondary)
 
-                    Button("Add Lanes") {
-                        showCustomEditor = true
+                    Button(action: { showCustomEditor = true }) {
+                        HStack(spacing: Spacing.xs) {
+                            Image(systemName: "plus")
+                                .font(Typography.iconSmall)
+                            Text("Add Lanes")
+                        }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentBlue))
                 }
                 .frame(maxWidth: .infinity)
-                .padding(Spacing.lg)
-                .background(AppColors.surfaceLight)
-                .cornerRadius(8)
+                .padding(Spacing.xl)
+                .glassControl()
             } else {
                 // Lane list
                 let configs = selectedPreset == .custom ? customLanes : selectedPreset.laneConfigs
 
-                VStack(spacing: Spacing.xs) {
+                VStack(spacing: 0) {
                     ForEach(Array(configs.enumerated()), id: \.offset) { index, config in
                         lanePreviewRow(config, index: index)
+
+                        if index < configs.count - 1 {
+                            Divider()
+                                .padding(.leading, Spacing.md + 12)
+                        }
                     }
                 }
-                .padding(Spacing.sm)
-                .background(AppColors.surfaceLight)
-                .cornerRadius(8)
+                .padding(.vertical, Spacing.xs)
+                .glassControl()
             }
         }
     }
 
     private func lanePreviewRow(_ config: LaneConfig, index: Int) -> some View {
-        HStack(spacing: Spacing.md) {
+        HStack(spacing: Spacing.sm) {
             // Color indicator
             Circle()
                 .fill(laneColor(for: config.colorIndex))
@@ -433,64 +372,88 @@ struct AudioRoutingSheet: View {
             // Lane name
             Text(config.name)
                 .font(Typography.body)
-                .frame(width: 100, alignment: .leading)
-
-            // Channel range
-            Text("Ch \(config.channelStart)-\(config.channelStart + config.channelCount - 1)")
-                .font(Typography.mono)
-                .foregroundColor(.secondary)
+                .foregroundColor(.primary)
 
             Spacer()
+
+            // Channel range
+            Text("Ch \(config.channelStart)–\(config.channelStart + config.channelCount - 1)")
+                .font(Typography.mono)
+                .foregroundColor(.secondary)
 
             // Stereo/Mono badge
             Text(config.channelCount == 2 ? "Stereo" : "Mono")
                 .font(Typography.captionSmall)
                 .foregroundColor(.secondary)
-                .padding(.horizontal, Spacing.xs)
-                .padding(.vertical, 2)
-                .background(AppColors.surfaceMedium)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, 3)
+                .background(AppColors.surfaceMedium.opacity(0.5))
                 .cornerRadius(4)
         }
-        .padding(.vertical, Spacing.xs)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
     }
 
     private func laneColor(for index: Int) -> Color {
-        let colors: [Color] = [.blue, .green, .orange, .purple, .pink, .cyan, .yellow, .red]
+        let colors: [Color] = [
+            AppColors.accentBlue,
+            AppColors.accentGreen,
+            AppColors.accentYellow,
+            AppColors.accentPurple,
+            AppColors.accentPink,
+            .cyan,
+            .orange,
+            .red
+        ]
         return colors[index % colors.count]
     }
 
     // MARK: - Footer
 
     private var footerView: some View {
-        HStack {
-            // Existing lanes warning
+        VStack(spacing: Spacing.sm) {
+            // Warning if reconfiguring existing lanes
             if !timelineManager.timeline.audioLanes.isEmpty {
-                HStack(spacing: Spacing.xs) {
-                    Image(systemName: "exclamationmark.triangle")
+                HStack(spacing: Spacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
                         .font(Typography.iconSmall)
-                        .foregroundColor(.orange)
+                        .foregroundColor(AppColors.accentYellow)
 
                     Text("This will reconfigure existing lanes")
-                        .font(Typography.captionSmall)
+                        .font(Typography.caption)
                         .foregroundColor(.secondary)
+
+                    Spacer()
                 }
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
+                .background(AppColors.accentYellow.opacity(0.1))
+                .cornerRadius(PanelLayout.cornerRadius)
             }
 
-            Spacer()
+            // Action buttons
+            HStack(spacing: Spacing.md) {
+                Spacer()
 
-            Button("Cancel") {
-                onCancel()
-                dismiss()
-            }
-            .keyboardShortcut(.escape)
+                Button(action: { onCancel(); dismiss() }) {
+                    Text("Cancel")
+                }
+                .buttonStyle(GlassTextButtonStyle())
 
-            Button(action: applyConfiguration) {
-                Text("Apply")
+                Button(action: applyConfiguration) {
+                    HStack(spacing: Spacing.xs) {
+                        Image(systemName: "checkmark")
+                            .font(Typography.iconSmall)
+                        Text("Apply")
+                    }
+                }
+                .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentBlue))
+                .keyboardShortcut(.return)
+                .disabled(selectedPreset == .custom && customLanes.isEmpty)
             }
-            .keyboardShortcut(.return)
-            .buttonStyle(.borderedProminent)
-            .disabled(selectedPreset == .custom && customLanes.isEmpty)
         }
+        .padding(Spacing.lg)
+        .background(AppColors.surfaceLight.opacity(0.3))
     }
 
     // MARK: - Actions
@@ -499,6 +462,93 @@ struct AudioRoutingSheet: View {
         let configs = selectedPreset == .custom ? customLanes : selectedPreset.laneConfigs
         onApply(selectedPreset, configs)
         dismiss()
+    }
+}
+
+// MARK: - Preset Row View
+
+/// A single preset option row with hover and selection states
+private struct PresetRowView: View {
+    let preset: LanePreset
+    let isSelected: Bool
+    let isAvailable: Bool
+    let onSelect: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: Spacing.md) {
+                // Radio indicator
+                ZStack {
+                    Circle()
+                        .strokeBorder(
+                            isSelected ? AppColors.accentBlue : AppColors.borderMedium,
+                            lineWidth: 2
+                        )
+                        .frame(width: 16, height: 16)
+
+                    if isSelected {
+                        Circle()
+                            .fill(AppColors.accentBlue)
+                            .frame(width: 8, height: 8)
+                    }
+                }
+
+                // Icon
+                Image(systemName: preset.iconName)
+                    .font(Typography.icon)
+                    .foregroundColor(isAvailable ? (isSelected ? AppColors.accentBlue : .secondary) : .secondary.opacity(0.4))
+                    .frame(width: 20)
+
+                // Label and description
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: Spacing.xs) {
+                        Text(preset.displayName)
+                            .font(Typography.body)
+                            .foregroundColor(isAvailable ? .primary : .secondary.opacity(0.5))
+
+                        if preset != .custom && preset != .stereoMix {
+                            Text("\(preset.requiredChannels) ch")
+                                .font(Typography.captionSmall)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, Spacing.xs)
+                                .padding(.vertical, 1)
+                                .background(AppColors.surfaceMedium.opacity(0.5))
+                                .cornerRadius(3)
+                        }
+                    }
+
+                    Text(preset.description)
+                        .font(Typography.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                // Selection indicator
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(Typography.iconSmall)
+                        .foregroundColor(AppColors.accentBlue)
+                }
+            }
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
+                    .fill(isSelected ? AppColors.accentBlue.opacity(0.1) : (isHovered ? AppColors.surfaceLight : Color.clear))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isAvailable)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .animation(AppAnimations.quick, value: isHovered)
+        .animation(AppAnimations.quick, value: isSelected)
     }
 }
 

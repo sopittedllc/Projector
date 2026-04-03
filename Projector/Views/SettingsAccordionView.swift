@@ -2,8 +2,8 @@
 //  SettingsAccordionView.swift
 //  Projector
 //
-//  Collapsible settings panel that appears in the right panel area.
-//  Shows key settings inline without opening a modal sheet.
+//  Collapsible settings panel for the right panel area.
+//  Follows UI rules: clean sections, action buttons in headers only.
 //
 
 import SwiftUI
@@ -51,14 +51,27 @@ struct SettingsAccordionView: View {
                     Text("Settings")
                         .font(Typography.subheading)
                         .foregroundColor(.primary)
-
-                    Spacer()
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Settings section, \(isExpanded ? "expanded" : "collapsed")")
-            .accessibilityHint("Double-tap to \(isExpanded ? "collapse" : "expand")")
+
+            Spacer()
+
+            // Audio Routing button in header (primary action for this panel)
+            if isExpanded {
+                Button(action: {
+                    NotificationCenter.default.post(name: .showAudioRouting, object: nil)
+                }) {
+                    HStack(spacing: Spacing.xs) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(Typography.iconSmall)
+                        Text("Routing")
+                    }
+                }
+                .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentBlue))
+                .help("Configure audio lane routing")
+            }
         }
         .frame(height: PanelLayout.headerHeight)
         .padding(.horizontal, Spacing.md)
@@ -67,117 +80,133 @@ struct SettingsAccordionView: View {
     // MARK: - Settings Content
 
     private var settingsContent: some View {
-        VStack(alignment: .leading, spacing: Spacing.lg) {
+        VStack(alignment: .leading, spacing: 0) {
             // Video Overlay Section
-            settingsSection(title: "Video Overlay", icon: "clock") {
-                Toggle("Show Timecode Overlay", isOn: $settings.showTimecodeOverlay)
-                    .font(Typography.body)
-
-                if settings.showTimecodeOverlay {
-                    HStack {
-                        Text("Position:")
-                            .font(Typography.label)
-                            .foregroundColor(.secondary)
-                            .frame(width: 70, alignment: .leading)
-
-                        Picker("", selection: $settings.timecodeOverlayPosition) {
-                            Text("Top Left").tag(TimecodeOverlayPosition.topLeft)
-                            Text("Top Right").tag(TimecodeOverlayPosition.topRight)
-                            Text("Bottom Left").tag(TimecodeOverlayPosition.bottomLeft)
-                            Text("Bottom Right").tag(TimecodeOverlayPosition.bottomRight)
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                    }
-                }
+            settingsRow(icon: "clock", title: "Timecode Overlay") {
+                Toggle("", isOn: $settings.showTimecodeOverlay)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
             }
 
-            Divider()
-
-            // Audio Output Section
-            settingsSection(title: "Audio Output", icon: "speaker.wave.2") {
-                HStack {
-                    Text("Device:")
-                        .font(Typography.label)
-                        .foregroundColor(.secondary)
-                        .frame(width: 70, alignment: .leading)
-
-                    Picker("", selection: Binding<String>(
-                        get: { audioManager.selectedDeviceUID ?? "" },
-                        set: { newValue in audioManager.selectedDeviceUID = newValue.isEmpty ? nil : newValue }
-                    )) {
-                        Text("System Default").tag("")
-                        ForEach(audioManager.availableDevices, id: \.uid) { device in
-                            Text(device.name).tag(device.uid)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                }
-
-                HStack {
-                    Text("\(audioManager.selectedDeviceChannelCount) channels available")
+            if settings.showTimecodeOverlay {
+                settingsSubRow {
+                    Text("Position")
                         .font(Typography.caption)
                         .foregroundColor(.secondary)
 
                     Spacer()
 
-                    Button(action: {
-                        NotificationCenter.default.post(name: .showAudioRouting, object: nil)
-                    }) {
-                        HStack(spacing: Spacing.xs) {
-                            Image(systemName: "slider.horizontal.3")
-                            Text("Audio Routing")
-                        }
+                    Picker("", selection: $settings.timecodeOverlayPosition) {
+                        Text("Top Left").tag(TimecodeOverlayPosition.topLeft)
+                        Text("Top Right").tag(TimecodeOverlayPosition.topRight)
+                        Text("Bottom Left").tag(TimecodeOverlayPosition.bottomLeft)
+                        Text("Bottom Right").tag(TimecodeOverlayPosition.bottomRight)
                     }
-                    .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentBlue))
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 130)
                 }
             }
 
             Divider()
+                .padding(.vertical, Spacing.xs)
+
+            // Audio Output Section
+            settingsRow(icon: "speaker.wave.2", title: "Output Device") {
+                Picker("", selection: Binding<String>(
+                    get: { audioManager.selectedDeviceUID ?? "" },
+                    set: { newValue in audioManager.selectedDeviceUID = newValue.isEmpty ? nil : newValue }
+                )) {
+                    Text("System Default").tag("")
+                    ForEach(audioManager.availableDevices, id: \.uid) { device in
+                        Text(device.name).tag(device.uid)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: 180)
+            }
+
+            settingsSubRow {
+                Text("\(audioManager.selectedDeviceChannelCount) channels")
+                    .font(Typography.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+
+            Divider()
+                .padding(.vertical, Spacing.xs)
 
             // MIDI Sync Section
-            settingsSection(title: "MIDI Sync", icon: "cable.connector") {
-                Toggle("Auto-play on MTC", isOn: $settings.autoPlayOnMTC)
-                    .font(Typography.body)
+            settingsRow(icon: "cable.connector", title: "Auto-play on MTC") {
+                Toggle("", isOn: $settings.autoPlayOnMTC)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+            }
 
-                Toggle("Auto-pause on MTC Stop", isOn: $settings.autoPauseOnMTCStop)
-                    .font(Typography.body)
+            settingsRow(icon: nil, title: "Auto-pause on MTC Stop") {
+                Toggle("", isOn: $settings.autoPauseOnMTCStop)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+            }
 
-                Toggle("Respond to MMC Commands", isOn: $settings.respondToMMC)
-                    .font(Typography.body)
+            settingsRow(icon: nil, title: "Respond to MMC") {
+                Toggle("", isOn: $settings.respondToMMC)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
             }
         }
-        .padding(Spacing.md)
+        .padding(.vertical, Spacing.sm)
     }
 
-    // MARK: - Helper
+    // MARK: - Helpers
 
+    /// A single settings row with icon, label, and control
     @ViewBuilder
-    private func settingsSection<Content: View>(
+    private func settingsRow<Content: View>(
+        icon: String?,
         title: String,
-        icon: String,
-        @ViewBuilder content: () -> Content
+        @ViewBuilder control: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            // Section header
-            HStack(spacing: Spacing.xs) {
+        HStack(spacing: Spacing.sm) {
+            if let icon = icon {
                 Image(systemName: icon)
                     .font(Typography.icon)
                     .foregroundColor(.secondary)
                     .frame(width: 20)
-
-                Text(title)
-                    .font(Typography.label)
-                    .foregroundColor(.secondary)
+            } else {
+                Spacer()
+                    .frame(width: 20)
             }
 
-            // Section content with indent
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-                content()
-            }
-            .padding(.leading, 28) // Align with text after icon
+            Text(title)
+                .font(Typography.body)
+                .foregroundColor(.primary)
+
+            Spacer()
+
+            control()
         }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+        .contentShape(Rectangle())
+    }
+
+    /// A sub-row for additional options (indented, smaller)
+    @ViewBuilder
+    private func settingsSubRow<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(spacing: Spacing.sm) {
+            content()
+        }
+        .padding(.leading, Spacing.md + 20 + Spacing.sm) // Align with text after icon
+        .padding(.trailing, Spacing.md)
+        .padding(.vertical, Spacing.xs)
     }
 }
 
@@ -186,7 +215,7 @@ struct SettingsAccordionView: View {
 #if DEBUG
 struct SettingsAccordionView_Previews: PreviewProvider {
     static var previews: some View {
-        VStack {
+        VStack(spacing: Spacing.md) {
             SettingsAccordionView(
                 audioManager: AudioOutputManager(),
                 isExpanded: .constant(true)
