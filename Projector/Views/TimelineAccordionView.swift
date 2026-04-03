@@ -85,7 +85,20 @@ struct TimelineAccordionView: View {
             Text("Double-click regions to set custom timecode")
                 .font(Typography.caption)
                 .foregroundColor(AppColors.textTertiary)
+
             Spacer()
+
+            // Add Audio Lane button (secondary action)
+            Button(action: onAddAudioLane) {
+                HStack(spacing: Spacing.xs) {
+                    Image(systemName: "plus")
+                        .font(Typography.iconSmall)
+                    Text("Audio Lane")
+                }
+            }
+            .buttonStyle(GlassTextButtonStyle())
+            .accessibilityLabel("Add a new audio lane")
+            .help("Add a new audio lane")
         }
         .frame(maxWidth: .infinity)
         .frame(height: PanelLayout.footerHeight + Spacing.md) // Include space for resize handle
@@ -119,18 +132,6 @@ struct TimelineAccordionView: View {
             .accessibilityHint("Double-tap to \(timelineViewModel.isExpanded ? "collapse" : "expand")")
 
             Spacer()
-
-            // Add Audio Lane button
-            Button(action: onAddAudioLane) {
-                HStack(spacing: Spacing.xs) {
-                    Image(systemName: "plus")
-                        .font(Typography.iconSmall)
-                    Text("Audio Lane")
-                }
-            }
-            .buttonStyle(GlassActionButtonStyle(tint: AppColors.accent))
-            .accessibilityLabel("Add a new audio lane")
-            .help("Add a new audio lane")
 
             // Zoom controls
             if timelineViewModel.isExpanded {

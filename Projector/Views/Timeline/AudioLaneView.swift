@@ -92,8 +92,10 @@ struct AudioLaneView: View {
     // MARK: - Lane Background
 
     private var laneBackground: some View {
-        Color(nsColor: .controlBackgroundColor)
-            .opacity(lane.isMuted ? 0.7 : 1.0)
+        // Alternate lane backgrounds for visual separation
+        let baseOpacity = laneIndex.isMultiple(of: 2) ? 0.03 : 0.06
+        return Color.white
+            .opacity(lane.isMuted ? baseOpacity * 0.5 : baseOpacity)
     }
 
     // MARK: - Lane Header

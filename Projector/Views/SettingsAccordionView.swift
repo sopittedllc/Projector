@@ -57,21 +57,6 @@ struct SettingsAccordionView: View {
             .buttonStyle(.plain)
 
             Spacer()
-
-            // Audio Routing button in header (primary action for this panel)
-            if isExpanded {
-                Button(action: {
-                    NotificationCenter.default.post(name: .showAudioRouting, object: nil)
-                }) {
-                    HStack(spacing: Spacing.xs) {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(Typography.iconSmall)
-                        Text("Routing")
-                    }
-                }
-                .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentBlue))
-                .help("Configure audio lane routing")
-            }
         }
         .frame(height: PanelLayout.headerHeight)
         .padding(.horizontal, Spacing.md)
@@ -81,8 +66,10 @@ struct SettingsAccordionView: View {
 
     private var settingsContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Video Overlay Section
-            settingsRow(icon: "clock", title: "Timecode Overlay") {
+            // SECTION: Timecode Overlay
+            sectionHeader("Timecode Overlay")
+
+            settingsRow(icon: "clock", title: "Show Overlay") {
                 Toggle("", isOn: $settings.showTimecodeOverlay)
                     .labelsHidden()
                     .toggleStyle(.switch)
@@ -109,10 +96,11 @@ struct SettingsAccordionView: View {
                 }
             }
 
-            Divider()
-                .padding(.vertical, Spacing.xs)
+            sectionDivider
 
-            // Audio Output Section
+            // SECTION: Audio
+            sectionHeader("Audio")
+
             settingsRow(icon: "speaker.wave.2", title: "Output Device") {
                 Picker("", selection: Binding<String>(
                     get: { audioManager.selectedDeviceUID ?? "" },
@@ -128,17 +116,32 @@ struct SettingsAccordionView: View {
                 .frame(maxWidth: 180)
             }
 
+            // Channel count and Routing button
             settingsSubRow {
                 Text("\(audioManager.selectedDeviceChannelCount) channels")
                     .font(Typography.caption)
                     .foregroundColor(.secondary)
+
                 Spacer()
+
+                Button(action: {
+                    NotificationCenter.default.post(name: .showAudioRouting, object: nil)
+                }) {
+                    HStack(spacing: Spacing.xs) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(Typography.iconSmall)
+                        Text("Routing")
+                    }
+                }
+                .buttonStyle(GlassTextButtonStyle())
+                .help("Configure audio lane routing")
             }
 
-            Divider()
-                .padding(.vertical, Spacing.xs)
+            sectionDivider
 
-            // MIDI Sync Section
+            // SECTION: Playback Behavior
+            sectionHeader("Playback Behavior")
+
             settingsRow(icon: "cable.connector", title: "Auto-play on MTC") {
                 Toggle("", isOn: $settings.autoPlayOnMTC)
                     .labelsHidden()
@@ -161,6 +164,22 @@ struct SettingsAccordionView: View {
             }
         }
         .padding(.vertical, Spacing.sm)
+    }
+
+    // MARK: - Section Helpers
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(Typography.labelSmall)
+            .foregroundColor(AppColors.textTertiary)
+            .padding(.horizontal, Spacing.md)
+            .padding(.top, Spacing.sm)
+            .padding(.bottom, Spacing.xs)
+    }
+
+    private var sectionDivider: some View {
+        Divider()
+            .padding(.vertical, Spacing.sm)
     }
 
     // MARK: - Helpers

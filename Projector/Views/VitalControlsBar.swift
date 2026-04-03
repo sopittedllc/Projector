@@ -30,6 +30,7 @@ struct VitalControlsBar: View {
     @State private var isHoveringDuration = false
     @State private var showStartTimecodeAlert = false
     @State private var startTimecodeAlertMessage = ""
+    @State private var playPulseOpacity: Double = 1.0
     @FocusState private var isStartTCFocused: Bool
     @FocusState private var isDurationFocused: Bool
 
@@ -61,8 +62,8 @@ struct VitalControlsBar: View {
 
             Spacer()
 
-            // Center: Transport controls
-            transportControls
+            // Right: Play indicator (shows when playing)
+            playIndicator
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
@@ -87,16 +88,17 @@ struct VitalControlsBar: View {
             TextField("00:00:00:00", text: $editingStartTCText)
                 .textFieldStyle(.plain)
                 .font(Typography.mono)
+                .foregroundColor(isHoveringStartTC || isStartTCFocused ? .primary : .secondary)
                 .frame(width: 85)
                 .padding(.horizontal, Spacing.sm)
                 .padding(.vertical, Spacing.xs)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(isStartTCFocused ? AppColors.surfaceMedium : Color.clear)
+                        .fill(isStartTCFocused ? AppColors.surfaceMedium : (isHoveringStartTC ? AppColors.surfaceLight : Color.clear))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
-                        .stroke(isStartTCFocused ? Color.accentColor : Color.clear, lineWidth: PanelLayout.borderWidth)
+                        .stroke(isStartTCFocused ? Color.accentColor : (isHoveringStartTC ? AppColors.borderMedium : Color.clear), lineWidth: PanelLayout.borderWidth)
                 )
                 .focused($isStartTCFocused)
                 .accessibilityLabel("Start timecode")
@@ -113,10 +115,13 @@ struct VitalControlsBar: View {
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
         .fixedSize()
-        .glassControl(isHighlighted: isStartTCFocused)
+        .glassControl(isHighlighted: isStartTCFocused || isHoveringStartTC)
         .onHover { hovering in
-            isHoveringStartTC = hovering
+            withAnimation(AppAnimations.quick) {
+                isHoveringStartTC = hovering
+            }
         }
+        .help("Click to edit start timecode")
         .onChange(of: isStartTCFocused) { wasFocused, isFocused in
             if wasFocused && !isFocused {
                 editingStartTCText = timelineManager.timeline.config.startTimecode.stringValue()
@@ -143,16 +148,17 @@ struct VitalControlsBar: View {
             TextField("00:00:00:00", text: $editingDurationText)
                 .textFieldStyle(.plain)
                 .font(Typography.mono)
+                .foregroundColor(isHoveringDuration || isDurationFocused ? .primary : .secondary)
                 .frame(width: 85)
                 .padding(.horizontal, Spacing.sm)
                 .padding(.vertical, Spacing.xs)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(isDurationFocused ? AppColors.surfaceMedium : Color.clear)
+                        .fill(isDurationFocused ? AppColors.surfaceMedium : (isHoveringDuration ? AppColors.surfaceLight : Color.clear))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
-                        .stroke(isDurationFocused ? Color.accentColor : Color.clear, lineWidth: PanelLayout.borderWidth)
+                        .stroke(isDurationFocused ? Color.accentColor : (isHoveringDuration ? AppColors.borderMedium : Color.clear), lineWidth: PanelLayout.borderWidth)
                 )
                 .focused($isDurationFocused)
                 .accessibilityLabel("Duration")
@@ -169,10 +175,13 @@ struct VitalControlsBar: View {
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
         .fixedSize()
-        .glassControl(isHighlighted: isDurationFocused)
+        .glassControl(isHighlighted: isDurationFocused || isHoveringDuration)
         .onHover { hovering in
-            isHoveringDuration = hovering
+            withAnimation(AppAnimations.quick) {
+                isHoveringDuration = hovering
+            }
         }
+        .help("Click to edit timeline duration")
         .onChange(of: isDurationFocused) { wasFocused, isFocused in
             if wasFocused && !isFocused {
                 editingDurationText = durationTimecodeString
@@ -214,32 +223,39 @@ struct VitalControlsBar: View {
         .help("Frame rate is set by the video file")
     }
 
-    // MARK: - Transport Controls
+    // MARK: - Play Indicator
 
-    private var transportControls: some View {
+    /// A subtle pulsing play indicator that shows when playing
+    private var playIndicator: some View {
         HStack(spacing: Spacing.sm) {
-            // Play/Pause toggle - always enabled for MTC sync
+            // Invisible button for spacebar shortcut
             Button(action: { playbackEngine.togglePlayback() }) {
-                Image(systemName: playbackEngine.isPlaying ? "pause.fill" : "play.fill")
-                    .font(Typography.icon)
+                EmptyView()
             }
-            .buttonStyle(GlassTransportButtonStyle(isActive: playbackEngine.isPlaying))
             .keyboardShortcut(.space, modifiers: [])
-            .accessibilityLabel(playbackEngine.isPlaying ? "Pause" : "Play")
-            .help(playbackEngine.isPlaying ? "Pause (Space)" : "Play (Space)")
+            .frame(width: 0, height: 0)
+            .opacity(0)
 
-            // Stop - always enabled, stops playback and returns to start
-            Button(action: { playbackEngine.stop() }) {
-                Image(systemName: "stop.fill")
+            // Play indicator (only visible when playing)
+            if playbackEngine.isPlaying {
+                Image(systemName: "play.fill")
                     .font(Typography.icon)
+                    .foregroundColor(AppColors.accentGreen)
+                    .opacity(playPulseOpacity)
+                    .animation(
+                        Animation.easeInOut(duration: 0.8)
+                            .repeatForever(autoreverses: true),
+                        value: playbackEngine.isPlaying
+                    )
+                    .onAppear {
+                        playPulseOpacity = 0.4
+                    }
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.sm)
+                    .glassControl()
+                    .help("Playing (Space to pause)")
             }
-            .buttonStyle(GlassTransportButtonStyle())
-            .accessibilityLabel("Stop")
-            .help("Stop and return to start")
         }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)  // Match other control groups
-        .glassControl()
     }
 
     // MARK: - Helper Functions
