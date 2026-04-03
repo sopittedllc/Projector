@@ -233,29 +233,11 @@ private struct ChannelGridView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             // Channels header
-            HStack {
-                Text("Channels")
-                    .font(Typography.label)
-                    .foregroundColor(AppColors.textTertiary)
+            Text("Channels")
+                .font(Typography.label)
+                .foregroundColor(AppColors.textTertiary)
 
-                Spacer()
-
-                // Link button appears when 2 adjacent channels selected
-                if canLinkSelected {
-                    Button(action: linkSelectedChannels) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "link")
-                                .font(Typography.iconSmall)
-                            Text("Link Stereo")
-                                .font(Typography.caption)
-                        }
-                        .foregroundColor(AppColors.accentBlue)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            // Channel cells grid
+            // Channel cells grid with Link button on same row
             if totalChannels > 0 {
                 channelGrid
             } else {
@@ -275,20 +257,64 @@ private struct ChannelGridView: View {
     // MARK: - Channel Grid
 
     private var channelGrid: some View {
-        HStack(spacing: SettingsLayout.channelCellSpacing) {
-            ForEach(Array(1...totalChannels), id: \.self) { channel in
-                let state = channelState(for: channel)
+        HStack(spacing: Spacing.sm) {
+            // Channel cells with link icons between stereo pairs
+            HStack(spacing: 0) {
+                ForEach(Array(1...totalChannels), id: \.self) { channel in
+                    let state = channelState(for: channel)
 
-                ChannelCellView(
-                    channel: channel,
-                    state: state,
-                    isSelected: selectedChannels.contains(channel),
-                    onTap: { handleChannelTap(channel) },
-                    onActivate: { activateChannel(channel) }
-                )
+                    // Show chainlink before secondary stereo channel
+                    if case .stereoSecondary = state {
+                        Image(systemName: "link")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(AppColors.accentGreen.opacity(0.7))
+                            .frame(width: 16)
+                    } else if channel > 1 {
+                        // Normal spacing between non-linked channels
+                        Spacer()
+                            .frame(width: SettingsLayout.channelCellSpacing)
+                    }
+
+                    ChannelCellView(
+                        channel: channel,
+                        state: state,
+                        isSelected: selectedChannels.contains(channel),
+                        onTap: { handleChannelTap(channel) },
+                        onActivate: { activateChannel(channel) },
+                        onUnlink: {
+                            if case .stereoPrimary(let outputId) = state {
+                                unlinkOutput(outputId)
+                            } else if case .stereoSecondary(let outputId) = state {
+                                unlinkOutput(outputId)
+                            }
+                        }
+                    )
+                }
             }
 
             Spacer()
+
+            // Link Stereo button (right-aligned, green, clear style)
+            if canLinkSelected {
+                Button(action: linkSelectedChannels) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "link")
+                            .font(Typography.iconSmall)
+                        Text("Link Stereo")
+                            .font(Typography.caption)
+                    }
+                    .foregroundColor(AppColors.accentGreen)
+                    .padding(.horizontal, Spacing.sm)
+                    .padding(.vertical, Spacing.xs)
+                    .background(AppColors.accentGreen.opacity(0.15))
+                    .cornerRadius(6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(AppColors.accentGreen.opacity(0.4), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
@@ -434,6 +460,7 @@ private struct ChannelCellView: View {
     let isSelected: Bool
     let onTap: () -> Void
     let onActivate: () -> Void
+    let onUnlink: () -> Void
 
     @State private var isHovered = false
 
@@ -442,22 +469,24 @@ private struct ChannelCellView: View {
         return false
     }
 
-    private var isActive: Bool {
+    private var isStereo: Bool {
         switch state {
-        case .activeMono, .stereoPrimary, .stereoSecondary:
+        case .stereoPrimary, .stereoSecondary:
             return true
-        case .inactive:
+        default:
             return false
         }
     }
 
-    private var isStereoSecondary: Bool {
-        if case .stereoSecondary = state { return true }
-        return false
-    }
-
     var body: some View {
-        Button(action: onTap) {
+        Button(action: {
+            if isStereo && isHovered {
+                // Clicking a hovered stereo channel unlinks it
+                onUnlink()
+            } else {
+                onTap()
+            }
+        }) {
             ZStack {
                 // Background
                 RoundedRectangle(cornerRadius: 6)
@@ -472,31 +501,19 @@ private struct ChannelCellView: View {
                     .font(Typography.mono)
                     .foregroundColor(textColor)
 
-                // Stereo link indicator (left side for secondary channel)
-                if isStereoSecondary {
-                    HStack(spacing: 0) {
-                        Rectangle()
-                            .fill(AppColors.accentBlue)
-                            .frame(width: 4)
-                        Spacer()
-                    }
-                }
-
-                // Stereo link indicator (right side for primary channel)
-                if case .stereoPrimary = state {
-                    HStack(spacing: 0) {
-                        Spacer()
-                        Rectangle()
-                            .fill(AppColors.accentBlue)
-                            .frame(width: 4)
-                    }
-                }
-
-                // Hover affordance for inactive
+                // Hover affordance for inactive - plus icon
                 if isInactive && isHovered && !isSelected {
                     Image(systemName: "plus")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(AppColors.accentBlue.opacity(0.8))
+                        .offset(x: 8, y: -8)
+                }
+
+                // Hover affordance for stereo - unlink hint
+                if isStereo && isHovered {
+                    Image(systemName: "link.badge.minus")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(AppColors.accentPink)
                         .offset(x: 8, y: -8)
                 }
             }
@@ -512,6 +529,9 @@ private struct ChannelCellView: View {
             if isInactive {
                 Button("Activate as Mono") { onActivate() }
             }
+            if isStereo {
+                Button("Unlink Stereo Pair", role: .destructive) { onUnlink() }
+            }
         }
         .help(helpText)
     }
@@ -526,7 +546,11 @@ private struct ChannelCellView: View {
         case .activeMono:
             return AppColors.accentBlue.opacity(isHovered ? 0.35 : 0.25)
         case .stereoPrimary, .stereoSecondary:
-            return AppColors.accentBlue.opacity(isHovered ? 0.35 : 0.25)
+            // Green for linked stereo, red tint on hover to suggest unlink
+            if isHovered {
+                return AppColors.accentPink.opacity(0.25)
+            }
+            return AppColors.accentGreen.opacity(0.25)
         }
     }
 
@@ -537,8 +561,11 @@ private struct ChannelCellView: View {
         switch state {
         case .inactive:
             return isHovered ? AppColors.borderMedium : AppColors.borderLight
-        case .activeMono, .stereoPrimary, .stereoSecondary:
+        case .activeMono:
             return AppColors.accentBlue.opacity(0.5)
+        case .stereoPrimary, .stereoSecondary:
+            // Red border on hover, green otherwise
+            return isHovered ? AppColors.accentPink.opacity(0.6) : AppColors.accentGreen.opacity(0.5)
         }
     }
 
@@ -562,7 +589,7 @@ private struct ChannelCellView: View {
         case .activeMono:
             return "Active mono output"
         case .stereoPrimary, .stereoSecondary:
-            return "Part of stereo pair"
+            return isHovered ? "Click to unlink stereo pair" : "Linked stereo pair - hover to unlink"
         }
     }
 }
@@ -585,18 +612,19 @@ private struct OutputRowView: View {
 
     var body: some View {
         HStack(spacing: Spacing.sm) {
-            // Channel indicator
+            // Channel indicator - green for stereo, blue for mono
             HStack(spacing: 2) {
+                let accentColor = output.channelCount == 2 ? AppColors.accentGreen : AppColors.accentBlue
                 ForEach(0..<output.channelCount, id: \.self) { offset in
                     Text("\(output.channelStart + offset)")
                         .font(Typography.captionSmall)
                         .foregroundColor(.primary)
                         .frame(width: 20, height: 20)
-                        .background(AppColors.accentBlue.opacity(0.2))
+                        .background(accentColor.opacity(0.2))
                         .cornerRadius(4)
                         .overlay(
                             RoundedRectangle(cornerRadius: 4)
-                                .stroke(AppColors.accentBlue.opacity(0.4), lineWidth: 1)
+                                .stroke(accentColor.opacity(0.4), lineWidth: 1)
                         )
                 }
             }
@@ -642,13 +670,13 @@ private struct OutputRowView: View {
 
             Spacer()
 
-            // Format badge
+            // Format badge - green for stereo, subtle for mono
             Text(output.channelCount == 2 ? "Stereo" : "Mono")
                 .font(Typography.captionSmall)
-                .foregroundColor(.secondary)
+                .foregroundColor(output.channelCount == 2 ? AppColors.accentGreen : .secondary)
                 .padding(.horizontal, Spacing.sm)
                 .padding(.vertical, 2)
-                .background(AppColors.surfaceMedium.opacity(0.5))
+                .background(output.channelCount == 2 ? AppColors.accentGreen.opacity(0.15) : AppColors.surfaceMedium.opacity(0.5))
                 .cornerRadius(4)
 
             // Unlink button (for stereo)
