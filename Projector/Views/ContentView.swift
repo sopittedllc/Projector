@@ -423,8 +423,8 @@ struct ContentView: View {
             playbackEngine: playbackEngine,
             showTimecode: settings.showTimecodeOverlay,
             overlayPosition: settings.timecodeOverlayPosition,
-            overlayOpacity: settings.timecodeOverlayOpacity,
-            extraTrailingPadding: settings.timecodeOverlayPosition == .bottomRight ? 50 : 0
+            overlayOpacity: 0.3,
+            extraTrailingPadding: (settings.timecodeOverlayPosition == .bottomRight || settings.timecodeOverlayPosition == .bottomLeft) ? 80 : 0
         )
         .onDrop(of: [UTType.fileURL, UTType.url, UTType.projectorMediaItem], isTargeted: $isPlaybackDropTargeted) { providers in
             // Check for internal drag from media panel first

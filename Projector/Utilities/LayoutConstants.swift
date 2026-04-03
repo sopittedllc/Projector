@@ -227,7 +227,7 @@ enum AppColors {
     static let accentBlue = Color(red: 0.3, green: 0.5, blue: 1.0)
 
     /// Tertiary - vibrant green (for success/active states)
-    static let accentGreen = Color(red: 0.4, green: 0.9, blue: 0.4)
+    static let accentGreen = Color(red: 0.25, green: 0.7, blue: 0.35)
 
     /// Tertiary - warm yellow (for warnings/highlights)
     static let accentYellow = Color(red: 0.95, green: 0.85, blue: 0.2)

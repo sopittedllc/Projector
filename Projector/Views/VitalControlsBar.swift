@@ -200,8 +200,11 @@ struct VitalControlsBar: View {
 
             Text(timelineManager.timeline.config.frameRate.displayName)
                 .font(Typography.mono)
+                .frame(width: 50)
                 .foregroundColor(.primary)
                 .lineLimit(1)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)

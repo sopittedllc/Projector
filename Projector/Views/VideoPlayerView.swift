@@ -88,8 +88,13 @@ struct VideoContentView: View {
 struct TimecodeOverlayView: View {
     let timecode: Timecode
     var position: TimecodeOverlayPosition = .bottomRight
-    var opacity: Double = 0.8
+    var opacity: Double = 0.3
     var extraTrailingPadding: CGFloat = 0
+
+    /// Extra bottom padding when positioned at bottom to clear video controls
+    private var extraBottomPadding: CGFloat {
+        (position == .bottomLeft || position == .bottomRight) ? 50 : 0
+    }
 
     var body: some View {
         VStack {
@@ -109,12 +114,13 @@ struct TimecodeOverlayView: View {
                     .padding(.vertical, Spacing.sm)
                     .background(
                         RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
-                            .fill(Color.black.opacity(0.6 * opacity))
+                            .fill(Color.black.opacity(0.6))
                     )
                     .opacity(opacity)
                     .padding(.leading, Spacing.lg)
                     .padding(.trailing, Spacing.lg + extraTrailingPadding)
-                    .padding(.vertical, Spacing.lg)
+                    .padding(.top, Spacing.lg)
+                    .padding(.bottom, Spacing.lg + extraBottomPadding)
 
                 if position == .topLeft || position == .bottomLeft {
                     Spacer()

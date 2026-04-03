@@ -89,19 +89,6 @@ struct SettingsAccordionView: View {
                         .labelsHidden()
                         .pickerStyle(.menu)
                     }
-
-                    HStack {
-                        Text("Opacity:")
-                            .font(Typography.label)
-                            .foregroundColor(.secondary)
-                            .frame(width: 70, alignment: .leading)
-
-                        Slider(value: $settings.timecodeOverlayOpacity, in: 0.3...1.0)
-
-                        Text("\(Int(settings.timecodeOverlayOpacity * 100))%")
-                            .font(Typography.monoSmall)
-                            .frame(width: 40, alignment: .trailing)
-                    }
                 }
             }
 
@@ -128,9 +115,23 @@ struct SettingsAccordionView: View {
                     .pickerStyle(.menu)
                 }
 
-                Text("\(audioManager.selectedDeviceChannelCount) channels available")
-                    .font(Typography.caption)
-                    .foregroundColor(.secondary)
+                HStack {
+                    Text("\(audioManager.selectedDeviceChannelCount) channels available")
+                        .font(Typography.caption)
+                        .foregroundColor(.secondary)
+
+                    Spacer()
+
+                    Button(action: {
+                        NotificationCenter.default.post(name: .showAudioRouting, object: nil)
+                    }) {
+                        HStack(spacing: Spacing.xs) {
+                            Image(systemName: "slider.horizontal.3")
+                            Text("Audio Routing")
+                        }
+                    }
+                    .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentBlue))
+                }
             }
 
             Divider()

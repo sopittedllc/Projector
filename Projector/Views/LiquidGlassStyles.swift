@@ -159,12 +159,13 @@ struct GlassActionButtonStyle: ButtonStyle {
         if #available(macOS 26, *) {
             configuration.label
                 .font(Typography.button)
+                .foregroundColor(.white)
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, Spacing.sm)
                 .background {
                     Capsule()
-                        .fill(.clear)
-                        .glassEffect(.regular.tint(tint), in: Capsule())
+                        .fill(tint.opacity(0.7))
+                        .glassEffect(.regular, in: Capsule())
                 }
                 .opacity(configuration.isPressed ? 0.8 : 1.0)
                 .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
@@ -172,11 +173,12 @@ struct GlassActionButtonStyle: ButtonStyle {
         } else {
             configuration.label
                 .font(Typography.button)
+                .foregroundColor(.white)
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, Spacing.sm)
                 .background(
                     Capsule()
-                        .fill(tint.opacity(0.15))
+                        .fill(tint.opacity(0.6))
                 )
                 .overlay(
                     Capsule()
