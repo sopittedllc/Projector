@@ -16,38 +16,40 @@ struct SettingsAccordionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            headerBar
+            // Header bar (always visible)
+            accordionHeader
 
-            Divider()
-
-            // Settings content
-            settingsContent
+            // Content (only when expanded)
+            if isExpanded {
+                Divider()
+                settingsContent
+            }
         }
         .glassPanel()
     }
 
-    // MARK: - Header
+    // MARK: - Accordion Header
 
-    private var headerBar: some View {
+    private var accordionHeader: some View {
         HStack(spacing: Spacing.sm) {
+            // Expand/collapse button
             Button(action: {
                 withAnimation(AppAnimations.standard) {
-                    isExpanded = false
+                    isExpanded.toggle()
                 }
             }) {
                 HStack(spacing: Spacing.sm) {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(Typography.iconSmall)
                         .foregroundColor(.secondary)
-                        .frame(width: 12)
+                        .frame(width: Spacing.md)
 
                     Image(systemName: "gearshape")
-                        .frame(width: 14, height: 14)
+                        .font(Typography.icon)
                         .foregroundColor(.secondary)
 
                     Text("Settings")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(Typography.subheading)
                         .foregroundColor(.primary)
 
                     Spacer()
@@ -55,6 +57,8 @@ struct SettingsAccordionView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Settings section, \(isExpanded ? "expanded" : "collapsed")")
+            .accessibilityHint("Double-tap to \(isExpanded ? "collapse" : "expand")")
         }
         .frame(height: PanelLayout.headerHeight)
         .padding(.horizontal, Spacing.md)
@@ -63,96 +67,116 @@ struct SettingsAccordionView: View {
     // MARK: - Settings Content
 
     private var settingsContent: some View {
-        VStack(spacing: Spacing.md) {
-            // Timecode Overlay Section
-            GroupBox {
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    Toggle("Show Timecode Overlay", isOn: $settings.showTimecodeOverlay)
-                        .font(Typography.body)
+        VStack(alignment: .leading, spacing: Spacing.lg) {
+            // Video Overlay Section
+            settingsSection(title: "Video Overlay", icon: "clock") {
+                Toggle("Show Timecode Overlay", isOn: $settings.showTimecodeOverlay)
+                    .font(Typography.body)
 
-                    if settings.showTimecodeOverlay {
-                        HStack {
-                            Text("Position:")
-                                .font(Typography.label)
-                                .foregroundColor(.secondary)
-
-                            Picker("", selection: $settings.timecodeOverlayPosition) {
-                                Text("Top Left").tag(TimecodeOverlayPosition.topLeft)
-                                Text("Top Right").tag(TimecodeOverlayPosition.topRight)
-                                Text("Bottom Left").tag(TimecodeOverlayPosition.bottomLeft)
-                                Text("Bottom Right").tag(TimecodeOverlayPosition.bottomRight)
-                            }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
-                        }
-
-                        HStack {
-                            Text("Opacity:")
-                                .font(Typography.label)
-                                .foregroundColor(.secondary)
-
-                            Slider(value: $settings.timecodeOverlayOpacity, in: 0.3...1.0)
-                                .frame(width: 120)
-
-                            Text("\(Int(settings.timecodeOverlayOpacity * 100))%")
-                                .font(Typography.monoSmall)
-                                .frame(width: 40, alignment: .trailing)
-                        }
-                    }
-                }
-            } label: {
-                Label("Video Overlay", systemImage: "clock")
-                    .font(Typography.subheading)
-            }
-
-            // Audio Output Section
-            GroupBox {
-                VStack(alignment: .leading, spacing: Spacing.sm) {
+                if settings.showTimecodeOverlay {
                     HStack {
-                        Text("Output Device:")
+                        Text("Position:")
                             .font(Typography.label)
                             .foregroundColor(.secondary)
+                            .frame(width: 70, alignment: .leading)
 
-                        Picker("", selection: Binding<String>(
-                            get: { audioManager.selectedDeviceUID ?? "" },
-                            set: { newValue in audioManager.selectedDeviceUID = newValue.isEmpty ? nil : newValue }
-                        )) {
-                            Text("System Default").tag("")
-                            ForEach(audioManager.availableDevices, id: \.uid) { device in
-                                Text(device.name).tag(device.uid)
-                            }
+                        Picker("", selection: $settings.timecodeOverlayPosition) {
+                            Text("Top Left").tag(TimecodeOverlayPosition.topLeft)
+                            Text("Top Right").tag(TimecodeOverlayPosition.topRight)
+                            Text("Bottom Left").tag(TimecodeOverlayPosition.bottomLeft)
+                            Text("Bottom Right").tag(TimecodeOverlayPosition.bottomRight)
                         }
                         .labelsHidden()
                         .pickerStyle(.menu)
                     }
 
-                    Text("\(audioManager.selectedDeviceChannelCount) channels available")
-                        .font(Typography.caption)
-                        .foregroundColor(.secondary)
+                    HStack {
+                        Text("Opacity:")
+                            .font(Typography.label)
+                            .foregroundColor(.secondary)
+                            .frame(width: 70, alignment: .leading)
+
+                        Slider(value: $settings.timecodeOverlayOpacity, in: 0.3...1.0)
+
+                        Text("\(Int(settings.timecodeOverlayOpacity * 100))%")
+                            .font(Typography.monoSmall)
+                            .frame(width: 40, alignment: .trailing)
+                    }
                 }
-            } label: {
-                Label("Audio Output", systemImage: "speaker.wave.2")
-                    .font(Typography.subheading)
             }
 
-            // MIDI Section
-            GroupBox {
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    Toggle("Auto-play on MTC", isOn: $settings.autoPlayOnMTC)
-                        .font(Typography.body)
+            Divider()
 
-                    Toggle("Auto-pause on MTC Stop", isOn: $settings.autoPauseOnMTCStop)
-                        .font(Typography.body)
+            // Audio Output Section
+            settingsSection(title: "Audio Output", icon: "speaker.wave.2") {
+                HStack {
+                    Text("Device:")
+                        .font(Typography.label)
+                        .foregroundColor(.secondary)
+                        .frame(width: 70, alignment: .leading)
 
-                    Toggle("Respond to MMC Commands", isOn: $settings.respondToMMC)
-                        .font(Typography.body)
+                    Picker("", selection: Binding<String>(
+                        get: { audioManager.selectedDeviceUID ?? "" },
+                        set: { newValue in audioManager.selectedDeviceUID = newValue.isEmpty ? nil : newValue }
+                    )) {
+                        Text("System Default").tag("")
+                        ForEach(audioManager.availableDevices, id: \.uid) { device in
+                            Text(device.name).tag(device.uid)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
                 }
-            } label: {
-                Label("MIDI Sync", systemImage: "cable.connector")
-                    .font(Typography.subheading)
+
+                Text("\(audioManager.selectedDeviceChannelCount) channels available")
+                    .font(Typography.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Divider()
+
+            // MIDI Sync Section
+            settingsSection(title: "MIDI Sync", icon: "cable.connector") {
+                Toggle("Auto-play on MTC", isOn: $settings.autoPlayOnMTC)
+                    .font(Typography.body)
+
+                Toggle("Auto-pause on MTC Stop", isOn: $settings.autoPauseOnMTCStop)
+                    .font(Typography.body)
+
+                Toggle("Respond to MMC Commands", isOn: $settings.respondToMMC)
+                    .font(Typography.body)
             }
         }
         .padding(Spacing.md)
+    }
+
+    // MARK: - Helper
+
+    @ViewBuilder
+    private func settingsSection<Content: View>(
+        title: String,
+        icon: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            // Section header
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: icon)
+                    .font(Typography.icon)
+                    .foregroundColor(.secondary)
+                    .frame(width: 20)
+
+                Text(title)
+                    .font(Typography.label)
+                    .foregroundColor(.secondary)
+            }
+
+            // Section content with indent
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                content()
+            }
+            .padding(.leading, 28) // Align with text after icon
+        }
     }
 }
 
@@ -161,10 +185,17 @@ struct SettingsAccordionView: View {
 #if DEBUG
 struct SettingsAccordionView_Previews: PreviewProvider {
     static var previews: some View {
-        SettingsAccordionView(
-            audioManager: AudioOutputManager(),
-            isExpanded: .constant(true)
-        )
+        VStack {
+            SettingsAccordionView(
+                audioManager: AudioOutputManager(),
+                isExpanded: .constant(true)
+            )
+
+            SettingsAccordionView(
+                audioManager: AudioOutputManager(),
+                isExpanded: .constant(false)
+            )
+        }
         .frame(width: 400)
         .padding()
         .background(Color(nsColor: .windowBackgroundColor))

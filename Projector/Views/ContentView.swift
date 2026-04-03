@@ -329,12 +329,7 @@ struct ContentView: View {
                 VitalControlsBar(
                     timelineManager: timelineManager,
                     playbackEngine: playbackEngine,
-                    timelineViewModel: timelineViewModel,
-                    onSettingsPressed: {
-                        withAnimation(AppAnimations.standard) {
-                            isSettingsExpanded.toggle()
-                        }
-                    }
+                    timelineViewModel: timelineViewModel
                 )
                 .padding(.horizontal, Spacing.md)
                 .padding(.top, Spacing.md)
@@ -500,12 +495,10 @@ struct ContentView: View {
         ScrollView(.vertical) {
             VStack(spacing: Spacing.md) {
                 // Collapsible Settings section (collapsed by default)
-                if isSettingsExpanded {
-                    SettingsAccordionView(
-                        audioManager: audioManager,
-                        isExpanded: $isSettingsExpanded
-                    )
-                }
+                SettingsAccordionView(
+                    audioManager: audioManager,
+                    isExpanded: $isSettingsExpanded
+                )
 
                 // Timeline accordion
                 TimelineAccordionView(
@@ -519,11 +512,7 @@ struct ContentView: View {
                     onDropVideoMedia: handleVideoDropOnTimeline,
                     onDropAudioMedia: handleAudioDropOnTimeline,
                     onSeek: { frame in playbackEngine.seekToFrame(frame) },
-                    onSettingsPressed: {
-                        withAnimation(AppAnimations.standard) {
-                            isSettingsExpanded.toggle()
-                        }
-                    },
+                    onSettingsPressed: { },
                     onAddAudioLane: {
                         let laneNumber = timelineManager.timeline.audioLanes.count + 1
                         _ = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
