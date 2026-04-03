@@ -311,23 +311,14 @@ private struct ChannelGridView: View {
         return items
     }
 
-    /// Check if a channel can be linked with the selected channel
-    private func canLinkWith(_ channel: Int) -> Bool {
-        guard let selected = selectedChannel else { return false }
-        guard channelState(for: channel) == .inactive else { return false }
-        // Must be adjacent to selected
-        return abs(channel - selected) == 1
-    }
-
-    /// Check if this channel should show the "link?" prompt
-    private func showLinkPrompt(for channel: Int) -> Bool {
-        guard let hovered = hoveredChannel else { return false }
-        guard let selected = selectedChannel else { return false }
-        // Show prompt if: we have a selection, hovering an adjacent inactive channel,
-        // and this channel is either the selected or the hovered one
-        let isAdjacent = abs(hovered - selected) == 1
-        let hoveredIsInactive = channelState(for: hovered) == .inactive
-        return isAdjacent && hoveredIsInactive && (channel == selected || channel == hovered)
+    /// Returns the pair of channels to show link preview for, sorted (lower, higher)
+    private var linkPreviewPair: (Int, Int)? {
+        guard let selected = selectedChannel else { return nil }
+        guard let hovered = hoveredChannel else { return nil }
+        guard abs(hovered - selected) == 1 else { return nil }
+        guard channelState(for: hovered) == .inactive else { return nil }
+        let sorted = [selected, hovered].sorted()
+        return (sorted[0], sorted[1])
     }
 
     private var channelGrid: some View {
@@ -335,31 +326,34 @@ private struct ChannelGridView: View {
             ForEach(channelItems) { item in
                 switch item {
                 case .inactive(let channel):
-                    ChannelCellView(
-                        channel: channel,
-                        state: .inactive,
-                        isSelected: selectedChannel == channel,
-                        showLinkPrompt: showLinkPrompt(for: channel),
-                        onTap: { handleChannelTap(channel) },
-                        onActivate: { activateChannel(channel) },
-                        onUnlink: { },
-                        onHover: { isHovered in
-                            hoveredChannel = isHovered ? channel : nil
-                        },
-                        onLink: canLinkWith(channel) ? { linkChannels(selectedChannel!, channel) } : nil
-                    )
+                    // Check if this channel is part of a link preview
+                    if let pair = linkPreviewPair {
+                        if channel == pair.0 {
+                            // First channel of pair - show LinkPreviewView
+                            LinkPreviewView(
+                                channels: pair,
+                                onLink: { linkChannels(pair.0, pair.1) }
+                            )
+                        } else if channel == pair.1 {
+                            // Second channel of pair - skip (already shown in LinkPreviewView)
+                            EmptyView()
+                        } else {
+                            // Not part of pair - show normal cell
+                            normalChannelCell(channel: channel)
+                        }
+                    } else {
+                        // No link preview - show normal cell
+                        normalChannelCell(channel: channel)
+                    }
 
                 case .mono(let channel, _):
                     ChannelCellView(
                         channel: channel,
                         state: channelState(for: channel),
                         isSelected: false,
-                        showLinkPrompt: false,
                         onTap: { handleChannelTap(channel) },
                         onActivate: { },
-                        onUnlink: { },
-                        onHover: { _ in },
-                        onLink: nil
+                        onHover: { _ in }
                     )
 
                 case .stereoGroup(let channels, let outputId):
@@ -370,6 +364,20 @@ private struct ChannelGridView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func normalChannelCell(channel: Int) -> some View {
+        ChannelCellView(
+            channel: channel,
+            state: .inactive,
+            isSelected: selectedChannel == channel,
+            onTap: { handleChannelTap(channel) },
+            onActivate: { activateChannel(channel) },
+            onHover: { isHovered in
+                hoveredChannel = isHovered ? channel : nil
+            }
+        )
     }
 
     // MARK: - Outputs List
@@ -504,39 +512,43 @@ private struct StereoGroupView: View {
     var body: some View {
         Button(action: onUnlink) {
             ZStack {
-                // Channel numbers with link icon
+                // Channel numbers with link icon (dimmed on hover)
                 HStack(spacing: 2) {
                     Text("\(channels.0)")
                         .font(Typography.captionSmall)
-                        .foregroundColor(isHovered ? .primary.opacity(0.3) : .primary)
+                        .foregroundColor(isHovered ? .primary.opacity(0.2) : .primary)
                         .frame(width: 20, height: SettingsLayout.channelCellSize - 8)
 
                     Image(systemName: "link")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(isHovered ? AppColors.accentGreen.opacity(0.3) : AppColors.accentGreen.opacity(0.8))
+                        .foregroundColor(isHovered ? AppColors.accentGreen.opacity(0.2) : AppColors.accentGreen.opacity(0.8))
 
                     Text("\(channels.1)")
                         .font(Typography.captionSmall)
-                        .foregroundColor(isHovered ? .primary.opacity(0.3) : .primary)
+                        .foregroundColor(isHovered ? .primary.opacity(0.2) : .primary)
                         .frame(width: 20, height: SettingsLayout.channelCellSize - 8)
                 }
 
-                // "unlink?" overlay on hover
+                // "Unlink?" overlay on hover with icon
                 if isHovered {
-                    Text("unlink?")
-                        .font(Typography.labelSmall)
-                        .foregroundColor(AppColors.accentPink)
+                    HStack(spacing: 3) {
+                        Image(systemName: "link.badge.minus")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("Unlink?")
+                            .font(Typography.labelSmall)
+                    }
+                    .foregroundColor(AppColors.accentPink)
                 }
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(isHovered ? AppColors.accentPink.opacity(0.25) : AppColors.accentGreen.opacity(0.2))
+                    .fill(isHovered ? AppColors.accentPink.opacity(0.35) : AppColors.accentGreen.opacity(0.2))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(isHovered ? AppColors.accentPink.opacity(0.5) : AppColors.accentGreen.opacity(0.4), lineWidth: 1)
+                    .stroke(isHovered ? AppColors.accentPink.opacity(0.6) : AppColors.accentGreen.opacity(0.4), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -549,19 +561,68 @@ private struct StereoGroupView: View {
 }
 
 
+// MARK: - Link Preview View
+
+/// Preview overlay showing two channels about to be linked
+private struct LinkPreviewView: View {
+    let channels: (Int, Int)
+    let onLink: () -> Void
+
+    var body: some View {
+        Button(action: onLink) {
+            ZStack {
+                // Channel numbers (dimmed)
+                HStack(spacing: 2) {
+                    Text("\(channels.0)")
+                        .font(Typography.captionSmall)
+                        .foregroundColor(.primary.opacity(0.2))
+                        .frame(width: 20, height: SettingsLayout.channelCellSize - 8)
+
+                    Image(systemName: "link")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(AppColors.accentGreen.opacity(0.2))
+
+                    Text("\(channels.1)")
+                        .font(Typography.captionSmall)
+                        .foregroundColor(.primary.opacity(0.2))
+                        .frame(width: 20, height: SettingsLayout.channelCellSize - 8)
+                }
+
+                // "Link?" overlay with icon
+                HStack(spacing: 3) {
+                    Image(systemName: "link.badge.plus")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("Link?")
+                        .font(Typography.labelSmall)
+                }
+                .foregroundColor(AppColors.accentGreen)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(AppColors.accentGreen.opacity(0.35))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(AppColors.accentGreen.opacity(0.6), lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+
 // MARK: - Channel Cell View
 
-/// Individual channel cell in the grid
+/// Individual channel cell in the grid (for inactive and mono channels)
 private struct ChannelCellView: View {
     let channel: Int
     let state: ChannelState
     let isSelected: Bool
-    let showLinkPrompt: Bool
     let onTap: () -> Void
     let onActivate: () -> Void
-    let onUnlink: () -> Void
     let onHover: (Bool) -> Void
-    let onLink: (() -> Void)?
 
     @State private var isHovered = false
 
@@ -570,47 +631,24 @@ private struct ChannelCellView: View {
         return false
     }
 
-    private var isStereo: Bool {
-        switch state {
-        case .stereoPrimary, .stereoSecondary:
-            return true
-        default:
-            return false
-        }
-    }
-
     var body: some View {
-        Button(action: {
-            if showLinkPrompt, let onLink = onLink {
-                // Clicking during link prompt confirms the link
-                onLink()
-            } else {
-                onTap()
-            }
-        }) {
+        Button(action: onTap) {
             ZStack {
                 // Background
                 RoundedRectangle(cornerRadius: 6)
                     .fill(backgroundColor)
                     .overlay(
                         RoundedRectangle(cornerRadius: 6)
-                            .stroke(borderColor, lineWidth: isSelected || showLinkPrompt ? 2 : 1)
+                            .stroke(borderColor, lineWidth: isSelected ? 2 : 1)
                     )
 
-                // Channel number (dimmed when showing link prompt)
+                // Channel number
                 Text("\(channel)")
                     .font(Typography.mono)
-                    .foregroundColor(showLinkPrompt ? textColor.opacity(0.4) : textColor)
+                    .foregroundColor(textColor)
 
-                // "link?" overlay when showing link prompt
-                if showLinkPrompt {
-                    Text("link?")
-                        .font(Typography.labelSmall)
-                        .foregroundColor(AppColors.accentGreen)
-                }
-
-                // Hover affordance for inactive - plus icon (but not during link prompt)
-                if isInactive && isHovered && !isSelected && !showLinkPrompt {
+                // Hover affordance for inactive - plus icon
+                if isInactive && isHovered && !isSelected {
                     Image(systemName: "plus")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(AppColors.accentBlue.opacity(0.8))
@@ -630,18 +668,11 @@ private struct ChannelCellView: View {
             if isInactive {
                 Button("Activate as Mono") { onActivate() }
             }
-            if isStereo {
-                Button("Unlink Stereo Pair", role: .destructive) { onUnlink() }
-            }
         }
         .help(helpText)
     }
 
     private var backgroundColor: Color {
-        // Green background when showing link prompt
-        if showLinkPrompt {
-            return AppColors.accentGreen.opacity(0.25)
-        }
         if isSelected {
             return AppColors.accentYellow.opacity(0.3)
         }
@@ -651,15 +682,12 @@ private struct ChannelCellView: View {
         case .activeMono:
             return AppColors.accentBlue.opacity(isHovered ? 0.35 : 0.25)
         case .stereoPrimary, .stereoSecondary:
+            // Stereo channels are handled by StereoGroupView
             return AppColors.accentGreen.opacity(0.25)
         }
     }
 
     private var borderColor: Color {
-        // Green border when showing link prompt
-        if showLinkPrompt {
-            return AppColors.accentGreen
-        }
         if isSelected {
             return AppColors.accentYellow
         }
@@ -686,9 +714,6 @@ private struct ChannelCellView: View {
     }
 
     private var helpText: String {
-        if showLinkPrompt {
-            return "Click to link as stereo pair"
-        }
         switch state {
         case .inactive:
             return isSelected ? "Hover over adjacent channel to link"
