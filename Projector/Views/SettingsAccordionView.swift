@@ -310,65 +310,65 @@ private struct ChannelGridView: View {
         return items
     }
 
+    /// Returns the sorted pair of selected channels if they can be linked
+    private var linkableChannelPair: (Int, Int)? {
+        guard canLinkSelected else { return nil }
+        let sorted = selectedChannels.sorted()
+        return (sorted[0], sorted[1])
+    }
+
     private var channelGrid: some View {
-        HStack(spacing: Spacing.sm) {
-            // Channel items (individual cells or stereo groups)
-            HStack(spacing: SettingsLayout.channelCellSpacing) {
-                ForEach(channelItems) { item in
-                    switch item {
-                    case .inactive(let channel):
-                        ChannelCellView(
-                            channel: channel,
-                            state: .inactive,
-                            isSelected: selectedChannels.contains(channel),
-                            onTap: { handleChannelTap(channel) },
-                            onActivate: { activateChannel(channel) },
-                            onUnlink: { }
-                        )
-
-                    case .mono(let channel, _):
-                        ChannelCellView(
-                            channel: channel,
-                            state: channelState(for: channel),
-                            isSelected: false,
-                            onTap: { handleChannelTap(channel) },
-                            onActivate: { },
-                            onUnlink: { }
-                        )
-
-                    case .stereoGroup(let channels, let outputId):
-                        StereoGroupView(
-                            channels: channels,
-                            onUnlink: { unlinkOutput(outputId) }
-                        )
+        HStack(spacing: 0) {
+            // Channel items with link affordance between selected adjacent channels
+            ForEach(channelItems) { item in
+                switch item {
+                case .inactive(let channel):
+                    // Show link affordance before second selected channel
+                    if let pair = linkableChannelPair, channel == pair.1 {
+                        LinkAffordanceView(onLink: linkSelectedChannels)
+                    } else if channel > 1 && !isFirstOfLinkablePair(channel - 1) {
+                        Spacer().frame(width: SettingsLayout.channelCellSpacing)
                     }
-                }
-            }
 
-            Spacer()
+                    ChannelCellView(
+                        channel: channel,
+                        state: .inactive,
+                        isSelected: selectedChannels.contains(channel),
+                        onTap: { handleChannelTap(channel) },
+                        onActivate: { activateChannel(channel) },
+                        onUnlink: { }
+                    )
 
-            // Link Stereo button (right-aligned, green, clear style)
-            if canLinkSelected {
-                Button(action: linkSelectedChannels) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "link")
-                            .font(Typography.iconSmall)
-                        Text("Link Stereo")
-                            .font(Typography.caption)
+                case .mono(let channel, _):
+                    if channel > 1 {
+                        Spacer().frame(width: SettingsLayout.channelCellSpacing)
                     }
-                    .foregroundColor(AppColors.accentGreen)
-                    .padding(.horizontal, Spacing.sm)
-                    .padding(.vertical, Spacing.xs)
-                    .background(AppColors.accentGreen.opacity(0.15))
-                    .cornerRadius(6)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(AppColors.accentGreen.opacity(0.4), lineWidth: 1)
+                    ChannelCellView(
+                        channel: channel,
+                        state: channelState(for: channel),
+                        isSelected: false,
+                        onTap: { handleChannelTap(channel) },
+                        onActivate: { },
+                        onUnlink: { }
+                    )
+
+                case .stereoGroup(let channels, let outputId):
+                    if channels.0 > 1 {
+                        Spacer().frame(width: SettingsLayout.channelCellSpacing)
+                    }
+                    StereoGroupView(
+                        channels: channels,
+                        onUnlink: { unlinkOutput(outputId) }
                     )
                 }
-                .buttonStyle(.plain)
             }
         }
+    }
+
+    /// Check if this channel is the first of a linkable pair (so we don't add spacing after it)
+    private func isFirstOfLinkablePair(_ channel: Int) -> Bool {
+        guard let pair = linkableChannelPair else { return false }
+        return channel == pair.0
     }
 
     // MARK: - Outputs List
@@ -555,6 +555,37 @@ private struct StereoGroupView: View {
             }
         }
         .help(isHovered ? "Click to unlink stereo pair" : "Stereo pair: Ch \(channels.0)-\(channels.1)")
+    }
+}
+
+
+// MARK: - Link Affordance View
+
+/// Clickable link icon that appears between two selected adjacent channels
+private struct LinkAffordanceView: View {
+    let onLink: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onLink) {
+            Image(systemName: "link.badge.plus")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(isHovered ? AppColors.accentGreen : AppColors.accentGreen.opacity(0.7))
+                .frame(width: 24, height: SettingsLayout.channelCellSize)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isHovered ? AppColors.accentGreen.opacity(0.2) : Color.clear)
+                )
+                .scaleEffect(isHovered ? 1.1 : 1.0)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(AppAnimations.quick) {
+                isHovered = hovering
+            }
+        }
+        .help("Link as stereo pair")
     }
 }
 
