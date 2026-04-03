@@ -130,6 +130,9 @@ struct ContentView: View {
     // Floating video window state
     @State private var isVideoFloating = false
 
+    // Settings panel state (collapsed by default)
+    @State private var isSettingsExpanded = false
+
     // FPS conflict state (internal for ContentView+Timeline.swift extension)
     @State var pendingVideoURL: URL?
     @State var pendingVideoFPS: TimecodeFrameRate?
@@ -316,23 +319,26 @@ struct ContentView: View {
     private var normalView: some View {
         // Horizontal split: Video (left) | Controls + Panels (right)
         HSplitView {
-            // Left: Video player section
+            // Left: Video player section (in glass container)
             videoSection
                 .frame(minWidth: HorizontalLayoutConstants.minVideoWidth)
 
-            // Right: Transport bar + Timeline + Media panels
+            // Right: Transport bar (pinned) + Scrollable panels
             VStack(spacing: 0) {
-                // Vital Controls bar aligned with right panels
+                // Vital Controls bar - pinned at top
                 VitalControlsBar(
                     timelineManager: timelineManager,
                     playbackEngine: playbackEngine,
                     timelineViewModel: timelineViewModel,
                     onSettingsPressed: {
-                        alerts.show(.settings(content: AnyView(EmptyView())))
+                        withAnimation(AppAnimations.standard) {
+                            isSettingsExpanded.toggle()
+                        }
                     }
                 )
                 .padding(.horizontal, Spacing.md)
-                .padding(.vertical, Spacing.sm)
+                .padding(.top, Spacing.md)
+                .padding(.bottom, Spacing.sm)
                 .background(
                     GeometryReader { proxy in
                         Color.clear
@@ -351,7 +357,7 @@ struct ContentView: View {
                     }
                 )
 
-                // Timeline + Media panels
+                // Scrollable panels section
                 rightPanelSection
             }
             .frame(minWidth: HorizontalLayoutConstants.minPanelWidth)
@@ -412,7 +418,9 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: PanelLayout.cornerRadius))
+        .glassPanel()
+        .padding(Spacing.md)
     }
 
     private var embeddedVideoPlayer: some View {
@@ -486,12 +494,20 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Right Panel Section (Timeline + Media)
+    // MARK: - Right Panel Section (Settings + Timeline + Media)
 
     private var rightPanelSection: some View {
         ScrollView(.vertical) {
-            VStack(spacing: Spacing.sm) {
-                // Timeline accordion (now gets full vertical space)
+            VStack(spacing: Spacing.md) {
+                // Collapsible Settings section (collapsed by default)
+                if isSettingsExpanded {
+                    SettingsAccordionView(
+                        audioManager: audioManager,
+                        isExpanded: $isSettingsExpanded
+                    )
+                }
+
+                // Timeline accordion
                 TimelineAccordionView(
                     timelineManager: timelineManager,
                     playbackEngine: playbackEngine,
@@ -504,7 +520,9 @@ struct ContentView: View {
                     onDropAudioMedia: handleAudioDropOnTimeline,
                     onSeek: { frame in playbackEngine.seekToFrame(frame) },
                     onSettingsPressed: {
-                        alerts.show(.settings(content: AnyView(EmptyView())))
+                        withAnimation(AppAnimations.standard) {
+                            isSettingsExpanded.toggle()
+                        }
                     },
                     onAddAudioLane: {
                         let laneNumber = timelineManager.timeline.audioLanes.count + 1
@@ -522,7 +540,7 @@ struct ContentView: View {
                     }
                 }
 
-                // File Manager panel (now gets more vertical space)
+                // File Manager panel
                 if showFileManager {
                     FileManagerView(
                         mediaLibrary: mediaLibrary,

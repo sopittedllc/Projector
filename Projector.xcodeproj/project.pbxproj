@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		553738493E8342C88FB81BA3 /* FloatingVideoPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 096C28C6F2A248279B3CCA70 /* FloatingVideoPanel.swift */; };
+		D2C1B0A98274F6E5D4C3B2A1 /* SettingsAccordionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F64728A9B0C1D2 /* SettingsAccordionView.swift */; };
 		AM01AUDIOMETER002 /* AudioMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM01AUDIOMETER001 /* AudioMeterView.swift */; };
 		0F78E7CD06BB4CCBA9AA1A36 /* WindowTitleConfigurator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04AA25E97254C758E8138F0 /* WindowTitleConfigurator.swift */; };
 		1218A8494ECAE07469982AFA /* TestAudioFileFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14506C8D8408E65D66372269 /* TestAudioFileFactory.swift */; };
@@ -164,6 +165,7 @@
 		AM01AUDIOMETER001 /* AudioMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMeterView.swift; sourceTree = "<group>"; };
 		020DEC73914C4FCDB4106B0D /* OptimizeMediaButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizeMediaButton.swift; sourceTree = "<group>"; };
 		096C28C6F2A248279B3CCA70 /* FloatingVideoPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingVideoPanel.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F64728A9B0C1D2 /* SettingsAccordionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAccordionView.swift; sourceTree = "<group>"; };
 		09CB2A043A720DB7314125A0 /* ProjectorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ProjectorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0D049757BEF1EE1D4B8B48BD /* ProjectorUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ProjectorUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		14506C8D8408E65D66372269 /* TestAudioFileFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestAudioFileFactory.swift; sourceTree = "<group>"; };
@@ -438,6 +440,7 @@
 				5BDAFB14BA0E492A986FE676 /* WelcomeOverlayView.swift */,
 				B19B58C02F088CFF00FA33EC /* VitalControlsBar.swift */,
 				096C28C6F2A248279B3CCA70 /* FloatingVideoPanel.swift */,
+				A1B2C3D4E5F64728A9B0C1D2 /* SettingsAccordionView.swift */,
 				C1VISUALFX0000002 /* VisualEffectView.swift */,
 				C1LIQUIDGLASS0002 /* LiquidGlassStyles.swift */,
 				A1000001227D3F0000000089 /* Timeline */,
@@ -792,6 +795,7 @@
 				B19B58BF2F088BFF00FA33EC /* TimelineViewModel.swift in Sources */,
 				B19B58C12F088CFF00FA33EC /* VitalControlsBar.swift in Sources */,
 				553738493E8342C88FB81BA3 /* FloatingVideoPanel.swift in Sources */,
+				D2C1B0A98274F6E5D4C3B2A1 /* SettingsAccordionView.swift in Sources */,
 				B19B58B92F0889F200FA33EC /* MIDISyncServiceProtocol.swift in Sources */,
 				B19B58BA2F0889F200FA33EC /* LayoutConstants.swift in Sources */,
 				DEBUGLOG00000002 /* DebugLog.swift in Sources */,

@@ -213,11 +213,18 @@ struct VitalControlsBar: View {
                 .lineLimit(1)
                 .fixedSize()
 
+            // FPS value with matching inner container style
             Text(timelineManager.timeline.config.frameRate.displayName)
                 .font(Typography.mono)
                 .frame(minWidth: 45)
                 .foregroundColor(.primary)
                 .lineLimit(1)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(AppColors.surfaceLight)
+                )
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
