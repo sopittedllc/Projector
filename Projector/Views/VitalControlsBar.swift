@@ -43,16 +43,23 @@ struct VitalControlsBar: View {
 
     var body: some View {
         HStack(spacing: Spacing.md) {
-            // Logo branding (left side)
-            Image("TitlebarLogo")
-                .resizable()
-                .renderingMode(.template)
-                .aspectRatio(contentMode: .fit)
-                .frame(height: 18)
-                .foregroundColor(.white.opacity(0.5))
-                .padding(.trailing, Spacing.sm)
+            // Logo branding with app name (left side)
+            HStack(spacing: Spacing.sm) {
+                Image("TitlebarLogo")
+                    .resizable()
+                    .renderingMode(.template)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: 18)
+                    .foregroundColor(.white.opacity(0.5))
 
-            // Left: TC controls (fixed size, don't shrink)
+                Text("Projector")
+                    .font(Typography.subheading)
+                    .foregroundColor(.white.opacity(0.5))
+            }
+
+            Spacer()
+
+            // Right-aligned: TC controls (fixed size, don't shrink)
             HStack(spacing: Spacing.md) {
                 startTCControl
                 durationControl
@@ -60,9 +67,7 @@ struct VitalControlsBar: View {
             }
             .fixedSize()
 
-            Spacer()
-
-            // Right: Play indicator (shows when playing)
+            // Play indicator (shows when playing)
             playIndicator
         }
         .padding(.horizontal, Spacing.md)

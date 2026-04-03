@@ -169,11 +169,9 @@ struct ContentView: View {
     /// Service for detecting embedded timecode from media files
     let embeddedTimecodeService = EmbeddedTimecodeService()
 
-    // MARK: - Onboarding & Audio Routing
+    // MARK: - Onboarding
     /// Shows the interactive onboarding wizard
     @State private var showOnboarding = false
-    /// Shows the audio routing configuration sheet
-    @State private var showAudioRouting = false
 
     var body: some View {
         mainContent
@@ -191,7 +189,6 @@ struct ContentView: View {
                 )
             }
             .sheet(isPresented: $showOnboarding, content: onboardingSheetContent)
-            .sheet(isPresented: $showAudioRouting, content: audioRoutingSheetContent)
             .frame(minWidth: 1100, minHeight: 500)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(WindowGlassBackground())
@@ -255,9 +252,6 @@ struct ContentView: View {
             persistenceService.showOpenProjectPanel()
         }
         // Note: .consolidateMedia notification is handled by FileManagerView
-        .onReceive(NotificationCenter.default.publisher(for: .showAudioRouting)) { _ in
-            showAudioRouting = true
-        }
         .onReceive(NotificationCenter.default.publisher(for: .showOnboarding)) { _ in
             showOnboarding = true
         }
@@ -584,45 +578,6 @@ struct ContentView: View {
             audioManager: audioManager,
             onComplete: { showOnboarding = false }
         )
-    }
-
-    private func audioRoutingSheetContent() -> AudioRoutingSheet {
-        AudioRoutingSheet(
-            audioManager: audioManager,
-            timelineManager: timelineManager,
-            onApply: { preset, configs in
-                applyAudioLanePreset(preset: preset, configs: configs)
-            },
-            onCancel: { }
-        )
-    }
-
-    // MARK: - Audio Lane Preset Application
-
-    /// Apply a lane preset configuration to the timeline
-    private func applyAudioLanePreset(preset: LanePreset, configs: [LaneConfig]) {
-        // Clear existing lanes if applying a preset
-        let existingLanes = timelineManager.timeline.audioLanes
-        for lane in existingLanes {
-            timelineManager.removeAudioLane(id: lane.id)
-        }
-
-        // Create new lanes from preset config
-        for config in configs {
-            let lane = timelineManager.addAudioLane(name: config.name)
-
-            // Map to output channels if available
-            let outputIndex = config.channelStart / 2  // Stereo pairs
-            if outputIndex < audioManager.mappedOutputs.count {
-                timelineManager.setLaneOutputMapping(
-                    id: lane.id,
-                    mapping: audioManager.mappedOutputs[outputIndex]
-                )
-            }
-        }
-
-        // Sync changes
-        syncTimelineToPlaybackEngine()
     }
 }
 

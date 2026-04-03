@@ -318,18 +318,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         let viewMenu = NSMenu(title: "View")
         viewMenu.autoenablesItems = false
 
-        // Audio Routing
-        let audioRoutingItem = NSMenuItem(
-            title: "Audio Routing...",
-            action: #selector(showAudioRouting(_:)),
-            keyEquivalent: ""
-        )
-        audioRoutingItem.target = self
-        audioRoutingItem.isEnabled = true
-        viewMenu.addItem(audioRoutingItem)
-
-        viewMenu.addItem(NSMenuItem.separator())
-
         // Show Onboarding
         let onboardingItem = NSMenuItem(
             title: "Setup Guide...",
@@ -589,11 +577,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
     // MARK: - View Actions
 
-    @objc func showAudioRouting(_ sender: Any?) {
-        debugPrint("showAudioRouting called")
-        NotificationCenter.default.post(name: .showAudioRouting, object: nil)
-    }
-
     @objc func showOnboarding(_ sender: Any?) {
         debugPrint("showOnboarding called")
         NotificationCenter.default.post(name: .showOnboarding, object: nil)
@@ -640,7 +623,6 @@ extension Notification.Name {
     static let editDeselectAll = Notification.Name("editDeselectAll")
 
     // View menu notifications
-    static let showAudioRouting = Notification.Name("showAudioRouting")
     static let showOnboarding = Notification.Name("showOnboarding")
 }
 

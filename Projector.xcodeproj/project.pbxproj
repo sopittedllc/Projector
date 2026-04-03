@@ -70,7 +70,6 @@
 		BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */; };
 		BTCS0001BATCHSHEET01 /* BatchTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */; };
 		SPOT0001SPOTMEDIA01 /* SpotMediaSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPOT0002SPOTMEDIA02 /* SpotMediaSheet.swift */; };
-		AROUTE01ROUTING01 /* AudioRoutingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AROUTE02ROUTING02 /* AudioRoutingSheet.swift */; };
 		ONBOARD01ONBOARD01 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ONBOARD02ONBOARD02 /* OnboardingView.swift */; };
 		C1CONSOLID0001 /* ConsolidateMediaButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1CONSOLID0002 /* ConsolidateMediaButton.swift */; };
 		C1CONSOLID0003 /* ConsolidationSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1CONSOLID0004 /* ConsolidationSheetView.swift */; };
@@ -219,7 +218,6 @@
 		B19B58C02F088CFF00FA33EC /* VitalControlsBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalControlsBar.swift; sourceTree = "<group>"; };
 		BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTimecodeSheetView.swift; sourceTree = "<group>"; };
 		SPOT0002SPOTMEDIA02 /* SpotMediaSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotMediaSheet.swift; sourceTree = "<group>"; };
-		AROUTE02ROUTING02 /* AudioRoutingSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRoutingSheet.swift; sourceTree = "<group>"; };
 		ONBOARD02ONBOARD02 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		C1CONSOLID0002 /* ConsolidateMediaButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidateMediaButton.swift; sourceTree = "<group>"; };
 		C1CONSOLID0004 /* ConsolidationSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidationSheetView.swift; sourceTree = "<group>"; };
@@ -453,7 +451,6 @@
 				ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */,
 				BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */,
 				SPOT0002SPOTMEDIA02 /* SpotMediaSheet.swift */,
-				AROUTE02ROUTING02 /* AudioRoutingSheet.swift */,
 				ONBOARD02ONBOARD02 /* OnboardingView.swift */,
 				VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */,
 				FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */,
@@ -857,7 +854,6 @@
 				ETCS0001EMBEDDEDSHEET01 /* EmbeddedTimecodeSheetView.swift in Sources */,
 				BTCS0001BATCHSHEET01 /* BatchTimecodeSheetView.swift in Sources */,
 				SPOT0001SPOTMEDIA01 /* SpotMediaSheet.swift in Sources */,
-				AROUTE01ROUTING01 /* AudioRoutingSheet.swift in Sources */,
 				ONBOARD01ONBOARD01 /* OnboardingView.swift in Sources */,
 				VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */,
 				FSVV0001FULLSCREENVIDEO01 /* FullScreenVideoView.swift in Sources */,
