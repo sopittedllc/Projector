@@ -19,6 +19,26 @@ enum ChannelState: Equatable {
     case stereoSecondary(outputId: UUID)
 }
 
+// MARK: - Channel Item (for grouped rendering)
+
+/// Represents an item in the channel grid - can be a single channel or a stereo group
+enum ChannelItem: Identifiable {
+    case inactive(channel: Int)
+    case mono(channel: Int, outputId: UUID)
+    case stereoGroup(channels: (Int, Int), outputId: UUID)
+
+    var id: String {
+        switch self {
+        case .inactive(let channel):
+            return "inactive-\(channel)"
+        case .mono(let channel, _):
+            return "mono-\(channel)"
+        case .stereoGroup(let channels, _):
+            return "stereo-\(channels.0)-\(channels.1)"
+        }
+    }
+}
+
 /// Collapsible settings section for the right panel
 struct SettingsAccordionView: View {
     @ObservedObject var audioManager: AudioOutputManager
@@ -256,39 +276,72 @@ private struct ChannelGridView: View {
 
     // MARK: - Channel Grid
 
+    /// Build grouped channel items for rendering
+    private var channelItems: [ChannelItem] {
+        var items: [ChannelItem] = []
+        var channel = 1
+
+        while channel <= totalChannels {
+            let state = channelState(for: channel)
+
+            switch state {
+            case .stereoPrimary(let outputId):
+                // This is a stereo pair - group both channels
+                items.append(.stereoGroup(
+                    channels: (channel, channel + 1),
+                    outputId: outputId
+                ))
+                channel += 2 // Skip the secondary channel
+
+            case .stereoSecondary:
+                // Should not hit this if we're processing in order
+                channel += 1
+
+            case .activeMono(let outputId):
+                items.append(.mono(channel: channel, outputId: outputId))
+                channel += 1
+
+            case .inactive:
+                items.append(.inactive(channel: channel))
+                channel += 1
+            }
+        }
+
+        return items
+    }
+
     private var channelGrid: some View {
         HStack(spacing: Spacing.sm) {
-            // Channel cells with link icons between stereo pairs
-            HStack(spacing: 0) {
-                ForEach(Array(1...totalChannels), id: \.self) { channel in
-                    let state = channelState(for: channel)
+            // Channel items (individual cells or stereo groups)
+            HStack(spacing: SettingsLayout.channelCellSpacing) {
+                ForEach(channelItems) { item in
+                    switch item {
+                    case .inactive(let channel):
+                        ChannelCellView(
+                            channel: channel,
+                            state: .inactive,
+                            isSelected: selectedChannels.contains(channel),
+                            onTap: { handleChannelTap(channel) },
+                            onActivate: { activateChannel(channel) },
+                            onUnlink: { }
+                        )
 
-                    // Show chainlink before secondary stereo channel
-                    if case .stereoSecondary = state {
-                        Image(systemName: "link")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(AppColors.accentGreen.opacity(0.7))
-                            .frame(width: 16)
-                    } else if channel > 1 {
-                        // Normal spacing between non-linked channels
-                        Spacer()
-                            .frame(width: SettingsLayout.channelCellSpacing)
+                    case .mono(let channel, _):
+                        ChannelCellView(
+                            channel: channel,
+                            state: channelState(for: channel),
+                            isSelected: false,
+                            onTap: { handleChannelTap(channel) },
+                            onActivate: { },
+                            onUnlink: { }
+                        )
+
+                    case .stereoGroup(let channels, let outputId):
+                        StereoGroupView(
+                            channels: channels,
+                            onUnlink: { unlinkOutput(outputId) }
+                        )
                     }
-
-                    ChannelCellView(
-                        channel: channel,
-                        state: state,
-                        isSelected: selectedChannels.contains(channel),
-                        onTap: { handleChannelTap(channel) },
-                        onActivate: { activateChannel(channel) },
-                        onUnlink: {
-                            if case .stereoPrimary(let outputId) = state {
-                                unlinkOutput(outputId)
-                            } else if case .stereoSecondary(let outputId) = state {
-                                unlinkOutput(outputId)
-                            }
-                        }
-                    )
                 }
             }
 
@@ -447,6 +500,61 @@ private struct ChannelGridView: View {
         var newOutputs = outputs
         newOutputs.removeAll { $0.id == id }
         onOutputsChanged(newOutputs)
+    }
+}
+
+
+// MARK: - Stereo Group View
+
+/// A grouped view showing two linked stereo channels as a single unit
+private struct StereoGroupView: View {
+    let channels: (Int, Int)
+    let onUnlink: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: {
+            if isHovered {
+                onUnlink()
+            }
+        }) {
+            HStack(spacing: 2) {
+                // Left channel
+                Text("\(channels.0)")
+                    .font(Typography.captionSmall)
+                    .foregroundColor(.primary)
+                    .frame(width: 20, height: SettingsLayout.channelCellSize - 8)
+
+                // Link icon in the middle
+                Image(systemName: isHovered ? "link.badge.minus" : "link")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(isHovered ? AppColors.accentPink : AppColors.accentGreen.opacity(0.8))
+
+                // Right channel
+                Text("\(channels.1)")
+                    .font(Typography.captionSmall)
+                    .foregroundColor(.primary)
+                    .frame(width: 20, height: SettingsLayout.channelCellSize - 8)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isHovered ? AppColors.accentPink.opacity(0.2) : AppColors.accentGreen.opacity(0.2))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isHovered ? AppColors.accentPink.opacity(0.5) : AppColors.accentGreen.opacity(0.4), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(AppAnimations.quick) {
+                isHovered = hovering
+            }
+        }
+        .help(isHovered ? "Click to unlink stereo pair" : "Stereo pair: Ch \(channels.0)-\(channels.1)")
     }
 }
 
