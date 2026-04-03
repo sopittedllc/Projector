@@ -305,7 +305,7 @@ struct FileManagerView: View {
                         Text("Import")
                     }
                 }
-                .buttonStyle(GlassActionButtonStyle(tint: .accentColor))
+                .buttonStyle(GlassActionButtonStyle(tint: AppColors.accent))
             }
         }
         .frame(height: PanelLayout.headerHeight)

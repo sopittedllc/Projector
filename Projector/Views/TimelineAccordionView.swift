@@ -128,7 +128,7 @@ struct TimelineAccordionView: View {
                     Text("Audio Lane")
                 }
             }
-            .buttonStyle(GlassActionButtonStyle(tint: .accentColor))
+            .buttonStyle(GlassActionButtonStyle(tint: AppColors.accent))
             .accessibilityLabel("Add a new audio lane")
             .help("Add a new audio lane")
 

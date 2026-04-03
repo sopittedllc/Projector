@@ -189,7 +189,7 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showOnboarding, content: onboardingSheetContent)
             .sheet(isPresented: $showAudioRouting, content: audioRoutingSheetContent)
-            .frame(minWidth: 640, minHeight: 400)
+            .frame(minWidth: 1100, minHeight: 500)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(WindowGlassBackground())
         .overlay {
@@ -314,46 +314,47 @@ struct ContentView: View {
     // MARK: - View Modes
 
     private var normalView: some View {
-        VStack(spacing: 0) {
-            // Vital Controls bar at TOP (full width)
-            VitalControlsBar(
-                timelineManager: timelineManager,
-                playbackEngine: playbackEngine,
-                timelineViewModel: timelineViewModel,
-                onSettingsPressed: {
-                    alerts.show(.settings(content: AnyView(EmptyView())))
-                }
-            )
-            .padding(.horizontal, Spacing.lg)
-            .padding(.vertical, Spacing.sm)
-            .background(
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear {
-                            DispatchQueue.main.async {
-                                vitalControlsHeight = proxy.size.height
-                            }
-                        }
-                        .onChange(of: proxy.size.height) { _, newValue in
-                            if newValue != vitalControlsHeight {
+        // Horizontal split: Video (left) | Controls + Panels (right)
+        HSplitView {
+            // Left: Video player section
+            videoSection
+                .frame(minWidth: HorizontalLayoutConstants.minVideoWidth)
+
+            // Right: Transport bar + Timeline + Media panels
+            VStack(spacing: 0) {
+                // Vital Controls bar aligned with right panels
+                VitalControlsBar(
+                    timelineManager: timelineManager,
+                    playbackEngine: playbackEngine,
+                    timelineViewModel: timelineViewModel,
+                    onSettingsPressed: {
+                        alerts.show(.settings(content: AnyView(EmptyView())))
+                    }
+                )
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear
+                            .onAppear {
                                 DispatchQueue.main.async {
-                                    vitalControlsHeight = newValue
+                                    vitalControlsHeight = proxy.size.height
                                 }
                             }
-                        }
-                }
-            )
+                            .onChange(of: proxy.size.height) { _, newValue in
+                                if newValue != vitalControlsHeight {
+                                    DispatchQueue.main.async {
+                                        vitalControlsHeight = newValue
+                                    }
+                                }
+                            }
+                    }
+                )
 
-            // Horizontal split: Video (left) | Panels (right)
-            HSplitView {
-                // Left: Video player section
-                videoSection
-                    .frame(minWidth: HorizontalLayoutConstants.minVideoWidth)
-
-                // Right: Timeline + Media panels
+                // Timeline + Media panels
                 rightPanelSection
-                    .frame(minWidth: HorizontalLayoutConstants.minPanelWidth)
             }
+            .frame(minWidth: HorizontalLayoutConstants.minPanelWidth)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environmentObject(dragContext)
