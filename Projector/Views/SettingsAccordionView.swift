@@ -580,12 +580,12 @@ private struct ChannelCellView: View {
                 // Channel number (dimmed when showing link preview)
                 Text("\(channel)")
                     .font(Typography.mono)
-                    .foregroundColor(showLinkText ? textColor.opacity(0.3) : textColor)
+                    .foregroundColor(showLinkText ? textColor.opacity(0.2) : textColor)
 
-                // "Link?" text on hover target
+                // Link icon on hover target (instead of text which doesn't fit)
                 if showLinkText {
-                    Text("Link?")
-                        .font(Typography.labelSmall)
+                    Image(systemName: "link.badge.plus")
+                        .font(.system(size: 14, weight: .bold))
                         .foregroundColor(AppColors.accentGreen)
                 }
 
