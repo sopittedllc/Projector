@@ -70,7 +70,6 @@ struct VitalControlsBar: View {
             // Play indicator (shows when playing)
             playIndicator
         }
-        .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
         .glassPanel()
         .alert("Invalid Start Timecode", isPresented: $showStartTimecodeAlert) {

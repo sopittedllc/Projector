@@ -94,21 +94,16 @@ struct SettingsAccordionView: View {
 
     private var settingsContent: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
-            // TOP ROW: Two columns with aligned controls
-            HStack(alignment: .top, spacing: Spacing.lg) {
+            // Two columns: Timecode Overlay | Playback Behavior
+            HStack(alignment: .top, spacing: Spacing.xl) {
                 timecodeOverlaySection
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Divider()
-                    .frame(height: 100)
-
                 playbackBehaviorSection
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer()
             }
 
             Divider()
 
-            // BOTTOM: Audio section (full width)
+            // Audio section (full width)
             audioSection
         }
         .padding(Spacing.md)
@@ -120,7 +115,9 @@ struct SettingsAccordionView: View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             sectionHeader("Timecode Overlay")
 
-            settingsRow(label: "Show Overlay") {
+            HStack(spacing: Spacing.sm) {
+                Text("Show Overlay")
+                    .font(Typography.body)
                 Toggle("", isOn: $settings.showTimecodeOverlay)
                     .labelsHidden()
                     .toggleStyle(.switch)
@@ -128,7 +125,9 @@ struct SettingsAccordionView: View {
             }
 
             if settings.showTimecodeOverlay {
-                settingsRow(label: "Position") {
+                HStack(spacing: Spacing.sm) {
+                    Text("Position")
+                        .font(Typography.body)
                     Picker("", selection: $settings.timecodeOverlayPosition) {
                         Text("Top Left").tag(TimecodeOverlayPosition.topLeft)
                         Text("Top Right").tag(TimecodeOverlayPosition.topRight)
@@ -137,7 +136,6 @@ struct SettingsAccordionView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
-                    .frame(minWidth: 120)
                 }
             }
         }
@@ -149,21 +147,27 @@ struct SettingsAccordionView: View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             sectionHeader("Playback Behavior")
 
-            settingsRow(label: "Auto-play on MTC") {
+            HStack(spacing: Spacing.sm) {
+                Text("Auto-play on MTC")
+                    .font(Typography.body)
                 Toggle("", isOn: $settings.autoPlayOnMTC)
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.small)
             }
 
-            settingsRow(label: "Auto-pause on MTC Stop") {
+            HStack(spacing: Spacing.sm) {
+                Text("Auto-pause on MTC Stop")
+                    .font(Typography.body)
                 Toggle("", isOn: $settings.autoPauseOnMTCStop)
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.small)
             }
 
-            settingsRow(label: "Respond to MMC") {
+            HStack(spacing: Spacing.sm) {
+                Text("Respond to MMC")
+                    .font(Typography.body)
                 Toggle("", isOn: $settings.respondToMMC)
                     .labelsHidden()
                     .toggleStyle(.switch)
@@ -179,7 +183,9 @@ struct SettingsAccordionView: View {
             sectionHeader("Audio Output")
 
             // Device picker row
-            settingsRow(label: "Device") {
+            HStack(spacing: Spacing.sm) {
+                Text("Device")
+                    .font(Typography.body)
                 Picker("", selection: Binding<String>(
                     get: { audioManager.selectedDeviceUID ?? "" },
                     set: { newValue in
@@ -215,21 +221,6 @@ struct SettingsAccordionView: View {
             .font(Typography.labelSmall)
             .foregroundColor(AppColors.textTertiary)
             .padding(.bottom, Spacing.xs)
-    }
-
-    @ViewBuilder
-    private func settingsRow<Content: View>(
-        label: String,
-        @ViewBuilder control: () -> Content
-    ) -> some View {
-        HStack(spacing: Spacing.sm) {
-            Text(label)
-                .font(Typography.body)
-                .foregroundColor(.primary)
-                .frame(width: SettingsLayout.labelWidth, alignment: .leading)
-
-            control()
-        }
     }
 }
 
@@ -306,14 +297,22 @@ private struct ChannelGridView: View {
         return items
     }
 
-    /// Returns the pair of channels to show link preview for, sorted (lower, higher)
-    private var linkPreviewPair: (Int, Int)? {
-        guard let selected = selectedChannel else { return nil }
-        guard let hovered = hoveredChannel else { return nil }
-        guard abs(hovered - selected) == 1 else { return nil }
-        guard channelState(for: hovered) == .inactive else { return nil }
-        let sorted = [selected, hovered].sorted()
-        return (sorted[0], sorted[1])
+    /// Check if this channel is part of an active link preview
+    private func isInLinkPreview(_ channel: Int) -> Bool {
+        guard let selected = selectedChannel else { return false }
+        guard let hovered = hoveredChannel else { return false }
+        guard abs(hovered - selected) == 1 else { return false }
+        guard channelState(for: hovered) == .inactive else { return false }
+        return channel == selected || channel == hovered
+    }
+
+    /// Check if this is the channel being hovered in a link preview (shows "Link?" text)
+    private func isLinkPreviewTarget(_ channel: Int) -> Bool {
+        guard let selected = selectedChannel else { return false }
+        guard let hovered = hoveredChannel else { return false }
+        guard abs(hovered - selected) == 1 else { return false }
+        guard channelState(for: hovered) == .inactive else { return false }
+        return channel == hovered
     }
 
     private var channelGrid: some View {
@@ -321,32 +320,33 @@ private struct ChannelGridView: View {
             ForEach(channelItems) { item in
                 switch item {
                 case .inactive(let channel):
-                    // Check if this is the first channel of a link preview pair
-                    if let pair = linkPreviewPair, channel == pair.0 {
-                        // Show LinkPreviewView that overlays both cells
-                        LinkPreviewView(
-                            channels: pair,
-                            onLink: { linkChannels(pair.0, pair.1) },
-                            onHoverChanged: { isHovered in
-                                // Keep hover state alive while over preview
-                                if !isHovered {
-                                    hoveredChannel = nil
-                                }
+                    ChannelCellView(
+                        channel: channel,
+                        state: .inactive,
+                        isSelected: selectedChannel == channel,
+                        isInLinkPreview: isInLinkPreview(channel),
+                        showLinkText: isLinkPreviewTarget(channel),
+                        onTap: {
+                            // If showing link preview and clicking the target, do the link
+                            if isLinkPreviewTarget(channel), let selected = selectedChannel {
+                                linkChannels(selected, channel)
+                            } else {
+                                handleChannelTap(channel)
                             }
-                        )
-                    } else if let pair = linkPreviewPair, channel == pair.1 {
-                        // Second cell of pair - skip, already rendered in LinkPreviewView
-                        EmptyView()
-                    } else {
-                        // Normal cell
-                        channelCell(channel: channel)
-                    }
+                        },
+                        onActivate: { activateChannel(channel) },
+                        onHover: { isHovered in
+                            hoveredChannel = isHovered ? channel : nil
+                        }
+                    )
 
                 case .mono(let channel, _):
                     ChannelCellView(
                         channel: channel,
                         state: channelState(for: channel),
                         isSelected: false,
+                        isInLinkPreview: false,
+                        showLinkText: false,
                         onTap: { handleChannelTap(channel) },
                         onActivate: { },
                         onHover: { _ in }
@@ -360,20 +360,6 @@ private struct ChannelGridView: View {
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private func channelCell(channel: Int) -> some View {
-        ChannelCellView(
-            channel: channel,
-            state: .inactive,
-            isSelected: selectedChannel == channel,
-            onTap: { handleChannelTap(channel) },
-            onActivate: { activateChannel(channel) },
-            onHover: { isHovered in
-                hoveredChannel = isHovered ? channel : nil
-            }
-        )
     }
 
     // MARK: - Outputs List
@@ -560,65 +546,6 @@ private struct StereoGroupView: View {
 }
 
 
-// MARK: - Link Preview View
-
-/// Preview overlay showing two channels about to be linked
-/// Sized to span both cell positions (2 cells + spacing)
-private struct LinkPreviewView: View {
-    let channels: (Int, Int)
-    let onLink: () -> Void
-    let onHoverChanged: (Bool) -> Void
-
-    // Width to cover both cells plus the spacing between them
-    private var totalWidth: CGFloat {
-        SettingsLayout.channelCellSize * 2 + SettingsLayout.channelCellSpacing
-    }
-
-    var body: some View {
-        Button(action: onLink) {
-            ZStack {
-                // Channel numbers (dimmed)
-                HStack(spacing: 4) {
-                    Text("\(channels.0)")
-                        .font(Typography.captionSmall)
-                        .foregroundColor(.primary.opacity(0.25))
-
-                    Image(systemName: "link")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(AppColors.accentGreen.opacity(0.3))
-
-                    Text("\(channels.1)")
-                        .font(Typography.captionSmall)
-                        .foregroundColor(.primary.opacity(0.25))
-                }
-
-                // "Link?" overlay with icon
-                HStack(spacing: 3) {
-                    Image(systemName: "link.badge.plus")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text("Link?")
-                        .font(Typography.label)
-                }
-                .foregroundColor(AppColors.accentGreen)
-            }
-            .frame(width: totalWidth, height: SettingsLayout.channelCellSize)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(AppColors.accentGreen.opacity(0.35))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(AppColors.accentGreen.opacity(0.6), lineWidth: 2)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered in
-            onHoverChanged(isHovered)
-        }
-    }
-}
-
-
 // MARK: - Channel Cell View
 
 /// Individual channel cell in the grid (for inactive and mono channels)
@@ -626,6 +553,8 @@ private struct ChannelCellView: View {
     let channel: Int
     let state: ChannelState
     let isSelected: Bool
+    let isInLinkPreview: Bool  // True when this cell is part of an active link preview
+    let showLinkText: Bool     // True when this is the hover target showing "Link?"
     let onTap: () -> Void
     let onActivate: () -> Void
     let onHover: (Bool) -> Void
@@ -645,16 +574,23 @@ private struct ChannelCellView: View {
                     .fill(backgroundColor)
                     .overlay(
                         RoundedRectangle(cornerRadius: 6)
-                            .stroke(borderColor, lineWidth: isSelected ? 2 : 1)
+                            .stroke(borderColor, lineWidth: (isSelected || isInLinkPreview) ? 2 : 1)
                     )
 
-                // Channel number
+                // Channel number (dimmed when showing link preview)
                 Text("\(channel)")
                     .font(Typography.mono)
-                    .foregroundColor(textColor)
+                    .foregroundColor(showLinkText ? textColor.opacity(0.3) : textColor)
 
-                // Hover affordance for inactive - plus icon
-                if isInactive && isHovered && !isSelected {
+                // "Link?" text on hover target
+                if showLinkText {
+                    Text("Link?")
+                        .font(Typography.labelSmall)
+                        .foregroundColor(AppColors.accentGreen)
+                }
+
+                // Hover affordance for inactive - plus icon (only when not in link preview)
+                if isInactive && isHovered && !isSelected && !isInLinkPreview {
                     Image(systemName: "plus")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(AppColors.accentBlue.opacity(0.8))
@@ -671,7 +607,7 @@ private struct ChannelCellView: View {
             onHover(hovering)
         }
         .contextMenu {
-            if isInactive {
+            if isInactive && !isInLinkPreview {
                 Button("Activate as Mono") { onActivate() }
             }
         }
@@ -679,6 +615,10 @@ private struct ChannelCellView: View {
     }
 
     private var backgroundColor: Color {
+        // Link preview takes precedence
+        if isInLinkPreview {
+            return AppColors.accentGreen.opacity(0.35)
+        }
         if isSelected {
             return AppColors.accentYellow.opacity(0.3)
         }
@@ -694,6 +634,10 @@ private struct ChannelCellView: View {
     }
 
     private var borderColor: Color {
+        // Link preview takes precedence
+        if isInLinkPreview {
+            return AppColors.accentGreen.opacity(0.6)
+        }
         if isSelected {
             return AppColors.accentYellow
         }
@@ -708,7 +652,7 @@ private struct ChannelCellView: View {
     }
 
     private var textColor: Color {
-        if isSelected {
+        if isInLinkPreview || isSelected {
             return .primary
         }
         switch state {
@@ -720,6 +664,9 @@ private struct ChannelCellView: View {
     }
 
     private var helpText: String {
+        if showLinkText {
+            return "Click to link these channels as stereo"
+        }
         switch state {
         case .inactive:
             return isSelected ? "Hover over adjacent channel to link"
