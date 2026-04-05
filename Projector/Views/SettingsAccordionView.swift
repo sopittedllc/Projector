@@ -115,29 +115,34 @@ struct SettingsAccordionView: View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             sectionHeader("Timecode Overlay")
 
-            HStack(spacing: Spacing.sm) {
-                Text("Show Overlay")
-                    .font(Typography.body)
-                Toggle("", isOn: $settings.showTimecodeOverlay)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-            }
-
-            if settings.showTimecodeOverlay {
-                HStack(spacing: Spacing.sm) {
-                    Text("Position")
+            VStack(alignment: .leading, spacing: SettingsLayout.formRowVerticalSpacing) {
+                HStack {
+                    Text("Show Overlay")
                         .font(Typography.body)
-                    Picker("", selection: $settings.timecodeOverlayPosition) {
-                        Text("Top Left").tag(TimecodeOverlayPosition.topLeft)
-                        Text("Top Right").tag(TimecodeOverlayPosition.topRight)
-                        Text("Bottom Left").tag(TimecodeOverlayPosition.bottomLeft)
-                        Text("Bottom Right").tag(TimecodeOverlayPosition.bottomRight)
+                    Spacer()
+                    Toggle("", isOn: $settings.showTimecodeOverlay)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                }
+
+                if settings.showTimecodeOverlay {
+                    HStack {
+                        Text("Position")
+                            .font(Typography.body)
+                        Spacer()
+                        Picker("", selection: $settings.timecodeOverlayPosition) {
+                            Text("Top Left").tag(TimecodeOverlayPosition.topLeft)
+                            Text("Top Right").tag(TimecodeOverlayPosition.topRight)
+                            Text("Bottom Left").tag(TimecodeOverlayPosition.bottomLeft)
+                            Text("Bottom Right").tag(TimecodeOverlayPosition.bottomRight)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
                 }
             }
+            .frame(width: 220)
         }
     }
 
@@ -147,32 +152,38 @@ struct SettingsAccordionView: View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             sectionHeader("Playback Behavior")
 
-            HStack(spacing: Spacing.sm) {
-                Text("Auto-play on MTC")
-                    .font(Typography.body)
-                Toggle("", isOn: $settings.autoPlayOnMTC)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-            }
+            VStack(alignment: .leading, spacing: SettingsLayout.formRowVerticalSpacing) {
+                HStack {
+                    Text("Auto-play on MTC")
+                        .font(Typography.body)
+                    Spacer()
+                    Toggle("", isOn: $settings.autoPlayOnMTC)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                }
 
-            HStack(spacing: Spacing.sm) {
-                Text("Auto-pause on MTC Stop")
-                    .font(Typography.body)
-                Toggle("", isOn: $settings.autoPauseOnMTCStop)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-            }
+                HStack {
+                    Text("Auto-pause on MTC Stop")
+                        .font(Typography.body)
+                    Spacer()
+                    Toggle("", isOn: $settings.autoPauseOnMTCStop)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                }
 
-            HStack(spacing: Spacing.sm) {
-                Text("Respond to MMC")
-                    .font(Typography.body)
-                Toggle("", isOn: $settings.respondToMMC)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
+                HStack {
+                    Text("Respond to MMC")
+                        .font(Typography.body)
+                    Spacer()
+                    Toggle("", isOn: $settings.respondToMMC)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                }
             }
+            .frame(width: 220)
         }
     }
 
@@ -186,6 +197,7 @@ struct SettingsAccordionView: View {
             HStack(spacing: Spacing.sm) {
                 Text("Device")
                     .font(Typography.body)
+                    .frame(alignment: .leading)
                 Picker("", selection: Binding<String>(
                     get: { audioManager.selectedDeviceUID ?? "" },
                     set: { newValue in
@@ -234,6 +246,7 @@ private struct ChannelGridView: View {
 
     @State private var selectedChannel: Int? = nil  // Single selected channel for linking
     @State private var hoveredChannel: Int? = nil   // Currently hovered channel
+    @State private var hoveredStereoGroup: UUID? = nil  // Currently hovered stereo group
     @State private var editingOutputId: UUID?
     @State private var editedName: String = ""
 
@@ -247,6 +260,7 @@ private struct ChannelGridView: View {
             // Channel cells grid with Link button on same row
             if totalChannels > 0 {
                 channelGrid
+                hintArea
             } else {
                 Text("No audio device selected")
                     .font(Typography.body)
@@ -325,7 +339,7 @@ private struct ChannelGridView: View {
                         state: .inactive,
                         isSelected: selectedChannel == channel,
                         isInLinkPreview: isInLinkPreview(channel),
-                        showLinkText: isLinkPreviewTarget(channel),
+                        showLinkText: false,
                         onTap: {
                             // If showing link preview and clicking the target, do the link
                             if isLinkPreviewTarget(channel), let selected = selectedChannel {
@@ -355,11 +369,91 @@ private struct ChannelGridView: View {
                 case .stereoGroup(let channels, let outputId):
                     StereoGroupView(
                         channels: channels,
-                        onUnlink: { unlinkOutput(outputId) }
+                        isHoveredForUnlink: hoveredStereoGroup == outputId,
+                        onUnlink: { unlinkOutput(outputId) },
+                        onHover: { isHovered in
+                            hoveredStereoGroup = isHovered ? outputId : nil
+                        }
                     )
                 }
             }
         }
+    }
+
+    // MARK: - Hint Area
+
+    /// Shows contextual hints below the channel grid for link/unlink actions
+    private var hintArea: some View {
+        Group {
+            if let linkHint = linkPreviewHint {
+                // Link preview hint
+                Button(action: {
+                    if let selected = selectedChannel, let hovered = hoveredChannel {
+                        linkChannels(selected, hovered)
+                    }
+                }) {
+                    HStack(spacing: Spacing.xs) {
+                        Image(systemName: "link")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(AppColors.accentGreen)
+                        Text(linkHint)
+                            .font(Typography.caption)
+                            .foregroundColor(.primary)
+                    }
+                    .padding(.vertical, Spacing.xs)
+                }
+                .buttonStyle(.plain)
+                .help("Click to link these channels as stereo")
+            } else if let unlinkHint = unlinkPreviewHint {
+                // Unlink preview hint
+                Button(action: {
+                    if let groupId = hoveredStereoGroup {
+                        unlinkOutput(groupId)
+                    }
+                }) {
+                    HStack(spacing: Spacing.xs) {
+                        Image(systemName: "link.badge.minus")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(AppColors.accentPink)
+                        Text(unlinkHint)
+                            .font(Typography.caption)
+                            .foregroundColor(.primary)
+                    }
+                    .padding(.vertical, Spacing.xs)
+                }
+                .buttonStyle(.plain)
+                .help("Click to unlink stereo pair")
+            } else {
+                // Empty spacer to maintain layout
+                Text("")
+                    .font(Typography.caption)
+                    .padding(.vertical, Spacing.xs)
+            }
+        }
+        .frame(height: 20) // Keep consistent height
+    }
+
+    /// Returns hint text for link preview if conditions are met
+    private var linkPreviewHint: String? {
+        guard let selected = selectedChannel,
+              let hovered = hoveredChannel,
+              abs(hovered - selected) == 1,
+              channelState(for: hovered) == .inactive,
+              channelState(for: selected) == .inactive else {
+            return nil
+        }
+        let leftChannel = min(selected, hovered)
+        let rightChannel = max(selected, hovered)
+        return "Link Stereo? (\(leftChannel)-\(rightChannel))"
+    }
+
+    /// Returns hint text for unlink preview if stereo group is hovered
+    private var unlinkPreviewHint: String? {
+        guard let groupId = hoveredStereoGroup,
+              let output = outputs.first(where: { $0.id == groupId }) else {
+            return nil
+        }
+        return "Unlink? (\(output.channelStart)-\(output.channelStart + 1))"
     }
 
     // MARK: - Outputs List
@@ -488,9 +582,9 @@ private struct ChannelGridView: View {
 /// Sized to match two cell widths for consistent grid layout
 private struct StereoGroupView: View {
     let channels: (Int, Int)
+    let isHoveredForUnlink: Bool
     let onUnlink: () -> Void
-
-    @State private var isHovered = false
+    let onHover: (Bool) -> Void
 
     // Width to cover both cells plus the spacing between them
     private var totalWidth: CGFloat {
@@ -499,53 +593,38 @@ private struct StereoGroupView: View {
 
     var body: some View {
         Button(action: onUnlink) {
-            ZStack {
-                // Channel numbers with link icon (dimmed on hover)
-                HStack(spacing: 4) {
-                    Text("\(channels.0)")
-                        .font(Typography.captionSmall)
-                        .foregroundColor(isHovered ? .primary.opacity(0.2) : .primary)
+            HStack(spacing: 4) {
+                Text("\(channels.0)")
+                    .font(Typography.captionSmall)
+                    .foregroundColor(.primary)
 
-                    Image(systemName: "link")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(isHovered ? AppColors.accentGreen.opacity(0.2) : AppColors.accentGreen.opacity(0.8))
+                Image(systemName: "link")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(AppColors.accentGreen.opacity(0.8))
 
-                    Text("\(channels.1)")
-                        .font(Typography.captionSmall)
-                        .foregroundColor(isHovered ? .primary.opacity(0.2) : .primary)
-                }
-
-                // "Unlink?" overlay on hover with icon
-                if isHovered {
-                    HStack(spacing: 3) {
-                        Image(systemName: "link.badge.minus")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text("Unlink?")
-                            .font(Typography.label)
-                    }
-                    .foregroundColor(AppColors.accentPink)
-                }
+                Text("\(channels.1)")
+                    .font(Typography.captionSmall)
+                    .foregroundColor(.primary)
             }
             .frame(width: totalWidth, height: SettingsLayout.channelCellSize)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(isHovered ? AppColors.accentPink.opacity(0.35) : AppColors.accentGreen.opacity(0.2))
+                    .fill(isHoveredForUnlink ? AppColors.accentPink.opacity(0.35) : AppColors.accentGreen.opacity(0.2))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(isHovered ? AppColors.accentPink.opacity(0.6) : AppColors.accentGreen.opacity(0.4), lineWidth: 1)
+                    .stroke(isHoveredForUnlink ? AppColors.accentPink.opacity(0.6) : AppColors.accentGreen.opacity(0.4), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
         .onHover { hovering in
             withAnimation(AppAnimations.quick) {
-                isHovered = hovering
+                onHover(hovering)
             }
         }
+        .help(isHoveredForUnlink ? "Click to unlink stereo pair" : "Linked stereo pair")
     }
 }
-
-
 // MARK: - Channel Cell View
 
 /// Individual channel cell in the grid (for inactive and mono channels)
@@ -554,7 +633,7 @@ private struct ChannelCellView: View {
     let state: ChannelState
     let isSelected: Bool
     let isInLinkPreview: Bool  // True when this cell is part of an active link preview
-    let showLinkText: Bool     // True when this is the hover target showing "Link?"
+    let showLinkText: Bool     // True when this is the hover target showing "Link?" (now unused, kept for compatibility)
     let onTap: () -> Void
     let onActivate: () -> Void
     let onHover: (Bool) -> Void
@@ -577,17 +656,10 @@ private struct ChannelCellView: View {
                             .stroke(borderColor, lineWidth: (isSelected || isInLinkPreview) ? 2 : 1)
                     )
 
-                // Channel number (dimmed when showing link preview)
+                // Channel number
                 Text("\(channel)")
                     .font(Typography.mono)
-                    .foregroundColor(showLinkText ? textColor.opacity(0.2) : textColor)
-
-                // Link icon on hover target (instead of text which doesn't fit)
-                if showLinkText {
-                    Image(systemName: "link.badge.plus")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(AppColors.accentGreen)
-                }
+                    .foregroundColor(textColor)
 
                 // Hover affordance for inactive - plus icon (only when not in link preview)
                 if isInactive && isHovered && !isSelected && !isInLinkPreview {
@@ -664,11 +736,11 @@ private struct ChannelCellView: View {
     }
 
     private var helpText: String {
-        if showLinkText {
-            return "Click to link these channels as stereo"
-        }
         switch state {
         case .inactive:
+            if isInLinkPreview {
+                return "Click to link these channels as stereo"
+            }
             return isSelected ? "Hover over adjacent channel to link"
                 : "Click to select, right-click to activate as mono"
         case .activeMono:
@@ -731,6 +803,7 @@ private struct OutputRowView: View {
                     .focused($isNameFocused)
                     .onSubmit { onCommitEdit() }
                     .onExitCommand { onCancelEdit() }
+                    .allowsHitTesting(true)
                     .onAppear {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                             isNameFocused = true

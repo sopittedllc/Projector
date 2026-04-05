@@ -319,10 +319,16 @@ enum SettingsLayout {
     static let labelWidth: CGFloat = 100
 
     /// Size of channel cells in the audio grid
-    static let channelCellSize: CGFloat = 32
+    static let channelCellSize: CGFloat = 48
 
     /// Spacing between channel cells
     static let channelCellSpacing: CGFloat = 4
+
+    /// Spacing between form label and control in Grid
+    static let formRowSpacing: CGFloat = Spacing.sm  // 8pt
+
+    /// Vertical spacing between form rows
+    static let formRowVerticalSpacing: CGFloat = Spacing.sm  // 8pt
 }
 
 // ============================================================================
