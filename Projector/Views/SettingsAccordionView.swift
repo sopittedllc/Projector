@@ -93,9 +93,9 @@ struct SettingsAccordionView: View {
     // MARK: - Settings Content
 
     private var settingsContent: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
+        VStack(alignment: .leading, spacing: SettingsLayout.sectionSpacing) {
             // Two columns: Timecode Overlay | Playback Behavior
-            HStack(alignment: .top, spacing: Spacing.xl) {
+            HStack(alignment: .top, spacing: Spacing.xxl) {
                 timecodeOverlaySection
                 playbackBehaviorSection
                 Spacer()
@@ -106,7 +106,8 @@ struct SettingsAccordionView: View {
             // Audio section (full width)
             audioSection
         }
-        .padding(Spacing.md)
+        .padding(.horizontal, SettingsLayout.windowMargin)
+        .padding(.vertical, Spacing.md)
     }
 
     // MARK: - Timecode Overlay Section
@@ -142,8 +143,8 @@ struct SettingsAccordionView: View {
                     }
                 }
             }
-            .frame(width: 220)
         }
+        .frame(width: SettingsLayout.formSectionWidth)
     }
 
     // MARK: - Playback Behavior Section
@@ -183,8 +184,8 @@ struct SettingsAccordionView: View {
                         .controlSize(.small)
                 }
             }
-            .frame(width: 220)
         }
+        .frame(width: SettingsLayout.formSectionWidth)
     }
 
     // MARK: - Audio Section
@@ -194,10 +195,10 @@ struct SettingsAccordionView: View {
             sectionHeader("Audio Output")
 
             // Device picker row
-            HStack(spacing: Spacing.sm) {
+            HStack {
                 Text("Device")
                     .font(Typography.body)
-                    .frame(alignment: .leading)
+                Spacer().frame(width: Spacing.sm)
                 Picker("", selection: Binding<String>(
                     get: { audioManager.selectedDeviceUID ?? "" },
                     set: { newValue in
@@ -244,23 +245,28 @@ private struct ChannelGridView: View {
     let outputs: [MappedAudioOutput]
     let onOutputsChanged: ([MappedAudioOutput]) -> Void
 
-    @State private var selectedChannel: Int? = nil  // Single selected channel for linking
-    @State private var hoveredChannel: Int? = nil   // Currently hovered channel
+    @State private var draggedChannel: Int? = nil   // Channel being dragged
+    @State private var dragTargetChannel: Int? = nil  // Channel being hovered over during drag
     @State private var hoveredStereoGroup: UUID? = nil  // Currently hovered stereo group
+    @State private var dragLocation: CGPoint = .zero  // Current drag position in grid coordinates
     @State private var editingOutputId: UUID?
     @State private var editedName: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
-            // Channels header
-            Text("Channels")
-                .font(Typography.label)
-                .foregroundColor(AppColors.textTertiary)
+            // Channels header with instructional sublabel
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text("Channels")
+                    .font(Typography.label)
+                    .foregroundColor(AppColors.textTertiary)
+                Text("Drag channels together to create stereo pairs.")
+                    .font(Typography.caption)
+                    .foregroundColor(AppColors.textTertiary)
+            }
 
-            // Channel cells grid with Link button on same row
+            // Channel cells grid
             if totalChannels > 0 {
                 channelGrid
-                hintArea
             } else {
                 Text("No audio device selected")
                     .font(Typography.body)
@@ -311,22 +317,40 @@ private struct ChannelGridView: View {
         return items
     }
 
-    /// Check if this channel is part of an active link preview
-    private func isInLinkPreview(_ channel: Int) -> Bool {
-        guard let selected = selectedChannel else { return false }
-        guard let hovered = hoveredChannel else { return false }
-        guard abs(hovered - selected) == 1 else { return false }
-        guard channelState(for: hovered) == .inactive else { return false }
-        return channel == selected || channel == hovered
+    /// Check if this channel is being dragged
+    private func isBeingDragged(_ channel: Int) -> Bool {
+        draggedChannel == channel
     }
 
-    /// Check if this is the channel being hovered in a link preview (shows "Link?" text)
-    private func isLinkPreviewTarget(_ channel: Int) -> Bool {
-        guard let selected = selectedChannel else { return false }
-        guard let hovered = hoveredChannel else { return false }
-        guard abs(hovered - selected) == 1 else { return false }
-        guard channelState(for: hovered) == .inactive else { return false }
-        return channel == hovered
+    /// Check if this channel is a valid drag target
+    private func isValidDragTarget(_ channel: Int, from sourceChannel: Int? = nil) -> Bool {
+        let dragged = sourceChannel ?? draggedChannel
+        guard let dragged = dragged else { return false }
+        guard abs(channel - dragged) == 1 else { return false }  // Must be adjacent
+        return channelState(for: channel) == .inactive
+    }
+
+    /// Check if this channel is being hovered during drag
+    private func isDragTarget(_ channel: Int) -> Bool {
+        dragTargetChannel == channel && isValidDragTarget(channel)
+    }
+
+    /// Calculate which channel the drag is over based on position
+    private func channelAtPosition(_ position: CGPoint) -> Int? {
+        let cellWidth = SettingsLayout.channelCellSize + SettingsLayout.channelCellSpacing
+        let index = Int(position.x / cellWidth)
+        let channel = index + 1  // Channels are 1-indexed
+        guard channel >= 1 && channel <= totalChannels else { return nil }
+        return channel
+    }
+
+    /// Update drag target based on current drag position
+    private func updateDragTarget(at position: CGPoint, from sourceChannel: Int) {
+        if let channel = channelAtPosition(position), isValidDragTarget(channel, from: sourceChannel) {
+            dragTargetChannel = channel
+        } else {
+            dragTargetChannel = nil
+        }
     }
 
     private var channelGrid: some View {
@@ -337,20 +361,40 @@ private struct ChannelGridView: View {
                     ChannelCellView(
                         channel: channel,
                         state: .inactive,
-                        isSelected: selectedChannel == channel,
-                        isInLinkPreview: isInLinkPreview(channel),
-                        showLinkText: false,
-                        onTap: {
-                            // If showing link preview and clicking the target, do the link
-                            if isLinkPreviewTarget(channel), let selected = selectedChannel {
-                                linkChannels(selected, channel)
-                            } else {
-                                handleChannelTap(channel)
+                        isBeingDragged: isBeingDragged(channel),
+                        isDragTarget: isDragTarget(channel),
+                        onDragStarted: {
+                            // If another channel is already selected and this is adjacent, link them
+                            if let existingDrag = draggedChannel, existingDrag != channel {
+                                if isValidDragTarget(channel, from: existingDrag) {
+                                    linkChannels(existingDrag, channel)
+                                    draggedChannel = nil
+                                    dragTargetChannel = nil
+                                    return
+                                }
                             }
+                            // Otherwise, select this channel
+                            draggedChannel = channel
+                        },
+                        onDragChanged: { location in
+                            dragLocation = location
+                            updateDragTarget(at: location, from: channel)
+                        },
+                        onDragEnded: {
+                            if let target = dragTargetChannel, isValidDragTarget(target, from: channel) {
+                                linkChannels(channel, target)
+                            }
+                            draggedChannel = nil
+                            dragTargetChannel = nil
                         },
                         onActivate: { activateChannel(channel) },
-                        onHover: { isHovered in
-                            hoveredChannel = isHovered ? channel : nil
+                        onHoverChanged: { isHovered in
+                            // When hovering over a valid link target, show green glow
+                            if isHovered, let source = draggedChannel, isValidDragTarget(channel, from: source) {
+                                dragTargetChannel = channel
+                            } else if !isHovered && dragTargetChannel == channel {
+                                dragTargetChannel = nil
+                            }
                         }
                     )
 
@@ -358,12 +402,13 @@ private struct ChannelGridView: View {
                     ChannelCellView(
                         channel: channel,
                         state: channelState(for: channel),
-                        isSelected: false,
-                        isInLinkPreview: false,
-                        showLinkText: false,
-                        onTap: { handleChannelTap(channel) },
+                        isBeingDragged: false,
+                        isDragTarget: false,
+                        onDragStarted: { },
+                        onDragChanged: { _ in },
+                        onDragEnded: { },
                         onActivate: { },
-                        onHover: { _ in }
+                        onHoverChanged: { _ in }
                     )
 
                 case .stereoGroup(let channels, let outputId):
@@ -378,82 +423,7 @@ private struct ChannelGridView: View {
                 }
             }
         }
-    }
-
-    // MARK: - Hint Area
-
-    /// Shows contextual hints below the channel grid for link/unlink actions
-    private var hintArea: some View {
-        Group {
-            if let linkHint = linkPreviewHint {
-                // Link preview hint
-                Button(action: {
-                    if let selected = selectedChannel, let hovered = hoveredChannel {
-                        linkChannels(selected, hovered)
-                    }
-                }) {
-                    HStack(spacing: Spacing.xs) {
-                        Image(systemName: "link")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(AppColors.accentGreen)
-                        Text(linkHint)
-                            .font(Typography.caption)
-                            .foregroundColor(.primary)
-                    }
-                    .padding(.vertical, Spacing.xs)
-                }
-                .buttonStyle(.plain)
-                .help("Click to link these channels as stereo")
-            } else if let unlinkHint = unlinkPreviewHint {
-                // Unlink preview hint
-                Button(action: {
-                    if let groupId = hoveredStereoGroup {
-                        unlinkOutput(groupId)
-                    }
-                }) {
-                    HStack(spacing: Spacing.xs) {
-                        Image(systemName: "link.badge.minus")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(AppColors.accentPink)
-                        Text(unlinkHint)
-                            .font(Typography.caption)
-                            .foregroundColor(.primary)
-                    }
-                    .padding(.vertical, Spacing.xs)
-                }
-                .buttonStyle(.plain)
-                .help("Click to unlink stereo pair")
-            } else {
-                // Empty spacer to maintain layout
-                Text("")
-                    .font(Typography.caption)
-                    .padding(.vertical, Spacing.xs)
-            }
-        }
-        .frame(height: 20) // Keep consistent height
-    }
-
-    /// Returns hint text for link preview if conditions are met
-    private var linkPreviewHint: String? {
-        guard let selected = selectedChannel,
-              let hovered = hoveredChannel,
-              abs(hovered - selected) == 1,
-              channelState(for: hovered) == .inactive,
-              channelState(for: selected) == .inactive else {
-            return nil
-        }
-        let leftChannel = min(selected, hovered)
-        let rightChannel = max(selected, hovered)
-        return "Link Stereo? (\(leftChannel)-\(rightChannel))"
-    }
-
-    /// Returns hint text for unlink preview if stereo group is hovered
-    private var unlinkPreviewHint: String? {
-        guard let groupId = hoveredStereoGroup,
-              let output = outputs.first(where: { $0.id == groupId }) else {
-            return nil
-        }
-        return "Unlink? (\(output.channelStart)-\(output.channelStart + 1))"
+        .coordinateSpace(name: "channelGrid")
     }
 
     // MARK: - Outputs List
@@ -500,24 +470,7 @@ private struct ChannelGridView: View {
         return .inactive
     }
 
-    // MARK: - Selection & Linking
-
-    private func handleChannelTap(_ channel: Int) {
-        let state = channelState(for: channel)
-
-        switch state {
-        case .inactive:
-            // Toggle selection - single selection model
-            if selectedChannel == channel {
-                selectedChannel = nil
-            } else {
-                selectedChannel = channel
-            }
-        case .activeMono, .stereoPrimary, .stereoSecondary:
-            // Clear selection when tapping active channel
-            selectedChannel = nil
-        }
-    }
+    // MARK: - Channel Actions
 
     private func activateChannel(_ channel: Int) {
         var newOutputs = outputs
@@ -528,7 +481,6 @@ private struct ChannelGridView: View {
         ))
         newOutputs.sort { $0.channelStart < $1.channelStart }
         onOutputsChanged(newOutputs)
-        selectedChannel = nil
     }
 
     private func linkChannels(_ channel1: Int, _ channel2: Int) {
@@ -542,7 +494,6 @@ private struct ChannelGridView: View {
         ))
         newOutputs.sort { $0.channelStart < $1.channelStart }
         onOutputsChanged(newOutputs)
-        selectedChannel = nil
     }
 
     // MARK: - Output Management
@@ -615,8 +566,11 @@ private struct StereoGroupView: View {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(isHoveredForUnlink ? AppColors.accentPink.opacity(0.6) : AppColors.accentGreen.opacity(0.4), lineWidth: 1)
             )
+            .scaleEffect(isHoveredForUnlink ? 1.03 : 1.0)
+            .shadow(color: isHoveredForUnlink ? AppColors.accentPink.opacity(0.5) : .clear, radius: isHoveredForUnlink ? 3 : 0)
         }
         .buttonStyle(.plain)
+        .animation(AppAnimations.quick, value: isHoveredForUnlink)
         .onHover { hovering in
             withAnimation(AppAnimations.quick) {
                 onHover(hovering)
@@ -631,12 +585,13 @@ private struct StereoGroupView: View {
 private struct ChannelCellView: View {
     let channel: Int
     let state: ChannelState
-    let isSelected: Bool
-    let isInLinkPreview: Bool  // True when this cell is part of an active link preview
-    let showLinkText: Bool     // True when this is the hover target showing "Link?" (now unused, kept for compatibility)
-    let onTap: () -> Void
+    let isBeingDragged: Bool
+    let isDragTarget: Bool
+    let onDragStarted: () -> Void
+    let onDragChanged: (CGPoint) -> Void  // Reports position in grid coordinate space
+    let onDragEnded: () -> Void
     let onActivate: () -> Void
-    let onHover: (Bool) -> Void
+    let onHoverChanged: (Bool) -> Void  // Report hover state to parent
 
     @State private var isHovered = false
 
@@ -645,54 +600,93 @@ private struct ChannelCellView: View {
         return false
     }
 
+    // Computed properties for visual effects
+    private var hoverScale: CGFloat {
+        if isBeingDragged { return 1.06 }
+        if isDragTarget { return 1.05 }
+        if isHovered { return 1.03 }
+        return 1.0
+    }
+
+    private var borderWidth: CGFloat {
+        if isBeingDragged || isDragTarget { return 2 }
+        if isHovered { return 1.5 }
+        return 1
+    }
+
+    private var shadowColor: Color {
+        if isDragTarget { return AppColors.accentGreen }
+        if isBeingDragged { return AppColors.accentYellow }
+        if isHovered { return AppColors.accentBlue }
+        return .clear
+    }
+
+    private var shadowRadius: CGFloat {
+        if isDragTarget || isBeingDragged { return 4 }
+        if isHovered { return 3 }
+        return 0
+    }
+
     var body: some View {
-        Button(action: onTap) {
-            ZStack {
-                // Background
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(backgroundColor)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(borderColor, lineWidth: (isSelected || isInLinkPreview) ? 2 : 1)
-                    )
+        ZStack {
+            // Background
+            RoundedRectangle(cornerRadius: 6)
+                .fill(backgroundColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(borderColor, lineWidth: borderWidth)
+                )
 
-                // Channel number
-                Text("\(channel)")
-                    .font(Typography.mono)
-                    .foregroundColor(textColor)
-
-                // Hover affordance for inactive - plus icon (only when not in link preview)
-                if isInactive && isHovered && !isSelected && !isInLinkPreview {
-                    Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(AppColors.accentBlue.opacity(0.8))
-                        .offset(x: 8, y: -8)
-                }
-            }
-            .frame(width: SettingsLayout.channelCellSize, height: SettingsLayout.channelCellSize)
+            // Channel number
+            Text("\(channel)")
+                .font(Typography.mono)
+                .foregroundColor(textColor)
         }
-        .buttonStyle(.plain)
+        .frame(width: SettingsLayout.channelCellSize, height: SettingsLayout.channelCellSize)
+        .contentShape(Rectangle())
+        .scaleEffect(hoverScale)
+        .shadow(color: shadowColor.opacity(0.5), radius: shadowRadius)
+        .animation(AppAnimations.quick, value: isHovered)
+        .animation(AppAnimations.quick, value: isBeingDragged)
+        .animation(AppAnimations.quick, value: isDragTarget)
         .onHover { hovering in
             withAnimation(AppAnimations.quick) {
                 isHovered = hovering
             }
-            onHover(hovering)
+            onHoverChanged(hovering)
         }
+        .onTapGesture {
+            if isInactive {
+                onDragStarted()  // Use tap to select/link
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { value in
+                    if isInactive && !isBeingDragged {
+                        onDragStarted()
+                    }
+                    onDragChanged(value.location)
+                }
+                .onEnded { _ in
+                    onDragEnded()
+                }
+        )
         .contextMenu {
-            if isInactive && !isInLinkPreview {
+            if isInactive {
                 Button("Activate as Mono") { onActivate() }
             }
         }
         .help(helpText)
+        .cursor(isInactive ? (isBeingDragged ? .closedHand : .openHand) : .arrow)
     }
 
     private var backgroundColor: Color {
-        // Link preview takes precedence
-        if isInLinkPreview {
-            return AppColors.accentGreen.opacity(0.35)
+        if isBeingDragged {
+            return AppColors.accentYellow.opacity(0.4)
         }
-        if isSelected {
-            return AppColors.accentYellow.opacity(0.3)
+        if isDragTarget {
+            return AppColors.accentGreen.opacity(0.4)
         }
         switch state {
         case .inactive:
@@ -706,12 +700,11 @@ private struct ChannelCellView: View {
     }
 
     private var borderColor: Color {
-        // Link preview takes precedence
-        if isInLinkPreview {
-            return AppColors.accentGreen.opacity(0.6)
+        if isBeingDragged {
+            return AppColors.accentYellow.opacity(0.7)
         }
-        if isSelected {
-            return AppColors.accentYellow
+        if isDragTarget {
+            return AppColors.accentGreen.opacity(0.7)
         }
         switch state {
         case .inactive:
@@ -724,7 +717,7 @@ private struct ChannelCellView: View {
     }
 
     private var textColor: Color {
-        if isInLinkPreview || isSelected {
+        if isBeingDragged || isDragTarget {
             return .primary
         }
         switch state {
@@ -738,15 +731,32 @@ private struct ChannelCellView: View {
     private var helpText: String {
         switch state {
         case .inactive:
-            if isInLinkPreview {
-                return "Click to link these channels as stereo"
+            if isBeingDragged {
+                return "Drag to adjacent channel to create stereo pair"
             }
-            return isSelected ? "Hover over adjacent channel to link"
-                : "Click to select, right-click to activate as mono"
+            if isDragTarget {
+                return "Release to link as stereo"
+            }
+            return "Drag to link, right-click to activate as mono"
         case .activeMono:
             return "Active mono output"
         case .stereoPrimary, .stereoSecondary:
             return "Linked stereo pair"
+        }
+    }
+}
+
+// MARK: - Cursor Extension
+
+extension View {
+    /// Sets the cursor type when hovering over this view
+    func cursor(_ cursor: NSCursor) -> some View {
+        self.onHover { isHovered in
+            if isHovered {
+                cursor.push()
+            } else {
+                NSCursor.pop()
+            }
         }
     }
 }

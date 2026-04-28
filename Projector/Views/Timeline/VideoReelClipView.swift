@@ -145,7 +145,12 @@ struct VideoReelClipView: View {
                     onDoubleClick()
                 }
         )
-        .help(reel.sourceURL.lastPathComponent)
+        .help("Double-click to set timecode position")
+        .contextMenu {
+            Button("Set Timecode Position...") {
+                onDoubleClick()
+            }
+        }
     }
 
     // MARK: - Thumbnail Filmstrip

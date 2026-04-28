@@ -14,6 +14,13 @@ struct VideoTrackView: View {
     let showThumbnails: Bool
     let clipInteractionsEnabled: Bool
     let onDropMedia: ([URL], Int, Bool) -> Void
+    /// Called when a drop contains BOTH video and audio files.
+    ///
+    /// - Parameters:
+    ///   - videoURLs: Array of video file URLs from the drop
+    ///   - audioURLs: Array of audio file URLs from the drop
+    ///   - targetFrame: Timeline frame position where the drop occurred
+    var onDropMixedMedia: (([URL], [URL], Int) -> Void)?
     let onReelSelected: (UUID?, SelectionModifiers) -> Void
     let onReelDoubleClick: (VideoReel) -> Void
     let onReelMove: (UUID, Int) -> Void
@@ -276,19 +283,28 @@ struct VideoTrackView: View {
 
     // MARK: - Drop Handling
 
+    /// Routes video/audio URLs to the appropriate handler
+    /// - Mixed drops (video + audio): routes to onDropMixedMedia
+    /// - Video-only drops: routes to onDropMedia
+    /// - Audio-only drops: ignored (audio lane handles these)
+    private func routeDroppedMedia(videoURLs: [URL], audioURLs: [URL], targetFrame: Int, isInternalDrag: Bool) {
+        if !videoURLs.isEmpty && !audioURLs.isEmpty, let onMixed = onDropMixedMedia {
+            onMixed(videoURLs, audioURLs, targetFrame)
+        } else if !videoURLs.isEmpty {
+            onDropMedia(videoURLs, targetFrame, isInternalDrag)
+        }
+        // Audio-only drops on video track: ignored (existing behavior)
+    }
+
     private func handleDrop(providers: [NSItemProvider], at location: CGPoint) -> Bool {
         let targetFrame = dropFrame(for: location)
         let isInternalDrag = isInternalMediaDrag(providers)
 
         // For internal drags (single or multi-file), use DragContext
         if isInternalDrag && dragContext.isDragging && dragContext.mediaItems.count > 0 {
-            let videoURLs = dragContext.mediaItems
-                .filter { $0.type == .video }
-                .map { $0.url }
-            debugPrint("VideoTrackView.handleDrop: Using DragContext with \(videoURLs.count) video URLs")
-            if !videoURLs.isEmpty {
-                onDropMedia(videoURLs, targetFrame, isInternalDrag)
-            }
+            let videoURLs = dragContext.mediaItems.filter { $0.type == .video }.map { $0.url }
+            let audioURLs = dragContext.mediaItems.filter { $0.type == .audio }.map { $0.url }
+            routeDroppedMedia(videoURLs: videoURLs, audioURLs: audioURLs, targetFrame: targetFrame, isInternalDrag: isInternalDrag)
             dragContext.end()
             clearDropPreview()
             return true
@@ -313,10 +329,9 @@ struct VideoTrackView: View {
 
         group.notify(queue: .main) {
             let videoURLs = urls.filter { self.isVideoFile($0) }
-            debugPrint("VideoTrackView.handleDrop: Collected \(videoURLs.count) video URLs from \(providers.count) providers")
-            if !videoURLs.isEmpty {
-                self.onDropMedia(videoURLs, targetFrame, isInternalDrag)
-            }
+            let audioURLs = urls.filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
+            self.routeDroppedMedia(videoURLs: videoURLs, audioURLs: audioURLs, targetFrame: targetFrame, isInternalDrag: isInternalDrag)
+
             if isInternalDrag {
                 self.dragContext.end()
             }
@@ -335,8 +350,7 @@ struct VideoTrackView: View {
     private func dropFrame(for location: CGPoint) -> Int {
         let x = max(0, location.x + scrollOffset)
         let rawFrame = Int(x / max(pixelsPerFrame, 0.001))
-        let maxFrame = max(0, timelineManager.timeline.config.durationFrames - 1)
-        return max(0, min(rawFrame, maxFrame))
+        return max(0, rawFrame)  // Only clamp lower bound, let business logic auto-extend
     }
 
     private func updateDropPreview(location: CGPoint) {

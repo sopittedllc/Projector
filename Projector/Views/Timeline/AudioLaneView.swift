@@ -26,6 +26,13 @@ struct AudioLaneView: View {
     let onVolumeChange: (Float) -> Void
     let onOutputMappingChange: (MappedAudioOutput?) -> Void
     let onDropMedia: ([URL], Int, Bool) -> Void
+    /// Called when a drop contains BOTH video and audio files.
+    ///
+    /// - Parameters:
+    ///   - videoURLs: Array of video file URLs from the drop
+    ///   - audioURLs: Array of audio file URLs from the drop
+    ///   - targetFrame: Timeline frame position where the drop occurred
+    var onDropMixedMedia: (([URL], [URL], Int) -> Void)?
     let onClipSelected: (UUID?, SelectionModifiers) -> Void
     let onClipDoubleClick: (AudioClip) -> Void
     let onClipMove: (UUID, Int) -> Void
@@ -633,7 +640,7 @@ struct AudioLaneView: View {
     private func dropFrame(for location: CGPoint) -> Int {
         let x = max(0, location.x + scrollOffset)
         let rawFrame = Int(x / max(pixelsPerFrame, 0.001))
-        return max(0, min(rawFrame, max(0, timelineDurationFrames - 1)))
+        return max(0, rawFrame)  // Only clamp lower bound, let business logic auto-extend
     }
 
     private func updateDropPreview(location: CGPoint) {
@@ -723,26 +730,34 @@ struct AudioLaneView: View {
 
     // MARK: - Native Drop Handling (AppKit)
 
-    /// Get audio candidate from NSDraggingInfo, checking dragContext first for internal drags
-    private func audioCandidate(from info: NSDraggingInfo) -> (urls: [URL], duration: Double?, isInternal: Bool) {
+    /// Get all media candidates from NSDraggingInfo, checking dragContext first for internal drags
+    private func allMediaCandidates(from info: NSDraggingInfo) -> (videoURLs: [URL], audioURLs: [URL], audioDuration: Double?, isInternal: Bool) {
         // Check dragContext first for internal Media panel drags (supports multi-select)
-        if dragContext.isDragging {
+        if dragContext.isDragging && !dragContext.mediaItems.isEmpty {
+            let videoURLs = dragContext.mediaItems.filter { $0.type == .video }.map { $0.url }
             let audioItems = dragContext.mediaItems.filter { $0.type == .audio }
-            if !audioItems.isEmpty {
-                let urls = audioItems.map { $0.url }
-                // Use first item's duration for preview (multi-file will place sequentially)
-                let duration = audioItems.first?.duration
-                return (urls, duration, true)
-            }
+            let audioURLs = audioItems.map { $0.url }
+            // Use first audio item's duration for preview (multi-file will place sequentially)
+            let audioDuration = audioItems.first?.duration
+            return (videoURLs, audioURLs, audioDuration, true)
         }
 
         // Fall back to pasteboard for Finder drags
         let pasteboard = info.draggingPasteboard
-        let urls = (pasteboard.readObjects(forClasses: [NSURL.self], options: [
+        let allURLs = (pasteboard.readObjects(forClasses: [NSURL.self], options: [
             .urlReadingFileURLsOnly: true
-        ]) as? [URL] ?? []).filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
+        ]) as? [URL]) ?? []
 
-        return (urls, nil, false)
+        let videoURLs = allURLs.filter { ProjectMediaLibrary.mediaType(for: $0) == .video }
+        let audioURLs = allURLs.filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
+
+        return (videoURLs, audioURLs, nil, false)
+    }
+
+    /// Get audio candidate from NSDraggingInfo, checking dragContext first for internal drags
+    private func audioCandidate(from info: NSDraggingInfo) -> (urls: [URL], duration: Double?, isInternal: Bool) {
+        let candidates = allMediaCandidates(from: info)
+        return (candidates.audioURLs, candidates.audioDuration, candidates.isInternal)
     }
 
     private func beginDropPreviewNative(info: NSDraggingInfo, at location: CGPoint) {
@@ -799,23 +814,46 @@ struct AudioLaneView: View {
         }
     }
 
-    private func handleDropNative(info: NSDraggingInfo, at location: CGPoint) -> Bool {
-        // Handle both single and multi-file audio drops in this lane
-        let candidate = audioCandidate(from: info)
-        guard !candidate.urls.isEmpty else {
-            clearDropPreview()
-            return false
+    /// Routes video/audio URLs to the appropriate handler.
+    ///
+    /// - Mixed drops (video + audio): routes to onDropMixedMedia
+    /// - Audio-only drops: routes to onDropMedia
+    /// - Video-only drops: ignored (video track handles these)
+    ///
+    /// - Parameters:
+    ///   - videoURLs: Array of video file URLs
+    ///   - audioURLs: Array of audio file URLs
+    ///   - targetFrame: Timeline frame position for placement
+    ///   - isInternalDrag: Whether this originated from the media panel
+    /// - Returns: true if drop was handled, false if no valid content
+    private func routeDroppedMedia(videoURLs: [URL], audioURLs: [URL], targetFrame: Int, isInternalDrag: Bool) -> Bool {
+        if !videoURLs.isEmpty && !audioURLs.isEmpty, let onMixed = onDropMixedMedia {
+            onMixed(videoURLs, audioURLs, targetFrame)
+            return true
+        } else if !audioURLs.isEmpty {
+            onDropMedia(audioURLs, targetFrame, isInternalDrag)
+            return true
         }
+        // Video-only drops on audio lane: ignored (video track handles these)
+        return false
+    }
 
+    private func handleDropNative(info: NSDraggingInfo, at location: CGPoint) -> Bool {
+        let candidates = allMediaCandidates(from: info)
         let targetFrame = dropFrame(for: location)
-        onDropMedia(candidate.urls, targetFrame, candidate.isInternal)
 
-        if candidate.isInternal {
+        let handled = routeDroppedMedia(
+            videoURLs: candidates.videoURLs,
+            audioURLs: candidates.audioURLs,
+            targetFrame: targetFrame,
+            isInternalDrag: candidates.isInternal
+        )
+
+        if candidates.isInternal {
             dragContext.end()
         }
-
         clearDropPreview()
-        return true
+        return handled
     }
 
     private func loadFirstURL(from providers: [NSItemProvider], completion: @escaping (URL?) -> Void) {

@@ -962,6 +962,7 @@ struct MultiTrackTimelineView: View {
                             showThumbnails: !debug.disableThumbnails,
                             clipInteractionsEnabled: !debug.disableClipInteractions,
                             onDropMedia: onDropVideoMedia,
+                            onDropMixedMedia: onDropMixedMedia,
                             onReelSelected: { reelId, modifiers in
                                 handleReelSelection(reelId: reelId, modifiers: modifiers)
                             },
@@ -1022,6 +1023,7 @@ struct MultiTrackTimelineView: View {
                                 onVolumeChange: { volume in timelineManager.setLaneVolume(at: index, volume: volume) },
                                 onOutputMappingChange: { output in timelineManager.setLaneOutputMapping(id: lane.id, mapping: output) },
                                 onDropMedia: { urls, frame, isInternal in onDropAudioMedia(index, urls, frame, isInternal) },
+                                onDropMixedMedia: onDropMixedMedia,
                                 onClipSelected: { clipId, modifiers in
                                     handleClipSelection(clipId: clipId, laneId: lane.id, modifiers: modifiers)
                                 },

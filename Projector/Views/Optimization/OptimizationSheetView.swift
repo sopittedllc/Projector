@@ -300,71 +300,70 @@ struct OptimizationSheetView: View {
         }
     }
 
-    // MARK: - Complete View (Verification Report)
+    // MARK: - Complete View (Two-Step Cleanup)
 
     private var completeView: some View {
         VStack(spacing: 0) {
-            // Success banner
-            HStack {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-                    .font(.title2)
-                VStack(alignment: .leading) {
-                    Text("\(viewModel.result?.optimizedCount ?? 0) files optimized")
-                        .font(.headline)
-                    if let saved = viewModel.result?.totalSavedBytes, saved > 0 {
-                        Text("Saved \(ByteCountFormatter.string(fromByteCount: Int64(saved), countStyle: .file))")
+            Spacer()
+
+            // Success icon
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(.green)
+                .font(.system(size: 48))
+                .padding(.bottom, Spacing.md)
+
+            // Success message
+            VStack(spacing: Spacing.xs) {
+                Text("Optimization Complete")
+                    .font(.headline)
+
+                if let result = viewModel.result {
+                    let saved = result.totalSavedBytes
+                    if saved > 0 {
+                        Text("\(result.optimizedCount) files optimized, saving \(ByteCountFormatter.string(fromByteCount: Int64(saved), countStyle: .file))")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
                 }
-                Spacer()
             }
-            .padding()
-            .background(Color.green.opacity(0.1))
+            .padding(.bottom, Spacing.lg)
 
-            // Verification report
-            ScrollView {
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    Text("VERIFICATION REPORT")
-                        .font(.caption.bold())
-                        .foregroundColor(.secondary)
-                        .padding(.top)
+            // Explanation
+            Text("Original files are still in library.")
+                .font(.body)
+                .foregroundColor(.secondary)
+                .padding(.bottom, Spacing.xs)
 
-                    if let result = viewModel.result {
-                        ForEach(result.successfulItems) { item in
-                            VerificationItemRow(item: item)
-                        }
+            Text("What would you like to do with them?")
+                .font(.body)
+                .foregroundColor(.primary)
+                .padding(.bottom, Spacing.lg)
 
-                        if !result.failedItems.isEmpty {
-                            Divider()
-                                .padding(.vertical, 8)
+            // Cleanup options (radio buttons)
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                CleanupOptionButton(
+                    title: "Keep originals where they are",
+                    isSelected: viewModel.cleanupAction == nil,
+                    action: { viewModel.cleanupAction = nil }
+                )
 
-                            Text("FAILED")
-                                .font(.caption.bold())
-                                .foregroundColor(.red)
+                CleanupOptionButton(
+                    title: "Move to \"Raw Files\" folder",
+                    isSelected: viewModel.cleanupAction == .moveToRawFolder,
+                    action: { viewModel.cleanupAction = .moveToRawFolder }
+                )
 
-                            ForEach(result.failedItems) { item in
-                                FailedItemRow(item: item)
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal)
+                CleanupOptionButton(
+                    title: "Move to Trash",
+                    isSelected: viewModel.cleanupAction == .deleteOriginals,
+                    action: { viewModel.cleanupAction = .deleteOriginals }
+                )
             }
+            .padding(.horizontal, 40)
 
-            // Optimized media folder info
-            if let folder = viewModel.result?.optimizedMediaFolder {
-                HStack {
-                    Image(systemName: "folder.fill")
-                        .foregroundColor(.blue)
-                    Text("Optimized files saved to: \(folder.lastPathComponent)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .padding()
-            }
+            Spacer()
         }
+        .frame(maxHeight: .infinity)
     }
 
     // MARK: - Error View
@@ -479,7 +478,19 @@ struct OptimizationSheetView: View {
                 }
                 .keyboardShortcut(.cancelAction)
 
-            case .complete, .error:
+            case .complete:
+                Button("Done") {
+                    Task {
+                        // Execute cleanup if user selected an action
+                        if viewModel.cleanupAction != nil {
+                            try? await viewModel.executeCleanup()
+                        }
+                        dismiss()
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+
+            case .error:
                 Button("Done") { dismiss() }
                     .keyboardShortcut(.defaultAction)
             }
@@ -703,5 +714,172 @@ private struct FailedItemRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// Radio button option for cleanup actions
+private struct CleanupOptionButton: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Spacing.sm) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .foregroundColor(isSelected ? .accentColor : .secondary)
+                    .font(.system(size: 14))
+
+                Text(title)
+                    .font(Typography.body)
+                    .foregroundColor(.primary)
+
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Cleanup Original Files Dialog
+
+/// Dialog for cleaning up original files after optimization
+private struct CleanupOriginalFilesDialog: View {
+    @ObservedObject var viewModel: OptimizationViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var isProcessing = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Cleanup Original Files")
+                    .font(.headline)
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding()
+
+            Divider()
+
+            // Content
+            VStack(spacing: Spacing.lg) {
+                VStack(alignment: .leading, spacing: Spacing.md) {
+                    Text("Optimized files are now in use.")
+                        .font(.subheadline)
+
+                    Text("What would you like to do with the original files?")
+                        .font(.subheadline)
+
+                    Text("(\(ByteCountFormatter.string(fromByteCount: Int64(viewModel.totalOriginalFilesSize), countStyle: .file)))")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: Spacing.sm) {
+                    // Keep originals
+                    Button {
+                        viewModel.cleanupAction = nil
+                    } label: {
+                        HStack {
+                            Image(systemName: viewModel.cleanupAction == nil ? "largecircle.fill.circle" : "circle")
+                                .foregroundColor(viewModel.cleanupAction == nil ? .accentColor : .secondary)
+                            Text("Keep original files")
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    // Move to Raw Files folder
+                    Button {
+                        viewModel.cleanupAction = .moveToRawFolder
+                    } label: {
+                        HStack {
+                            Image(systemName: viewModel.cleanupAction == .moveToRawFolder ? "largecircle.fill.circle" : "circle")
+                                .foregroundColor(viewModel.cleanupAction == .moveToRawFolder ? .accentColor : .secondary)
+                            Text("Move to \"Raw Files\" folder")
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    // Delete originals
+                    Button {
+                        viewModel.cleanupAction = .deleteOriginals
+                    } label: {
+                        HStack {
+                            Image(systemName: viewModel.cleanupAction == .deleteOriginals ? "largecircle.fill.circle" : "circle")
+                                .foregroundColor(viewModel.cleanupAction == .deleteOriginals ? .accentColor : .secondary)
+                            Text("Delete originals (move to Trash)")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Error message if cleanup failed
+                if let errorMessage = errorMessage {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(Spacing.sm)
+                    .background(Color.orange.opacity(0.1))
+                    .cornerRadius(4)
+                }
+            }
+            .padding()
+            .frame(maxHeight: .infinity)
+
+            Divider()
+
+            // Footer
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                .disabled(isProcessing)
+
+                Button("Confirm") {
+                    Task {
+                        await performCleanup()
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(isProcessing)
+            }
+            .padding()
+        }
+        .frame(width: 450, height: 300)
+    }
+
+    private func performCleanup() async {
+        // If user chose to keep originals, just dismiss
+        guard viewModel.cleanupAction != nil else {
+            dismiss()
+            return
+        }
+
+        isProcessing = true
+        errorMessage = nil
+
+        do {
+            try await viewModel.executeCleanup()
+            dismiss()
+        } catch {
+            errorMessage = "Cleanup failed: \(error.localizedDescription)"
+            isProcessing = false
+        }
     }
 }

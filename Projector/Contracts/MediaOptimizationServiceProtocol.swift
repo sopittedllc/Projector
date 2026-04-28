@@ -3,9 +3,9 @@
 //  Projector
 //
 //  THE CONTRACT: Media Optimization Service
-//  Defined by: arch-architect
-//  Implemented by: backend-logic (MediaOptimizationService)
-//  Consumed by: ui-specialist (OptimizationViewModel)
+//  Layer: Contracts
+//  Implemented in: Managers
+//  Consumed in: Views
 //
 
 import Foundation
@@ -378,6 +378,7 @@ enum MediaOptimizationError: LocalizedError, Sendable {
     case unsupportedFormat(URL, String)
     case cancelled
     case noItemsToOptimize
+    case invalidPath
 
     var errorDescription: String? {
         switch self {
@@ -393,6 +394,8 @@ enum MediaOptimizationError: LocalizedError, Sendable {
             return "Optimization was cancelled"
         case .noItemsToOptimize:
             return "No files need optimization"
+        case .invalidPath:
+            return "Invalid path specified for operation"
         }
     }
 }
@@ -462,8 +465,11 @@ protocol MediaOptimizationServiceProtocol: Sendable {
     /// Optimize media items with progress reporting.
     ///
     /// For each item:
-    /// 1. Video: Transcode to H.264 720p at ~2.5 Mbps, preserving original frame rate
-    /// 2. Audio: Transcode to AAC stereo at 128 kbps, preserving original sample rate
+    /// 1. Video: Transcode to HEVC 720p in MOV container, preserving frame rate and timecode tracks
+    /// 2. Audio: Transcode to AAC stereo at 160 kbps, preserving original sample rate
+    ///
+    /// Output uses MOV container (not MP4) to preserve embedded SMPTE timecode tracks.
+    /// See Apple Technical Note TN2310 for timecode track requirements.
     ///
     /// Progress is reported via the callback, which is called from the actor.
     /// The callback should dispatch to MainActor for UI updates.

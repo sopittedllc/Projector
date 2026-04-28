@@ -329,6 +329,21 @@ enum SettingsLayout {
 
     /// Vertical spacing between form rows
     static let formRowVerticalSpacing: CGFloat = Spacing.sm  // 8pt
+
+    /// macOS HIG form spacing: 6pt between trailing labels and leading controls
+    static let formLabelControlGap: CGFloat = 6
+
+    /// Window edge margins for settings content
+    static let windowMargin: CGFloat = Spacing.xl  // 20pt
+
+    /// Space from section header to content
+    static let headerToContentSpacing: CGFloat = 14
+
+    /// Space between sections
+    static let sectionSpacing: CGFloat = Spacing.md  // 12pt
+
+    /// Fixed width for form sections (ensures consistent label-control spacing)
+    static let formSectionWidth: CGFloat = 240
 }
 
 // ============================================================================

@@ -121,7 +121,12 @@ struct AudioClipView: View {
                     onDoubleClick()
                 }
         )
-        .help(clip.sourceURL.lastPathComponent)
+        .help("Double-click to set timecode position")
+        .contextMenu {
+            Button("Set Timecode Position...") {
+                onDoubleClick()
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("audio-clip")
     }
