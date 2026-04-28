@@ -1,7 +1,7 @@
 # Projector - Feature Registry
 
 > **Purpose**: Document all features with their associated files, dependencies, and integration points.
-> **Owner**: the-lead agent (updates required after every feature implementation)
+> This file tracks project progress and features.
 > **Last Updated**: 2026-03-31
 
 ---
@@ -475,7 +475,7 @@ Cue sheet management with auto-detection from audio silence analysis. Included c
 
 ### Periodic Audit
 
-The `qa-auditor` agent should periodically verify:
+Periodically verify:
 - All active features have complete entries
 - File paths are accurate
 - Integration points are current

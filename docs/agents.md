@@ -9,8 +9,6 @@ This project uses specialized AI agents for role separation. Each agent has spec
 | Agent | Role | When to Use |
 |-------|------|-------------|
 | **joseph** | Implementer | Writing code from approved plans |
-| **backend-logic** | MIDI/Audio specialist | CoreMIDI, CoreAudio, AVFoundation code |
-| **ui-specialist** | SwiftUI/AppKit specialist | Views, layouts, animations |
 
 ### Review Agents (Read-Only)
 
@@ -18,7 +16,6 @@ This project uses specialized AI agents for role separation. Each agent has spec
 |-------|------|-------------|
 | **clare** | Code reviewer | Before merging any code |
 | **thomas** | Researcher | Before building anything new |
-| **qa-auditor** | Deep code audit | Detailed standards compliance |
 
 ### Utility Agents
 
@@ -27,41 +24,25 @@ This project uses specialized AI agents for role separation. Each agent has spec
 | **isidore** | Repo janitor | Git cleanup, branch management |
 | **gabriel** | QA dispatcher | Pre-merge QA gate |
 | **cecilia** | Blind product tester | Testing running app |
-| **scope-guard** | Scope control | Preventing feature creep |
-
-### Post-Mortem Agents
-
-| Agent | Role | When to Use |
-|-------|------|-------------|
-| **coroner** | Forensic analysis | When something breaks unexpectedly |
-| **surgeon** | Fix implementation | Implementing coroner-approved fixes |
-
-### Project Management
-
-| Agent | Role | When to Use |
-|-------|------|-------------|
-| **the-lead** | Roadmap maintainer | After features complete |
-| **arch-architect** | System design | Before starting implementation |
-| **the-librarian** | Knowledge capture | After learning something new |
 
 ## How to Use Agents
 
 ### Natural Language
 ```
-"Have Clare review the code I just wrote"
-"Use Thomas to research MTC synchronization"
-"Run Isidore to clean up branches"
+"Have clare review the code I just wrote"
+"Use thomas to research MTC synchronization"
+"Run isidore to clean up branches"
 ```
 
 ### Explicit Spawn
 ```
-"Spawn Clare to review src/"
-"Spawn Thomas to research rate limiting"
+"Spawn clare to review src/"
+"Spawn thomas to research rate limiting"
 ```
 
 ### In Workflow
 ```
-"I want a full QA pass before merge - use Gabriel"
+"I want a full QA pass before merge - use gabriel"
 ```
 
 ## Agent Frontmatter
@@ -108,10 +89,10 @@ docs/
 ## Constraints Are Features
 
 The agents are valuable because of their constraints:
-- **Clare can't fix code** - provides unbiased review
-- **Thomas can't write files** - prevents premature implementation
-- **Cecilia can't read source** - provides blind user testing
-- **Joseph can't expand scope** - prevents feature creep
+- **clare can't fix code** - provides unbiased review
+- **thomas can't write files** - prevents premature implementation
+- **cecilia can't read source** - provides blind user testing
+- **joseph can't expand scope** - prevents feature creep
 
 These constraints create adversarial checks that catch what a single "do everything" AI would miss.
 

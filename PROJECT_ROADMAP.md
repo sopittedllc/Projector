@@ -1,7 +1,7 @@
 # Projector - Project Roadmap
 
 > **Last Updated**: 2026-03-31 (v1.0 COMPLETE)
-> **Owner**: the-lead agent
+> This file tracks project progress and features.
 > **Overall Progress**: 100% - Ready for App Store submission
 
 ---
@@ -948,4 +948,4 @@ The codebase had functional features but lacked professional architecture patter
 
 ---
 
-*This roadmap is maintained by the-lead agent. Updates require QA approval.*
+*This roadmap tracks project progress.*

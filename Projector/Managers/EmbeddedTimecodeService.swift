@@ -5,7 +5,7 @@
 //  Actor implementing EmbeddedTimecodeServiceProtocol.
 //  Detects embedded timecode from QuickTime tracks, XMP metadata, and ProRes.
 //
-//  Owned by: backend-logic
+//  Layer: Managers
 //  Contract: EmbeddedTimecodeServiceProtocol
 //
 

@@ -113,7 +113,6 @@ Wait for both agents to complete, then unify reports.
 ## Handoff
 → [user]: Review combined report
 → [joseph]: Fix blockers (if needed)
-→ [the-lead]: Update roadmap after merge
 ```
 
 ## When to Use Each QA
@@ -155,14 +154,4 @@ After QA complete:
 ## Handoff
 → [user]: Review QA report and decide on merge
 → [joseph]: If blockers found, fix them
-→ [the-lead]: After merge, update roadmap
 ```
-
-## Integration with Existing Agents
-
-Gabriel works alongside Projector's existing agents:
-- **qa-auditor**: Detailed code audit (use for deep dives)
-- **scope-guard**: Scope check (use before implementation)
-- **coroner**: Post-mortem (use when things break)
-
-Use Gabriel for the standard pre-merge QA gate. Use the specialized agents for deeper investigation.

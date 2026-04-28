@@ -5,7 +5,7 @@
 //  Sprint 4: Optimization Discoverability - Smart contextual prompts
 //  that suggest optimization when it would help performance.
 //
-//  Owned by: ui-specialist
+//  Layer: Views
 //
 
 import SwiftUI

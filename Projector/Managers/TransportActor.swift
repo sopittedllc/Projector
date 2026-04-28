@@ -3,9 +3,9 @@
 //  Projector
 //
 //  THE CONTRACT IMPLEMENTATION: TransportServiceProtocol
-//  Defined by: arch-architect
-//  Implemented by: backend-logic
-//  Consumed by: ui-specialist (TransportViewModel)
+//  Layer: Contracts
+//  Implemented in: Managers
+//  Consumed in: Views
 //
 
 import Foundation

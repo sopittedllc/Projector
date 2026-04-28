@@ -5,9 +5,9 @@
 ## Auto-Trigger
 
 When editing files in `Views/`:
-- **MUST use ui-specialist agent** for implementation
-- **MUST run Clare** before committing changes
-- **MUST run Cecilia** if changes affect user-facing UI
+- **MUST use joseph** for implementation
+- **MUST run clare** before committing changes
+- **MUST run cecilia** if changes affect user-facing UI
 
 ## Layer Constraints
 

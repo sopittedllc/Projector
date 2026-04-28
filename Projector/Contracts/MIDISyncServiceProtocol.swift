@@ -3,9 +3,9 @@ import MIDIKitIO
 import SwiftTimecodeCore
 
 // MARK: - THE CONTRACT: MIDISyncServiceProtocol
-// Defined by: arch-architect
-// Implemented by: backend-logic (MIDISyncActor)
-// Consumed by: ui-specialist (MIDISyncViewModel)
+// Layer: Contracts
+// Implemented in: Managers
+// Consumed in: Views
 
 /// Contract for MIDI sync services (MTC reception, MMC command handling).
 ///

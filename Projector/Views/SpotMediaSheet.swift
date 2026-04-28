@@ -5,7 +5,7 @@
 //  A composer-focused "Spot Media" dialog for placing media at specific timecodes.
 //  Sprint 1: Core composer workflow - the missing "Spot to Timecode" feature.
 //
-//  Owned by: ui-specialist
+//  Layer: Views
 //  Contract: N/A (pure UI component)
 //
 

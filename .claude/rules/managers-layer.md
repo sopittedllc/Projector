@@ -5,9 +5,9 @@
 ## Auto-Trigger
 
 When editing files in `Managers/`:
-- **MUST use backend-logic agent** for implementation
-- **MUST run Clare** before committing changes
-- **SHOULD run Thomas** if touching MIDI/MTC/MMC code
+- **MUST use joseph** for implementation
+- **MUST run clare** before committing changes
+- **SHOULD run thomas** if touching MIDI/MTC/MMC code
 
 ## Layer Constraints
 

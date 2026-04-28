@@ -99,19 +99,19 @@ UI and Logic layers become tightly coupled when views directly access MIDI manag
 
 #### Solution
 ```swift
-// 1. THE CONTRACT (defined by arch-architect)
+// 1. THE CONTRACT (Contracts layer)
 public protocol MIDISyncServiceProtocol: Sendable {
     var syncStateStream: AsyncStream<MIDISyncState> { get }
     func selectInput(_ name: String?) async
 }
 
-// 2. THE IMPLEMENTATION (by backend-logic)
+// 2. THE IMPLEMENTATION (Managers layer)
 actor MIDISyncActor: MIDISyncServiceProtocol {
     var syncStateStream: AsyncStream<MIDISyncState> { ... }
     func selectInput(_ name: String?) async { ... }
 }
 
-// 3. THE CONSUMER (by ui-specialist)
+// 3. THE CONSUMER (Views layer)
 @MainActor
 class MIDISyncViewModel: ObservableObject {
     private let service: MIDISyncServiceProtocol  // Only sees the contract
@@ -2744,7 +2744,7 @@ actor MTCSyncActor {
 
 **Root Cause**: Natural tendency to design for "eventual" needs rather than immediate requirements. MIDIManager only handles MIDI sync, not playback.
 
-**Solution**: scope-guard agent identified the creep and recommended splitting:
+**Solution**: Scope review identified the creep and recommended splitting:
 - `MIDISyncServiceProtocol` - MTC reception, MMC commands, MIDI input selection (Phase 1)
 - `TransportServiceProtocol` - Playback control, seeking, state (Phase 2)
 

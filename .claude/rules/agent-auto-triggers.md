@@ -7,29 +7,29 @@
 ### Before ANY Commit
 ```
 TRIGGER: User says "commit", "push", or requests git operations
-ACTION: Run Gabriel (which dispatches Clare + Cecilia as needed)
+ACTION: Run gabriel (which dispatches clare + cecilia as needed)
 BLOCK: Do not commit until QA passes
 ```
 
 ### Before Building New Features
 ```
 TRIGGER: User describes a new feature to build
-ACTION: Run Thomas to research the problem space first
+ACTION: Run thomas to research the problem space first
 BLOCK: Do not start implementation until research is reviewed
 ```
 
 ### Before Implementing from Plan
 ```
 TRIGGER: User approves a plan and says "build it" or "implement"
-ACTION: Use Joseph (not generic implementation)
-REASON: Joseph enforces no-scope-creep discipline
+ACTION: Use joseph (not generic implementation)
+REASON: joseph enforces no-scope-creep discipline
 ```
 
 ### When Code Review Requested
 ```
 TRIGGER: User says "review", "check", or "audit" code
-ACTION: Run Clare for read-only review
-HANDOFF: Clare reports → User decides → Joseph fixes (if needed)
+ACTION: Run clare for read-only review
+HANDOFF: clare reports → User decides → joseph fixes (if needed)
 ```
 
 ## Recommended Triggers (SHOULD use)
@@ -37,69 +37,45 @@ HANDOFF: Clare reports → User decides → Joseph fixes (if needed)
 ### Weekly Maintenance
 ```
 TRIGGER: Monday, or user says "cleanup", "maintenance"
-ACTION: Run Isidore for repo diagnostics
+ACTION: Run isidore for repo diagnostics
 APPROVAL: Ask before deleting branches
 ```
 
 ### Before Any Release
 ```
 TRIGGER: User mentions "release", "ship", "distribute", "deploy"
-ACTION: Run Gabriel with full QA (Clare + Cecilia)
+ACTION: Run gabriel with full QA (clare + cecilia)
 BLOCK: Do not release until score >= 80
 ```
 
 ### After Major Refactor
 ```
 TRIGGER: Large-scale code changes (>5 files, >200 lines)
-ACTION: Run Clare to verify no regressions
+ACTION: Run clare to verify no regressions
 ```
-
-### When Something Breaks Unexpectedly
-```
-TRIGGER: User reports bug that "was working before"
-ACTION: Run Coroner for forensic analysis
-HANDOFF: Coroner → Surgeon (with user approval)
-```
-
-## Integration with Existing Agents
-
-| Skip's Agent | Replaces/Augments | Notes |
-|--------------|-------------------|-------|
-| Clare | Augments qa-auditor | Clare for quick review, qa-auditor for deep audit |
-| Thomas | Augments arch-architect | Thomas for research, architect for design |
-| Joseph | Augments backend-logic/ui-specialist | Joseph for scope control, specialists for domain expertise |
-| Gabriel | New | Pre-merge QA gate |
-| Cecilia | New | Blind product testing |
-| Isidore | New | Git maintenance |
 
 ## Workflow Chain
 
 ```
 1. User requests feature
    ↓
-2. Thomas researches (auto-trigger)
+2. thomas researches (auto-trigger)
    ↓
-3. arch-architect designs (existing workflow)
+3. joseph implements
    ↓
-4. scope-guard checks (existing workflow)
+4. clare reviews (auto-trigger before commit)
    ↓
-5. Joseph implements (or backend-logic/ui-specialist)
+5. gabriel dispatches full QA if UI changes
    ↓
-6. Clare reviews (auto-trigger before commit)
-   ↓
-7. Gabriel dispatches full QA if UI changes
-   ↓
-8. the-lead updates roadmap
-   ↓
-9. the-librarian captures learnings
+6. Commit (after user approval)
 ```
 
 ## Override Rules
 
 User can override any trigger by explicitly saying:
-- "Skip QA" - bypasses Gabriel/Clare
+- "Skip QA" - bypasses gabriel/clare
 - "Quick commit" - bypasses pre-commit checks
-- "No research needed" - bypasses Thomas
+- "No research needed" - bypasses thomas
 
 Always document overrides:
 ```markdown

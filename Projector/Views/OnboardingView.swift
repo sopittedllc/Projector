@@ -5,7 +5,7 @@
 //  Sprint 3: Onboarding - Interactive setup wizard for composers.
 //  Walks through MTC configuration step-by-step.
 //
-//  Owned by: ui-specialist
+//  Layer: Views
 //
 
 import SwiftUI

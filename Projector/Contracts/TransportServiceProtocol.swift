@@ -3,9 +3,9 @@
 //  Projector
 //
 //  THE CONTRACT: Transport Service
-//  Defined by: arch-architect
-//  Implemented by: backend-logic (TransportActor + MIDITransportActor)
-//  Consumed by: ui-specialist (TransportViewModel)
+//  Layer: Contracts
+//  Implemented in: Managers
+//  Consumed in: Views
 //
 
 import Foundation
@@ -311,7 +311,7 @@ public protocol TransportServiceProtocol: Sendable {
 // MARK: - Implementation Notes
 
 /*
- ## Logic Layer Implementation (backend-logic)
+ ## Logic Layer Implementation (Managers)
 
  The implementing actor should:
 
@@ -366,7 +366,7 @@ public protocol TransportServiceProtocol: Sendable {
     }
     ```
 
- ## UI Layer Consumption (ui-specialist)
+ ## UI Layer Consumption (Views)
 
  The ViewModel should:
 
