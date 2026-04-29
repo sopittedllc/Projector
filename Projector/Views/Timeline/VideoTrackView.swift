@@ -1,7 +1,6 @@
 import SwiftUI
 import Foundation
 import UniformTypeIdentifiers
-import Iconoir
 import AVFoundation
 
 /// Video track container showing all video reels on the timeline
@@ -15,6 +14,13 @@ struct VideoTrackView: View {
     let showThumbnails: Bool
     let clipInteractionsEnabled: Bool
     let onDropMedia: ([URL], Int, Bool) -> Void
+    /// Called when a drop contains BOTH video and audio files.
+    ///
+    /// - Parameters:
+    ///   - videoURLs: Array of video file URLs from the drop
+    ///   - audioURLs: Array of audio file URLs from the drop
+    ///   - targetFrame: Timeline frame position where the drop occurred
+    var onDropMixedMedia: (([URL], [URL], Int) -> Void)?
     let onReelSelected: (UUID?, SelectionModifiers) -> Void
     let onReelDoubleClick: (VideoReel) -> Void
     let onReelMove: (UUID, Int) -> Void
@@ -61,28 +67,35 @@ struct VideoTrackView: View {
     // MARK: - Track Header
 
     private var trackHeader: some View {
-        Color.clear
-            .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.videoTrackHeight)
-            .overlay(
-                VStack(spacing: 2) {
-                    Text("Video")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.primary)
+        HStack(spacing: 0) {
+            // Left padding to align with panel header
+            Spacer()
+                .frame(width: Spacing.md)
 
-                    // Show metadata for first reel if available
-                    if let firstReel = timelineManager.timeline.videoReels.first {
-                        videoMetadataView(for: firstReel)
-                    } else {
-                        Iconoir.videoCamera.asImage
-                            .frame(width: 14, height: 14)
-                            .foregroundColor(.secondary)
+            VStack(spacing: Spacing.xs) {
+                Text("Video")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.primary)
 
-                        Text("No reels")
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary.opacity(0.5))
-                    }
+                // Show metadata for first reel if available
+                if let firstReel = timelineManager.timeline.videoReels.first {
+                    videoMetadataView(for: firstReel)
+                } else {
+                    Image(systemName: "video")
+                        .frame(width: 14, height: 14)
+                        .foregroundColor(.secondary)
+
+                    Text("No reels")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary.opacity(0.5))
                 }
-            )
+            }
+            .frame(maxWidth: .infinity)
+
+            Spacer()
+                .frame(width: Spacing.sm)
+        }
+        .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.videoTrackHeight)
     }
 
     @ViewBuilder
@@ -162,8 +175,8 @@ struct VideoTrackView: View {
     }
 
     private var emptyDropPrompt: some View {
-        VStack(spacing: 4) {
-            Iconoir.mediaVideo.asImage
+        VStack(spacing: Spacing.xs) {
+            Image(systemName: "film")
                 .frame(width: 20, height: 20)
                 .foregroundColor(.secondary.opacity(0.6))
 
@@ -171,7 +184,7 @@ struct VideoTrackView: View {
                 .font(.system(size: 10))
                 .foregroundColor(.secondary.opacity(0.6))
         }
-        .offset(x: -TimelineLayout.headerWidth / 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func dropPreviewOverlay(frame: Int, height: CGFloat, width: CGFloat) -> some View {
@@ -185,7 +198,7 @@ struct VideoTrackView: View {
             .background(Color.orange.opacity(0.1))
             .frame(width: clampedWidth, height: max(6, height - 6))
             .offset(x: xOffset)
-            .padding(.vertical, 3)
+            .padding(.vertical, Spacing.xs)
             .allowsHitTesting(false)
     }
 
@@ -203,6 +216,7 @@ struct VideoTrackView: View {
                 isSelected: selectedReelId == reel.id || selectedReelIds.contains(reel.id),
                 interactionsEnabled: clipInteractionsEnabled,
                 isOptimized: isReelOptimized(reel),
+                timelineStartTimecode: timelineManager.formatTimecode(forFrame: reel.timelineStartFrame),
                 onSelect: { modifiers in
                     selectedReelId = reel.id
                     onReelSelected(reel.id, modifiers)
@@ -269,19 +283,28 @@ struct VideoTrackView: View {
 
     // MARK: - Drop Handling
 
+    /// Routes video/audio URLs to the appropriate handler
+    /// - Mixed drops (video + audio): routes to onDropMixedMedia
+    /// - Video-only drops: routes to onDropMedia
+    /// - Audio-only drops: ignored (audio lane handles these)
+    private func routeDroppedMedia(videoURLs: [URL], audioURLs: [URL], targetFrame: Int, isInternalDrag: Bool) {
+        if !videoURLs.isEmpty && !audioURLs.isEmpty, let onMixed = onDropMixedMedia {
+            onMixed(videoURLs, audioURLs, targetFrame)
+        } else if !videoURLs.isEmpty {
+            onDropMedia(videoURLs, targetFrame, isInternalDrag)
+        }
+        // Audio-only drops on video track: ignored (existing behavior)
+    }
+
     private func handleDrop(providers: [NSItemProvider], at location: CGPoint) -> Bool {
         let targetFrame = dropFrame(for: location)
         let isInternalDrag = isInternalMediaDrag(providers)
 
         // For internal drags (single or multi-file), use DragContext
         if isInternalDrag && dragContext.isDragging && dragContext.mediaItems.count > 0 {
-            let videoURLs = dragContext.mediaItems
-                .filter { $0.type == .video }
-                .map { $0.url }
-            debugPrint("VideoTrackView.handleDrop: Using DragContext with \(videoURLs.count) video URLs")
-            if !videoURLs.isEmpty {
-                onDropMedia(videoURLs, targetFrame, isInternalDrag)
-            }
+            let videoURLs = dragContext.mediaItems.filter { $0.type == .video }.map { $0.url }
+            let audioURLs = dragContext.mediaItems.filter { $0.type == .audio }.map { $0.url }
+            routeDroppedMedia(videoURLs: videoURLs, audioURLs: audioURLs, targetFrame: targetFrame, isInternalDrag: isInternalDrag)
             dragContext.end()
             clearDropPreview()
             return true
@@ -306,10 +329,9 @@ struct VideoTrackView: View {
 
         group.notify(queue: .main) {
             let videoURLs = urls.filter { self.isVideoFile($0) }
-            debugPrint("VideoTrackView.handleDrop: Collected \(videoURLs.count) video URLs from \(providers.count) providers")
-            if !videoURLs.isEmpty {
-                self.onDropMedia(videoURLs, targetFrame, isInternalDrag)
-            }
+            let audioURLs = urls.filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
+            self.routeDroppedMedia(videoURLs: videoURLs, audioURLs: audioURLs, targetFrame: targetFrame, isInternalDrag: isInternalDrag)
+
             if isInternalDrag {
                 self.dragContext.end()
             }
@@ -328,8 +350,7 @@ struct VideoTrackView: View {
     private func dropFrame(for location: CGPoint) -> Int {
         let x = max(0, location.x + scrollOffset)
         let rawFrame = Int(x / max(pixelsPerFrame, 0.001))
-        let maxFrame = max(0, timelineManager.timeline.config.durationFrames - 1)
-        return max(0, min(rawFrame, maxFrame))
+        return max(0, rawFrame)  // Only clamp lower bound, let business logic auto-extend
     }
 
     private func updateDropPreview(location: CGPoint) {

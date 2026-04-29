@@ -3,9 +3,9 @@ import MIDIKitIO
 import SwiftTimecodeCore
 
 // MARK: - THE CONTRACT: MIDISyncServiceProtocol
-// Defined by: arch-architect
-// Implemented by: backend-logic (MIDISyncActor)
-// Consumed by: ui-specialist (MIDISyncViewModel)
+// Layer: Contracts
+// Implemented in: Managers
+// Consumed in: Views
 
 /// Contract for MIDI sync services (MTC reception, MMC command handling).
 ///
@@ -69,9 +69,42 @@ public protocol MIDISyncServiceProtocol: Sendable {
     /// - Parameter frameRate: The expected frame rate of incoming MTC
     /// - Note: Required for accurate sync when external device doesn't match project rate
     func setLocalFrameRate(_ frameRate: TimecodeFrameRate) async
+
+    /// Updates the local playback frame position for drift calculation.
+    ///
+    /// Call this from the transport layer whenever playback position changes.
+    /// Used to calculate drift between MTC and local playback.
+    ///
+    /// - Parameter frame: The current playback frame position
+    /// - Note: Drift updates are throttled to 1Hz to prevent UI jitter
+    func updateLocalPlaybackFrame(_ frame: Int) async
 }
 
 // MARK: - Supporting Types
+
+/// Drift quality status for MTC sync.
+public enum DriftStatus: Sendable, Equatable {
+    /// Excellent sync quality (<0.5 frames drift).
+    case excellent
+
+    /// Good sync quality (0.5-1.0 frames drift).
+    case good
+
+    /// Fair sync quality (1.0-2.0 frames drift).
+    case fair
+
+    /// Poor sync quality (>2.0 frames drift).
+    case poor
+
+    /// Color for UI display.
+    public var displayColor: String {
+        switch self {
+        case .excellent, .good: return "green"
+        case .fair: return "yellow"
+        case .poor: return "red"
+        }
+    }
+}
 
 /// Complete MIDI sync state for UI display.
 ///
@@ -133,6 +166,15 @@ public struct MIDISyncState: Sendable, Equatable {
     /// Timestamp of the last quarter-frame received.
     public let lastQFTimestamp: Date?
 
+    /// Drift between MTC and local playback (in frames).
+    ///
+    /// Positive value means MTC is ahead, negative means MTC is behind.
+    /// Calculated as: MTC frame - local playback frame
+    public let driftFrames: Double
+
+    /// Drift quality status for UI display.
+    public let driftStatus: DriftStatus
+
     /// Creates a new MIDI sync state.
     public init(
         mtcState: MTCSyncState,
@@ -147,7 +189,9 @@ public struct MIDISyncState: Sendable, Equatable {
         dropoutCounter: Int = 0,
         dropoutFramesAllowed: Int = 10,
         syncDuration: TimeInterval = 0,
-        lastQFTimestamp: Date? = nil
+        lastQFTimestamp: Date? = nil,
+        driftFrames: Double = 0.0,
+        driftStatus: DriftStatus = .excellent
     ) {
         self.mtcState = mtcState
         self.mtcTimecode = mtcTimecode
@@ -162,6 +206,8 @@ public struct MIDISyncState: Sendable, Equatable {
         self.dropoutFramesAllowed = dropoutFramesAllowed
         self.syncDuration = syncDuration
         self.lastQFTimestamp = lastQFTimestamp
+        self.driftFrames = driftFrames
+        self.driftStatus = driftStatus
     }
 
     /// Empty state for initialization.
@@ -178,7 +224,9 @@ public struct MIDISyncState: Sendable, Equatable {
         dropoutCounter: 0,
         dropoutFramesAllowed: 10,
         syncDuration: 0,
-        lastQFTimestamp: nil
+        lastQFTimestamp: nil,
+        driftFrames: 0.0,
+        driftStatus: .excellent
     )
 }
 

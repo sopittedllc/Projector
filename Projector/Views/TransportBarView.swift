@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftTimecodeCore
-import Iconoir
 
 /// Shared height for transport bar control boxes
 private let controlBoxHeight: CGFloat = TransportLayout.controlBoxHeight
@@ -14,96 +13,112 @@ struct TransportBarView: View {
         HStack {
             // Frame rate display
             Text("\(Int(playbackEngine.frameRate.fps))fps")
-                .font(.system(size: 16, weight: .medium, design: .monospaced))
+                .font(Typography.monoLarge)
                 .foregroundColor(.primary)
-                .padding(.horizontal, 10)
+                .padding(.horizontal, Spacing.md)
                 .frame(height: controlBoxHeight)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                        )
-                )
+                .glassControl()
+                .accessibilityLabel("Frame rate: \(Int(playbackEngine.frameRate.fps)) frames per second")
 
             // Timecode display
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
                 Text("TC:")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(Typography.label)
                     .foregroundColor(.secondary)
 
                 Text(playbackEngine.currentTimecode.stringValue())
-                    .font(.system(size: 16, weight: .medium, design: .monospaced))
+                    .font(Typography.monoLarge)
                     .foregroundColor(.primary)
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, Spacing.md)
             .frame(height: controlBoxHeight)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    )
-            )
+            .glassControl()
+            .accessibilityLabel("Current timecode: \(playbackEngine.currentTimecode.stringValue())")
 
             // Transport controls
-            HStack(spacing: 8) {
+            HStack(spacing: Spacing.sm) {
                 Button(action: { playbackEngine.stepBackward() }) {
-                    Iconoir.skipPrev.asImage
-                        .frame(width: 16, height: 16)
+                    Image(systemName: "backward.fill")
+                        .font(Typography.icon)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(GlassTransportButtonStyle())
                 .disabled(!playbackEngine.hasContent)
+                .accessibilityLabel("Step backward one frame")
+                .help("Step backward (←)")
 
                 Button(action: { playbackEngine.togglePlayback() }) {
-                    (playbackEngine.isPlaying ? Iconoir.pauseSolid.asImage : Iconoir.playSolid.asImage)
-                        .frame(width: 18, height: 18)
+                    Image(systemName: playbackEngine.isPlaying ? "pause.fill" : "play.fill")
+                        .font(Typography.icon)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(GlassTransportButtonStyle(isActive: playbackEngine.isPlaying))
                 .disabled(!playbackEngine.hasContent)
                 .keyboardShortcut(.space, modifiers: [])
+                .accessibilityLabel(playbackEngine.isPlaying ? "Pause" : "Play")
+                .help(playbackEngine.isPlaying ? "Pause (Space)" : "Play (Space)")
 
                 Button(action: { playbackEngine.stepForward() }) {
-                    Iconoir.skipNext.asImage
-                        .frame(width: 16, height: 16)
+                    Image(systemName: "forward.fill")
+                        .font(Typography.icon)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(GlassTransportButtonStyle())
                 .disabled(!playbackEngine.hasContent)
+                .accessibilityLabel("Step forward one frame")
+                .help("Step forward (→)")
 
                 Button(action: { playbackEngine.stop() }) {
-                    Iconoir.square.asImage
-                        .frame(width: 16, height: 16)
+                    Image(systemName: "stop.fill")
+                        .font(Typography.icon)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(GlassTransportButtonStyle())
                 .disabled(!playbackEngine.hasContent)
+                .accessibilityLabel("Stop and return to start")
+                .help("Stop")
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, Spacing.md)
             .frame(height: controlBoxHeight)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+            .glassControl()
+
+            // Audio meter with toggle
+            HStack(spacing: Spacing.sm) {
+                Button(action: {
+                    if playbackEngine.isMeteringEnabled {
+                        playbackEngine.disableMetering()
+                    } else {
+                        playbackEngine.enableMetering()
+                    }
+                }) {
+                    Image(systemName: playbackEngine.isMeteringEnabled ? "speaker.wave.2.fill" : "speaker.wave.2")
+                        .font(Typography.icon)
+                        .foregroundColor(playbackEngine.isMeteringEnabled ? .accentColor : .secondary)
+                }
+                .buttonStyle(GlassIconButtonStyle(size: 16, isActive: playbackEngine.isMeteringEnabled))
+                .accessibilityLabel(playbackEngine.isMeteringEnabled ? "Disable audio metering" : "Enable audio metering")
+                .help(playbackEngine.isMeteringEnabled ? "Disable audio metering" : "Enable audio metering")
+
+                if playbackEngine.isMeteringEnabled {
+                    AudioMeterView(
+                        leftLevel: playbackEngine.meterLevelLeft,
+                        rightLevel: playbackEngine.meterLevelRight,
+                        isEnabled: playbackEngine.isMeteringEnabled
                     )
-            )
+                }
+            }
+            .padding(.horizontal, Spacing.md)
+            .frame(height: controlBoxHeight)
+            .glassControl()
 
             Spacer()
 
             // Right: Settings
             Button(action: onSettingsPressed) {
-                Iconoir.settings.asImage
-                    .frame(width: 24, height: 24)
+                Image(systemName: "gearshape")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(GlassIconButtonStyle(size: 20))
+            .accessibilityLabel("Settings")
+            .help("Open settings")
         }
-        .padding(8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
+        .padding(Spacing.sm)
+        .glassPanel(cornerRadius: PanelLayout.cornerRadius)
     }
 }
 
@@ -111,20 +126,17 @@ struct TransportBarView: View {
 struct TimecodeDisplayView: View {
     let timecode: Timecode
 
+    /// Large monospace font for overlay timecode display (28pt)
+    private static let overlayTimecodeFont = Font.system(size: 28, weight: .medium, design: .monospaced)
+
     var body: some View {
         Text(timecode.stringValue())
-            .font(.system(size: 28, weight: .medium, design: .monospaced))
+            .font(Self.overlayTimecodeFont)
             .foregroundColor(.primary)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    )
-            )
+            .padding(.horizontal, Spacing.lg)
+            .padding(.vertical, Spacing.sm)
+            .glassControl()
+            .accessibilityLabel("Timecode: \(timecode.stringValue())")
     }
 }
 

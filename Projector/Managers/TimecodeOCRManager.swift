@@ -180,7 +180,7 @@ final class TimecodeOCRManager: ObservableObject {
             let (cgImage, _) = try await generator.image(at: time)
             return cgImage
         } catch {
-            print("Failed to extract frame: \(error)")
+            debugLog("Failed to extract frame: \(error)")
             return nil
         }
     }
@@ -243,7 +243,7 @@ final class TimecodeOCRManager: ObservableObject {
             do {
                 try handler.perform([request])
             } catch {
-                print("Vision request failed: \(error)")
+                debugLog("Vision request failed: \(error)")
                 continuation.resume(returning: nil)
             }
         }

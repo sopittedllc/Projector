@@ -29,18 +29,37 @@ struct SyncStatusIndicator: View {
     /// Whether to show the expanded view with progress bar.
     @State private var isExpanded: Bool = false
 
+    // MARK: - Layout Constants
+
+    /// Size of the status indicator dot
+    private let dotSize: CGFloat = 8
+
+    /// Width of the lock progress bar
+    private let progressBarWidth: CGFloat = 40
+
+    /// Height of the lock progress bar
+    private let progressBarHeight: CGFloat = 4
+
+    /// Corner radius for backgrounds
+    private let backgroundCornerRadius: CGFloat = 4
+
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm) {
             // Status dot
             Circle()
                 .fill(viewModel.syncStatusColor)
-                .frame(width: 8, height: 8)
+                .frame(width: dotSize, height: dotSize)
                 .shadow(color: viewModel.syncStatusColor.opacity(0.5), radius: 2)
 
             // Status text
             Text(statusText)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .font(Typography.monoSmall)
                 .foregroundColor(.secondary)
+
+            // Drift display (only when synced)
+            if viewModel.mtcState == .sync {
+                driftView
+            }
 
             // Lock progress during acquisition
             if showLockProgress {
@@ -50,15 +69,17 @@ struct SyncStatusIndicator: View {
             // Sync duration when locked
             if !viewModel.syncDurationString.isEmpty {
                 Text(viewModel.syncDurationString)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.secondary.opacity(0.7))
+                    .font(Typography.monoSmall)
+                    .foregroundColor(AppColors.textTertiary)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.xs)
         .background(backgroundView)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Sync status: \(statusText)")
         .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(AppAnimations.standard) {
                 isExpanded.toggle()
             }
         }
@@ -66,13 +87,28 @@ struct SyncStatusIndicator: View {
 
     // MARK: - Subviews
 
+    /// Drift display showing sync quality.
+    private var driftView: some View {
+        HStack(spacing: Spacing.xs) {
+            Image(systemName: "waveform.path.ecg")
+                .font(Typography.iconTiny)
+                .foregroundColor(viewModel.driftColor)
+
+            Text(viewModel.driftString)
+                .font(Typography.monoSmall)
+                .foregroundColor(viewModel.driftColor)
+        }
+        .accessibilityLabel("Sync drift: \(viewModel.driftString)")
+        .help("Sync drift: \(viewModel.driftString). Green = excellent (<0.5 frames), Yellow = fair (1-2 frames), Red = poor (>2 frames)")
+    }
+
     /// Lock progress bar shown during sync acquisition.
     private var lockProgressView: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 // Background track
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.gray.opacity(0.3))
+                    .fill(AppColors.surfaceLight)
 
                 // Progress fill
                 RoundedRectangle(cornerRadius: 2)
@@ -80,12 +116,13 @@ struct SyncStatusIndicator: View {
                     .frame(width: geometry.size.width * viewModel.lockProgressPercent)
             }
         }
-        .frame(width: 40, height: 4)
+        .frame(width: progressBarWidth, height: progressBarHeight)
+        .accessibilityLabel("Lock progress: \(Int(viewModel.lockProgressPercent * 100)) percent")
     }
 
     /// Background with subtle styling.
     private var backgroundView: some View {
-        RoundedRectangle(cornerRadius: 4)
+        RoundedRectangle(cornerRadius: backgroundCornerRadius)
             .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
     }
 
@@ -121,17 +158,19 @@ struct SyncStatusDot: View {
     @ObservedObject var viewModel: MIDISyncViewModel
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Circle()
                 .fill(viewModel.syncStatusColor)
                 .frame(width: 6, height: 6)
 
             if viewModel.mtcState == .sync {
                 Text("MTC")
-                    .font(.system(size: 9, weight: .medium))
+                    .font(Typography.labelSmall)
                     .foregroundColor(.secondary)
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("MTC sync: \(viewModel.mtcState == .sync ? "active" : "inactive")")
     }
 }
 
@@ -140,7 +179,7 @@ struct SyncStatusDot: View {
 #if DEBUG
 struct SyncStatusIndicator_Previews: PreviewProvider {
     static var previews: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: Spacing.xl) {
             Text("Sync Status Indicator Variants")
                 .font(.headline)
 

@@ -1,41 +1,41 @@
 import Foundation
 
 /// Represents an audio lane containing multiple audio clips
-struct AudioLane: Identifiable, Codable, Equatable {
+public struct AudioLane: Identifiable, Codable, Equatable, Sendable {
     /// Unique identifier for the lane
-    let id: UUID
+    public let id: UUID
 
     /// Display name for the lane
-    var name: String
+    public var name: String
 
     /// Audio clips in this lane, sorted by timeline position
-    var clips: [AudioClip]
+    public var clips: [AudioClip]
 
     /// Whether this lane is muted
-    var isMuted: Bool
+    public var isMuted: Bool
 
     /// Whether this lane is soloed
-    var isSolo: Bool
+    public var isSolo: Bool
 
     /// Lane volume (0.0 to 1.0)
-    var volume: Float
+    public var volume: Float
 
     /// Starting channel on the output device (0-indexed)
-    var outputChannelOffset: Int
+    public var outputChannelOffset: Int
 
     /// Number of output channels to use (1 = mono, 2 = stereo)
-    var outputChannelCount: Int
+    public var outputChannelCount: Int
 
     /// Output device UID (nil = use global/system default)
-    var outputDeviceUID: String?
+    public var outputDeviceUID: String?
 
     /// Mapped output selection ID
-    var outputMappingId: UUID?
+    public var outputMappingId: UUID?
 
     /// Color index for visual distinction
-    var colorIndex: Int
+    public var colorIndex: Int
 
-    init(
+    public init(
         id: UUID = UUID(),
         name: String,
         clips: [AudioClip] = [],
@@ -62,23 +62,23 @@ struct AudioLane: Identifiable, Codable, Equatable {
     }
 
     /// Get all clips active at a given timeline frame
-    func activeClips(at frame: Int) -> [AudioClip] {
+    public func activeClips(at frame: Int) -> [AudioClip] {
         clips.filter { $0.isActive(at: frame) }
     }
 
     /// Add a clip to the lane, maintaining sorted order
-    mutating func addClip(_ clip: AudioClip) {
+    public mutating func addClip(_ clip: AudioClip) {
         clips.append(clip)
         clips.sort { $0.timelineStartFrame < $1.timelineStartFrame }
     }
 
     /// Remove a clip by ID
-    mutating func removeClip(id: UUID) {
+    public mutating func removeClip(id: UUID) {
         clips.removeAll { $0.id == id }
     }
 
     /// Update a clip by ID
-    mutating func updateClip(_ updatedClip: AudioClip) {
+    public mutating func updateClip(_ updatedClip: AudioClip) {
         if let index = clips.firstIndex(where: { $0.id == updatedClip.id }) {
             clips[index] = updatedClip
             clips.sort { $0.timelineStartFrame < $1.timelineStartFrame }
@@ -86,7 +86,7 @@ struct AudioLane: Identifiable, Codable, Equatable {
     }
 
     /// Check if adding a clip would overlap with existing clips
-    func hasOverlap(with newClip: AudioClip, excluding clipId: UUID? = nil) -> Bool {
+    public func hasOverlap(with newClip: AudioClip, excluding clipId: UUID? = nil) -> Bool {
         for clip in clips {
             if clip.id == clipId { continue }
 
@@ -104,7 +104,7 @@ struct AudioLane: Identifiable, Codable, Equatable {
     }
 
     /// Get the next available position after all clips
-    var nextAvailableFrame: Int {
+    public var nextAvailableFrame: Int {
         clips.map { $0.timelineEndFrame }.max() ?? 0
     }
 }
@@ -126,7 +126,7 @@ extension AudioLane {
         case colorIndex
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
@@ -141,7 +141,7 @@ extension AudioLane {
         colorIndex = try container.decode(Int.self, forKey: .colorIndex)
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)

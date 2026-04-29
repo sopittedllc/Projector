@@ -25,14 +25,14 @@ struct PlayheadView: View {
                 path.addLine(to: CGPoint(x: triangleWidth / 2, y: triangleHeight))
                 path.closeSubpath()
             }
-            context.fill(trianglePath, with: .color(.accentColor))
+            context.fill(trianglePath, with: .color(AppColors.accent))
 
             // Draw vertical line from bottom of triangle to bottom of view
             let linePath = Path { path in
                 path.move(to: CGPoint(x: triangleWidth / 2, y: triangleHeight))
                 path.addLine(to: CGPoint(x: triangleWidth / 2, y: size.height))
             }
-            context.stroke(linePath, with: .color(.accentColor), lineWidth: 1)
+            context.stroke(linePath, with: .color(AppColors.accent), lineWidth: 1)
         }
         .frame(width: triangleWidth, height: totalHeight)
         .offset(x: xPosition - triangleWidth / 2)

@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 import SwiftTimecodeCore
 import AVFoundation
 import AppKit
-import Iconoir
 
 /// Audio lane container showing clips and lane controls
 struct AudioLaneView: View {
@@ -20,12 +19,20 @@ struct AudioLaneView: View {
     let clipInteractionsEnabled: Bool
     let availableAudioOutputs: [MappedAudioOutput]
     let linkedDragPreview: LinkedDragPreview?
+    let timelineStartFrames: Int  // Sprint 5: For timecode display
     @ObservedObject var mediaLibrary: ProjectMediaLibrary
     let onMuteToggle: () -> Void
     let onSoloToggle: () -> Void
     let onVolumeChange: (Float) -> Void
     let onOutputMappingChange: (MappedAudioOutput?) -> Void
     let onDropMedia: ([URL], Int, Bool) -> Void
+    /// Called when a drop contains BOTH video and audio files.
+    ///
+    /// - Parameters:
+    ///   - videoURLs: Array of video file URLs from the drop
+    ///   - audioURLs: Array of audio file URLs from the drop
+    ///   - targetFrame: Timeline frame position where the drop occurred
+    var onDropMixedMedia: (([URL], [URL], Int) -> Void)?
     let onClipSelected: (UUID?, SelectionModifiers) -> Void
     let onClipDoubleClick: (AudioClip) -> Void
     let onClipMove: (UUID, Int) -> Void
@@ -92,79 +99,93 @@ struct AudioLaneView: View {
     // MARK: - Lane Background
 
     private var laneBackground: some View {
-        Color(nsColor: .controlBackgroundColor)
-            .opacity(lane.isMuted ? 0.7 : 1.0)
+        // Alternate lane backgrounds for visual separation
+        let baseOpacity = laneIndex.isMultiple(of: 2) ? 0.03 : 0.06
+        return Color.white
+            .opacity(lane.isMuted ? baseOpacity * 0.5 : baseOpacity)
     }
 
     // MARK: - Lane Header
 
     private var laneHeader: some View {
-        Color.clear
-            .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
-            .overlay(
-                VStack(spacing: 2) {
-                    // Lane name (editable on double-click)
-                    if isEditingName {
-                        TextField("", text: $editedName)
-                            .font(.system(size: 10, weight: .medium))
-                            .textFieldStyle(.plain)
-                            .multilineTextAlignment(.center)
-                            .focused($isNameFieldFocused)
-                            .onSubmit {
+        HStack(spacing: 0) {
+            // Left padding to align with panel header
+            Spacer()
+                .frame(width: Spacing.md)
+
+            VStack(spacing: Spacing.xs) {
+                // Lane name (editable on double-click)
+                if isEditingName {
+                    TextField("", text: $editedName)
+                        .font(.system(size: 10, weight: .medium))
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.center)
+                        .focused($isNameFieldFocused)
+                        .onSubmit {
+                            commitNameEdit()
+                        }
+                        .onExitCommand {
+                            cancelNameEdit()
+                        }
+                        .onChange(of: isNameFieldFocused) { _, focused in
+                            // Save on blur (3.1)
+                            if !focused && isEditingName {
                                 commitNameEdit()
                             }
-                            .onExitCommand {
-                                cancelNameEdit()
+                        }
+                        .frame(maxWidth: TimelineLayout.headerWidth - Spacing.md - Spacing.sm - 12)
+                } else {
+                    // Use Button instead of onTapGesture to avoid ScrollView latency (GP-003)
+                    Button(action: {}) {
+                        Text(lane.name)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                    .simultaneousGesture(
+                        TapGesture(count: 2)
+                            .onEnded { _ in
+                                startNameEdit()
                             }
-                            .frame(maxWidth: TimelineLayout.headerWidth - 12)
-                    } else {
-                        // Use Button instead of onTapGesture to avoid ScrollView latency (GP-003)
-                        Button(action: {}) {
-                            Text(lane.name)
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.plain)
-                        .simultaneousGesture(
-                            TapGesture(count: 2)
-                                .onEnded { _ in
-                                    startNameEdit()
-                                }
-                        )
-                    }
-
-                    // Audio metadata from first clip
-                    audioMetadataView
-
-                    // Output mapping dropdown (compact)
-                    outputMappingPicker
-
-                    // Mute/Solo controls
-                    HStack(spacing: 6) {
-                        Button(action: onMuteToggle) {
-                            Text("M")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(lane.isMuted ? .red : .secondary)
-                        }
-                        .buttonStyle(.plain)
-
-                        Button(action: onSoloToggle) {
-                            Text("S")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(lane.isSolo ? .yellow : .secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
+                    )
                 }
-                .padding(.horizontal, 6)
-            )
+
+                // Audio metadata from first clip
+                audioMetadataView
+
+                // Output mapping dropdown (compact)
+                outputMappingPicker
+
+                // Mute/Solo controls
+                HStack(spacing: Spacing.sm) {
+                    Button(action: onMuteToggle) {
+                        Text("M")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(lane.isMuted ? .red : .secondary)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: onSoloToggle) {
+                        Text("S")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(lane.isSolo ? .yellow : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            Spacer()
+                .frame(width: Spacing.sm)
+        }
+        .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
     }
 
     @ViewBuilder
     private var audioMetadataView: some View {
         if let firstClip = lane.clips.first {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
                 // Sample rate
                 Text(String(format: "%.0fkHz", firstClip.sampleRate / 1000))
                     .font(.system(size: 8, design: .monospaced))
@@ -219,7 +240,7 @@ struct AudioLaneView: View {
                 }
             }
         } label: {
-            HStack(spacing: 3) {
+            HStack(spacing: Spacing.xs) {
                 Text(outputMappingName)
                     .font(.system(size: 9))
                     .lineLimit(1)
@@ -227,8 +248,8 @@ struct AudioLaneView: View {
                     .font(.system(size: 7))
             }
             .foregroundColor(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
             .background(
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Color.accentColor.opacity(0.8))
@@ -320,16 +341,16 @@ struct AudioLaneView: View {
     }
 
     private var emptyDropPrompt: some View {
-        HStack(spacing: 4) {
-            Iconoir.musicDoubleNote.asImage
-                .frame(width: 14, height: 14)
-                .foregroundColor(.secondary.opacity(0.5))
+        VStack(spacing: Spacing.xs) {
+            Image(systemName: "music.note.list")
+                .frame(width: 20, height: 20)
+                .foregroundColor(.secondary.opacity(0.6))
 
-            Text("Drop audio files")
-                .font(.system(size: 9))
-                .foregroundColor(.secondary.opacity(0.5))
+            Text("Drop audio files here")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary.opacity(0.6))
         }
-        .offset(x: -TimelineLayout.headerWidth / 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func dropPreviewOverlay(frame: Int, height: CGFloat, width: CGFloat) -> some View {
@@ -343,7 +364,7 @@ struct AudioLaneView: View {
             .background(Color.orange.opacity(0.1))
             .frame(width: clampedWidth, height: max(6, height - 6))
             .offset(x: xOffset)
-            .padding(.vertical, 3)
+            .padding(.vertical, Spacing.xs)
             .allowsHitTesting(false)
     }
 
@@ -361,7 +382,7 @@ struct AudioLaneView: View {
             )
             .frame(width: max(12, clipWidth), height: max(6, height - 6))
             .offset(x: xOffset)
-            .padding(.vertical, 3)
+            .padding(.vertical, Spacing.xs)
             .allowsHitTesting(false)
     }
 
@@ -380,6 +401,7 @@ struct AudioLaneView: View {
                 showWaveform: showWaveforms,
                 interactionsEnabled: clipInteractionsEnabled,
                 isOptimized: isClipOptimized(clip),
+                timelineStartTimecode: formatTimecode(forFrame: clip.timelineStartFrame),
                 onSelect: { modifiers in
                     selectedClipId = clip.id
                     onClipSelected(clip.id, modifiers)
@@ -546,6 +568,25 @@ struct AudioLaneView: View {
         return colors[laneIndex % colors.count]
     }
 
+    // MARK: - Timecode Formatting
+
+    /// Format a frame number as timecode string
+    private func formatTimecode(forFrame frame: Int) -> String {
+        let absoluteFrame = timelineStartFrames + frame
+        let fps = Int(frameRate.fps.rounded())
+        guard fps > 0 else { return "00:00:00:00" }
+
+        let totalSeconds = absoluteFrame / fps
+        let frames = absoluteFrame % fps
+        let seconds = totalSeconds % 60
+        let totalMinutes = totalSeconds / 60
+        let minutes = totalMinutes % 60
+        let hours = totalMinutes / 60
+
+        let separator = frameRate.isDrop ? ";" : ":"
+        return String(format: "%02d:%02d:%02d%@%02d", hours, minutes, seconds, separator, frames)
+    }
+
     // MARK: - Drop Handling
 
     private func handleDrop(providers: [NSItemProvider], at location: CGPoint) -> Bool {
@@ -605,7 +646,7 @@ struct AudioLaneView: View {
     private func dropFrame(for location: CGPoint) -> Int {
         let x = max(0, location.x + scrollOffset)
         let rawFrame = Int(x / max(pixelsPerFrame, 0.001))
-        return max(0, min(rawFrame, max(0, timelineDurationFrames - 1)))
+        return max(0, rawFrame)  // Only clamp lower bound, let business logic auto-extend
     }
 
     private func updateDropPreview(location: CGPoint) {
@@ -695,26 +736,34 @@ struct AudioLaneView: View {
 
     // MARK: - Native Drop Handling (AppKit)
 
-    /// Get audio candidate from NSDraggingInfo, checking dragContext first for internal drags
-    private func audioCandidate(from info: NSDraggingInfo) -> (urls: [URL], duration: Double?, isInternal: Bool) {
+    /// Get all media candidates from NSDraggingInfo, checking dragContext first for internal drags
+    private func allMediaCandidates(from info: NSDraggingInfo) -> (videoURLs: [URL], audioURLs: [URL], audioDuration: Double?, isInternal: Bool) {
         // Check dragContext first for internal Media panel drags (supports multi-select)
-        if dragContext.isDragging {
+        if dragContext.isDragging && !dragContext.mediaItems.isEmpty {
+            let videoURLs = dragContext.mediaItems.filter { $0.type == .video }.map { $0.url }
             let audioItems = dragContext.mediaItems.filter { $0.type == .audio }
-            if !audioItems.isEmpty {
-                let urls = audioItems.map { $0.url }
-                // Use first item's duration for preview (multi-file will place sequentially)
-                let duration = audioItems.first?.duration
-                return (urls, duration, true)
-            }
+            let audioURLs = audioItems.map { $0.url }
+            // Use first audio item's duration for preview (multi-file will place sequentially)
+            let audioDuration = audioItems.first?.duration
+            return (videoURLs, audioURLs, audioDuration, true)
         }
 
         // Fall back to pasteboard for Finder drags
         let pasteboard = info.draggingPasteboard
-        let urls = (pasteboard.readObjects(forClasses: [NSURL.self], options: [
+        let allURLs = (pasteboard.readObjects(forClasses: [NSURL.self], options: [
             .urlReadingFileURLsOnly: true
-        ]) as? [URL] ?? []).filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
+        ]) as? [URL]) ?? []
 
-        return (urls, nil, false)
+        let videoURLs = allURLs.filter { ProjectMediaLibrary.mediaType(for: $0) == .video }
+        let audioURLs = allURLs.filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
+
+        return (videoURLs, audioURLs, nil, false)
+    }
+
+    /// Get audio candidate from NSDraggingInfo, checking dragContext first for internal drags
+    private func audioCandidate(from info: NSDraggingInfo) -> (urls: [URL], duration: Double?, isInternal: Bool) {
+        let candidates = allMediaCandidates(from: info)
+        return (candidates.audioURLs, candidates.audioDuration, candidates.isInternal)
     }
 
     private func beginDropPreviewNative(info: NSDraggingInfo, at location: CGPoint) {
@@ -771,23 +820,46 @@ struct AudioLaneView: View {
         }
     }
 
-    private func handleDropNative(info: NSDraggingInfo, at location: CGPoint) -> Bool {
-        // Handle both single and multi-file audio drops in this lane
-        let candidate = audioCandidate(from: info)
-        guard !candidate.urls.isEmpty else {
-            clearDropPreview()
-            return false
+    /// Routes video/audio URLs to the appropriate handler.
+    ///
+    /// - Mixed drops (video + audio): routes to onDropMixedMedia
+    /// - Audio-only drops: routes to onDropMedia
+    /// - Video-only drops: ignored (video track handles these)
+    ///
+    /// - Parameters:
+    ///   - videoURLs: Array of video file URLs
+    ///   - audioURLs: Array of audio file URLs
+    ///   - targetFrame: Timeline frame position for placement
+    ///   - isInternalDrag: Whether this originated from the media panel
+    /// - Returns: true if drop was handled, false if no valid content
+    private func routeDroppedMedia(videoURLs: [URL], audioURLs: [URL], targetFrame: Int, isInternalDrag: Bool) -> Bool {
+        if !videoURLs.isEmpty && !audioURLs.isEmpty, let onMixed = onDropMixedMedia {
+            onMixed(videoURLs, audioURLs, targetFrame)
+            return true
+        } else if !audioURLs.isEmpty {
+            onDropMedia(audioURLs, targetFrame, isInternalDrag)
+            return true
         }
+        // Video-only drops on audio lane: ignored (video track handles these)
+        return false
+    }
 
+    private func handleDropNative(info: NSDraggingInfo, at location: CGPoint) -> Bool {
+        let candidates = allMediaCandidates(from: info)
         let targetFrame = dropFrame(for: location)
-        onDropMedia(candidate.urls, targetFrame, candidate.isInternal)
 
-        if candidate.isInternal {
+        let handled = routeDroppedMedia(
+            videoURLs: candidates.videoURLs,
+            audioURLs: candidates.audioURLs,
+            targetFrame: targetFrame,
+            isInternalDrag: candidates.isInternal
+        )
+
+        if candidates.isInternal {
             dragContext.end()
         }
-
         clearDropPreview()
-        return true
+        return handled
     }
 
     private func loadFirstURL(from providers: [NSItemProvider], completion: @escaping (URL?) -> Void) {
@@ -1039,6 +1111,7 @@ private final class AudioLaneDragCaptureNSView: NSView {
                 clipInteractionsEnabled: true,
                 availableAudioOutputs: [],
                 linkedDragPreview: nil,
+                timelineStartFrames: 86400,  // 01:00:00:00 at 24fps
                 mediaLibrary: mediaLibrary,
                 onMuteToggle: {},
                 onSoloToggle: {},

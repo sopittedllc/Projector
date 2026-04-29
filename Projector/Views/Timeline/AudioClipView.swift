@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftTimecodeCore
-import Iconoir
 
 /// Visual representation of a single audio clip on an audio lane
 struct AudioClipView: View {
@@ -15,6 +14,7 @@ struct AudioClipView: View {
     let showWaveform: Bool
     let interactionsEnabled: Bool
     let isOptimized: Bool
+    let timelineStartTimecode: String?  // Sprint 5: Timeline start TC for clip
     let onSelect: (SelectionModifiers) -> Void
     let onDoubleClick: () -> Void
 
@@ -40,25 +40,36 @@ struct AudioClipView: View {
                 .shadow(color: isSelected ? Color.white.opacity(0.5) : Color.clear, radius: 4)
 
             VStack(spacing: 0) {
-                // Header with filename
-                HStack(spacing: 4) {
+                // Header with filename and timecode
+                HStack(spacing: Spacing.xs) {
                     Text(clip.displayName)
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(Typography.labelSmall)
                         .foregroundColor(.white)
                         .lineLimit(1)
 
                     // Optimization indicator
                     if isOptimized {
                         Image(systemName: "stopwatch.fill")
-                            .font(.system(size: 8))
+                            .font(Typography.iconTiny)
                             .foregroundColor(.green)
+                    }
+
+                    // Sprint 5: Timeline start timecode
+                    if let tc = timelineStartTimecode, clipWidth > 120 {
+                        Text(tc)
+                            .font(Typography.monoTiny)
+                            .foregroundColor(.white.opacity(0.7))
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 1)
+                            .background(Color.black.opacity(0.3))
+                            .cornerRadius(2)
                     }
 
                     Spacer(minLength: 0)
 
                     // Muted indicator
                     if clip.isMuted {
-                        Iconoir.soundOff.asImage
+                        Image(systemName: "speaker.slash")
                             .frame(width: 10, height: 10)
                             .foregroundColor(.red)
                     }
@@ -66,11 +77,11 @@ struct AudioClipView: View {
                     // Volume indicator if not default
                     if clip.volume != 1.0 && !clip.isMuted {
                         Text(String(format: "%.0f%%", clip.volume * 100))
-                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .font(Typography.monoTiny)
                             .foregroundColor(.white.opacity(0.8))
                     }
                 }
-                .padding(.horizontal, 6)
+                .padding(.horizontal, Spacing.sm)
                 .frame(height: headerHeight)
                 .background(laneColor.opacity(0.9))
 
@@ -110,7 +121,12 @@ struct AudioClipView: View {
                     onDoubleClick()
                 }
         )
-        .help(clip.sourceURL.lastPathComponent)
+        .help("Double-click to set timecode position")
+        .contextMenu {
+            Button("Set Timecode Position...") {
+                onDoubleClick()
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("audio-clip")
     }
@@ -278,7 +294,7 @@ private struct WaveformBarsView: Shape {
 }
 
 #Preview {
-    VStack(spacing: 4) {
+    VStack(spacing: Spacing.xs) {
         AudioClipView(
             clip: AudioClip(
                 sourceURL: URL(fileURLWithPath: "/path/to/audio.wav"),
@@ -297,6 +313,7 @@ private struct WaveformBarsView: Shape {
             showWaveform: true,
             interactionsEnabled: true,
             isOptimized: true,
+            timelineStartTimecode: "01:00:00:00",
             onSelect: { _ in },
             onDoubleClick: {}
         )
@@ -321,6 +338,7 @@ private struct WaveformBarsView: Shape {
             showWaveform: true,
             interactionsEnabled: true,
             isOptimized: false,
+            timelineStartTimecode: "01:01:40:00",
             onSelect: { _ in },
             onDoubleClick: {}
         )

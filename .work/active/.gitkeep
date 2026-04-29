@@ -1,0 +1,12 @@
+# Active Work Directory
+
+This directory stores active work-in-progress plans.
+Joseph reads these to know what to implement.
+
+## File Format
+
+Each work item should be a markdown file with:
+- Feature name
+- Status (PLANNING / APPROVED / IN PROGRESS / COMPLETE)
+- Acceptance criteria
+- Implementation notes

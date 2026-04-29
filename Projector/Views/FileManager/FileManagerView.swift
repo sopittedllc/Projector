@@ -1,10 +1,15 @@
 import SwiftUI
 import UniformTypeIdentifiers
-import Iconoir
 import AppKit
 
 /// File manager panel for importing and organizing media files
 struct FileManagerView: View {
+    /// Sort options for media library
+    enum SortOption: String, CaseIterable {
+        case name = "Name"
+        case dateAdded = "Date Added"
+        case type = "Type"
+    }
     @ObservedObject var mediaLibrary: ProjectMediaLibrary
     @ObservedObject var projectDocument: ProjectDocument
     @ObservedObject var timelineManager: TimelineManager
@@ -26,6 +31,20 @@ struct FileManagerView: View {
         if projectDocument.fileURL == nil { return true }
         return hasExternalFiles
     }
+
+    /// Height for the optimization banner when visible
+    private static let bannerHeight: CGFloat = 70
+
+    /// Calculate minimum height based on expanded state and banner visibility
+    private func calculateMinHeight() -> CGFloat {
+        if !isExpanded {
+            return FileManagerLayout.collapsedHeight
+        }
+        let baseHeight = FileManagerLayout.expandedHeight
+        let bannerExtra = activeSuggestion != nil ? Self.bannerHeight : 0
+        return baseHeight + bannerExtra
+    }
+
     @EnvironmentObject private var dragContext: DragContext
 
     @State private var selectedItemIds: Set<UUID> = []
@@ -33,6 +52,7 @@ struct FileManagerView: View {
     @State private var isDropTargeted = false
     @State private var filterType: MediaType? = nil
     @State private var searchText = ""
+    @State private var sortOption: SortOption = .dateAdded
     @State private var isExpanded = true
     @State private var showDeleteAlert = false
     @State private var pendingDeleteItems: [MediaItem] = []
@@ -52,6 +72,12 @@ struct FileManagerView: View {
     /// Flag to re-open consolidation sheet after project is saved
     @State private var pendingConsolidationAfterSave = false
 
+    /// Active optimization suggestion to display in banner
+    @State private var activeSuggestion: OptimizationSuggestion?
+
+    /// Tracks dismissed suggestion types for this session (prevents re-showing after dismiss)
+    @State private var dismissedSuggestionTypes: Set<String> = []
+
     // Focus state for keyboard commands
     @FocusState private var isMediaListFocused: Bool
 
@@ -66,10 +92,40 @@ struct FileManagerView: View {
     var body: some View {
         VStack(spacing: 0) {
             headerBar
+
+            // Optimization suggestion banner
+            if let suggestion = activeSuggestion {
+                OptimizationSuggestionBanner(
+                    suggestion: suggestion,
+                    onOptimize: {
+                        showOptimizationSheet = true
+                        activeSuggestion = nil
+                    },
+                    onDismiss: {
+                        // Track dismissed type to prevent re-showing
+                        switch suggestion {
+                        case .highBitrateImport:
+                            dismissedSuggestionTypes.insert("highBitrate")
+                        case .proResDetected:
+                            dismissedSuggestionTypes.insert("proRes")
+                        case .playbackStutter:
+                            dismissedSuggestionTypes.insert("stutter")
+                        case .largeProjectSize:
+                            dismissedSuggestionTypes.insert("projectSize")
+                        }
+                        activeSuggestion = nil
+                    }
+                )
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             Divider()
             contentArea
         }
-        .frame(height: isExpanded ? FileManagerLayout.expandedHeight : FileManagerLayout.collapsedHeight, alignment: .top)
+        .frame(minHeight: calculateMinHeight(), alignment: .top)
+        .frame(maxHeight: isExpanded ? .infinity : FileManagerLayout.collapsedHeight)
         .contentShape(Rectangle())
         .clipped()
         .glassPanel()
@@ -78,11 +134,24 @@ struct FileManagerView: View {
             if newCount > 0 && !isExpanded {
                 isExpanded = true
             }
+            // Check for optimization opportunities
+            evaluateOptimizationSuggestion()
         }
         .focusable()
         .focused($isMediaListFocused)
         .onDeleteCommand {
             requestDeleteSelectedItems()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editSelectAll)) { _ in
+            // Only select all if this view has focus
+            if isMediaListFocused {
+                selectedItemIds = Set(filteredItems.map { $0.id })
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editDeselectAll)) { _ in
+            if isMediaListFocused {
+                selectedItemIds.removeAll()
+            }
         }
         .alert("Remove Media Item", isPresented: $showDeleteAlert) {
             Button("Remove", role: .destructive) {
@@ -220,16 +289,16 @@ struct FileManagerView: View {
     // MARK: - Header Bar
 
     private var headerBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.md) {
             // Expand/collapse area - entire left side is clickable
             Button(action: { isExpanded.toggle() }) {
-                HStack(spacing: 6) {
+                HStack(spacing: Spacing.sm) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundColor(.secondary)
                         .frame(width: 12)
 
-                    Iconoir.folder.asImage
+                    Image(systemName: "folder")
                         .frame(width: 14, height: 14)
                         .foregroundColor(.secondary)
 
@@ -248,14 +317,38 @@ struct FileManagerView: View {
             .buttonStyle(.plain)
 
             if isExpanded {
+                // Search field
+                TextField("Search media...", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(Typography.body)
+                    .frame(width: 150)
+                    .padding(.horizontal, Spacing.sm)
+                    .padding(.vertical, Spacing.xs)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(Spacing.xs)
+
                 // Filter buttons
                 filterButtons
 
-                // Optimize button (only show if there are unoptimized items)
-                OptimizeMediaButton(
-                    showSheet: $showOptimizationSheet,
-                    hasUnoptimizedFiles: mediaLibrary.items.contains { !$0.isOptimized }
-                )
+                // Sort menu
+                Menu {
+                    ForEach(SortOption.allCases, id: \.self) { option in
+                        Button(option.rawValue) {
+                            sortOption = option
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "arrow.up.arrow.down")
+                        Text(sortOption.rawValue)
+                    }
+                    .font(Typography.caption)
+                    .foregroundColor(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+
+                // Note: Optimize button removed - the contextual banner handles this better
+                // The banner appears when high-bitrate media is detected and is more informative
 
                 // Consolidate button (only show if there are external files or project unsaved)
                 ConsolidateMediaButton(
@@ -265,13 +358,13 @@ struct FileManagerView: View {
 
                 // Import button
                 Button(action: importMedia) {
-                    HStack(spacing: 4) {
-                        Iconoir.plus.asImage
+                    HStack(spacing: Spacing.xs) {
+                        Image(systemName: "plus")
                             .frame(width: 12, height: 12)
                         Text("Import")
                     }
                 }
-                .buttonStyle(GlassActionButtonStyle(tint: .accentColor))
+                .buttonStyle(GlassActionButtonStyle(tint: AppColors.accent))
             }
         }
         .frame(height: PanelLayout.headerHeight)
@@ -281,7 +374,7 @@ struct FileManagerView: View {
     // MARK: - Filter Buttons
 
     private var filterButtons: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             filterButton(title: "All", type: nil)
             filterButton(title: "Video", type: .video)
             filterButton(title: "Audio", type: .audio)
@@ -293,10 +386,10 @@ struct FileManagerView: View {
             Text(title)
                 .font(.system(size: 10, weight: filterType == type ? .semibold : .regular))
                 .foregroundColor(filterType == type ? .accentColor : .secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
                 .background(filterType == type ? Color.accentColor.opacity(0.1) : Color.clear)
-                .cornerRadius(3)
+                .cornerRadius(Spacing.xs)
         }
         .buttonStyle(.plain)
     }
@@ -316,6 +409,7 @@ struct FileManagerView: View {
                 dropOverlay
             }
         }
+        .padding(Spacing.md) // Equal padding on ALL sides
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
@@ -324,25 +418,24 @@ struct FileManagerView: View {
 
     private var emptyStateView: some View {
         VStack(spacing: Spacing.sm) {
-            Iconoir.mediaVideo.asImage
-                .frame(width: 32, height: 32)
+            Image(systemName: "film")
+                .font(.system(size: 32))
                 .foregroundColor(.secondary.opacity(0.5))
 
             Text("No media files")
-                .font(.system(size: 12))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.secondary)
 
             Text("Drop files here or click Import")
-                .font(.system(size: 10))
+                .font(.system(size: 11))
                 .foregroundColor(.secondary.opacity(0.7))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var itemsList: some View {
         GeometryReader { outerGeometry in
             ScrollView(.horizontal, showsIndicators: true) {
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.sm) {
                     ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
                         MediaGridCell(
                             item: item,
@@ -373,7 +466,7 @@ struct FileManagerView: View {
                         )
                     }
                 }
-                .padding(8)
+                .padding(Spacing.sm)
                 .coordinateSpace(name: "mediaScrollContent")
             }
             .scrollIndicators(.visible)
@@ -452,8 +545,8 @@ struct FileManagerView: View {
             .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
             .background(Color.accentColor.opacity(0.1))
             .overlay(
-                VStack(spacing: 8) {
-                    Iconoir.plus.asImage
+                VStack(spacing: Spacing.sm) {
+                    Image(systemName: "plus")
                         .frame(width: 32, height: 32)
                         .foregroundColor(.accentColor)
 
@@ -462,7 +555,7 @@ struct FileManagerView: View {
                         .foregroundColor(.accentColor)
                 }
             )
-            .padding(4)
+            .padding(Spacing.xs)
     }
 
     // MARK: - Computed Properties
@@ -479,6 +572,22 @@ struct FileManagerView: View {
         if !searchText.isEmpty {
             items = items.filter {
                 $0.displayName.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+
+        // Sort
+        switch sortOption {
+        case .name:
+            items.sort { (a: MediaItem, b: MediaItem) -> Bool in
+                a.displayName.localizedCaseInsensitiveCompare(b.displayName) == .orderedAscending
+            }
+        case .dateAdded:
+            items.sort { (a: MediaItem, b: MediaItem) -> Bool in
+                a.importedAt > b.importedAt
+            }
+        case .type:
+            items.sort { (a: MediaItem, b: MediaItem) -> Bool in
+                a.type.rawValue < b.type.rawValue
             }
         }
 
@@ -600,6 +709,48 @@ struct FileManagerView: View {
             lastSelectedIndex = index
         }
     }
+
+    // MARK: - Optimization Suggestion Evaluation
+
+    /// Evaluates media items and determines if an optimization suggestion should be shown
+    private func evaluateOptimizationSuggestion() {
+        // Don't show suggestion if already showing one or sheet is open
+        guard activeSuggestion == nil, !showOptimizationSheet else { return }
+
+        // Count items that need optimization
+        var highBitrateCount = 0
+        var proResCount = 0
+
+        for item in mediaLibrary.items {
+            // Skip already optimized items
+            if item.isOptimized { continue }
+
+            // Check for ProRes/production codecs
+            let proResExtensions = ["mov", "mxf"]
+            if proResExtensions.contains(item.fileExtension) {
+                if let bitrate = item.bitrate, bitrate > 50_000_000 {
+                    proResCount += 1
+                    continue
+                }
+            }
+
+            // Check for high bitrate
+            if let bitrate = item.bitrate, bitrate > 10_000_000 {
+                highBitrateCount += 1
+            }
+        }
+
+        // Show suggestion based on what we found (respecting session dismissals)
+        if proResCount > 0 && !dismissedSuggestionTypes.contains("proRes") {
+            withAnimation {
+                activeSuggestion = .proResDetected(count: proResCount)
+            }
+        } else if highBitrateCount > 0 && !dismissedSuggestionTypes.contains("highBitrate") {
+            withAnimation {
+                activeSuggestion = .highBitrateImport(count: highBitrateCount)
+            }
+        }
+    }
 }
 
 /// Grid cell for displaying a media item as an icon
@@ -617,7 +768,7 @@ struct MediaGridCell: View {
 
     var body: some View {
         Button(action: onSelect) {
-            VStack(spacing: 4) {
+            VStack(spacing: Spacing.xs) {
                 // Thumbnail
                 thumbnailView
                     .frame(width: FileManagerLayout.gridThumbnailWidth, height: FileManagerLayout.gridThumbnailHeight)
@@ -627,16 +778,8 @@ struct MediaGridCell: View {
                             .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
                     )
                     .overlay(alignment: .topTrailing) {
-                        // Optimization badge
-                        if item.isOptimized {
-                            Image(systemName: "stopwatch.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(.green)
-                                .padding(3)
-                                .background(Color.black.opacity(0.6))
-                                .clipShape(Circle())
-                                .padding(4)
-                        }
+                        // Optimization status badge
+                        optimizationBadge
                     }
 
                 // Filename
@@ -647,7 +790,7 @@ struct MediaGridCell: View {
                     .multilineTextAlignment(.center)
                     .frame(width: FileManagerLayout.gridLabelWidth)
             }
-            .padding(4)
+            .padding(Spacing.xs)
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
@@ -676,6 +819,33 @@ struct MediaGridCell: View {
     }
 
     @ViewBuilder
+    private var optimizationBadge: some View {
+        let status = OptimizationStatusHelper.status(for: item)
+        switch status {
+        case .optimized:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 10))
+                .foregroundColor(.green)
+                .padding(Spacing.xs)
+                .background(Color.black.opacity(0.6))
+                .clipShape(Circle())
+                .padding(Spacing.xs)
+                .help("Optimized for playback")
+        case .needsOptimization(let reason):
+            Image(systemName: reason.icon)
+                .font(.system(size: 10))
+                .foregroundColor(reason.color)
+                .padding(Spacing.xs)
+                .background(Color.black.opacity(0.6))
+                .clipShape(Circle())
+                .padding(Spacing.xs)
+                .help("\(reason.shortLabel) - optimization recommended")
+        case .noAction:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
     private var thumbnailView: some View {
         if let data = item.thumbnailData, let nsImage = NSImage(data: data) {
             Image(nsImage: nsImage)
@@ -688,7 +858,7 @@ struct MediaGridCell: View {
             Rectangle()
                 .fill(Color.secondary.opacity(0.15))
                 .overlay(
-                    VStack(spacing: 2) {
+                    VStack(spacing: Spacing.xs) {
                         typeIcon
                             .frame(width: 24, height: 24)
                             .foregroundColor(.secondary.opacity(0.6))
@@ -709,9 +879,9 @@ struct MediaGridCell: View {
     private var typeIcon: some View {
         switch item.type {
         case .video:
-            Iconoir.videoCamera.asImage
+            Image(systemName: "video")
         case .audio:
-            Iconoir.musicDoubleNote.asImage
+            Image(systemName: "music.note.list")
         }
     }
 
@@ -720,6 +890,82 @@ struct MediaGridCell: View {
         case .video: return .blue
         case .audio: return .green
         }
+    }
+}
+
+// MARK: - Optimization Status Helper
+
+/// Helper to determine optimization status for media items
+enum OptimizationStatusHelper {
+
+    /// Reasons why optimization might be recommended
+    enum OptimizationReason {
+        case highBitrate(mbps: Double)
+        case productionCodec
+        case highResolution(width: Int)
+
+        var shortLabel: String {
+            switch self {
+            case .highBitrate: return "High Bitrate"
+            case .productionCodec: return "ProRes"
+            case .highResolution: return "4K+"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .highBitrate: return .orange
+            case .productionCodec: return .purple
+            case .highResolution: return .blue
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .highBitrate: return "speedometer"
+            case .productionCodec: return "film"
+            case .highResolution: return "4k.tv"
+            }
+        }
+    }
+
+    enum Status {
+        case optimized
+        case needsOptimization(reason: OptimizationReason)
+        case noAction
+    }
+
+    private enum Thresholds {
+        static let highBitrateBps: Int = 10_000_000
+        static let highResolutionWidth: CGFloat = 1920
+    }
+
+    static func status(for item: MediaItem) -> Status {
+        if item.isOptimized {
+            return .optimized
+        }
+
+        // Check for production codecs
+        let proResExtensions = ["mov", "mxf"]
+        if proResExtensions.contains(item.fileExtension) {
+            if let bitrate = item.bitrate, bitrate > 50_000_000 {
+                return .needsOptimization(reason: .productionCodec)
+            }
+        }
+
+        // Check for high resolution video
+        if item.type == .video, let size = item.videoSize {
+            if size.width > Thresholds.highResolutionWidth {
+                return .needsOptimization(reason: .highResolution(width: Int(size.width)))
+            }
+        }
+
+        // Check for high bitrate
+        if let bitrate = item.bitrate, bitrate > Thresholds.highBitrateBps {
+            return .needsOptimization(reason: .highBitrate(mbps: Double(bitrate) / 1_000_000))
+        }
+
+        return .noAction
     }
 }
 

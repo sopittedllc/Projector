@@ -49,6 +49,18 @@ final class OptimizationViewModel: ObservableObject {
     /// Time when optimization started (for time remaining calculation)
     private var optimizationStartTime: Date?
 
+    /// Whether to show the cleanup dialog after optimization completes
+    @Published public var showCleanupDialog: Bool = false
+
+    /// Selected cleanup action (nil = keep originals, which is default)
+    @Published public var cleanupAction: CleanupAction? = nil
+
+    /// Cleanup action options
+    enum CleanupAction {
+        case deleteOriginals
+        case moveToRawFolder
+    }
+
 
     /// IDs of items selected for optimization
     @Published public var selectedItemIds: Set<UUID> = []
@@ -101,6 +113,18 @@ final class OptimizationViewModel: ObservableObject {
     /// Structure: ProjectFolder/Optimized Media/ (not inside .projector package)
     var optimizedMediaFolderURL: URL? {
         projectURL?.deletingLastPathComponent().appendingPathComponent("Optimized Media")
+    }
+
+    /// The "Raw Files" folder URL (sibling of the .projector file)
+    /// Structure: ProjectFolder/Raw Files/ (not inside .projector package)
+    var rawFilesFolderURL: URL? {
+        projectURL?.deletingLastPathComponent().appendingPathComponent("Raw Files")
+    }
+
+    /// Total size of original files that were optimized (for cleanup dialog)
+    var totalOriginalFilesSize: UInt64 {
+        guard let result = result else { return 0 }
+        return result.successfulItems.reduce(0) { $0 + $1.originalSize }
     }
 
     // MARK: - Computed Properties
@@ -410,6 +434,92 @@ final class OptimizationViewModel: ObservableObject {
         progress = nil
         result = nil
         optimizationStartTime = nil
+        showCleanupDialog = false
+        cleanupAction = nil
+    }
+
+    /// Show the cleanup dialog
+    func showCleanup() {
+        showCleanupDialog = true
+    }
+
+    /// Execute the selected cleanup action
+    func executeCleanup() async throws {
+        guard let result = result, let action = cleanupAction else { return }
+
+        switch action {
+        case .deleteOriginals:
+            try await deleteOriginalFiles(from: result)
+        case .moveToRawFolder:
+            try await moveOriginalFilesToRawFolder(from: result)
+        }
+    }
+
+    /// Delete original files by moving them to Trash
+    private func deleteOriginalFiles(from result: OptimizationResult) async throws {
+        debugPrint("OptimizationViewModel.deleteOriginalFiles: moving \(result.successfulItems.count) original files to Trash")
+
+        let fileManager = FileManager.default
+        for item in result.successfulItems {
+            // Only delete if original file still exists
+            guard fileManager.fileExists(atPath: item.originalURL.path) else {
+                debugPrint("OptimizationViewModel.deleteOriginalFiles: skipping \(item.displayName) - file not found")
+                continue
+            }
+
+            do {
+                try fileManager.trashItem(at: item.originalURL, resultingItemURL: nil)
+                debugPrint("OptimizationViewModel.deleteOriginalFiles: moved to Trash - \(item.displayName)")
+            } catch {
+                debugPrint("OptimizationViewModel.deleteOriginalFiles: failed to trash \(item.displayName) - \(error.localizedDescription)")
+                throw error
+            }
+        }
+    }
+
+    /// Move original files to "Raw Files" folder
+    private func moveOriginalFilesToRawFolder(from result: OptimizationResult) async throws {
+        guard let rawFolder = rawFilesFolderURL else {
+            throw MediaOptimizationError.invalidPath
+        }
+
+        debugPrint("OptimizationViewModel.moveOriginalFilesToRawFolder: moving \(result.successfulItems.count) files to Raw Files folder")
+
+        let fileManager = FileManager.default
+
+        // Create Raw Files folder if it doesn't exist
+        if !fileManager.fileExists(atPath: rawFolder.path) {
+            try fileManager.createDirectory(at: rawFolder, withIntermediateDirectories: true)
+            debugPrint("OptimizationViewModel.moveOriginalFilesToRawFolder: created Raw Files folder")
+        }
+
+        for item in result.successfulItems {
+            // Only move if original file still exists
+            guard fileManager.fileExists(atPath: item.originalURL.path) else {
+                debugPrint("OptimizationViewModel.moveOriginalFilesToRawFolder: skipping \(item.displayName) - file not found")
+                continue
+            }
+
+            let destinationURL = rawFolder.appendingPathComponent(item.originalURL.lastPathComponent)
+
+            // Handle name conflicts
+            var finalURL = destinationURL
+            var counter = 1
+            while fileManager.fileExists(atPath: finalURL.path) {
+                let filename = item.originalURL.deletingPathExtension().lastPathComponent
+                let ext = item.originalURL.pathExtension
+                finalURL = rawFolder.appendingPathComponent("\(filename)-\(counter).\(ext)")
+                counter += 1
+            }
+
+            do {
+                try fileManager.moveItem(at: item.originalURL, to: finalURL)
+                debugPrint("OptimizationViewModel.moveOriginalFilesToRawFolder: moved \(item.displayName) to \(finalURL.lastPathComponent)")
+            } catch {
+                debugPrint("OptimizationViewModel.moveOriginalFilesToRawFolder: failed to move \(item.displayName) - \(error.localizedDescription)")
+                throw error
+            }
+        }
     }
 
     // MARK: - Private Helpers

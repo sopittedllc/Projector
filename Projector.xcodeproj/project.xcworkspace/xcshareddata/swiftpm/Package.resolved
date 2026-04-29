@@ -1,5 +1,5 @@
 {
-  "originHash" : "ce319ce95c10eab0a0b5117345f37211ebbdf97f0b7e3bf15e2d9a97ba62cc88",
+  "originHash" : "c635a7027d4dc040bc7b1b3a5f43a1674cb74293426fd18706871c607a278d64",
   "pins" : [
     {
       "identity" : "dswaveformimage",
@@ -8,15 +8,6 @@
       "state" : {
         "revision" : "4c56578ee10128ee2b2c04c9c5aa73812de722db",
         "version" : "14.2.2"
-      }
-    },
-    {
-      "identity" : "iconoir-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/iconoir-icons/iconoir-swift",
-      "state" : {
-        "revision" : "66391f61281c4c203ae2003ebf66627dc849f233",
-        "version" : "7.5.1"
       }
     },
     {

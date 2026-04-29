@@ -3,9 +3,9 @@
 //  Projector
 //
 //  THE CONTRACT: Embedded Timecode Detection Service
-//  Defined by: arch-architect
-//  Implemented by: backend-logic (EmbeddedTimecodeService)
-//  Consumed by: ui-specialist (ContentView+Timeline)
+//  Layer: Contracts
+//  Implemented in: Managers
+//  Consumed in: Views
 //
 
 import Foundation

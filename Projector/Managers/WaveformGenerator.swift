@@ -90,7 +90,7 @@ final class WaveformGenerator: ObservableObject {
                 }.value
                 waveforms[index] = waveform
             } catch {
-                print("Failed to generate waveform for track \(index): \(error)")
+                debugLog("Failed to generate waveform for track \(index): \(error)")
             }
 
             progress = Double(index + 1) * trackProgress

@@ -2,7 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- App Sandbox: REQUIRED for App Store distribution -->
 	<key>com.apple.security.app-sandbox</key>
+	<true/>
+
+	<!-- File Access: Read user-selected files for preview generation -->
+	<key>com.apple.security.files.user-selected.read-only</key>
 	<true/>
 </dict>
 </plist>

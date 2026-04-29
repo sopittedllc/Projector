@@ -1,7 +1,11 @@
 import SwiftUI
 import AppKit
 
-/// Settings window for audio and display configuration
+/// Settings window for audio and display configuration.
+///
+/// Provides accordion-style sections for:
+/// - Audio: Output device selection and channel mapping
+/// - Display: Timecode overlay configuration
 struct SettingsView: View {
     @ObservedObject var audioManager: AudioOutputManager
     @ObservedObject var settings = AppSettings.shared
@@ -19,19 +23,18 @@ struct SettingsView: View {
             // Header
             HStack {
                 Text("Settings")
-                    .font(.title2)
-                    .fontWeight(.semibold)
+                    .font(Typography.title)
                 Spacer()
             }
-            .padding(.horizontal)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
+            .padding(.horizontal, Spacing.md)
+            .padding(.top, Spacing.lg)
+            .padding(.bottom, Spacing.sm)
 
             Divider()
 
             // Content
             ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     // MIDI Info Blurb
                     midiInfoSection
 
@@ -74,7 +77,7 @@ struct SettingsView: View {
             }
             .padding()
         }
-        .frame(width: 450, height: 650)
+        .frame(width: SettingsLayout.width, height: SettingsLayout.height)
         .sheet(isPresented: $showInterfaceMapping) {
             AudioOutputMappingView(
                 audioManager: audioManager,
@@ -95,77 +98,65 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             // Header - entire area is clickable
             Button(action: { isExpanded.wrappedValue.toggle() }) {
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.sm) {
                     Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(Typography.iconSmall)
                         .foregroundColor(.secondary)
-                        .frame(width: 12)
+                        .frame(width: Spacing.md)
 
                     Label(title, systemImage: icon)
-                        .font(.headline)
+                        .font(Typography.heading)
                         .foregroundColor(.primary)
 
                     Spacer()
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("\(title) section, \(isExpanded.wrappedValue ? "expanded" : "collapsed")")
+            .accessibilityHint("Double-tap to \(isExpanded.wrappedValue ? "collapse" : "expand")")
 
             // Content
             if isExpanded.wrappedValue {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: Spacing.md) {
                     content()
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
+                .padding(.horizontal, Spacing.md)
+                .padding(.bottom, Spacing.md)
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-        )
+        .glassPanel()
     }
 
     // MARK: - MIDI Info Section
 
     private var midiInfoSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Spacing.md) {
             Label("MIDI", systemImage: "pianokeys")
-                .font(.headline)
+                .font(Typography.heading)
 
             Text("On launch, Projector creates a \"Projector MIDI IN\" port. Within your DAW, send MTC and MMC to that port and you're good to go!")
-                .font(.subheadline)
+                .font(Typography.body)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(12)
+        .padding(Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-        )
+        .glassPanel()
     }
 
     // MARK: - Audio Section
 
     private var audioSectionContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
                 Text("Output Device")
-                    .font(.subheadline)
+                    .font(Typography.subheading)
                     .foregroundColor(.secondary)
 
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.sm) {
                     Picker("Audio Output", selection: $audioManager.selectedDeviceUID) {
                         Text("System Default").tag(nil as String?)
                         ForEach(audioManager.availableDevices) { device in
@@ -181,6 +172,7 @@ struct SettingsView: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                    .accessibilityLabel("Audio output device")
 
                     RefreshIconButton(helpText: "Refresh Devices") {
                         audioManager.refreshDevices()
@@ -195,31 +187,32 @@ struct SettingsView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.accentColor)
                 .disabled(audioManager.selectedDeviceChannelCount == 0)
+                .accessibilityLabel("Map audio interface outputs")
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
                 if audioManager.selectedDeviceChannelCount == 0 {
                     Text("No output channels detected for this device.")
-                        .font(.caption)
+                        .font(Typography.caption)
                         .foregroundColor(.secondary)
                 }
 
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("Mapped Outputs")
-                        .font(.caption)
+                        .font(Typography.caption)
                         .foregroundColor(.secondary)
 
                     if audioManager.mappedOutputs.isEmpty {
                         Text("No mapped outputs yet.")
-                            .font(.caption)
+                            .font(Typography.caption)
                             .foregroundColor(.secondary)
                     } else {
                         ForEach(audioManager.mappedOutputs) { output in
-                            HStack(spacing: 6) {
+                            HStack(spacing: Spacing.sm) {
                                 Text(output.name)
-                                    .font(.system(size: 11, weight: .medium))
+                                    .font(Typography.button)
                                 Text(outputChannelLabel(output))
-                                    .font(.system(size: 10))
+                                    .font(Typography.caption)
                                     .foregroundColor(.secondary)
                             }
                         }
@@ -240,14 +233,14 @@ struct SettingsView: View {
     // MARK: - Display Section
 
     private var displaySectionContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Spacing.md) {
             Toggle("Show Timecode Overlay", isOn: $settings.showTimecodeOverlay)
-                .font(.subheadline)
+                .font(Typography.body)
 
             if settings.showTimecodeOverlay {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("Overlay Position")
-                        .font(.subheadline)
+                        .font(Typography.subheading)
                         .foregroundColor(.secondary)
 
                     Picker("Position", selection: $settings.timecodeOverlayPosition) {
@@ -257,14 +250,17 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+                    .accessibilityLabel("Timecode overlay position")
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("Overlay Opacity: \(Int(settings.timecodeOverlayOpacity * 100))%")
-                        .font(.subheadline)
+                        .font(Typography.subheading)
                         .foregroundColor(.secondary)
 
                     Slider(value: $settings.timecodeOverlayOpacity, in: 0.3...1.0)
+                        .accessibilityLabel("Overlay opacity")
+                        .accessibilityValue("\(Int(settings.timecodeOverlayOpacity * 100)) percent")
                 }
             }
         }
@@ -281,19 +277,20 @@ private struct RefreshIconButton: View {
 
     var body: some View {
         Button(action: {
-            withAnimation(.easeInOut(duration: 0.6)) {
+            withAnimation(AppAnimations.slow) {
                 rotation += 360
             }
             action()
         }) {
             Image(systemName: "arrow.clockwise")
-                .font(.system(size: 12, weight: .semibold))
+                .font(Typography.icon)
                 .rotationEffect(.degrees(rotation))
-                .animation(.easeInOut(duration: 0.6), value: rotation)
+                .animation(AppAnimations.slow, value: rotation)
         }
         .buttonStyle(.plain)
         .foregroundColor(.secondary)
         .help(helpText)
+        .accessibilityLabel(helpText)
         .onHover { hovering in
             if hovering, !isHovering {
                 NSCursor.pointingHand.push()
@@ -330,20 +327,19 @@ private struct AudioOutputMappingView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
                     Text("Map Interface")
-                        .font(.title2)
-                        .fontWeight(.semibold)
+                        .font(Typography.title)
 
                     Text(mappingSubtitle)
-                        .font(.caption)
+                        .font(Typography.caption)
                         .foregroundColor(.secondary)
                 }
                 Spacer()
             }
-            .padding(.horizontal)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
+            .padding(.horizontal, Spacing.md)
+            .padding(.top, Spacing.lg)
+            .padding(.bottom, Spacing.sm)
 
             Divider()
 
@@ -351,9 +347,9 @@ private struct AudioOutputMappingView: View {
                 VStack(alignment: .leading, spacing: Layout.rowSpacing) {
                     if rows.isEmpty {
                         Text("No outputs available on this device.")
-                            .font(.caption)
+                            .font(Typography.caption)
                             .foregroundColor(.secondary)
-                            .padding(.top, 8)
+                            .padding(.top, Spacing.sm)
                     } else {
                         mappingHeaderRow
                         ForEach(rows.indices, id: \.self) { index in
@@ -430,17 +426,17 @@ private struct AudioOutputMappingView: View {
                     .frame(width: Layout.activeWidth, height: 1)
 
                 Text("Output \(row.channelIndex)")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Typography.body)
                     .foregroundColor(.secondary)
                     .frame(width: Layout.outputWidth, alignment: .leading)
 
                 Text("Paired")
-                    .font(.system(size: 11))
+                    .font(Typography.bodySmall)
                     .foregroundColor(.secondary)
                     .frame(width: Layout.modeWidth, alignment: .leading)
 
                 Text("with Output \(row.channelIndex - 1)")
-                    .font(.system(size: 11))
+                    .font(Typography.bodySmall)
                     .foregroundColor(.secondary)
                     .frame(width: Layout.displayWidth, alignment: .leading)
             } else {
@@ -449,9 +445,10 @@ private struct AudioOutputMappingView: View {
                     .labelsHidden()
                     .frame(width: Layout.activeWidth, alignment: .leading)
                     .controlSize(.small)
+                    .accessibilityLabel("Include Output \(row.channelIndex)")
 
                 Text("Output \(row.channelIndex)")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Typography.body)
                     .frame(width: Layout.outputWidth, alignment: .leading)
 
                 modeSelector(for: index)
@@ -462,6 +459,7 @@ private struct AudioOutputMappingView: View {
                     .frame(width: Layout.displayWidth)
                     .disabled(!rows[index].isIncluded)
                     .controlSize(.small)
+                    .accessibilityLabel("Display name for Output \(row.channelIndex)")
             }
         }
         .frame(height: Layout.rowHeight)
@@ -515,12 +513,12 @@ private struct AudioOutputMappingView: View {
     private var mappingHeaderRow: some View {
         HStack(spacing: Layout.columnSpacing) {
             Text("Active")
-                .font(.caption)
+                .font(Typography.caption)
                 .foregroundColor(.secondary)
                 .frame(width: Layout.activeWidth, alignment: .leading)
 
             Text("Output Name")
-                .font(.caption)
+                .font(Typography.caption)
                 .foregroundColor(.secondary)
                 .frame(width: Layout.outputWidth, alignment: .leading)
 
@@ -528,7 +526,7 @@ private struct AudioOutputMappingView: View {
                 .frame(width: Layout.modeWidth, height: 1)
 
             Text("Display Name")
-                .font(.caption)
+                .font(Typography.caption)
                 .foregroundColor(.secondary)
                 .frame(width: Layout.displayWidth, alignment: .leading)
         }
@@ -588,7 +586,7 @@ private struct AudioOutputMappingView: View {
         let canEdit = rows[index].isIncluded && index < rows.count - 1
         let isStereo = bindingForRow(index).isStereo
 
-        return HStack(spacing: 6) {
+        return HStack(spacing: Spacing.sm) {
             modeButton(
                 iconName: "MonoIcon",
                 isSelected: !isStereo.wrappedValue,
@@ -620,7 +618,7 @@ private struct AudioOutputMappingView: View {
                 .scaledToFit()
                 .frame(width: 14, height: 14)
                 .foregroundColor(isSelected ? .accentColor : .secondary)
-                .padding(4)
+                .padding(Spacing.xs)
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)

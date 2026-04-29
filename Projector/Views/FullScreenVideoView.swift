@@ -52,15 +52,19 @@ struct FullScreenVideoView: View {
     }
 }
 
-#Preview {
-    FullScreenVideoView(
-        playbackEngine: PlaybackEngine(),
-        settings: AppSettings.shared,
-        mediaImportCoordinator: MediaImportCoordinator(
-            mediaLibrary: ProjectMediaLibrary(),
-            timelineManager: TimelineManager(),
-            timelineViewModel: TimelineViewModel(manager: TimelineManager())
-        ),
-        onExitFullScreen: {}
-    )
-}
+// #Preview {
+//     let manager = TimelineManager()
+//     let actor = TimelineActor(timelineManager: manager)
+//     let viewModel = TimelineViewModel(service: actor)
+//
+//     FullScreenVideoView(
+//         playbackEngine: PlaybackEngine(),
+//         settings: AppSettings.shared,
+//         mediaImportCoordinator: MediaImportCoordinator(
+//             mediaLibrary: ProjectMediaLibrary(),
+//             timelineManager: manager,
+//             timelineViewModel: viewModel
+//         ),
+//         onExitFullScreen: {}
+//     )
+// }

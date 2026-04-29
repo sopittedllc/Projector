@@ -23,7 +23,7 @@ struct AccordionResizeHandle: View {
     var body: some View {
         Rectangle()
             .fill(Color.clear)
-            .frame(height: 8)
+            .frame(height: Spacing.sm)
             .contentShape(Rectangle())
             .overlay(alignment: .center) {
                 // Visual indicator - pill shape

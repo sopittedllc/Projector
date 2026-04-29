@@ -125,7 +125,15 @@ osascript -e "tell application \"Finder\" to make new alias file at POSIX file \
 # Without this, the alias icon appears briefly then disappears on modern macOS
 fileicon set "${STAGING_DIR}/Applications" "${SCRIPTS_DIR}/ApplicationsFolderIcon.icns"
 
-/opt/homebrew/bin/create-dmg \
+# Use Homebrew create-dmg (has full customization options)
+# The npm version is a different tool with limited options
+CREATE_DMG="/opt/homebrew/bin/create-dmg"
+if [ ! -x "$CREATE_DMG" ]; then
+    echo "Error: create-dmg not found. Install via: brew install create-dmg"
+    exit 1
+fi
+
+"$CREATE_DMG" \
     --volname "${DMG_NAME}" \
     --volicon "${EXPORT_PATH}/${APP_NAME}/Contents/Resources/AppIcon.icns" \
     --background "${SCRIPTS_DIR}/dmg-background.png" \
