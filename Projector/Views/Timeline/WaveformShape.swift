@@ -67,7 +67,7 @@ struct WaveformShape: Shape {
 // MARK: - Preview
 
 #Preview {
-    VStack(spacing: 20) {
+    VStack(spacing: Spacing.xl) {
         // Centered waveform
         WaveformShape(samples: generatePreviewSamples())
             .stroke(Color.accentColor, lineWidth: 1)

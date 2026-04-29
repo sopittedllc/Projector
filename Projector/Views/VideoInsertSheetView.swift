@@ -49,10 +49,13 @@ struct VideoInsertSheetView: View {
     /// Error message to display if timecode is invalid.
     @State private var errorMessage: String?
 
+    /// Focus state for timecode field
+    @FocusState private var isTimecodeFocused: Bool
+
     // MARK: - Body
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Spacing.md) {
             Text("Place Video")
                 .font(.system(size: 14, weight: .semibold))
 
@@ -63,8 +66,12 @@ struct VideoInsertSheetView: View {
             TextField("00:00:00:00", text: $timecodeText)
                 .font(.system(size: 13, design: .monospaced))
                 .textFieldStyle(.roundedBorder)
+                .focused($isTimecodeFocused)
                 .onChange(of: timecodeText) { _, newValue in
                     timecodeText = Self.formatTimecodeInput(newValue)
+                }
+                .onSubmit {
+                    confirmVideoInsert()
                 }
 
             if let error = errorMessage {
@@ -84,7 +91,7 @@ struct VideoInsertSheetView: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(16)
+        .padding(Spacing.lg)
         .frame(width: 320)
         .onAppear {
             // Initialize timecode text to the start timecode

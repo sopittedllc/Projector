@@ -1,7 +1,6 @@
 import SwiftUI
 import Foundation
 import SwiftTimecodeCore
-import Iconoir
 import UniformTypeIdentifiers
 import AVFoundation
 import AppKit
@@ -25,8 +24,9 @@ struct DustyBackground: View {
     }
 }
 
-/// Helper view that captures a reference to the nearest ancestor NSScrollView
+/// Helper view that captures a reference to the nearest ancestor NSScrollView.
 ///
+/// Used for programmatic scroll operations like auto-scroll during marquee selection.
 /// Embeds an invisible NSView that traverses up the view hierarchy to find
 /// the enclosing NSScrollView and reports it via a binding.
 private struct ScrollViewCaptureHelper: NSViewRepresentable {
@@ -95,8 +95,8 @@ struct MultiTrackTimelineView: View {
     @State private var isHoveringDuration = false
     @State private var editingStartTCText = ""
     @State private var editingDurationText = ""
-    @FocusState private var isStartTCFocused: Bool
-    @FocusState private var isDurationFocused: Bool
+    @State private var isStartTCFocused: Bool = false
+    @State private var isDurationFocused: Bool = false
     @State private var isEmptyAudioDropAllowed = false
     @State private var isEmptyAudioDropLoading = false
     @State private var emptyAudioDropPreviewFrame: Int?
@@ -112,6 +112,12 @@ struct MultiTrackTimelineView: View {
     // Multi-selection state for marquee selection
     @State private var selectedVideoReelIds: Set<UUID> = []
     @State private var selectedAudioClipIds: Set<UUID> = []
+
+    // Clipboard state for cut/copy/paste
+    @State private var clipboardVideoReelIds: Set<UUID> = []
+    @State private var clipboardAudioClipIds: Set<UUID> = []
+    @State private var showPasteError = false
+    @State private var pasteErrorMessage = ""
 
     // Marquee selection state
     @State private var isMarqueeSelecting = false
@@ -236,6 +242,11 @@ struct MultiTrackTimelineView: View {
         .sheet(isPresented: $showTimecodeEntryDialog) {
             timecodeEntryDialogContent
         }
+        .alert("Paste Failed", isPresented: $showPasteError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(pasteErrorMessage)
+        }
         // Take focus when a clip is selected
         .onChange(of: selectedVideoReelId) { _, newValue in
             if newValue != nil {
@@ -274,6 +285,18 @@ struct MultiTrackTimelineView: View {
         .onReceive(NotificationCenter.default.publisher(for: .editDeselectAll)) { _ in
             guard isTimelineFocused else { return }
             deselectAll()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editCut)) { _ in
+            guard isTimelineFocused else { return }
+            cutSelectedItems()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editCopy)) { _ in
+            guard isTimelineFocused else { return }
+            copySelectedItems()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editPaste)) { _ in
+            guard isTimelineFocused else { return }
+            pasteItems()
         }
         // Escape key to deselect all
         .onKeyPress(.escape) {
@@ -441,13 +464,13 @@ struct MultiTrackTimelineView: View {
     // MARK: - Timecode Entry Dialog
 
     private var timecodeEntryDialogContent: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Spacing.lg) {
             Text("Enter New Position")
                 .font(.headline)
 
             TextField("00:00:00:00", text: $timecodeEntryText)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                .font(Typography.monoDisplay)
                 .frame(width: 150)
                 .onChange(of: timecodeEntryText) { _, newValue in
                     timecodeEntryText = formatTimecodeInput(newValue)
@@ -461,7 +484,7 @@ struct MultiTrackTimelineView: View {
                     .multilineTextAlignment(.center)
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: Spacing.md) {
                 Button("Cancel") {
                     showTimecodeEntryDialog = false
                     clearEditingState()
@@ -474,7 +497,7 @@ struct MultiTrackTimelineView: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(24)
+        .padding(Spacing.xxl)
         .frame(minWidth: 280)
     }
 
@@ -545,7 +568,7 @@ struct MultiTrackTimelineView: View {
     private var headerSection: some View {
         VStack(spacing: 0) {
             // Toolbar: Start TC | Duration | FPS | Transport | Zoom | Settings
-            HStack(spacing: 12) {
+            HStack(spacing: Spacing.md) {
                 // Start timecode (editable)
                 startTCBox
 
@@ -565,12 +588,12 @@ struct MultiTrackTimelineView: View {
 
                 // Settings button
                 Button(action: onSettingsPressed) {
-                    Iconoir.settings.asImage
+                    Image(systemName: "gearshape")
                         .frame(width: 18, height: 18)
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, Spacing.md)
             .frame(height: TimelineLayout.toolbarHeight)
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
 
@@ -579,16 +602,16 @@ struct MultiTrackTimelineView: View {
     }
 
     private var transportControls: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
             Button(action: { playbackEngine.stepBackward() }) {
-                Iconoir.skipPrev.asImage
+                Image(systemName: "backward.fill")
                     .frame(width: 14, height: 14)
             }
             .buttonStyle(.plain)
             .disabled(!playbackEngine.hasContent)
 
             Button(action: { playbackEngine.togglePlayback() }) {
-                (playbackEngine.isPlaying ? Iconoir.pauseSolid.asImage : Iconoir.playSolid.asImage)
+                Image(systemName: playbackEngine.isPlaying ? "pause.fill" : "play.fill")
                     .frame(width: 16, height: 16)
             }
             .buttonStyle(.plain)
@@ -596,20 +619,20 @@ struct MultiTrackTimelineView: View {
             .keyboardShortcut(.space, modifiers: [])
 
             Button(action: { playbackEngine.stepForward() }) {
-                Iconoir.skipNext.asImage
+                Image(systemName: "forward.fill")
                     .frame(width: 14, height: 14)
             }
             .buttonStyle(.plain)
             .disabled(!playbackEngine.hasContent)
 
             Button(action: { playbackEngine.stop() }) {
-                Iconoir.square.asImage
+                Image(systemName: "stop.fill")
                     .frame(width: 14, height: 14)
             }
             .buttonStyle(.plain)
             .disabled(!playbackEngine.hasContent)
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Spacing.sm)
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6)
@@ -617,12 +640,12 @@ struct MultiTrackTimelineView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                .stroke(AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
         )
     }
 
     private var zoomControls: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Button(action: { zoomOut() }) {
                 Image(systemName: "minus.magnifyingglass")
                     .font(.system(size: 11))
@@ -651,27 +674,40 @@ struct MultiTrackTimelineView: View {
     // MARK: - Editable Timecode Boxes
 
     private var startTCBox: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Text("Start TC:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize()
 
-            TextField("00:00:00:00", text: $editingStartTCText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .frame(width: 85)
-                .focused($isStartTCFocused)
-                .onChange(of: editingStartTCText) { _, newValue in
-                    let formatted = formatTimecodeInput(newValue)
-                    if formatted != newValue {
-                        editingStartTCText = formatted
-                    }
+            TransparentTextField(
+                text: $editingStartTCText,
+                placeholder: "00:00:00:00",
+                font: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium),
+                onSubmit: {
+                    applyStartTimecode()
+                },
+                onEscape: {
+                    editingStartTCText = timeline.config.startTimecode.stringValue()
+                },
+                isFocused: $isStartTCFocused
+            )
+            .frame(width: 85)
+            .onChange(of: editingStartTCText) { _, newValue in
+                let formatted = formatTimecodeInput(newValue)
+                if formatted != newValue {
+                    editingStartTCText = formatted
                 }
-                .onSubmit {
+            }
+            .onChange(of: isStartTCFocused) { _, focused in
+                // Save on blur
+                if !focused {
                     applyStartTimecode()
                 }
+            }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Spacing.sm)
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6)
@@ -679,7 +715,7 @@ struct MultiTrackTimelineView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(isStartTCFocused ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: 1)
+                .stroke(isStartTCFocused ? Color.accentColor : AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
         )
         .onHover { hovering in
             isHoveringStartTC = hovering
@@ -691,36 +727,49 @@ struct MultiTrackTimelineView: View {
 
     private var startTCBackground: Color {
         if isStartTCFocused {
-            return Color.clear
+            return Color.red  // DEBUG: Should be RED not blue
         } else if isHoveringStartTC {
-            return Color.white.opacity(0.1)
+            return Color.green  // DEBUG: Should be GREEN on hover
         } else {
-            return Color(nsColor: .controlBackgroundColor)
+            return Color.white.opacity(0.04)
         }
     }
 
     private var durationBox: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Text("Duration:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize()
 
-            TextField("00:00:00:00", text: $editingDurationText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .frame(width: 85)
-                .focused($isDurationFocused)
-                .onChange(of: editingDurationText) { _, newValue in
-                    let formatted = formatTimecodeInput(newValue)
-                    if formatted != newValue {
-                        editingDurationText = formatted
-                    }
+            TransparentTextField(
+                text: $editingDurationText,
+                placeholder: "00:00:00:00",
+                font: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium),
+                onSubmit: {
+                    applyDuration()
+                },
+                onEscape: {
+                    editingDurationText = durationTimecodeString
+                },
+                isFocused: $isDurationFocused
+            )
+            .frame(width: 85)
+            .onChange(of: editingDurationText) { _, newValue in
+                let formatted = formatTimecodeInput(newValue)
+                if formatted != newValue {
+                    editingDurationText = formatted
                 }
-                .onSubmit {
+            }
+            .onChange(of: isDurationFocused) { _, focused in
+                // Save on blur
+                if !focused {
                     applyDuration()
                 }
+            }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Spacing.sm)
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6)
@@ -728,7 +777,7 @@ struct MultiTrackTimelineView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(isDurationFocused ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: 1)
+                .stroke(isDurationFocused ? Color.accentColor : AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
         )
         .onHover { hovering in
             isHoveringDuration = hovering
@@ -745,19 +794,21 @@ struct MultiTrackTimelineView: View {
 
     private var durationBackground: Color {
         if isDurationFocused {
-            return Color.clear
-        } else if isHoveringDuration {
-            return Color.white.opacity(0.1)
-        } else {
             return Color(nsColor: .controlBackgroundColor)
+        } else if isHoveringDuration {
+            return Color.white.opacity(0.08)
+        } else {
+            return Color.white.opacity(0.04)
         }
     }
 
     private var fpsBox: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Text("FPS:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize()
 
             Menu {
                 ForEach(availableFrameRates, id: \.self) { rate in
@@ -773,7 +824,7 @@ struct MultiTrackTimelineView: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Spacing.sm)
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6)
@@ -781,7 +832,7 @@ struct MultiTrackTimelineView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                .stroke(AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
         )
     }
 
@@ -916,11 +967,11 @@ struct MultiTrackTimelineView: View {
                 // Scrollable tracks area (horizontal + vertical)
                 ScrollView([.horizontal, .vertical], showsIndicators: true) {
                     VStack(spacing: 0) {
-                        // Invisible helper to capture NSScrollView reference
+                        // Invisible helper to capture NSScrollView reference for auto-scroll
                         ScrollViewCaptureHelper(scrollView: $cachedScrollView)
                             .frame(width: 0, height: 0)
 
-                        Spacer().frame(height: 4)
+                        Spacer().frame(height: Spacing.xs)
 
                         // Video track
                         VideoTrackView(
@@ -933,6 +984,7 @@ struct MultiTrackTimelineView: View {
                             showThumbnails: !debug.disableThumbnails,
                             clipInteractionsEnabled: !debug.disableClipInteractions,
                             onDropMedia: onDropVideoMedia,
+                            onDropMixedMedia: onDropMixedMedia,
                             onReelSelected: { reelId, modifiers in
                                 handleReelSelection(reelId: reelId, modifiers: modifiers)
                             },
@@ -986,12 +1038,14 @@ struct MultiTrackTimelineView: View {
                                 clipInteractionsEnabled: !debug.disableClipInteractions,
                                 availableAudioOutputs: audioOutputManager.mappedOutputs,
                                 linkedDragPreview: linkedDragPreview,
+                                timelineStartFrames: timeline.config.startTimecode.frameCount.wholeFrames,
                                 mediaLibrary: mediaLibrary,
                                 onMuteToggle: { timelineManager.toggleLaneMute(at: index) },
                                 onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
                                 onVolumeChange: { volume in timelineManager.setLaneVolume(at: index, volume: volume) },
                                 onOutputMappingChange: { output in timelineManager.setLaneOutputMapping(id: lane.id, mapping: output) },
                                 onDropMedia: { urls, frame, isInternal in onDropAudioMedia(index, urls, frame, isInternal) },
+                                onDropMixedMedia: onDropMixedMedia,
                                 onClipSelected: { clipId, modifiers in
                                     handleClipSelection(clipId: clipId, laneId: lane.id, modifiers: modifiers)
                                 },
@@ -1107,7 +1161,7 @@ struct MultiTrackTimelineView: View {
                         }
 
                         // Bottom padding
-                        Spacer().frame(height: 8)
+                        Spacer().frame(height: Spacing.sm)
                     }
                     .frame(minHeight: scrollHeight)
                     // Marquee selection gesture on scroll content
@@ -1414,7 +1468,7 @@ struct MultiTrackTimelineView: View {
             Color.clear
                 .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
                 .overlay(
-                    VStack(spacing: 2) {
+                    VStack(spacing: Spacing.xs) {
                         Image(systemName: "speaker.slash")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary.opacity(0.4))
@@ -1443,10 +1497,10 @@ struct MultiTrackTimelineView: View {
                                     Color.secondary.opacity(0.1),
                                     style: StrokeStyle(lineWidth: 1, dash: [4, 4])
                                 )
-                                .padding(4)
+                                .padding(Spacing.xs)
                         )
 
-                    HStack(spacing: 8) {
+                    HStack(spacing: Spacing.sm) {
                         Image(systemName: "plus.circle")
                             .font(.system(size: 16))
                             .foregroundColor(.secondary.opacity(0.4))
@@ -1456,7 +1510,6 @@ struct MultiTrackTimelineView: View {
                             .foregroundColor(.secondary.opacity(0.5))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .offset(x: -TimelineLayout.headerWidth / 2)
 
                     // Show preview for all drops (single and multi-file)
                     if (isEmptyAudioDropAllowed || isEmptyAudioDropLoading),
@@ -1508,7 +1561,7 @@ struct MultiTrackTimelineView: View {
                 .frame(width: TimelineLayout.headerWidth)
                 .background(isActive ? Color(nsColor: .controlBackgroundColor).opacity(0.6) : Color.clear)
                 .overlay(
-                    VStack(spacing: 4) {
+                    VStack(spacing: Spacing.xs) {
                         Text("New Lane")
                             .font(.system(size: 9, weight: .medium))
                             .foregroundColor(.secondary)
@@ -1526,13 +1579,12 @@ struct MultiTrackTimelineView: View {
                     }
 
                     if isActive {
-                        VStack(spacing: 4) {
+                        VStack(spacing: Spacing.xs) {
                             Text("Drop to create new lane")
                                 .font(.system(size: 10))
                                 .foregroundColor(.secondary.opacity(0.7))
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .offset(x: -TimelineLayout.headerWidth / 2)
                     }
 
                     // Show preview for all drops (single and multi-file)
@@ -1568,7 +1620,7 @@ struct MultiTrackTimelineView: View {
         }
         .frame(height: baseHeight)
         .frame(maxHeight: .infinity, alignment: .top)
-        .animation(.easeInOut(duration: 0.12), value: isActive)
+        .animation(AppAnimations.instant, value: isActive)
     }
 
     private func handleNewLaneDragEntered(
@@ -1859,7 +1911,7 @@ struct MultiTrackTimelineView: View {
             .background(Color.orange.opacity(0.1))
             .frame(width: clampedWidth, height: max(6, height - 6))
             .offset(x: xOffset)
-            .padding(.vertical, 3)
+            .padding(.vertical, Spacing.xs)
             .allowsHitTesting(false)
     }
 
@@ -1985,19 +2037,19 @@ struct MultiTrackTimelineView: View {
     private let zoomStep: CGFloat = 0.1
 
     private func zoomIn() {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(AppAnimations.standard) {
             zoomLevel = min(maxZoom, zoomLevel + zoomStep)
         }
     }
 
     private func zoomOut() {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(AppAnimations.standard) {
             zoomLevel = max(minZoom, zoomLevel - zoomStep)
         }
     }
 
     private func resetZoom() {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(AppAnimations.standard) {
             zoomLevel = minZoom
         }
     }
@@ -2162,6 +2214,65 @@ struct MultiTrackTimelineView: View {
             selectedAudioLaneId = timeline.audioLanes.first { lane in
                 lane.clips.contains { $0.id == clipId }
             }?.id
+        }
+    }
+
+    /// Cut selected items (copy to clipboard then delete)
+    private func cutSelectedItems() {
+        copySelectedItems()
+        deleteSelectedItem()
+    }
+
+    /// Copy selected items to clipboard
+    private func copySelectedItems() {
+        // Store selected video reel IDs
+        clipboardVideoReelIds = selectedVideoReelIds
+
+        // Store selected audio clip IDs with their lane IDs
+        clipboardAudioClipIds = selectedAudioClipIds
+    }
+
+    /// Paste items from clipboard at playhead position
+    private func pasteItems() {
+        let playheadFrame = playbackEngine.currentFrame
+
+        // Paste video reels
+        for reelId in clipboardVideoReelIds {
+            guard let reel = timeline.videoReels.first(where: { $0.id == reelId }) else { continue }
+            // Create a copy at playhead position
+            Task { @MainActor in
+                do {
+                    _ = try await timelineManager.addVideoReel(
+                        from: reel.sourceURL,
+                        at: playheadFrame,
+                        mediaItemId: reel.mediaItemId
+                    )
+                } catch {
+                    pasteErrorMessage = "Failed to paste video: \(error.localizedDescription)"
+                    showPasteError = true
+                }
+            }
+        }
+
+        // Paste audio clips
+        for clipId in clipboardAudioClipIds {
+            for lane in timeline.audioLanes {
+                guard let clip = lane.clips.first(where: { $0.id == clipId }) else { continue }
+                // Create a copy at playhead position in the same lane
+                Task { @MainActor in
+                    do {
+                        _ = try await timelineManager.addAudioClip(
+                            from: clip.sourceURL,
+                            toLane: lane.id,
+                            at: playheadFrame
+                        )
+                    } catch {
+                        pasteErrorMessage = "Failed to paste audio: \(error.localizedDescription)"
+                        showPasteError = true
+                    }
+                }
+                break
+            }
         }
     }
 
@@ -2666,5 +2777,96 @@ private struct TimelineDebugFlags {
             disableRulerGesture: arguments.contains("-debug-disable-ruler-gesture"),
             disableClipInteractions: arguments.contains("-debug-disable-clip-interactions")
         )
+    }
+}
+
+// MARK: - Transparent TextField
+
+/// A TextField that removes all macOS system styling (focus ring, background)
+/// so parent views can apply custom styling without interference.
+private struct TransparentTextField: NSViewRepresentable {
+    @Binding var text: String
+    var placeholder: String = ""
+    var font: NSFont = .monospacedSystemFont(ofSize: 12, weight: .medium)
+    var alignment: NSTextAlignment = .left
+    var onSubmit: (() -> Void)?
+    var onEscape: (() -> Void)?
+
+    @Binding var isFocused: Bool
+
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = NSTextField()
+        textField.delegate = context.coordinator
+        textField.isBordered = false
+        textField.drawsBackground = false
+        textField.backgroundColor = .clear
+        textField.focusRingType = .none
+        textField.font = font
+        textField.alignment = alignment
+        textField.placeholderString = placeholder
+        textField.cell?.sendsActionOnEndEditing = true
+        return textField
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+        nsView.font = font
+        nsView.alignment = alignment
+        nsView.placeholderString = placeholder
+
+        // Handle focus changes from SwiftUI
+        DispatchQueue.main.async {
+            if isFocused && nsView.window?.firstResponder != nsView.currentEditor() {
+                nsView.window?.makeFirstResponder(nsView)
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: TransparentTextField
+
+        init(_ parent: TransparentTextField) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let textField = obj.object as? NSTextField else { return }
+            parent.text = textField.stringValue
+        }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            DispatchQueue.main.async {
+                self.parent.isFocused = true
+            }
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            DispatchQueue.main.async {
+                self.parent.isFocused = false
+            }
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                // Return key pressed
+                parent.onSubmit?()
+                // Resign first responder to exit edit mode
+                control.window?.makeFirstResponder(nil)
+                return true
+            }
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                // Escape key pressed
+                parent.onEscape?()
+                control.window?.makeFirstResponder(nil)
+                return true
+            }
+            return false
+        }
     }
 }

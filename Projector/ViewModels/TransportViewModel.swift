@@ -3,8 +3,8 @@
 //  Projector
 //
 //  THE CONTRACT CONSUMER: TransportServiceProtocol
-//  Defined by: arch-architect
-//  Consumed by: ui-specialist
+//  Layer: Contracts
+//  Consumed in: Views
 //
 
 import Foundation

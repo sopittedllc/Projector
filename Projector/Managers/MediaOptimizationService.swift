@@ -81,12 +81,14 @@ private final class CancellationFlag: @unchecked Sendable {
 /// │  - Analyzes media for optimization needs                        │
 /// │  - Transcodes video to HEVC 720p using hardware acceleration    │
 /// │  - Transcodes audio to AAC stereo                               │
-/// │  - Preserves original frame rates and sample rates              │
+/// │  - Preserves frame rates, sample rates, and timecode tracks     │
+/// │  - Outputs MOV container (required for timecode, see TN2310)    │
 /// └─────────────────────────────────────────────────────────────────┘
 ///                               │
 ///                               ▼
 /// ┌─────────────────────────────────────────────────────────────────┐
 /// │  AVAssetReader/Writer + VideoToolbox (hardware encoding)        │
+/// │  Three concurrent queues: video, audio, timecode                │
 /// └─────────────────────────────────────────────────────────────────┘
 /// ```
 ///
@@ -94,11 +96,15 @@ private final class CancellationFlag: @unchecked Sendable {
 ///
 /// Video is transcoded using quality-based encoding (similar to CRF mode in HandBrake):
 /// - **Codec**: HEVC (H.265) for ~40% better compression than H.264
+/// - **Container**: MOV (QuickTime) - required for timecode track support
 /// - **Resolution**: 720p (1280×720)
 /// - **Quality**: 0.65 (~CRF 23 equivalent, typically yields ~1000-1200 kbps)
 /// - **Hardware**: Uses Apple Silicon Media Engine via VideoToolbox
 ///
 /// Audio is transcoded to AAC stereo at 160 kbps, preserving the original sample rate.
+///
+/// Timecode tracks (AVMediaType.timecode) are copied as passthrough with track
+/// association to the video track. See Apple TN2310 for timecode support details.
 ///
 /// ## Usage
 ///
@@ -353,14 +359,15 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         case kCMVideoCodecType_JPEG: return "JPEG"
         case kCMVideoCodecType_MPEG4Video: return "MPEG-4"
         default:
-            // Convert FourCC to string
-            let chars = [
-                Character(UnicodeScalar((fourCC >> 24) & 0xFF)!),
-                Character(UnicodeScalar((fourCC >> 16) & 0xFF)!),
-                Character(UnicodeScalar((fourCC >> 8) & 0xFF)!),
-                Character(UnicodeScalar(fourCC & 0xFF)!)
+            // Convert FourCC to string safely
+            let bytes = [
+                (fourCC >> 24) & 0xFF,
+                (fourCC >> 16) & 0xFF,
+                (fourCC >> 8) & 0xFF,
+                fourCC & 0xFF
             ]
-            return String(chars)
+            let chars = bytes.compactMap { UnicodeScalar($0) }.map { Character($0) }
+            return chars.count == 4 ? String(chars) : String(format: "0x%08X", fourCC)
         }
     }
 
@@ -583,7 +590,8 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
 
         // Create output URL in the "Optimized Media" folder
         // Keep the original filename but with new extension
-        let outputExtension = item.isVideo ? "mp4" : "m4a"
+        // Use MOV for video to preserve timecode tracks (MP4 doesn't support timecode)
+        let outputExtension = item.isVideo ? "mov" : "m4a"
         let outputName = sourceURL.deletingPathExtension().lastPathComponent
         let outputURL = options.optimizedMediaFolderURL
             .appendingPathComponent(outputName)
@@ -673,10 +681,14 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         // Load tracks
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        let timecodeTracks = try await asset.loadTracks(withMediaType: .timecode)
 
         guard let videoTrack = videoTracks.first else {
             throw MediaOptimizationError.unsupportedFormat(sourceURL, "No video track found")
         }
+
+        // Load metadata for preservation (may contain timecode info)
+        let sourceMetadata = try await asset.load(.metadata)
 
         let duration = try await asset.load(.duration)
         let totalSeconds = duration.seconds
@@ -730,8 +742,30 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             }
         }
 
+        // Timecode reader output (if present) - passthrough, no conversion
+        // This preserves embedded SMPTE timecode from professional video files
+        var timecodeReaderOutput: AVAssetReaderTrackOutput?
+        var timecodeTrack: AVAssetTrack?
+        if let firstTimecodeTrack = timecodeTracks.first {
+            timecodeTrack = firstTimecodeTrack
+            let output = AVAssetReaderTrackOutput(
+                track: firstTimecodeTrack,
+                outputSettings: nil  // Passthrough - preserve format exactly
+            )
+            output.alwaysCopiesSampleData = false
+            if reader.canAdd(output) {
+                reader.add(output)
+                timecodeReaderOutput = output
+            }
+            debugPrint("MediaOptimizationService: Found timecode track, will preserve")
+        }
+
         // Set up asset writer
-        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+        // Use MOV container to preserve timecode tracks (MP4 doesn't support them)
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mov)
+
+        // Copy metadata from source (may include timecode-related info)
+        writer.metadata = sourceMetadata
 
         // Video writer input with HEVC encoding using HARDWARE ACCELERATION
         // HEVC provides ~40% better compression than H.264 at same quality,
@@ -806,16 +840,49 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             }
         }
 
+        // Timecode writer input (if source has timecode) - passthrough
+        // Creates track association with video track per Apple TN2310
+        var timecodeWriterInput: AVAssetWriterInput?
+        if let tcTrack = timecodeTrack, timecodeReaderOutput != nil {
+            // Get the format description from the source timecode track
+            let formatDescriptions = try await tcTrack.load(.formatDescriptions)
+            let formatHint = formatDescriptions.first
+
+            let tcInput = AVAssetWriterInput(
+                mediaType: .timecode,
+                outputSettings: nil,  // Passthrough - preserve format exactly
+                sourceFormatHint: formatHint
+            )
+            tcInput.expectsMediaDataInRealTime = false
+
+            if writer.canAdd(tcInput) {
+                writer.add(tcInput)
+
+                // Create track association: video track references timecode track
+                // Per Apple TN2310 and developer.apple.com, use canAddTrackAssociation first
+                let associationType = AVAssetTrack.AssociationType.timecode.rawValue
+                if videoWriterInput.canAddTrackAssociation(withTrackOf: tcInput, type: associationType) {
+                    videoWriterInput.addTrackAssociation(withTrackOf: tcInput, type: associationType)
+                    debugPrint("MediaOptimizationService: Added timecode track with video association")
+                } else {
+                    // Association not supported, but timecode track still added
+                    debugPrint("MediaOptimizationService: Added timecode track (association not supported)")
+                }
+                timecodeWriterInput = tcInput
+            }
+        }
+
         // Start reading and writing
         reader.startReading()
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
 
-        // Process video and audio using event-driven requestMediaDataWhenReady
+        // Process video, audio, and timecode using event-driven requestMediaDataWhenReady
         // This is MUCH faster than sleep-based polling - the encoder notifies us
         // when it's ready for more data instead of us constantly checking.
         let videoQueue = DispatchQueue(label: "com.projector.video-transcoding")
         let audioQueue = DispatchQueue(label: "com.projector.audio-transcoding")
+        let timecodeQueue = DispatchQueue(label: "com.projector.timecode-transcoding")
 
         // Capture progress for async reporting
         var lastReportedProgress: Double = 0
@@ -825,11 +892,12 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             var videoFinished = false
             var audioFinished = audioReaderOutput == nil  // Already finished if no audio
+            var timecodeFinished = timecodeReaderOutput == nil  // Already finished if no timecode
             let completionLock = NSLock()
 
             func checkCompletion() {
                 completionLock.lock()
-                let done = videoFinished && audioFinished
+                let done = videoFinished && audioFinished && timecodeFinished
                 completionLock.unlock()
                 if done {
                     continuation.resume()
@@ -906,6 +974,45 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                             return
                         }
                         writerInput.append(sampleBuffer)
+                    }
+                }
+            }
+
+            // Timecode processing (if present) - passthrough, no conversion
+            if let tcOutput = timecodeReaderOutput, let tcInput = timecodeWriterInput {
+                let tcWriterBox = WriterInputBox(tcInput)
+                let tcReaderBox = ReaderOutputBox(tcOutput)
+
+                tcInput.requestMediaDataWhenReady(on: timecodeQueue) {
+                    let writerInput = tcWriterBox.input
+                    let readerOutput = tcReaderBox.output
+
+                    while writerInput.isReadyForMoreMediaData {
+                        // Check cancellation (same as video processing)
+                        if cancelFlag.isCancelled {
+                            writerInput.markAsFinished()
+                            completionLock.lock()
+                            timecodeFinished = true
+                            completionLock.unlock()
+                            checkCompletion()
+                            return
+                        }
+
+                        guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
+                            // No more samples - timecode track complete
+                            writerInput.markAsFinished()
+                            completionLock.lock()
+                            timecodeFinished = true
+                            completionLock.unlock()
+                            checkCompletion()
+                            return
+                        }
+
+                        // Append timecode sample (passthrough, no encoding)
+                        if !writerInput.append(sampleBuffer) {
+                            // Append failed - log but continue (timecode is supplementary)
+                            debugPrint("MediaOptimizationService: Warning - failed to append timecode sample")
+                        }
                     }
                 }
             }

@@ -1,5 +1,4 @@
 import SwiftUI
-import Iconoir
 
 /// Modifier flags for selection operations
 struct SelectionModifiers: OptionSet {
@@ -28,6 +27,7 @@ struct VideoReelClipView: View {
     let isSelected: Bool
     let interactionsEnabled: Bool
     let isOptimized: Bool
+    let timelineStartTimecode: String?  // Sprint 5: Timeline start TC for clip
     let onSelect: (SelectionModifiers) -> Void
     let onDoubleClick: () -> Void
 
@@ -69,35 +69,56 @@ struct VideoReelClipView: View {
                 .stroke(borderColor, lineWidth: isSelected ? 2 : 1)
 
             // Content overlay
-            HStack(spacing: 4) {
-                // Reel info
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
-                        Text(reel.displayName)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-                            .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 1)
-
-                        // Optimization indicator
-                        if isOptimized {
-                            Image(systemName: "stopwatch.fill")
-                                .font(.system(size: 9))
-                                .foregroundColor(.green)
+            VStack(spacing: 0) {
+                HStack(spacing: Spacing.xs) {
+                    // Reel info
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
+                        HStack(spacing: Spacing.xs) {
+                            Text(reel.displayName)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.white)
+                                .lineLimit(1)
                                 .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 1)
+
+                            // Optimization indicator
+                            if isOptimized {
+                                Image(systemName: "stopwatch.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.green)
+                                    .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 1)
+                            }
                         }
+
+                        Text(formattedDuration)
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.9))
+                            .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 1)
                     }
 
-                    Text(formattedDuration)
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.9))
-                        .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 1)
+                    Spacer(minLength: 0)
                 }
+                .padding(.horizontal, Spacing.sm)
+                .padding(.top, Spacing.xs)
 
                 Spacer(minLength: 0)
+
+                // Sprint 5: Timeline start timecode at bottom
+                if let tc = timelineStartTimecode, reelWidth > 80 {
+                    HStack {
+                        Text(tc)
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.7))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.black.opacity(0.4))
+                            .cornerRadius(2)
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, Spacing.xs)
+                    .padding(.bottom, Spacing.xs)
+                }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
 
             // Active highlight border
             if isActive {
@@ -124,7 +145,12 @@ struct VideoReelClipView: View {
                     onDoubleClick()
                 }
         )
-        .help(reel.sourceURL.lastPathComponent)
+        .help("Double-click to set timecode position")
+        .contextMenu {
+            Button("Set Timecode Position...") {
+                onDoubleClick()
+            }
+        }
     }
 
     // MARK: - Thumbnail Filmstrip
@@ -150,6 +176,7 @@ struct VideoReelClipView: View {
                 }
             }
         }
+        .drawingGroup() // Rasterize thumbnails to Metal for better zoom/scroll performance
     }
 
     @ViewBuilder
@@ -200,7 +227,7 @@ struct VideoReelClipView: View {
 }
 
 #Preview {
-    HStack(spacing: 4) {
+    HStack(spacing: Spacing.xs) {
         VideoReelClipView(
             reel: VideoReel(
                 sourceURL: URL(fileURLWithPath: "/path/to/Reel_001.mov"),
@@ -216,6 +243,7 @@ struct VideoReelClipView: View {
             isSelected: false,
             interactionsEnabled: true,
             isOptimized: true,
+            timelineStartTimecode: "01:00:00:00",
             onSelect: { _ in },
             onDoubleClick: {}
         )
@@ -235,6 +263,7 @@ struct VideoReelClipView: View {
             isSelected: true,
             interactionsEnabled: true,
             isOptimized: false,
+            timelineStartTimecode: "01:02:00:00",
             onSelect: { _ in },
             onDoubleClick: {}
         )

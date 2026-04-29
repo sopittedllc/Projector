@@ -1,6 +1,6 @@
 # Projector Knowledge Base
 
-> **Last Updated**: 2026-01-15 (GP-019 added - macOS Drag-Drop Architecture)
+> **Last Updated**: 2026-03-31 (GP-027 added - Optional ViewModel Pattern)
 > **Maintainer**: The Librarian Agent
 >
 > This document captures institutional knowledge extracted from the Projector codebase.
@@ -99,19 +99,19 @@ UI and Logic layers become tightly coupled when views directly access MIDI manag
 
 #### Solution
 ```swift
-// 1. THE CONTRACT (defined by arch-architect)
+// 1. THE CONTRACT (Contracts layer)
 public protocol MIDISyncServiceProtocol: Sendable {
     var syncStateStream: AsyncStream<MIDISyncState> { get }
     func selectInput(_ name: String?) async
 }
 
-// 2. THE IMPLEMENTATION (by backend-logic)
+// 2. THE IMPLEMENTATION (Managers layer)
 actor MIDISyncActor: MIDISyncServiceProtocol {
     var syncStateStream: AsyncStream<MIDISyncState> { ... }
     func selectInput(_ name: String?) async { ... }
 }
 
-// 3. THE CONSUMER (by ui-specialist)
+// 3. THE CONSUMER (Views layer)
 @MainActor
 class MIDISyncViewModel: ObservableObject {
     private let service: MIDISyncServiceProtocol  // Only sees the contract
@@ -2176,6 +2176,97 @@ func frameToSampleCount(_ frameCount: Int, frameRate: Double, sampleRate: Int = 
 
 ---
 
+### GP-023: Xcode project.pbxproj Target Identification Protocol
+**Added**: 2026-01-18
+**Source**: Post-mortem from cue sheet feature implementation
+**Category**: Build System, Developer Experience
+
+#### Problem
+When programmatically adding files to an Xcode project, files may be added to the wrong target (e.g., UITests instead of main app). This causes "Cannot find type in scope" build errors even though files exist on disk and appear in the project.
+
+**Root Cause**: Xcode projects have MULTIPLE `PBXSourcesBuildPhase` sections - one per target. The UITests phase may appear BEFORE the main app phase in the file. Searching for "first PBXSourcesBuildPhase" grabs the wrong one.
+
+#### Solution
+Always follow the Target → buildPhases → Sources chain:
+
+```
+PBXNativeTarget (find by name or productType)
+        ↓
+   buildPhases array (from target object)
+        ↓
+   buildPhases[0] = Sources phase ID (always first)
+        ↓
+PBXSourcesBuildPhase (look up by that specific ID)
+        ↓
+   files array (add your build file reference here)
+```
+
+#### Target Types (productType field)
+
+| productType | Target Kind |
+|-------------|-------------|
+| `com.apple.product-type.application` | Main App (use this!) |
+| `com.apple.product-type.bundle.unit-test` | Unit Tests |
+| `com.apple.product-type.bundle.ui-testing` | UI Tests |
+| `com.apple.product-type.app-extension` | App Extension |
+
+#### Correct Implementation
+
+```python
+def add_file_to_main_app(project_path, file_path):
+    content = read_pbxproj(project_path)
+
+    # Step 1: Find main app target by productType
+    target = find_native_target(content,
+        productType="com.apple.product-type.application")
+
+    # Step 2: Get Sources phase ID (ALWAYS first in buildPhases)
+    sources_phase_id = target.buildPhases[0]
+
+    # Step 3: Find that specific PBXSourcesBuildPhase by ID
+    sources_phase = find_sources_phase(content, sources_phase_id)
+
+    # Step 4: Add file to that phase's files array
+    sources_phase.files.append(new_build_file_id)
+```
+
+#### Projector-Specific Reference
+
+```
+Target: Projector (main app)
+  productType: com.apple.product-type.application
+  buildPhases[0]: A1000001227D3F000000000C  ← CORRECT Sources phase
+
+Target: ProjectorUITests (DO NOT USE)
+  productType: com.apple.product-type.bundle.ui-testing
+  buildPhases[0]: 50F3CF58997D9E2F0BCEE6AD  ← Listed first in file!
+```
+
+#### Anti-Pattern (What Causes Failures)
+
+```python
+# ❌ NEVER DO THIS
+for phase in all_sources_phases:
+    phase.files.append(file)  # Wrong! Grabs first found (UITests)
+
+# ❌ ALSO WRONG
+sources_pattern = r'PBXSourcesBuildPhase.*?files = \('
+first_match = re.search(sources_pattern, content)  # UITests!
+```
+
+#### Verification Steps
+
+After adding files:
+1. `grep "YourFile.swift in Sources" project.pbxproj` - should appear once
+2. Check the line number - should be in the A1000001227D3F000000000C phase (around line 746+)
+3. Build in Xcode - "Cannot find type" means wrong target
+
+#### Related Files
+- `~/.claude/xcode-reference.md` - Comprehensive Xcode reference
+- `Projector.xcodeproj/project.pbxproj` - Project configuration
+
+---
+
 ## Prohibited Anti-Patterns
 
 ### AP-001: @MainActor for MIDI Processing
@@ -2653,7 +2744,7 @@ actor MTCSyncActor {
 
 **Root Cause**: Natural tendency to design for "eventual" needs rather than immediate requirements. MIDIManager only handles MIDI sync, not playback.
 
-**Solution**: scope-guard agent identified the creep and recommended splitting:
+**Solution**: Scope review identified the creep and recommended splitting:
 - `MIDISyncServiceProtocol` - MTC reception, MMC commands, MIDI input selection (Phase 1)
 - `TransportServiceProtocol` - Playback control, seeking, state (Phase 2)
 
@@ -2709,6 +2800,84 @@ guard needsCustomRouting else { return nil }
 
 ---
 
+### LL-005: Production Audits Must Include Visual/UI Review
+**Date**: 2026-03-31
+**Source**: User feedback during production readiness audit
+
+**Problem**: A "comprehensive audit" was performed that checked backend code (PlaybackEngine, audio routing, frame rates, MTC/MMC sync) but completely missed obvious UI issues: misaligned headers, inconsistent padding, cramped controls.
+
+**Root Cause**: The audit focused only on code logic and correctness. No systematic visual review was performed.
+
+**What Was Missed**:
+- Zoom controls flush against right edge (no trailing padding)
+- Track headers not aligned with panel headers (different left padding)
+- Empty state text using awkward `.offset()` instead of proper centering
+- Hardcoded magic numbers (3, 6, 10px) bypassing spacing system
+- Inconsistent padding patterns across similar controls
+
+**Solution**: Production audits MUST include these UI checks:
+
+1. **Layout Constants Audit**
+   - Grep for hardcoded padding values (3, 6, 10, etc.)
+   - Verify all spacing uses `Spacing.xs/sm/md/lg/xl/xxl`
+   - Check corner radii use constants
+
+2. **Alignment Audit**
+   - Compare left padding of panel headers vs content
+   - Check that related elements (track headers, lane headers) use identical spacing
+   - Verify empty states center properly
+
+3. **Visual Rhythm Audit**
+   - Check margins on all edges of controls (not just left/right)
+   - Verify consistent spacing between buttons in toolbars
+   - Confirm button padding matches across similar buttons
+
+4. **macOS HIG Compliance**
+   - Icon sizes follow standard (16, 18, 20, 24pt)
+   - Touch targets meet 44pt minimum
+   - 4pt grid system respected
+
+**Prevention Checklist** (add to all production audits):
+```
+[ ] Grep for padding with raw numbers (not Spacing.xxx)
+[ ] Read all panel/accordion headers - check padding matches
+[ ] Read all empty state views - check centering method
+[ ] Read all toolbar/control bars - check edge padding
+[ ] Visual inspection of running app (if possible)
+```
+
+**Key Insight**: Backend code audits catch runtime bugs. UI audits catch user experience bugs. Both are needed for production readiness. The user should never have to catch visual issues - that's our job.
+
+---
+
+### LL-006: Empty State Centering Pattern
+**Date**: 2026-03-31
+**Source**: UI audit findings
+
+**Problem**: Multiple empty state views used `.offset(x: -headerWidth / 2)` as a centering hack, creating fragile layouts.
+
+**Why It's Wrong**:
+- Assumes fixed header width (breaks if layout changes)
+- Not responsive to container width
+- Hard to understand intent when reading code
+
+**Correct Pattern**:
+```swift
+// WRONG - fragile offset hack
+VStack { ... }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .offset(x: -TimelineLayout.headerWidth / 2)
+
+// CORRECT - proper centering
+VStack { ... }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    // Content automatically centers in container
+```
+
+**When Offset IS Needed**: Only for animation/drag preview positioning, never for static layout.
+
+---
+
 ## Glossary
 
 | Term | Definition |
@@ -2720,6 +2889,257 @@ guard needsCustomRouting else { return nil }
 | **Actor** | Swift concurrency primitive providing thread-safe state isolation |
 | **@MainActor** | Swift attribute ensuring code runs on the main thread |
 | **DocC** | Apple's documentation compiler for Swift |
+
+---
+
+### GP-024: Menu-Based Action Trigger with Capability Check
+**Added**: 2026-01-19
+**Source**: `Projector/Views/CueSheet/CuesPanelView.swift:390-420`
+**Category**: UI
+
+#### Problem
+When offering menu actions that depend on external resources (async-loaded data), users see actions that can't be completed, leading to confusion. The UI should communicate resource availability clearly.
+
+#### Solution
+Implement a menu that:
+1. Checks resource availability before rendering each option
+2. Displays resource state in the label (e.g., "Loading...")
+3. Disables options when prerequisites aren't met
+
+```swift
+private var detectCuesMenu: some View {
+    Menu {
+        let audioClips = allAudioClips
+        if audioClips.isEmpty {
+            Text("No audio clips")
+        } else {
+            ForEach(audioClips, id: \.clip.id) { item in
+                let hasWaveform = waveformCache.clipAtlases[item.clip.id] != nil
+                Button {
+                    detectCuesFromClip(item.clip)
+                } label: {
+                    if hasWaveform {
+                        Text("\(item.clip.displayName) (Lane \(item.laneIndex + 1))")
+                    } else {
+                        Text("\(item.clip.displayName) (Loading...)")
+                    }
+                }
+                .disabled(!hasWaveform)
+            }
+        }
+    } label: {
+        HStack(spacing: 4) {
+            Image(systemName: "waveform.circle")
+            Text("Detect...")
+        }
+    }
+}
+```
+
+#### Why It Works
+- **Availability Check**: `hasWaveform` queries the cache to verify prerequisites
+- **Status Feedback**: Showing "(Loading...)" manages user expectations
+- **Disabling**: `.disabled(!hasWaveform)` prevents invalid operations
+- **No Polling**: Relies on already-computed cache state, no extra async calls
+
+#### When to Use
+- Menu actions that depend on background-loaded resources
+- Actions requiring specific data availability
+- User guidance in progressive disclosure UIs
+- Any case where capabilities vary by item
+
+#### Related Files
+- `Projector/Views/CueSheet/CuesPanelView.swift`
+- `Projector/Managers/WaveformCache.swift`
+
+---
+
+### GP-025: Reusing Infrastructure for New Features
+**Added**: 2026-01-19
+**Source**: Cue detection UI implementation (feature/cue-sheet-from-audio)
+**Category**: Architecture
+
+#### Problem
+New features often tempt developers to create new protocols, services, and UI dialogs, leading to code bloat and maintenance burden. This violates the DRY principle.
+
+#### Solution
+When implementing a new feature, audit existing infrastructure first:
+
+**What Already Exists** → **How It's Reused**
+- `TimelineManager` (existing contract) → Added `importDetectedCues()` method to existing protocol
+- `SilenceDetectionService` (existing) → Reused for cue detection algorithm
+- `DetectedCueListView` (existing) → Already implements the UI for review/import
+- `WaveformCache` (existing) → Dependency injected into views that need it
+
+**Code Added to CuesPanelView**:
+```swift
+struct CuesPanelView: View {
+    @ObservedObject var timelineManager: TimelineManager
+    let waveformCache: WaveformCache  // ← Added dependency
+    // ... existing properties ...
+}
+
+// Later, in actions:
+private func detectCuesFromClip(_ clip: AudioClip) {
+    guard let atlas = waveformCache.clipAtlases[clip.id],
+          let level = atlas.levels[4096] ?? atlas.levels.values.first else {
+        return
+    }
+
+    detectedCues = SilenceDetectionService.detectCues(
+        from: level,
+        clipStartFrame: clip.timelineStartFrame,
+        clipDurationFrames: clip.durationFrames,
+        timelineConfig: timelineManager.timeline.config
+    )
+    detectedCuesClipName = clip.displayName
+    showDetectedCuesSheet = true  // Reuse existing view
+}
+```
+
+#### Why It Works
+- **Minimal new code**: Only menu integration + detection trigger
+- **Proven services**: Reuses already-tested detection logic
+- **Dependency injection**: Passes `waveformCache` through view hierarchy
+- **No new protocols**: Works within existing `TimelineManager` contract
+- **Faster delivery**: Feature ships with less code, easier testing
+
+#### Key Insight
+**Question to ask**: "What does this feature actually *add* that doesn't exist yet?"
+- Detection algorithm? No, `SilenceDetectionService` exists.
+- Cue import UI? No, `DetectedCueListView` exists.
+- Waveform data? No, `WaveformCache` exists.
+- What's *actually* new? Just the UI trigger (menu in `CuesPanelView`).
+
+This keeps features small, focused, and maintainable.
+
+#### When to Use
+- Feature involves multiple systems (audio, UI, state management)
+- New protocol or service temptation arises
+- Audit step: "Is there already a service that does this?"
+
+#### Related Files
+- `Projector/Views/CueSheet/CuesPanelView.swift`
+- `Projector/Managers/SilenceDetectionService.swift`
+- `Projector/Managers/TimelineManager.swift`
+- `Projector/Views/CueSheet/DetectedCueListView.swift`
+
+---
+
+### GP-026: Dependency Injection Through View Hierarchy
+**Added**: 2026-01-19
+**Source**: `Projector/Views/CueSheet/CuesPanelView.swift`
+**Category**: Architecture
+
+#### Problem
+Views that need resources (like `WaveformCache`) often try to create their own instances or access singletons, violating the contract pattern and making testing difficult.
+
+#### Solution
+Pass dependencies through the view hierarchy as explicit parameters:
+
+```swift
+// In ContentView or parent
+CuesPanelView(
+    timelineManager: timelineManager,
+    waveformCache: waveformCache,  // ← Explicitly passed
+    onSeekToCue: { ... },
+    onPopOut: { ... }
+)
+
+// In CuesPanelView
+struct CuesPanelView: View {
+    @ObservedObject var timelineManager: TimelineManager
+    let waveformCache: WaveformCache  // ← Stored as property
+
+    // Can now use in methods:
+    private func detectCuesFromClip(_ clip: AudioClip) {
+        guard let atlas = waveformCache.clipAtlases[clip.id] else { return }
+        // ...
+    }
+}
+```
+
+#### Why It Works
+- **Testability**: Easy to inject test doubles in previews/tests
+- **Clarity**: View contract explicitly lists all dependencies
+- **No side effects**: View doesn't create or mutate global state
+- **Preview support**: Previews can pass mock caches
+- **Compile-time checking**: Missing dependencies cause build errors, not runtime crashes
+
+#### When to Use
+- Any resource needed by multiple views
+- Views that perform operations (like cue detection)
+- Services with state (like caches, managers)
+- Tests and previews that need to isolate behavior
+
+#### Anti-Pattern (What NOT to Do)
+```swift
+// ❌ DON'T: Access singleton
+class CuesPanelView {
+    let cache = WaveformCache.shared  // Violates contract
+}
+
+// ❌ DON'T: Create new instances
+struct CuesPanelView {
+    let cache = WaveformCache()  // Separate cache, data won't sync
+}
+```
+
+#### Related Files
+- `Projector/Views/CueSheet/CuesPanelView.swift`
+- `Projector/Managers/WaveformCache.swift`
+
+---
+
+### GP-027: Optional ViewModel for Graceful Degradation
+**Added**: 2026-03-31
+**Source**: `Projector/Views/SettingsView.swift`
+**Category**: UI Architecture
+
+#### Problem
+A settings panel needs to display live data from a ViewModel, but the ViewModel may not always be available (e.g., during previews, testing, or when the feature is disabled). Making the ViewModel required causes crashes or requires mock objects everywhere.
+
+#### Solution
+Make the ViewModel optional and use `if let` to conditionally render the dependent UI:
+
+```swift
+struct SettingsView: View {
+    @ObservedObject var audioManager: AudioOutputManager
+    var midiSyncViewModel: MIDISyncViewModel?  // ← Optional
+
+    var body: some View {
+        VStack {
+            // Live status only shown when ViewModel available
+            if let viewModel = midiSyncViewModel {
+                HStack {
+                    Circle()
+                        .fill(viewModel.syncStatusColor)
+                        .frame(width: 8, height: 8)
+                    Text(viewModel.syncStatusText)
+                }
+            }
+
+            // Static settings always shown
+            Slider(value: $settings.syncDriftThreshold, in: 1...15)
+        }
+    }
+}
+```
+
+#### Why It Works
+- **Preview-friendly**: Previews work without mocking the entire ViewModel
+- **Graceful degradation**: View renders with reduced functionality, not a crash
+- **Separation of concerns**: Static settings (AppSettings) vs live state (ViewModel)
+- **Testable**: Can test static UI without ViewModel dependency
+
+#### When to Use
+- Settings views that combine static preferences with live status
+- Optional features that may be disabled
+- Views used in both full app and limited contexts (previews, extensions)
+
+#### Related Files
+- `Projector/Views/SettingsView.swift`
+- `Projector/ViewModels/MIDISyncViewModel.swift`
 
 ---
 

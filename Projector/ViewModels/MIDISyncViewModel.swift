@@ -128,6 +128,20 @@ public final class MIDISyncViewModel: ObservableObject {
     /// Timestamp of the last quarter-frame received.
     @Published public var lastQFTimestamp: Date?
 
+    // MARK: - Drift Metrics
+
+    /// Drift between MTC and local playback (in frames).
+    ///
+    /// Positive value means MTC is ahead, negative means MTC is behind.
+    /// Use ``driftString`` for formatted display.
+    @Published public var driftFrames: Double = 0.0
+
+    /// Drift quality status for UI display.
+    ///
+    /// Color-coded drift severity: excellent, good, fair, poor.
+    /// Use ``driftColor`` for color display.
+    @Published public var driftStatus: DriftStatus = .excellent
+
     // MARK: - Private Properties
 
     /// Reference to the MIDI sync service (actor).
@@ -297,6 +311,46 @@ public final class MIDISyncViewModel: ObservableObject {
         }
     }
 
+    /// Formatted drift string for display.
+    ///
+    /// Shows drift in frames with sign (e.g., "+0.2 frames", "-1.5 frames").
+    /// Only meaningful when synced.
+    ///
+    /// - Returns: Formatted drift string with sign and unit.
+    ///
+    /// ## Example
+    /// ```swift
+    /// Text(midiSync.driftString) // "+0.2 frames"
+    /// ```
+    public var driftString: String {
+        let sign = driftFrames >= 0 ? "+" : ""
+        return "\(sign)\(String(format: "%.1f", driftFrames)) frames"
+    }
+
+    /// Color representing the current drift status.
+    ///
+    /// - green: Excellent or good drift (<1.0 frames)
+    /// - yellow: Fair drift (1.0-2.0 frames)
+    /// - red: Poor drift (>2.0 frames)
+    ///
+    /// - Returns: SwiftUI color for UI display.
+    ///
+    /// ## Example
+    /// ```swift
+    /// Text(midiSync.driftString)
+    ///     .foregroundColor(midiSync.driftColor)
+    /// ```
+    public var driftColor: Color {
+        switch driftStatus {
+        case .excellent, .good:
+            return .green
+        case .fair:
+            return .yellow
+        case .poor:
+            return .red
+        }
+    }
+
     /// Whether a valid, synced timecode is currently being received.
     ///
     /// Returns `true` only if MTC state is `.sync` and a timecode value exists.
@@ -415,6 +469,10 @@ public final class MIDISyncViewModel: ObservableObject {
                 self.dropoutFramesAllowed = state.dropoutFramesAllowed
                 self.syncDuration = state.syncDuration
                 self.lastQFTimestamp = state.lastQFTimestamp
+
+                // Drift metrics
+                self.driftFrames = state.driftFrames
+                self.driftStatus = state.driftStatus
             }
         }
     }

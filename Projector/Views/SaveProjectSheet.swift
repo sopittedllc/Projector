@@ -22,6 +22,13 @@ struct SaveProjectSheet: View {
     /// Error message if any
     @State private var errorMessage: String?
 
+    /// Show overwrite confirmation
+    @State private var showOverwriteConfirmation: Bool = false
+    @State private var pendingOverwriteURL: URL?
+
+    /// Focus state for project name field
+    @FocusState private var isProjectNameFocused: Bool
+
     /// Callback when save is confirmed
     let onSave: (URL) -> Void
 
@@ -74,19 +81,25 @@ struct SaveProjectSheet: View {
             Divider()
 
             // Content
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: Spacing.lg) {
                 // Project name field
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("Project Name")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
 
                     TextField("My Project", text: $projectName)
                         .textFieldStyle(.roundedBorder)
+                        .focused($isProjectNameFocused)
+                        .onSubmit {
+                            if canSave {
+                                save()
+                            }
+                        }
                 }
 
                 // Location picker
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("Location")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
@@ -101,19 +114,19 @@ struct SaveProjectSheet: View {
                             chooseLocation()
                         }
                     }
-                    .padding(8)
+                    .padding(Spacing.sm)
                     .background(Color.primary.opacity(0.05))
                     .cornerRadius(6)
                 }
 
                 // Preview of what will be created
                 if canSave {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
                         Text("Will create:")
                             .font(.caption)
                             .foregroundColor(.secondary)
 
-                        HStack(spacing: 4) {
+                        HStack(spacing: Spacing.xs) {
                             Image(systemName: "folder")
                                 .foregroundColor(.blue)
                             Text("\(sanitizedName)/")
@@ -160,6 +173,20 @@ struct SaveProjectSheet: View {
             .padding()
         }
         .frame(width: 400)
+        .alert("Replace Existing Project?", isPresented: $showOverwriteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                pendingOverwriteURL = nil
+            }
+            Button("Replace", role: .destructive) {
+                if let url = pendingOverwriteURL {
+                    let folderURL = url.deletingLastPathComponent()
+                    performSave(projectFolderURL: folderURL, projectFileURL: url, overwrite: true)
+                }
+                pendingOverwriteURL = nil
+            }
+        } message: {
+            Text("A project named \"\(sanitizedName)\" already exists. Replacing it will delete all files in the existing project folder.")
+        }
     }
 
     private func chooseLocation() {
@@ -186,11 +213,21 @@ struct SaveProjectSheet: View {
 
         // Check if folder already exists
         if FileManager.default.fileExists(atPath: projectFolderURL.path) {
-            errorMessage = "A folder named \"\(sanitizedName)\" already exists at this location"
+            pendingOverwriteURL = projectFileURL
+            showOverwriteConfirmation = true
             return
         }
 
+        performSave(projectFolderURL: projectFolderURL, projectFileURL: projectFileURL, overwrite: false)
+    }
+
+    private func performSave(projectFolderURL: URL, projectFileURL: URL, overwrite: Bool) {
         do {
+            if overwrite {
+                // Remove existing folder before creating new one
+                try FileManager.default.removeItem(at: projectFolderURL)
+            }
+
             // Create the project folder
             try FileManager.default.createDirectory(at: projectFolderURL, withIntermediateDirectories: true)
 

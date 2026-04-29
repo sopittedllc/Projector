@@ -240,57 +240,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
         editMenu.addItem(NSMenuItem.separator())
 
-        // Cut
+        // Cut - uses NSResponder chain so TextField gets it when focused
         let cutItem = NSMenuItem(
             title: "Cut",
-            action: #selector(editCut(_:)),
+            action: #selector(NSText.cut(_:)),
             keyEquivalent: "x"
         )
-        cutItem.target = self
-        cutItem.isEnabled = true
         editMenu.addItem(cutItem)
 
-        // Copy
+        // Copy - uses NSResponder chain
         let copyItem = NSMenuItem(
             title: "Copy",
-            action: #selector(editCopy(_:)),
+            action: #selector(NSText.copy(_:)),
             keyEquivalent: "c"
         )
-        copyItem.target = self
-        copyItem.isEnabled = true
         editMenu.addItem(copyItem)
 
-        // Paste
+        // Paste - uses NSResponder chain
         let pasteItem = NSMenuItem(
             title: "Paste",
-            action: #selector(editPaste(_:)),
+            action: #selector(NSText.paste(_:)),
             keyEquivalent: "v"
         )
-        pasteItem.target = self
-        pasteItem.isEnabled = true
         editMenu.addItem(pasteItem)
 
-        // Delete
+        // Delete - uses NSResponder chain
         let deleteItem = NSMenuItem(
             title: "Delete",
-            action: #selector(editDelete(_:)),
+            action: #selector(NSText.delete(_:)),
             keyEquivalent: "\u{8}" // Backspace
         )
         deleteItem.keyEquivalentModifierMask = []
-        deleteItem.target = self
-        deleteItem.isEnabled = true
         editMenu.addItem(deleteItem)
 
         editMenu.addItem(NSMenuItem.separator())
 
-        // Select All
+        // Select All - uses NSResponder chain
         let selectAllItem = NSMenuItem(
             title: "Select All",
-            action: #selector(editSelectAll(_:)),
+            action: #selector(NSText.selectAll(_:)),
             keyEquivalent: "a"
         )
-        selectAllItem.target = self
-        selectAllItem.isEnabled = true
         editMenu.addItem(selectAllItem)
 
         // Deselect All
@@ -314,7 +304,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         }
         mainMenu.insertItem(editMenuItem, at: 2)
 
-        debugPrint("setupMenus: DONE. Added Edit menu with: %@", editMenu.items.map { $0.title })
+        // Create View menu (insert after Edit menu)
+        let viewMenu = NSMenu(title: "View")
+        viewMenu.autoenablesItems = false
+
+        // Show Onboarding
+        let onboardingItem = NSMenuItem(
+            title: "Setup Guide...",
+            action: #selector(showOnboarding(_:)),
+            keyEquivalent: ""
+        )
+        onboardingItem.target = self
+        onboardingItem.isEnabled = true
+        viewMenu.addItem(onboardingItem)
+
+        // Insert View menu after Edit (index 3)
+        let viewMenuItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
+        viewMenuItem.submenu = viewMenu
+
+        // Check if View menu already exists
+        if let existingViewIndex = mainMenu.items.firstIndex(where: { $0.title == "View" }) {
+            mainMenu.removeItem(at: existingViewIndex)
+        }
+        mainMenu.insertItem(viewMenuItem, at: 3)
+
+        debugPrint("setupMenus: DONE. Added Edit and View menus")
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -551,6 +565,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         NotificationCenter.default.post(name: .editDeselectAll, object: nil)
     }
 
+    // MARK: - View Actions
+
+    @objc func showOnboarding(_ sender: Any?) {
+        debugPrint("showOnboarding called")
+        NotificationCenter.default.post(name: .showOnboarding, object: nil)
+    }
+
     // MARK: - Open Action
 
     private func openFile() {
@@ -590,6 +611,9 @@ extension Notification.Name {
     static let editDelete = Notification.Name("editDelete")
     static let editSelectAll = Notification.Name("editSelectAll")
     static let editDeselectAll = Notification.Name("editDeselectAll")
+
+    // View menu notifications
+    static let showOnboarding = Notification.Name("showOnboarding")
 }
 
 // MARK: - NSApplication Swizzling for CMD+S

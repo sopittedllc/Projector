@@ -7,7 +7,6 @@
 
 import SwiftUI
 import SwiftTimecodeCore
-import Iconoir
 
 /// The vital controls bar containing transport, timecode editing, zoom, and settings.
 ///
@@ -16,7 +15,6 @@ import Iconoir
 /// - FPS display
 /// - Transport controls (play, pause, step, stop)
 /// - Zoom controls for the timeline
-/// - Settings button
 struct VitalControlsBar: View {
     // MARK: - Dependencies
 
@@ -24,16 +22,15 @@ struct VitalControlsBar: View {
     @ObservedObject var playbackEngine: PlaybackEngine
     @ObservedObject var timelineViewModel: TimelineViewModel
 
-    // MARK: - Callbacks
-
-    var onSettingsPressed: () -> Void
-
     // MARK: - Local State
 
     @State private var editingStartTCText = ""
     @State private var editingDurationText = ""
     @State private var isHoveringStartTC = false
     @State private var isHoveringDuration = false
+    @State private var showStartTimecodeAlert = false
+    @State private var startTimecodeAlertMessage = ""
+    @State private var playPulseOpacity: Double = 1.0
     @FocusState private var isStartTCFocused: Bool
     @FocusState private var isDurationFocused: Bool
 
@@ -45,60 +42,71 @@ struct VitalControlsBar: View {
     // MARK: - Body
 
     var body: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 12) {
+        HStack(spacing: Spacing.md) {
+            // Logo branding with app name (left side)
+            HStack(spacing: Spacing.sm) {
+                Image("TitlebarLogo")
+                    .resizable()
+                    .renderingMode(.template)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: 18)
+                    .foregroundColor(.white.opacity(0.5))
+
+                Text("Projector")
+                    .font(Typography.subheading)
+                    .foregroundColor(.white.opacity(0.5))
+            }
+
+            Spacer()
+
+            // Right-aligned: TC controls (fixed size, don't shrink)
+            HStack(spacing: Spacing.md) {
                 startTCControl
                 durationControl
                 fpsControl
             }
-            .layoutPriority(1)
+            .fixedSize()
 
-            Spacer(minLength: 12)
-
-            transportControls
-                .layoutPriority(0)
-
-            Spacer(minLength: 12)
-
-            HStack(spacing: 12) {
-                zoomControls
-
-                Button(action: onSettingsPressed) {
-                    Iconoir.settings.asImage
-                        .frame(width: 18, height: 18)
-                }
-                .buttonStyle(.plain)
-            }
-            .layoutPriority(1)
+            // Play indicator (shows when playing)
+            playIndicator
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
         .glassPanel()
+        .alert("Invalid Start Timecode", isPresented: $showStartTimecodeAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(startTimecodeAlertMessage)
+        }
     }
 
     // MARK: - Start Timecode Control
 
     private var startTCControl: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Text("Start TC:")
-                .font(.system(size: 10, weight: .medium))
+                .font(Typography.label)
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize()
 
             TextField("00:00:00:00", text: $editingStartTCText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(Typography.mono)
+                .foregroundColor(isHoveringStartTC || isStartTCFocused ? .primary : .secondary)
                 .frame(width: 85)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(isStartTCFocused ? Color.white.opacity(0.12) : Color.clear)
+                        .fill(isStartTCFocused ? AppColors.surfaceMedium : (isHoveringStartTC ? AppColors.surfaceLight : Color.clear))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
-                        .stroke(isStartTCFocused ? Color.accentColor : Color.clear, lineWidth: 1)
+                        .stroke(isStartTCFocused ? Color.accentColor : (isHoveringStartTC ? AppColors.borderMedium : Color.clear), lineWidth: PanelLayout.borderWidth)
                 )
                 .focused($isStartTCFocused)
+                .accessibilityLabel("Start timecode")
                 .onChange(of: editingStartTCText) { _, newValue in
                     let formatted = formatTimecodeInput(newValue)
                     if formatted != newValue {
@@ -107,17 +115,27 @@ struct VitalControlsBar: View {
                 }
                 .onSubmit {
                     applyStartTimecode()
+                    isStartTCFocused = false
+                }
+                .onExitCommand {
+                    editingStartTCText = timelineManager.timeline.config.startTimecode.stringValue()
+                    isStartTCFocused = false
                 }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .glassControl(isHighlighted: isStartTCFocused)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+        .fixedSize()
+        .glassControl(isHighlighted: isStartTCFocused || isHoveringStartTC)
         .onHover { hovering in
-            isHoveringStartTC = hovering
+            withAnimation(AppAnimations.quick) {
+                isHoveringStartTC = hovering
+            }
         }
+        .help("Click to edit start timecode")
         .onChange(of: isStartTCFocused) { wasFocused, isFocused in
-            if wasFocused && !isFocused {
-                editingStartTCText = timelineManager.timeline.config.startTimecode.stringValue()
+            if !isFocused && wasFocused {
+                // Save on blur
+                applyStartTimecode()
             }
         }
         .onAppear {
@@ -131,26 +149,30 @@ struct VitalControlsBar: View {
     // MARK: - Duration Control
 
     private var durationControl: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Text("Duration:")
-                .font(.system(size: 10, weight: .medium))
+                .font(Typography.label)
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize()
 
             TextField("00:00:00:00", text: $editingDurationText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(Typography.mono)
+                .foregroundColor(isHoveringDuration || isDurationFocused ? .primary : .secondary)
                 .frame(width: 85)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(isDurationFocused ? Color.white.opacity(0.12) : Color.clear)
+                        .fill(isDurationFocused ? AppColors.surfaceMedium : (isHoveringDuration ? AppColors.surfaceLight : Color.clear))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
-                        .stroke(isDurationFocused ? Color.accentColor : Color.clear, lineWidth: 1)
+                        .stroke(isDurationFocused ? Color.accentColor : (isHoveringDuration ? AppColors.borderMedium : Color.clear), lineWidth: PanelLayout.borderWidth)
                 )
                 .focused($isDurationFocused)
+                .accessibilityLabel("Duration")
                 .onChange(of: editingDurationText) { _, newValue in
                     let formatted = formatTimecodeInput(newValue)
                     if formatted != newValue {
@@ -159,17 +181,27 @@ struct VitalControlsBar: View {
                 }
                 .onSubmit {
                     applyDuration()
+                    isDurationFocused = false
+                }
+                .onExitCommand {
+                    editingDurationText = durationTimecodeString
+                    isDurationFocused = false
                 }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .glassControl(isHighlighted: isDurationFocused)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+        .fixedSize()
+        .glassControl(isHighlighted: isDurationFocused || isHoveringDuration)
         .onHover { hovering in
-            isHoveringDuration = hovering
+            withAnimation(AppAnimations.quick) {
+                isHoveringDuration = hovering
+            }
         }
+        .help("Click to edit timeline duration")
         .onChange(of: isDurationFocused) { wasFocused, isFocused in
-            if wasFocused && !isFocused {
-                editingDurationText = durationTimecodeString
+            if !isFocused && wasFocused {
+                // Save on blur
+                applyDuration()
             }
         }
         .onChange(of: timelineManager.timeline.config.durationFrames) { _, _ in
@@ -185,79 +217,61 @@ struct VitalControlsBar: View {
     // MARK: - FPS Control
 
     private var fpsControl: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Text("FPS:")
-                .font(.system(size: 10, weight: .medium))
+                .font(Typography.label)
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize()
 
             Text(timelineManager.timeline.config.frameRate.displayName)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .frame(minWidth: 45)
+                .font(Typography.mono)
+                .frame(width: 50)
                 .foregroundColor(.primary)
+                .lineLimit(1)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+        .fixedSize()
         .glassControl()
+        .accessibilityLabel("Frame rate: \(timelineManager.timeline.config.frameRate.displayName) frames per second")
         .help("Frame rate is set by the video file")
     }
 
-    // MARK: - Transport Controls
+    // MARK: - Play Indicator
 
-    private var transportControls: some View {
-        HStack(spacing: 8) {
-            // Play/Pause toggle
+    /// A subtle pulsing play indicator that shows when playing
+    private var playIndicator: some View {
+        HStack(spacing: Spacing.sm) {
+            // Invisible button for spacebar shortcut
             Button(action: { playbackEngine.togglePlayback() }) {
-                (playbackEngine.isPlaying ? Iconoir.pauseSolid.asImage : Iconoir.playSolid.asImage)
-                    .frame(width: 16, height: 16)
+                EmptyView()
             }
-            .buttonStyle(.plain)
-            .disabled(!playbackEngine.hasContent)
             .keyboardShortcut(.space, modifiers: [])
-            .help(playbackEngine.isPlaying ? "Pause" : "Play")
+            .frame(width: 0, height: 0)
+            .opacity(0)
 
-            // Stop (return to start)
-            Button(action: { playbackEngine.stop() }) {
-                Image(systemName: "backward.end")
-                    .font(.system(size: 13, weight: .medium))
+            // Play indicator (only visible when playing)
+            if playbackEngine.isPlaying {
+                Image(systemName: "play.fill")
+                    .font(Typography.icon)
+                    .foregroundColor(AppColors.accentGreen)
+                    .opacity(playPulseOpacity)
+                    .animation(
+                        Animation.easeInOut(duration: 0.8)
+                            .repeatForever(autoreverses: true),
+                        value: playbackEngine.isPlaying
+                    )
+                    .onAppear {
+                        playPulseOpacity = 0.4
+                    }
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.sm)
+                    .glassControl()
+                    .help("Playing (Space to pause)")
             }
-            .buttonStyle(.plain)
-            .disabled(!playbackEngine.hasContent)
-            .help("Stop and Return to Start")
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .glassControl()
-    }
-
-    // MARK: - Zoom Controls
-
-    private var zoomControls: some View {
-        HStack(spacing: 4) {
-            Button(action: { timelineViewModel.zoomOut() }) {
-                Image(systemName: "minus.magnifyingglass")
-                    .font(.system(size: 11))
-            }
-            .buttonStyle(.plain)
-            .disabled(!hasTimelineContent || timelineViewModel.zoomLevel <= timelineViewModel.minZoom)
-            .accessibilityIdentifier("zoom-out")
-
-            Slider(value: $timelineViewModel.zoomLevel, in: timelineViewModel.minZoom...timelineViewModel.maxZoom)
-                .frame(width: 80)
-                .controlSize(.mini)
-                .disabled(!hasTimelineContent)
-                .simultaneousGesture(
-                    TapGesture(count: 2)
-                        .onEnded { _ in timelineViewModel.resetZoom() }
-                )
-                .accessibilityIdentifier("zoom-slider")
-
-            Button(action: { timelineViewModel.zoomIn() }) {
-                Image(systemName: "plus.magnifyingglass")
-                    .font(.system(size: 11))
-            }
-            .buttonStyle(.plain)
-            .disabled(!hasTimelineContent || timelineViewModel.zoomLevel >= timelineViewModel.maxZoom)
-            .accessibilityIdentifier("zoom-in")
         }
     }
 
@@ -267,10 +281,6 @@ struct VitalControlsBar: View {
         let config = timelineManager.timeline.config
         let durationTC = Timecode(.frames(config.durationFrames), at: config.frameRate, by: .clamping)
         return durationTC.stringValue()
-    }
-
-    private var hasTimelineContent: Bool {
-        !timelineManager.timeline.videoReels.isEmpty || timelineManager.timeline.audioLanes.contains { !$0.clips.isEmpty }
     }
 
     /// Cancel any active timecode editing and reset to stored values
@@ -299,13 +309,63 @@ struct VitalControlsBar: View {
     }
 
     private func applyStartTimecode() {
-        if let newTC = parseTimecode(editingStartTCText) {
-            timelineManager.setTimelineBounds(start: newTC, end: timelineManager.timeline.config.endTimecode)
-            editingStartTCText = newTC.stringValue()
-        } else {
+        guard let newTC = parseTimecode(editingStartTCText) else {
             editingStartTCText = timelineManager.timeline.config.startTimecode.stringValue()
+            isStartTCFocused = false
+            return
         }
+
+        let config = timelineManager.timeline.config
+
+        // Check if the new start would be after any existing content
+        let earliestContentFrame = findEarliestContentFrame()
+        if let earliest = earliestContentFrame {
+            // Calculate what timecode the earliest content would have with the new start
+            let earliestAbsoluteFrame = config.startTimecode.frameCount.wholeFrames + earliest
+            let newStartFrames = newTC.frameCount.wholeFrames
+
+            // If new start is after the earliest content's absolute timecode, reject with message
+            if newStartFrames > earliestAbsoluteFrame {
+                let earliestTimecode = Timecode(.frames(earliestAbsoluteFrame), at: config.frameRate, by: .clamping)
+                startTimecodeAlertMessage = "The start timecode \(newTC.stringValue()) is after the first content at \(earliestTimecode.stringValue()). Move or delete the content first."
+                showStartTimecodeAlert = true
+                editingStartTCText = config.startTimecode.stringValue()
+                isStartTCFocused = false
+                return
+            }
+        }
+
+        // Maintain the same duration by adjusting end timecode
+        let currentDuration = config.durationFrames
+        let newEndFrames = newTC.frameCount.wholeFrames + currentDuration
+        let newEnd = Timecode(.frames(newEndFrames), at: config.frameRate, by: .clamping)
+
+        timelineManager.setTimelineBounds(start: newTC, end: newEnd)
+        editingStartTCText = newTC.stringValue()
         isStartTCFocused = false
+    }
+
+    /// Find the earliest frame with content (video reels or audio clips)
+    private func findEarliestContentFrame() -> Int? {
+        var earliest: Int?
+
+        // Check video reels
+        for reel in timelineManager.timeline.videoReels {
+            if earliest == nil || reel.timelineStartFrame < earliest! {
+                earliest = reel.timelineStartFrame
+            }
+        }
+
+        // Check audio clips across all lanes
+        for lane in timelineManager.timeline.audioLanes {
+            for clip in lane.clips {
+                if earliest == nil || clip.timelineStartFrame < earliest! {
+                    earliest = clip.timelineStartFrame
+                }
+            }
+        }
+
+        return earliest
     }
 
     private func applyDuration() {

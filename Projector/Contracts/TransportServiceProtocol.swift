@@ -3,9 +3,9 @@
 //  Projector
 //
 //  THE CONTRACT: Transport Service
-//  Defined by: arch-architect
-//  Implemented by: backend-logic (TransportActor + MIDITransportActor)
-//  Consumed by: ui-specialist (TransportViewModel)
+//  Layer: Contracts
+//  Implemented in: Managers
+//  Consumed in: Views
 //
 
 import Foundation
@@ -311,7 +311,7 @@ public protocol TransportServiceProtocol: Sendable {
 // MARK: - Implementation Notes
 
 /*
- ## Logic Layer Implementation (backend-logic)
+ ## Logic Layer Implementation (Managers)
 
  The implementing actor should:
 
@@ -366,7 +366,7 @@ public protocol TransportServiceProtocol: Sendable {
     }
     ```
 
- ## UI Layer Consumption (ui-specialist)
+ ## UI Layer Consumption (Views)
 
  The ViewModel should:
 
@@ -408,46 +408,4 @@ public protocol TransportServiceProtocol: Sendable {
         return Double(state.currentFrame) / Double(state.durationFrames)
     }
     ```
- */
-
-// MARK: - Migration Guide
-
-/*
- ## Migrating from @MainActor MIDIManager
-
- ### Before (VIOLATES STANDARDS):
- ```swift
- @MainActor
- final class MIDIManager: ObservableObject {
-     @Published var currentTimecode: Timecode  // Blocks UI on every update!
-
-     func handleMTCQuarterFrame() {
-         // Runs on main thread - UI hitches during sync
-     }
- }
- ```
-
- ### After (COMPLIANT):
- ```swift
- // Logic Layer
- actor MIDITransportActor {
-     private var currentTimecode: Timecode  // Actor-isolated
-
-     func handleMTCQuarterFrame() async {
-         // Runs on actor - UI never blocked
-     }
- }
-
- // Presentation Layer
- @MainActor
- final class TransportViewModel: ObservableObject {
-     @Published var timecode: Timecode  // Only updated via AsyncStream
- }
- ```
-
- ### Key Changes:
- 1. Replace @MainActor class with actor
- 2. Replace @Published with AsyncStream emissions
- 3. Replace Combine callbacks with async iteration
- 4. Move MIDIKit types to actor, expose contract types to UI
  */

@@ -19,7 +19,7 @@ struct DropTargetOverlay: View {
                 RoundedRectangle(cornerRadius: 12)
                     .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [8, 4]))
             }
-            .padding(8)
+            .padding(Spacing.sm)
         }
     }
 }
@@ -39,7 +39,7 @@ struct LoadingOverlay: View {
             ZStack {
                 Color.black.opacity(0.5)
 
-                VStack(spacing: 16) {
+                VStack(spacing: Spacing.lg) {
                     ProgressView()
                         .scaleEffect(1.5)
                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
@@ -48,7 +48,7 @@ struct LoadingOverlay: View {
                         .font(.headline)
                         .foregroundColor(.white)
                 }
-                .padding(32)
+                .padding(Spacing.xxl)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
                         .fill(Color.black.opacity(0.7))
@@ -153,14 +153,14 @@ struct FullScreenToggleButton: View {
                   : "arrow.up.left.and.arrow.down.right")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.white)
-                .padding(10)
+                .padding(Spacing.sm)
                 .background(
                     Circle()
                         .fill(Color.black.opacity(0.6))
                 )
         }
         .buttonStyle(.plain)
-        .padding(20)
+        .padding(Spacing.xl)
         .opacity(0.7)
         .help(isFullScreen ? "Exit Full Screen" : "Enter Full Screen")
     }

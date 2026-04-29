@@ -25,7 +25,7 @@ struct BatchTimecodeSheetView: View {
     @State private var setTimelineStart = false
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Spacing.lg) {
             // Header
             Image(systemName: "doc.on.doc")
                 .font(.system(size: 40))
@@ -60,7 +60,7 @@ struct BatchTimecodeSheetView: View {
                 Divider()
 
                 Toggle(isOn: $setTimelineStart) {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
                         Text("Set timeline start to first file's timecode")
                             .font(.body)
                         if let firstWithTC = batch.items.first(where: { $0.hasTimecode && $0.useEmbeddedTimecode }),
@@ -79,7 +79,7 @@ struct BatchTimecodeSheetView: View {
             Divider()
 
             // Buttons
-            HStack(spacing: 12) {
+            HStack(spacing: Spacing.md) {
                 Button("Cancel") {
                     onCancel()
                 }
@@ -95,7 +95,7 @@ struct BatchTimecodeSheetView: View {
             }
             .padding(.top, 8)
         }
-        .padding(24)
+        .padding(Spacing.xxl)
         .frame(width: 540, height: min(550, CGFloat(320 + (batch?.items.count ?? 0) * 40)))
     }
 
@@ -170,7 +170,7 @@ struct BatchTimecodeSheetView: View {
     /// Section header for video/audio groups
     @ViewBuilder
     private func sectionHeader(title: String, icon: String, count: Int) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm) {
             Image(systemName: icon)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.accentColor)
@@ -189,7 +189,7 @@ struct BatchTimecodeSheetView: View {
     private func fileRow(item: BatchTimecodeItem) -> some View {
         HStack {
             // File icon and name
-            HStack(spacing: 8) {
+            HStack(spacing: Spacing.sm) {
                 Image(systemName: fileIcon(for: item))
                     .foregroundColor(item.hasTimecode ? .accentColor : .secondary)
                     .frame(width: 16)

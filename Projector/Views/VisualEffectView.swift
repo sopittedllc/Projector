@@ -93,7 +93,7 @@ extension View {
 }
 
 #Preview {
-    VStack(spacing: 20) {
+    VStack(spacing: Spacing.xl) {
         Text("HUD Window")
             .padding()
             .hudBackground()
@@ -114,6 +114,6 @@ extension View {
             .contentBackground()
             .cornerRadius(8)
     }
-    .padding(40)
+    .padding(Spacing.xxl)
     .frame(width: 300, height: 400)
 }

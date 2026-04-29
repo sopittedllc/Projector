@@ -47,6 +47,7 @@ playground.xcworkspace
 # Build artifacts
 build/
 release-build/
+.swift-cache/
 
 # Local screenshots
 screenshots/

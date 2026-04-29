@@ -1,0 +1,12 @@
+# Learnings Directory
+
+This directory stores lessons learned during development.
+Thomas and Clare check these before starting work.
+
+## File Format
+
+Each learning should be a markdown file with:
+- Date
+- Context
+- What was learned
+- How to apply it going forward

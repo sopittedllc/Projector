@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	Projector Privacy Manifest
+	Required for macOS 14+ (Sonoma) App Store submissions
+
+	This manifest declares:
+	- Required reason APIs used by the app
+	- Data collection practices (none for Projector v1.0)
+	- Tracking practices (none)
+	- Third-party SDKs (none)
+	-->
+
+	<!-- TRACKING DOMAINS -->
+	<!-- Projector does NOT track users -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+
+	<!-- Projector does NOT use tracking domains -->
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<!-- REQUIRED REASON APIs -->
+	<!--
+	Declare any "Required Reason APIs" used by the app.
+	See: https://developer.apple.com/documentation/bundleresources/privacy_manifest_files/describing_use_of_required_reason_api
+	-->
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+
+		<!-- File Timestamp API (NSPrivacyAccessedAPICategoryFileTimestamp) -->
+		<!-- Used for: Checking media file modification times, project file timestamps -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<!-- C617.1: Accessing metadata of user-selected files -->
+				<string>C617.1</string>
+			</array>
+		</dict>
+
+		<!-- User Defaults API (NSPrivacyAccessedAPICategoryUserDefaults) -->
+		<!-- Used for: Storing user preferences (window positions, audio settings, MIDI config) -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<!-- CA92.1: Accessing user defaults for app preferences -->
+				<string>CA92.1</string>
+			</array>
+		</dict>
+
+		<!-- Disk Space API (NSPrivacyAccessedAPICategoryDiskSpace) -->
+		<!-- Used for: Checking available disk space before media optimization/consolidation -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<!-- E174.1: Displaying disk space information to the user -->
+				<string>E174.1</string>
+			</array>
+		</dict>
+
+		<!-- System Boot Time API (NSPrivacyAccessedAPICategorySystemBootTime) -->
+		<!-- Used for: Generating unique session IDs for crash logging (if implemented) -->
+		<!-- COMMENTED OUT if not currently used -->
+		<!--
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>35F9.1</string>
+			</array>
+		</dict>
+		-->
+
+	</array>
+
+	<!-- DATA COLLECTION -->
+	<!-- Projector v1.0 does NOT collect any data -->
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+
+	<!--
+	If future versions collect data, declare here:
+	Example:
+	<array>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeCrashData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+	</array>
+	-->
+
+</dict>
+</plist>

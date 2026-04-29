@@ -2,7 +2,7 @@
 //  TimelineViewModel.swift
 //  Projector
 //
-//  ViewModel that bridges TimelineManager to SwiftUI Views.
+//  ViewModel that consumes TimelineServiceProtocol for SwiftUI Views.
 //  Manages UI-specific timeline state and provides computed properties.
 //
 
@@ -13,7 +13,7 @@ import SwiftTimecodeCore
 
 /// ViewModel for timeline UI state and interactions.
 ///
-/// This class sits between `TimelineManager` (data layer) and SwiftUI Views,
+/// This class sits between `TimelineServiceProtocol` (logic layer) and SwiftUI Views,
 /// managing UI-specific state like expansion, zoom level, and selection.
 ///
 /// ## Architecture
@@ -30,15 +30,23 @@ import SwiftTimecodeCore
 /// │              TimelineViewModel (this file)                               │
 /// │  - @MainActor for UI thread safety                                       │
 /// │  - @Published UI state (expansion, zoom, selection)                      │
+/// │  - @Published timeline data (from protocol stream)                       │
 /// │  - Computed properties for display                                       │
-/// │  - Actions that delegate to TimelineManager                              │
+/// │  - Actions that delegate to TimelineServiceProtocol                      │
 /// └─────────────────────────────────────────────────────────────────────────┘
 ///                               │
 ///                               ▼
 /// ┌─────────────────────────────────────────────────────────────────────────┐
-/// │              TimelineManager (Data Layer)                                │
+/// │          TimelineServiceProtocol (THE CONTRACT)                          │
+/// │  - AsyncStream<TimelineState> for updates                               │
+/// │  - Async methods for CRUD operations                                     │
+/// └─────────────────────────────────────────────────────────────────────────┘
+///                               │
+///                               ▼
+/// ┌─────────────────────────────────────────────────────────────────────────┐
+/// │              TimelineActor (Logic Layer)                                 │
 /// │  - Timeline model (reels, lanes, clips)                                  │
-/// │  - Persistence and sync                                                  │
+/// │  - Thread-safe operations                                                │
 /// └─────────────────────────────────────────────────────────────────────────┘
 /// ```
 ///
@@ -46,13 +54,32 @@ import SwiftTimecodeCore
 ///
 /// This ViewModel is confined to the main thread via `@MainActor`.
 /// All state updates happen on the main thread for SwiftUI compatibility.
+///
+/// ## Two-Layer Architecture
+///
+/// Consumes `TimelineServiceProtocol` instead of directly depending on
+/// concrete implementations. Subscribes to `timelineStateStream` for updates.
 @MainActor
 final class TimelineViewModel: ObservableObject {
 
     // MARK: - Dependencies
 
-    /// The underlying timeline manager (data layer)
-    let manager: TimelineManager
+    /// The timeline service (protocol dependency)
+    private let service: TimelineServiceProtocol
+
+    // MARK: - Timeline Data (from AsyncStream)
+
+    /// Video reels on the timeline
+    @Published private(set) var videoReels: [VideoReel] = []
+
+    /// Audio lanes with their clips
+    @Published private(set) var audioLanes: [AudioLane] = []
+
+    /// Timeline configuration
+    @Published private(set) var config: TimelineConfig = .default
+
+    /// Whether timeline has unsaved changes
+    @Published private(set) var isDirty: Bool = false
 
     // MARK: - UI State
 
@@ -97,34 +124,29 @@ final class TimelineViewModel: ObservableObject {
     /// Maximum expanded height
     let maxExpandedHeight: CGFloat = TimelineSectionLayout.maxHeight
 
-    // MARK: - Combine
-
-    private var cancellables = Set<AnyCancellable>()
-
-    // MARK: - Initialization
+    // MARK: - Private
 
     /// Default expanded height uses TimelineSectionLayout for consistency
     private static let defaultExpandedHeight: CGFloat = TimelineSectionLayout.defaultHeight
 
+    /// Task for observing timeline state stream
+    private var observationTask: Task<Void, Never>?
+
+    // MARK: - Initialization
+
     /// Creates a new timeline view model.
     ///
-    /// - Parameter manager: The timeline manager to bridge to the UI
-    public init(manager: TimelineManager) {
-        self.manager = manager
+    /// - Parameter service: The timeline service protocol to consume
+    public init(service: TimelineServiceProtocol) {
+        self.service = service
         setupObservers()
     }
 
+    deinit {
+        observationTask?.cancel()
+    }
+
     // MARK: - Computed Properties
-
-    /// The underlying timeline model
-    var timeline: Timeline {
-        manager.timeline
-    }
-
-    /// Timeline configuration
-    var config: TimelineConfig {
-        manager.timeline.config
-    }
 
     /// Current frame rate
     var frameRate: TimecodeFrameRate {
@@ -138,22 +160,22 @@ final class TimelineViewModel: ObservableObject {
 
     /// Whether the timeline has any content
     var hasContent: Bool {
-        !manager.timeline.videoReels.isEmpty || manager.timeline.audioLanes.contains { !$0.clips.isEmpty }
+        !videoReels.isEmpty || audioLanes.contains { !$0.clips.isEmpty }
     }
 
     /// Number of video reels
     var reelCount: Int {
-        manager.timeline.videoReels.count
+        videoReels.count
     }
 
     /// Number of audio lanes
     var laneCount: Int {
-        manager.timeline.audioLanes.count
+        audioLanes.count
     }
 
     /// Total clip count across all lanes
     var totalClipCount: Int {
-        manager.timeline.audioLanes.reduce(0) { $0 + $1.clips.count }
+        audioLanes.reduce(0) { $0 + $1.clips.count }
     }
 
     /// Formatted duration string (HH:MM:SS)
@@ -243,26 +265,26 @@ final class TimelineViewModel: ObservableObject {
         selectedReelId = nil
     }
 
-    // MARK: - Timeline Operations (Delegate to Manager)
+    // MARK: - Timeline Operations (Delegate to Service)
 
     /// Add a new audio lane
-        @discardableResult
-    func addAudioLane(name: String? = nil) -> AudioLane {
+    @discardableResult
+    func addAudioLane(name: String? = nil) async -> AudioLane {
         let laneName = name ?? "Audio \(laneCount + 1)"
-        return manager.addAudioLane(name: laneName)
+        return await service.createAudioLane(name: laneName)
     }
 
     /// Remove a video reel
-    func removeReel(id: UUID) {
-        manager.removeVideoReel(id: id)
+    func removeReel(id: UUID) async {
+        await service.removeVideoReel(id: id)
         if selectedReelId == id {
             selectedReelId = nil
         }
     }
 
     /// Remove an audio clip
-    func removeClip(id: UUID, fromLane laneId: UUID) {
-        manager.removeAudioClip(clipId: id, fromLane: laneId)
+    func removeClip(id: UUID) async {
+        await service.removeAudioClip(id: id)
         if selectedClipId == id {
             selectedClipId = nil
             selectedLaneId = nil
@@ -270,31 +292,44 @@ final class TimelineViewModel: ObservableObject {
     }
 
     /// Update timeline bounds
-    func setTimelineBounds(start: Timecode, end: Timecode) {
-        manager.setTimelineBounds(start: start, end: end)
+    func setTimelineBounds(start: Timecode, end: Timecode) async {
+        var newConfig = config
+        newConfig.startTimecode = start
+        newConfig.endTimecode = end
+        await service.updateConfiguration(newConfig)
     }
 
     /// Update timeline configuration
-    func updateConfig(_ config: TimelineConfig) {
-        manager.updateConfig(config)
+    func updateConfig(_ config: TimelineConfig) async {
+        await service.updateConfiguration(config)
     }
 
     // MARK: - Private
 
     private func setupObservers() {
-        // Auto-expand when content is added
-        manager.$timeline
-            .map { !$0.videoReels.isEmpty || $0.audioLanes.contains { !$0.clips.isEmpty } }
-            .removeDuplicates()
-            .filter { $0 } // Only when content exists
-            .sink { [weak self] _ in
-                self?.expandIfNeeded()
+        // Subscribe to timeline state stream
+        observationTask = Task { [weak self] in
+            guard let self = self else { return }
+
+            for await state in service.timelineStateStream {
+                await MainActor.run {
+                    self.videoReels = state.videoReels
+                    self.audioLanes = state.audioLanes
+                    self.config = state.config
+                    self.isDirty = state.isDirty
+
+                    // Auto-expand when content is added
+                    let hasContent = !state.videoReels.isEmpty || state.audioLanes.contains { !$0.clips.isEmpty }
+                    if hasContent {
+                        self.expandIfNeeded()
+                    }
+                }
             }
-            .store(in: &cancellables)
+        }
     }
 
     private func resizeToFitLanes() {
-        let laneCount = manager.timeline.audioLanes.count
+        let laneCount = audioLanes.count
         let audioHeight = max(TimelineLayout.audioLaneHeight, CGFloat(laneCount) * (TimelineLayout.audioLaneHeight + 1))
 
         // Calculate content height: header + ruler + video track + audio lanes + footer

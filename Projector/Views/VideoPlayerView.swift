@@ -1,7 +1,6 @@
 import SwiftUI
 import AVKit
 import SwiftTimecodeCore
-import Iconoir
 
 /// SwiftUI wrapper for AVPlayerView with fullscreen support
 struct VideoPlayerView: NSViewRepresentable {
@@ -58,16 +57,16 @@ struct VideoContentView: View {
                 Rectangle()
                     .fill(Color.black)
                     .overlay {
-                        VStack(spacing: 16) {
-                            Iconoir.movie.asImage
-                                .frame(width: 64, height: 64)
-                                .foregroundColor(.gray)
+                        VStack(spacing: Spacing.lg) {
+                            Image(systemName: "film")
+                                .font(Typography.displayLarge)
+                                .foregroundColor(AppColors.textTertiary)
                             Text("Drop video files here")
-                                .font(.title2)
-                                .foregroundColor(.gray)
+                                .font(Typography.displaySubtitle)
+                                .foregroundColor(AppColors.textTertiary)
                             Text("to create a timeline")
-                                .font(.caption)
-                                .foregroundColor(.gray.opacity(0.7))
+                                .font(Typography.caption)
+                                .foregroundColor(AppColors.textMuted)
                         }
                     }
             }
@@ -89,8 +88,13 @@ struct VideoContentView: View {
 struct TimecodeOverlayView: View {
     let timecode: Timecode
     var position: TimecodeOverlayPosition = .bottomRight
-    var opacity: Double = 0.8
+    var opacity: Double = 0.3
     var extraTrailingPadding: CGFloat = 0
+
+    /// Extra bottom padding when positioned at bottom to clear video controls
+    private var extraBottomPadding: CGFloat {
+        (position == .bottomLeft || position == .bottomRight) ? 50 : 0
+    }
 
     var body: some View {
         VStack {
@@ -104,18 +108,19 @@ struct TimecodeOverlayView: View {
                 }
 
                 Text(timecode.stringValue())
-                    .font(.system(size: 24, weight: .medium, design: .monospaced))
+                    .font(Typography.monoXLarge)
                     .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.sm)
                     .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.black.opacity(0.6 * opacity))
+                        RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
+                            .fill(Color.black.opacity(0.6))
                     )
                     .opacity(opacity)
-                    .padding(.leading, 16)
-                    .padding(.trailing, 16 + extraTrailingPadding)
-                    .padding(.vertical, 16)
+                    .padding(.leading, Spacing.lg)
+                    .padding(.trailing, Spacing.lg + extraTrailingPadding)
+                    .padding(.top, Spacing.lg)
+                    .padding(.bottom, Spacing.lg + extraBottomPadding)
 
                 if position == .topLeft || position == .bottomLeft {
                     Spacer()

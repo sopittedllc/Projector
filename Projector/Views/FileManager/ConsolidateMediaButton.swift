@@ -2,12 +2,12 @@
 //  ConsolidateMediaButton.swift
 //  Projector
 //
-//  Button for the media bay header that triggers media consolidation.
+//  Button for the media bay header that triggers media optimization/consolidation.
 //
 
 import SwiftUI
 
-/// Button that triggers consolidation of external media files
+/// Button that triggers consolidation of media files into the project folder
 struct ConsolidateMediaButton: View {
     @Binding var showSheet: Bool
     let hasExternalFiles: Bool
@@ -15,19 +15,13 @@ struct ConsolidateMediaButton: View {
     var body: some View {
         if hasExternalFiles {
             Button(action: { showSheet = true }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.down.doc")
-                        .font(.system(size: 10))
+                HStack(spacing: Spacing.xs) {
+                    Image(systemName: "arrow.down.doc.fill")
                     Text("Consolidate")
-                        .font(.system(size: 11))
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.orange.opacity(0.15))
-                .cornerRadius(4)
             }
-            .buttonStyle(.plain)
-            .help("Copy external media files into the project folder")
+            .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentGreen))
+            .help("Copy external media files into the project folder for portability")
         }
     }
 }

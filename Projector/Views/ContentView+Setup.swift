@@ -16,26 +16,46 @@ extension ContentView {
                     await midiSyncViewModel.selectInput(settings.selectedMIDIInput)
                 }
             } catch {
-                print("Failed to start MIDI sync: \(error)")
+                debugLog("Failed to start MIDI sync: \(error)")
             }
         }
 
-        // Observe MTC timecode changes for video sync
-        // Uses Combine to react to ViewModel's published properties
+        // Observe MTC state changes - simple: play when synced, pause when idle
+        midiSyncViewModel.$mtcState
+            .removeDuplicates()
+            .sink { [weak playbackEngine] state in
+                guard let engine = playbackEngine else { return }
+
+                switch state {
+                case .sync, .preSync, .freewheeling:
+                    // MTC is active - enter sync mode and play
+                    engine.setMTCSynced(true)
+                case .idle, .incompatibleFrameRate:
+                    // MTC stopped - exit sync mode and pause
+                    engine.setMTCSynced(false)
+                }
+            }
+            .store(in: &midiCancellables)
+
+        // Observe MTC timecode changes for position tracking
+        // This handles both:
+        // 1. Continuous MTC sync (quarter frames during playback) - when isMTCSynced is true
+        // 2. MTC Full Frame messages (locate commands) - seek even when not in sync mode
+        // Note: Low throttle (50ms) for responsive locates; syncToMTC uses jump detection
+        // to prevent over-seeking during continuous playback
         midiSyncViewModel.$mtcTimecode
             .compactMap { $0 }
+            .throttle(for: .milliseconds(50), scheduler: DispatchQueue.main, latest: true)
             .sink { [weak playbackEngine] timecode in
                 guard let engine = playbackEngine else { return }
 
-                // Calculate drift from current position
-                let currentSeconds = engine.currentTime
-                let mtcSeconds = Double(timecode.frameCount.wholeFrames) / engine.frameRate.fps
-                let driftFrames = abs(currentSeconds - mtcSeconds) * engine.frameRate.fps
-
-                // Re-sync if drift exceeds threshold (handles both playback drift and scrubbing)
-                if driftFrames > Double(AppSettings.shared.syncDriftThreshold) {
-                    print("MTC sync: drift=\(Int(driftFrames)) frames, seeking to \(timecode.stringValue())")
-                    engine.seekToMTC(timecode)
+                if engine.isMTCSynced {
+                    // Continuous sync mode - let video play, just track position
+                    engine.syncToMTC(timecode)
+                } else {
+                    // Not in sync mode - this is likely an MTC Full Frame (locate)
+                    // Seek to the position like an MMC Locate command
+                    engine.seekToTimecode(timecode)
                 }
             }
             .store(in: &midiCancellables)
@@ -210,8 +230,7 @@ extension ContentView {
     func setupPersistenceServiceCallbacks() {
         // Error callback - show alert when errors occur
         persistenceService.onError = { [self] errorMessage in
-            loadError = errorMessage
-            showErrorAlert = true
+            alerts.show(.error(errorMessage))
         }
 
         // Missing file check callback - delegates to missing file service

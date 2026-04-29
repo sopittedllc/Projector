@@ -1,7 +1,6 @@
 import SwiftUI
 import Foundation
 import UniformTypeIdentifiers
-import Iconoir
 
 enum MediaDragProvider {
     static func provider(for item: MediaItem) -> NSItemProvider {
@@ -48,20 +47,20 @@ struct MediaItemRow: View {
     @EnvironmentObject private var dragContext: DragContext
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.sm) {
             // Thumbnail
             thumbnailView
                 .frame(width: 48, height: 36)
                 .cornerRadius(4)
 
             // Info
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text(item.displayName)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.sm) {
                     // Type indicator
                     typeLabel
 
@@ -77,13 +76,16 @@ struct MediaItemRow: View {
 
             Spacer()
 
+            // Optimization status badge
+            optimizationBadge
+
             // Type icon
             typeIcon
                 .frame(width: 16, height: 16)
                 .foregroundColor(.secondary)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
         .background(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
         .contentShape(Rectangle())
         // Use Button instead of onTapGesture to avoid ScrollView latency (GP-003)
@@ -139,9 +141,9 @@ struct MediaItemRow: View {
     private var thumbnailPlaceholderIcon: some View {
         switch item.type {
         case .video:
-            Iconoir.videoCamera.asImage
+            Image(systemName: "video")
         case .audio:
-            Iconoir.soundHigh.asImage
+            Image(systemName: "speaker.wave.3")
         }
     }
 
@@ -151,8 +153,8 @@ struct MediaItemRow: View {
         Text(item.fileExtension.uppercased())
             .font(.system(size: 8, weight: .bold))
             .foregroundColor(.white)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 2)
+            .padding(.horizontal, Spacing.xs)
+            .padding(.vertical, 2) // Intentionally small for compact badge
             .background(typeLabelColor)
             .cornerRadius(2)
     }
@@ -205,12 +207,36 @@ struct MediaItemRow: View {
     private var typeIcon: some View {
         switch item.type {
         case .video:
-            Iconoir.videoCamera.asImage
+            Image(systemName: "video")
         case .audio:
-            Iconoir.soundHigh.asImage
+            Image(systemName: "speaker.wave.3")
+        }
+    }
+
+    // MARK: - Optimization Badge
+    // NOTE: This view is not actively used - see MediaGridCell in FileManagerView.swift
+
+    @ViewBuilder
+    private var optimizationBadge: some View {
+        if item.isOptimized {
+            HStack(spacing: 2) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 8))
+                Text("Optimized")
+                    .font(.system(size: 8, weight: .medium))
+            }
+            .foregroundColor(.green)
+            .padding(.horizontal, Spacing.xs)
+            .padding(.vertical, 2)
+            .background(Color.green.opacity(0.15))
+            .cornerRadius(4)
         }
     }
 }
+
+// NOTE: This file (MediaItemRow) is not actively used.
+// The optimization status helper is defined in FileManagerView.swift
+// where MediaGridCell (the actual view in use) resides.
 
 #Preview {
     VStack(spacing: 0) {

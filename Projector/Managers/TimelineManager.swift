@@ -107,11 +107,43 @@ final class TimelineManager: ObservableObject {
         hasChanges = false
     }
 
+    // MARK: - Timecode Formatting
+
+    /// Format a timeline frame number as a timecode string
+    ///
+    /// Adds the timeline start offset to convert from relative frame to absolute timecode.
+    ///
+    /// - Parameter frame: The frame number relative to timeline start (0-based)
+    /// - Returns: Formatted timecode string (e.g., "01:00:00:00")
+    func formatTimecode(forFrame frame: Int) -> String {
+        let startFrames = timeline.config.startTimecode.frameCount.wholeFrames
+        let absoluteFrame = startFrames + frame
+        let rate = timeline.config.frameRate
+
+        // Use SwiftTimecodeCore to format
+        let tc = Timecode(.frames(absoluteFrame), at: rate, by: .clamping)
+        return tc.stringValue()
+    }
+
     // MARK: - Timeline Configuration
 
-    /// Update the timeline configuration
+    /// Update the timeline configuration.
+    ///
+    /// If the start timecode changes, all content (video reels and audio clips)
+    /// is shifted to maintain their absolute timecode positions.
+    ///
+    /// - Parameter config: The new timeline configuration
     func updateConfig(_ config: TimelineConfig) {
+        let oldStartFrames = timeline.config.startTimecode.frameCount.wholeFrames
+        let newStartFrames = config.startTimecode.frameCount.wholeFrames
+        let delta = oldStartFrames - newStartFrames
+
         timeline.config = config
+
+        // If start timecode changed, shift all content to maintain absolute timecode positions
+        if delta != 0 {
+            shiftAllContent(by: delta)
+        }
     }
 
     /// Set the frame rate for the timeline
@@ -121,12 +153,47 @@ final class TimelineManager: ObservableObject {
         timeline.config = config
     }
 
-    /// Set the timeline bounds
+    /// Set the timeline bounds.
+    ///
+    /// When the start timecode changes, all content (video reels and audio clips)
+    /// is shifted to maintain their absolute timecode positions.
+    ///
+    /// - Parameters:
+    ///   - start: The new start timecode
+    ///   - end: The new end timecode
     func setTimelineBounds(start: Timecode, end: Timecode) {
+        let oldStartFrames = timeline.config.startTimecode.frameCount.wholeFrames
+        let newStartFrames = start.frameCount.wholeFrames
+        let delta = oldStartFrames - newStartFrames
+
         var config = timeline.config
         config.startTimecode = start
         config.endTimecode = end
         timeline.config = config
+
+        // If start timecode changed, shift all content to maintain absolute timecode positions
+        if delta != 0 {
+            shiftAllContent(by: delta)
+        }
+    }
+
+    /// Shift all video reels and audio clips by the specified frame delta.
+    ///
+    /// Used when timeline start changes to maintain absolute timecode positions.
+    ///
+    /// - Parameter delta: Number of frames to shift (positive = later, negative = earlier)
+    private func shiftAllContent(by delta: Int) {
+        // Shift video reels
+        for i in timeline.videoReels.indices {
+            timeline.videoReels[i].timelineStartFrame += delta
+        }
+
+        // Shift audio clips in all lanes
+        for laneIndex in timeline.audioLanes.indices {
+            for clipIndex in timeline.audioLanes[laneIndex].clips.indices {
+                timeline.audioLanes[laneIndex].clips[clipIndex].timelineStartFrame += delta
+            }
+        }
     }
 
     private func extendTimelineIfNeeded(toEndFrame endFrame: Int) {
@@ -729,20 +796,4 @@ final class TimelineManager: ObservableObject {
 }
 
 // MARK: - Errors
-
-enum TimelineError: LocalizedError {
-    case noAudioTrack
-    case invalidTrackIndex
-    case fileAccessDenied
-
-    var errorDescription: String? {
-        switch self {
-        case .noAudioTrack:
-            return "The file does not contain an audio track."
-        case .invalidTrackIndex:
-            return "The specified audio track index does not exist."
-        case .fileAccessDenied:
-            return "Cannot access the file. Permission denied."
-        }
-    }
-}
+// TimelineError is now defined in TimelineServiceProtocol.swift

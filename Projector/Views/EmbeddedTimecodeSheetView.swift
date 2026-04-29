@@ -12,7 +12,7 @@ struct EmbeddedTimecodeSheetView: View {
     @State private var setTimelineStart = false
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Spacing.lg) {
             // Header
             Image(systemName: "clock.badge.checkmark")
                 .font(.system(size: 40))
@@ -51,7 +51,7 @@ struct EmbeddedTimecodeSheetView: View {
             }
 
             // Buttons
-            HStack(spacing: 12) {
+            HStack(spacing: Spacing.md) {
                 Button("Cancel") {
                     onCancel()
                 }
@@ -69,7 +69,7 @@ struct EmbeddedTimecodeSheetView: View {
             }
             .padding(.top, 8)
         }
-        .padding(24)
+        .padding(Spacing.xxl)
         .frame(width: 480)
     }
 }

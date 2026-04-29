@@ -3,6 +3,7 @@
 //  Projector
 //
 //  Liquid Glass design system for macOS Tahoe (26+) with fallbacks.
+//  Uses AppColors and AppAnimations from LayoutConstants.swift for consistency.
 //
 
 import SwiftUI
@@ -13,8 +14,8 @@ import AppKit
 /// A view modifier that applies Liquid Glass panel styling.
 /// Uses native `.glassEffect()` on macOS 26+, falls back to NSVisualEffectView on older versions.
 struct GlassPanelModifier: ViewModifier {
-    var cornerRadius: CGFloat = 8
-    var borderOpacity: CGFloat = 0.2
+    var cornerRadius: CGFloat = PanelLayout.cornerRadius
+    var borderOpacity: CGFloat = PanelLayout.borderOpacity
 
     func body(content: Content) -> some View {
         if #available(macOS 26, *) {
@@ -26,21 +27,20 @@ struct GlassPanelModifier: ViewModifier {
                 }
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(Color.white.opacity(borderOpacity), lineWidth: 1)
+                        .stroke(Color.white.opacity(borderOpacity), lineWidth: PanelLayout.borderWidth)
                 )
         } else {
             content
                 .background(
                     ZStack {
                         LegacyVisualEffectBackground(cornerRadius: cornerRadius)
-                        Color(red: 30.0 / 255.0, green: 30.0 / 255.0, blue: 30.0 / 255.0)
-                            .opacity(0.85)
+                        AppColors.glassFallback.opacity(0.85)
                     }
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(Color.white.opacity(borderOpacity), lineWidth: 1)
+                        .stroke(Color.white.opacity(borderOpacity), lineWidth: PanelLayout.borderWidth)
                 )
         }
     }
@@ -60,13 +60,13 @@ struct GlassControlModifier: ViewModifier {
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .fill(.clear)
                         .glassEffect(
-                            isHighlighted ? .regular.tint(.accentColor) : .clear,
+                            isHighlighted ? .regular.tint(.white.opacity(0.15)) : .clear,
                             in: RoundedRectangle(cornerRadius: cornerRadius)
                         )
                 }
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                        .stroke(AppColors.borderMedium, lineWidth: PanelLayout.borderWidth)
                 )
         } else {
             content
@@ -76,7 +76,7 @@ struct GlassControlModifier: ViewModifier {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                        .stroke(AppColors.borderMedium, lineWidth: PanelLayout.borderWidth)
                 )
         }
     }
@@ -92,8 +92,8 @@ struct GlassButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         if #available(macOS 26, *) {
             configuration.label
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
                 .background {
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .fill(.clear)
@@ -104,18 +104,18 @@ struct GlassButtonStyle: ButtonStyle {
                 }
                 .opacity(configuration.isPressed ? 0.7 : 1.0)
                 .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-                .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+                .animation(AppAnimations.quick, value: configuration.isPressed)
         } else {
             configuration.label
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
                 .background(
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .fill(tint?.opacity(0.2) ?? Color(nsColor: .controlBackgroundColor))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                        .stroke(AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
                 )
                 .opacity(configuration.isPressed ? 0.7 : 1.0)
         }
@@ -125,75 +125,193 @@ struct GlassButtonStyle: ButtonStyle {
 // MARK: - Glass Transport Button Style
 
 /// A button style for transport controls (play, stop, etc.)
+/// These buttons sit inside a .glassControl() wrapper, so they should be minimal.
+/// Uses the brand accent color (hot pink) for active state.
 struct GlassTransportButtonStyle: ButtonStyle {
     var isActive: Bool = false
 
     func makeBody(configuration: Configuration) -> some View {
-        if #available(macOS 26, *) {
-            configuration.label
-                .padding(8)
-                .background {
-                    Circle()
-                        .fill(.clear)
-                        .glassEffect(
-                            isActive ? .regular.tint(.accentColor) : .regular,
-                            in: Circle()
-                        )
-                }
-                .opacity(configuration.isPressed ? 0.7 : 1.0)
-                .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
-                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
-        } else {
-            configuration.label
-                .padding(8)
-                .background(
-                    Circle()
-                        .fill(isActive ? Color.accentColor.opacity(0.2) : Color(nsColor: .controlBackgroundColor))
-                )
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                )
-                .opacity(configuration.isPressed ? 0.7 : 1.0)
-        }
+        configuration.label
+            .font(Typography.buttonLarge)
+            .foregroundColor(isActive ? AppColors.accent : .primary)
+            .frame(width: 32, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isActive ? AppColors.accent.opacity(0.15) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(configuration.isPressed ? Color.white.opacity(0.1) : Color.clear)
+            )
+            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .animation(AppAnimations.instant, value: configuration.isPressed)
     }
 }
 
 // MARK: - Glass Action Button Style
 
 /// A button style for action buttons (Import, Optimize, etc.)
+/// Defaults to the brand accent color (hot pink).
+/// Includes hover state for polished feel.
 struct GlassActionButtonStyle: ButtonStyle {
-    var tint: Color = .accentColor
+    var tint: Color = AppColors.accent
 
     func makeBody(configuration: Configuration) -> some View {
+        GlassActionButtonBody(
+            configuration: configuration,
+            tint: tint
+        )
+    }
+}
+
+/// Internal view that handles hover state for action buttons
+private struct GlassActionButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let tint: Color
+    @State private var isHovered = false
+
+    var body: some View {
         if #available(macOS 26, *) {
             configuration.label
-                .font(.system(size: 11, weight: .medium))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .font(Typography.button)
+                .foregroundColor(.white)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
                 .background {
                     Capsule()
-                        .fill(.clear)
-                        .glassEffect(.regular.tint(tint), in: Capsule())
+                        .fill(tint.opacity(isHovered ? 0.85 : 0.65))
+                        .glassEffect(.regular, in: Capsule())
                 }
-                .opacity(configuration.isPressed ? 0.8 : 1.0)
-                .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-                .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+                .scaleEffect(configuration.isPressed ? 0.96 : (isHovered ? 1.02 : 1.0))
+                .brightness(isHovered ? 0.05 : 0)
+                .animation(AppAnimations.quick, value: configuration.isPressed)
+                .animation(AppAnimations.quick, value: isHovered)
+                .onHover { hovering in
+                    isHovered = hovering
+                }
         } else {
             configuration.label
-                .font(.system(size: 11, weight: .medium))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .font(Typography.button)
+                .foregroundColor(.white)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
                 .background(
                     Capsule()
-                        .fill(tint.opacity(0.15))
+                        .fill(tint.opacity(isHovered ? 0.75 : 0.6))
                 )
                 .overlay(
                     Capsule()
-                        .stroke(tint.opacity(0.3), lineWidth: 1)
+                        .stroke(tint.opacity(isHovered ? 0.5 : 0.3), lineWidth: PanelLayout.borderWidth)
                 )
-                .opacity(configuration.isPressed ? 0.8 : 1.0)
+                .scaleEffect(configuration.isPressed ? 0.96 : (isHovered ? 1.02 : 1.0))
+                .animation(AppAnimations.quick, value: configuration.isPressed)
+                .animation(AppAnimations.quick, value: isHovered)
+                .onHover { hovering in
+                    isHovered = hovering
+                }
         }
+    }
+}
+
+// MARK: - Glass Text Button Style
+
+/// A subtle text-only button for secondary actions (links, less prominent actions)
+/// Use for things like "Configure...", "Change", "Audio Routing"
+struct GlassTextButtonStyle: ButtonStyle {
+    var tint: Color = AppColors.accentBlue
+
+    func makeBody(configuration: Configuration) -> some View {
+        GlassTextButtonBody(configuration: configuration, tint: tint)
+    }
+}
+
+private struct GlassTextButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let tint: Color
+    @State private var isHovered = false
+
+    var body: some View {
+        configuration.label
+            .font(Typography.label)
+            .foregroundColor(isHovered ? tint : tint.opacity(0.8))
+            .underline(isHovered)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(AppAnimations.quick, value: configuration.isPressed)
+            .animation(AppAnimations.quick, value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+    }
+}
+
+// MARK: - Glass Icon Button Style
+
+/// A compact icon-only button with hover feedback
+struct GlassIconButtonStyle: ButtonStyle {
+    var size: CGFloat = 24
+    var isActive: Bool = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        GlassIconButtonBody(configuration: configuration, size: size, isActive: isActive)
+    }
+}
+
+private struct GlassIconButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let size: CGFloat
+    let isActive: Bool
+    @State private var isHovered = false
+
+    var body: some View {
+        configuration.label
+            .font(.system(size: size * 0.6, weight: .medium))
+            .foregroundColor(isActive ? .accentColor : (isHovered ? .primary : .secondary))
+            .frame(width: size, height: size)
+            .background(
+                Circle()
+                    .fill(isActive ? Color.accentColor.opacity(0.15) : (isHovered ? AppColors.surfaceMedium : Color.clear))
+            )
+            .scaleEffect(configuration.isPressed ? 0.9 : (isHovered ? 1.05 : 1.0))
+            .animation(AppAnimations.quick, value: configuration.isPressed)
+            .animation(AppAnimations.quick, value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+    }
+}
+
+// MARK: - Glass Panel Header Style
+
+/// A view modifier for panel headers (accordion sections, etc.)
+struct GlassPanelHeaderModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .frame(height: PanelLayout.headerHeight)
+            .padding(.horizontal, Spacing.md)
+            .background(AppColors.overlayDark)
+            .overlay(
+                Rectangle()
+                    .frame(height: PanelLayout.borderWidth)
+                    .foregroundColor(AppColors.borderSubtle),
+                alignment: .bottom
+            )
+    }
+}
+
+// MARK: - Glass Depth System
+
+/// A view modifier that applies depth/shadow for layered panels
+struct GlassDepthModifier: ViewModifier {
+    let level: Int
+
+    func body(content: Content) -> some View {
+        content
+            .shadow(
+                color: Color.black.opacity(Double(level) * 0.1),
+                radius: CGFloat(level * 2),
+                x: 0,
+                y: CGFloat(level)
+            )
     }
 }
 
@@ -209,6 +327,18 @@ extension View {
     func glassControl(cornerRadius: CGFloat = 6, isHighlighted: Bool = false) -> some View {
         modifier(GlassControlModifier(cornerRadius: cornerRadius, isHighlighted: isHighlighted))
     }
+
+    /// Apply standard panel header styling
+    func glassPanelHeader() -> some View {
+        modifier(GlassPanelHeaderModifier())
+    }
+
+    /// Apply depth/shadow for layered panels
+    ///
+    /// - Parameter level: Depth level (1 = subtle, 2 = moderate, 3 = prominent)
+    func glassDepth(level: Int) -> some View {
+        modifier(GlassDepthModifier(level: level))
+    }
 }
 
 // MARK: - Window Glass Background
@@ -223,8 +353,7 @@ struct WindowGlassBackground: View {
         } else {
             ZStack {
                 LegacyWindowVisualEffect()
-                Color(red: 30.0 / 255.0, green: 30.0 / 255.0, blue: 30.0 / 255.0)
-                    .opacity(0.95)
+                AppColors.glassFallback.opacity(0.95)
             }
             .ignoresSafeArea()
         }
@@ -270,6 +399,69 @@ private struct LegacyVisualEffectBackground: NSViewRepresentable {
     }
 }
 
+// MARK: - Glass Toggle Button Style
+
+/// A button style for toggle buttons that show on/off state
+/// Uses the brand accent color (hot pink) for active state.
+struct GlassToggleButtonStyle: ButtonStyle {
+    var isOn: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(Typography.button)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
+            .foregroundColor(isOn ? .white : .secondary)
+            .background {
+                if #available(macOS 26, *) {
+                    Capsule()
+                        .fill(.clear)
+                        .glassEffect(
+                            isOn ? .regular.tint(AppColors.accent) : .clear,
+                            in: Capsule()
+                        )
+                } else {
+                    Capsule()
+                        .fill(isOn ? AppColors.accent.opacity(0.3) : Color.clear)
+                }
+            }
+            .overlay(
+                Capsule()
+                    .stroke(isOn ? AppColors.accent : AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
+            )
+            .opacity(configuration.isPressed ? 0.7 : 1.0)
+            .animation(AppAnimations.quick, value: configuration.isPressed)
+    }
+}
+
+// MARK: - Reduced Motion Modifier
+
+/// A view modifier that respects the user's reduced motion preference.
+///
+/// ## Usage
+/// ```swift
+/// withAnimation(reduceMotion ? nil : AppAnimations.standard) {
+///     isExpanded.toggle()
+/// }
+/// ```
+struct ReducedMotionModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
+
+    let animation: Animation
+
+    func body(content: Content) -> some View {
+        content
+            .animation(reduceMotion ? nil : animation, value: UUID())
+    }
+}
+
+extension View {
+    /// Applies animation only if reduced motion is not enabled
+    func animationWithReducedMotion(_ animation: Animation) -> some View {
+        modifier(ReducedMotionModifier(animation: animation))
+    }
+}
+
 // MARK: - Color Extensions for Glass
 
 extension Color {
@@ -287,7 +479,7 @@ extension Color {
 // MARK: - Preview
 
 #Preview("Glass Styles") {
-    VStack(spacing: 20) {
+    VStack(spacing: Spacing.xl) {
         // Panel
         VStack {
             Text("Glass Panel")
@@ -299,7 +491,7 @@ extension Color {
         .glassPanel()
 
         // Controls
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.md) {
             HStack {
                 Text("TC:")
                     .font(.system(size: 10))
@@ -307,8 +499,8 @@ extension Color {
                 Text("01:00:00:00")
                     .font(.system(size: 12, design: .monospaced))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
             .glassControl()
 
             HStack {
@@ -318,13 +510,13 @@ extension Color {
                 Text("24")
                     .font(.system(size: 12, design: .monospaced))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
             .glassControl()
         }
 
         // Buttons
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.md) {
             Button("Import") {}
                 .buttonStyle(GlassActionButtonStyle(tint: .accentColor))
 
@@ -333,7 +525,7 @@ extension Color {
         }
 
         // Transport
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
             Button(action: {}) {
                 Image(systemName: "play.fill")
                     .frame(width: 16, height: 16)
@@ -347,7 +539,7 @@ extension Color {
             .buttonStyle(GlassTransportButtonStyle())
         }
     }
-    .padding(40)
+    .padding(Spacing.xxl)
     .frame(width: 400, height: 350)
     .background(Color.black.opacity(0.8))
 }

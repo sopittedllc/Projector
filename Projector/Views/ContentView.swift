@@ -3,7 +3,6 @@ import UniformTypeIdentifiers
 import AVFoundation
 import SwiftTimecodeCore
 import AppKit
-import Iconoir
 import Combine
 
 
@@ -31,6 +30,12 @@ struct ContentView: View {
     /// ViewModel for timeline UI state and interactions
     @StateObject var timelineViewModel: TimelineViewModel
 
+    // MARK: - Transport (Actor-based for thread safety)
+    /// The transport actor (logic layer) - handles transport state
+    let transportActor: TransportActor
+    /// ViewModel bridging actor state to UI
+    @StateObject var transportViewModel: TransportViewModel
+
     // MARK: - Missing File Resolution
     /// Service for handling missing file resolution when loading projects
     @StateObject var missingFileService: MissingFileResolutionService
@@ -51,11 +56,12 @@ struct ContentView: View {
         self.midiSyncActor = actor
         self._midiSyncViewModel = StateObject(wrappedValue: MIDISyncViewModel(service: actor))
 
-        // Initialize timeline manager and view model
+        // Initialize timeline manager, actor, and view model
         let manager = TimelineManager()
-        let viewModel = TimelineViewModel(manager: manager)
+        let timelineActor = TimelineActor(timelineManager: manager)
+        let timelineVM = TimelineViewModel(service: timelineActor)
         self._timelineManager = StateObject(wrappedValue: manager)
-        self._timelineViewModel = StateObject(wrappedValue: viewModel)
+        self._timelineViewModel = StateObject(wrappedValue: timelineVM)
 
         // Initialize media library, project document, and playback engine
         let library = ProjectMediaLibrary()
@@ -64,6 +70,15 @@ struct ContentView: View {
         self._mediaLibrary = StateObject(wrappedValue: library)
         self._projectDocument = StateObject(wrappedValue: document)
         self._playbackEngine = StateObject(wrappedValue: engine)
+
+        // Initialize transport actor and view model (requires playbackEngine, timelineActor, midiSyncActor)
+        let transport = TransportActor(
+            playbackEngine: engine,
+            timelineActor: timelineActor,
+            midiSyncService: actor
+        )
+        self.transportActor = transport
+        self._transportViewModel = StateObject(wrappedValue: TransportViewModel(service: transport))
 
         // Initialize missing file resolution service
         self._missingFileService = StateObject(wrappedValue: MissingFileResolutionService(
@@ -76,7 +91,7 @@ struct ContentView: View {
         self._mediaImportCoordinator = StateObject(wrappedValue: MediaImportCoordinator(
             mediaLibrary: library,
             timelineManager: manager,
-            timelineViewModel: viewModel
+            timelineViewModel: timelineVM
         ))
 
         // Initialize persistence service
@@ -88,17 +103,13 @@ struct ContentView: View {
         ))
     }
 
-    // MARK: - License
-    @StateObject private var licenseManager = LicenseManager.shared
+    // MARK: - Alert & Sheet Coordination
+    @StateObject var alerts = AlertCoordinator()
 
     // MARK: - UI State
     // Note: Some properties use internal access to allow extension in ContentView+Timeline.swift and ContentView+Setup.swift
-    @State private var showLicenseOverlay = false
     @State private var showWelcomeOverlay = false
-    @State private var showSettings = false
     @State var isLoadingMedia = false
-    @State var loadError: String?
-    @State var showErrorAlert = false
     @State var midiCancellables = Set<AnyCancellable>()
     @StateObject var thumbnailCache = ThumbnailCache()
     @State var showFileManager = true
@@ -116,22 +127,22 @@ struct ContentView: View {
     @State var normalViewHeight: CGFloat = 0
     @State var vitalControlsHeight: CGFloat = 0
 
+    // Floating video window state
+    @State private var isVideoFloating = false
+
+    // Settings panel state (collapsed by default)
+    @State private var isSettingsExpanded = false
+
     // FPS conflict state (internal for ContentView+Timeline.swift extension)
-    @State var showFPSConflictAlert = false
     @State var pendingVideoURL: URL?
     @State var pendingVideoFPS: TimecodeFrameRate?
     @State var pendingVideoInsertFrame: Int?
-    @State var showVideoInsertSheet = false
     @State var videoInsertURL: URL?
-    @State var showVideoAlreadyInTimelineAlert = false
     @State var videoAlreadyInTimelineName: String = ""
-    @State var showAudioAlreadyInTimelineAlert = false
-    @State private var showSaveProjectSheet = false
     @State var audioAlreadyInTimelineName: String = ""
     @State private var isPlaybackDropTargeted = false
 
     // Embedded timecode detection state (internal for ContentView+Timeline.swift extension)
-    @State var showEmbeddedTimecodeAlert = false
     @State var pendingTimecodeResult: EmbeddedTimecodeResult?
     @State var pendingTimecodeURL: URL?
     @State var pendingTimecodeDropFrame: Int?
@@ -139,8 +150,18 @@ struct ContentView: View {
     @State var pendingTimecodeLaneId: UUID?
 
     // Batch timecode detection state (for multiple file drops)
-    @State var showBatchTimecodeSheet = false
     @State var pendingBatchTimecode: PendingBatchTimecode?
+
+    // Spot media sheet state (for single file drops with enhanced placement options)
+    @State var pendingSpotURL: URL?
+    @State var pendingSpotFilenameTC: String?
+    @State var pendingSpotMetadataTC: EmbeddedTimecodeResult?
+    @State var pendingSpotDropFrame: Int = 0
+    @State var pendingSpotIsVideo: Bool = true
+    @State var pendingSpotLaneId: UUID?
+
+    /// User's remembered spot placement choice for the session (nil = ask each time)
+    @State var rememberedSpotChoice: SpotPlacementOption?
 
     /// Flag to prevent concurrent timecode detection from multiple drop events
     @State var isProcessingTimecodeDetection = false
@@ -148,76 +169,31 @@ struct ContentView: View {
     /// Service for detecting embedded timecode from media files
     let embeddedTimecodeService = EmbeddedTimecodeService()
 
+    // MARK: - Onboarding
+    /// Shows the interactive onboarding wizard
+    @State private var showOnboarding = false
+
     var body: some View {
         mainContent
-            .modifier(SheetsModifier(
-                showSettings: $showSettings,
-                showVideoInsertSheet: $showVideoInsertSheet,
-                showSaveProjectSheet: $showSaveProjectSheet,
-                showBatchTimecodeSheet: $showBatchTimecodeSheet,
-                videoInsertURL: $videoInsertURL,
-                pendingBatchTimecode: $pendingBatchTimecode,
-                frameRate: timelineManager.timeline.config.frameRate,
-                startTimecode: timelineManager.timeline.config.startTimecode,
-                onVideoInsertConfirm: { url, frame in
-                    Task {
-                        await addVideoToTimeline(url: url, atFrame: frame)
-                    }
-                },
-                onBatchTimecodeConfirm: { setTimelineStart in
-                    handleBatchTimecodeConfirm(setTimelineStart: setTimelineStart)
-                },
-                onBatchTimecodeCancel: {
-                    clearPendingBatchTimecode()
-                },
-                showBatchSetTimelineStartOption: pendingBatchTimecode?.isVideo == true && timelineManager.timeline.videoReels.isEmpty,
-                settingsView: AnyView(SettingsView(
+            .alertCoordinator(alerts)
+            .sheet(isPresented: Binding(
+                get: { alerts.activeAlert?.id == "settings" },
+                set: { if !$0 { alerts.dismiss() } }
+            )) {
+                SettingsView(
                     audioManager: audioManager,
-                    isPresented: $showSettings
-                )),
-                saveProjectSheet: AnyView(SaveProjectSheet(onSave: persistenceService.handleProjectSave))
-            ))
-            .modifier(AlertsModifier(
-                showErrorAlert: $showErrorAlert,
-                showVideoAlreadyInTimelineAlert: $showVideoAlreadyInTimelineAlert,
-                showAudioAlreadyInTimelineAlert: $showAudioAlreadyInTimelineAlert,
-                showDuplicateMediaAlert: $mediaImportCoordinator.showDuplicateMediaAlert,
-                showMissingFilesAlert: $missingFileService.showAlert,
-                showFPSConflictAlert: $showFPSConflictAlert,
-                showEmbeddedTimecodeAlert: $showEmbeddedTimecodeAlert,
-                loadError: loadError,
-                videoAlreadyInTimelineName: videoAlreadyInTimelineName,
-                audioAlreadyInTimelineName: audioAlreadyInTimelineName,
-                duplicateMediaAlertMessage: mediaImportCoordinator.duplicateMediaAlertMessage,
-                missingFileMessage: missingFileService.currentMissingFileMessage,
-                fpsConflictMessage: fpsConflictMessage,
-                onLocateMissingFile: { missingFileService.locateMissingFile() },
-                onSkipMissingFile: { missingFileService.skipMissingFile() },
-                onSkipAllMissingFiles: { missingFileService.skipAllMissingFiles() },
-                onChangeProjectFPS: handleFPSConflictChangeProject,
-                onCancelFPSConflict: {
-                    pendingVideoURL = nil
-                    pendingVideoFPS = nil
-                    pendingVideoInsertFrame = nil
-                },
-                onPlaceAtTimecode: { setTimelineStart in
-                    handleTimecodeChoice(useEmbeddedTimecode: true, setTimelineStart: setTimelineStart)
-                },
-                onPlaceAtDropLocation: { handleTimecodeChoice(useEmbeddedTimecode: false, setTimelineStart: false) },
-                onCancelTimecode: { clearPendingTimecode() },
-                pendingTimecodeResult: pendingTimecodeResult,
-                showSetTimelineStartOption: pendingTimecodeIsVideo && timelineManager.timeline.videoReels.isEmpty
-            ))
-            .frame(minWidth: 640, minHeight: 400)
+                    isPresented: Binding(
+                        get: { alerts.activeAlert?.id == "settings" },
+                        set: { if !$0 { alerts.dismiss() } }
+                    )
+                )
+            }
+            .sheet(isPresented: $showOnboarding, content: onboardingSheetContent)
+            .frame(minWidth: 1100, minHeight: 500)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(WindowGlassBackground())
         .overlay {
-            if showLicenseOverlay {
-                LicenseOverlayView(isPresented: $showLicenseOverlay)
-            }
-        }
-        .overlay {
-            if showWelcomeOverlay && !showLicenseOverlay {
+            if showWelcomeOverlay {
                 WelcomeOverlayView(isPresented: $showWelcomeOverlay)
             }
         }
@@ -238,29 +214,18 @@ struct ContentView: View {
             setupMIDICallbacks()
             setupAudioCallback()
             setupTimelineCallbacks()
+
+            // Start transport actor (sets up PlaybackEngine callbacks)
+            Task { await transportActor.start() }
+
             restoreSettings()
             handleUITestImportIfNeeded()
             setupPersistenceServiceCallbacks()
             setupMediaImportCoordinatorCallbacks()
 
-            // Check license status
-            if !licenseManager.isLicensed {
-                showLicenseOverlay = true
-            }
-
-            // Show welcome overlay if user hasn't completed it (and is licensed)
-            if !AppSettings.shared.hasCompletedWelcome && !showLicenseOverlay {
-                showWelcomeOverlay = true
-            }
-        }
-        // Update license overlay when license status changes
-        .onChange(of: licenseManager.isLicensed) { _, isLicensed in
-            if isLicensed {
-                showLicenseOverlay = false
-                // Show welcome after license activation if not completed
-                if !AppSettings.shared.hasCompletedWelcome {
-                    showWelcomeOverlay = true
-                }
+            // Show onboarding for first-time users (replaces welcome overlay)
+            if !AppSettings.shared.hasCompletedWelcome {
+                showOnboarding = true
             }
         }
         // Sync unsaved changes state with AppDelegate for quit confirmation
@@ -270,11 +235,11 @@ struct ContentView: View {
         // Save handlers - selector-backed commands bypass AppKit's Save validation
         .onReceive(NotificationCenter.default.publisher(for: .saveProject)) { _ in
             if !persistenceService.saveProject() {
-                showSaveProjectSheet = true  // No file URL, show Save As
+                showSaveProjectSheetViaCoordinator()  // No file URL, show Save As
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .saveProjectAs)) { _ in
-            showSaveProjectSheet = true
+            showSaveProjectSheetViaCoordinator()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openProjectFile)) { notification in
             debugPrint("ContentView: received openProjectFile notification")
@@ -287,6 +252,9 @@ struct ContentView: View {
             persistenceService.showOpenProjectPanel()
         }
         // Note: .consolidateMedia notification is handled by FileManagerView
+        .onReceive(NotificationCenter.default.publisher(for: .showOnboarding)) { _ in
+            showOnboarding = true
+        }
         .onOpenURL { url in
             debugPrint("ContentView.onOpenURL: %@", url.path)
             if url.pathExtension.lowercased() == "projector" {
@@ -343,146 +311,45 @@ struct ContentView: View {
     // MARK: - View Modes
 
     private var normalView: some View {
-        VStack(spacing: 0) {
-            // Video content area
-            VideoContentViewForEngine(
-                playbackEngine: playbackEngine,
-                showTimecode: settings.showTimecodeOverlay,
-                overlayPosition: settings.timecodeOverlayPosition,
-                overlayOpacity: settings.timecodeOverlayOpacity,
-                extraTrailingPadding: settings.timecodeOverlayPosition == .bottomRight ? 50 : 0
-            )
-            .onDrop(of: [UTType.fileURL, UTType.url, UTType.projectorMediaItem], isTargeted: $isPlaybackDropTargeted) { providers in
-                // Check for internal drag from media panel first
-                if dragContext.isDragging && !dragContext.mediaItems.isEmpty {
-                    let urls = dragContext.mediaItems.map { $0.url }
-                    handlePlaybackAreaDrop(urls: urls)
-                    dragContext.end()
-                    return true
-                }
-                // Fall back to external drop handling
-                return mediaImportCoordinator.handleDrop(providers: providers)
-            }
-            .overlay {
-                DropTargetOverlay(isTargeted: $isPlaybackDropTargeted)
-            }
-            .animation(.easeInOut(duration: 0.15), value: isPlaybackDropTargeted)
-            .frame(minWidth: 480, minHeight: 200)
-            .frame(height: playbackHeight)
-            .transaction { $0.animation = nil }
-            .background(
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear {
-                            DispatchQueue.main.async {
-                                playbackMeasuredHeight = proxy.size.height
-                            }
-                        }
-                        .onChange(of: proxy.size.height) { _, newValue in
-                            if !isResizingPlayback, newValue != playbackMeasuredHeight {
-                                DispatchQueue.main.async {
-                                    playbackMeasuredHeight = newValue
-                                }
-                            }
-                        }
-                }
-            )
-            .overlay {
-                LoadingOverlay(isLoading: isLoadingMedia)
-            }
-            .overlay(alignment: .bottom) {
-                PlaybackResizeHandle(
-                    playbackHeight: $playbackHeight,
-                    playbackMeasuredHeight: playbackMeasuredHeight,
-                    minHeight: playbackMinHeight,
-                    maxHeight: playbackMaxHeight,
-                    isResizing: $isResizingPlayback
+        // Horizontal split: Video (left) | Controls + Panels (right)
+        HSplitView {
+            // Left: Video player section (in glass container)
+            videoSection
+                .frame(minWidth: HorizontalLayoutConstants.minVideoWidth)
+
+            // Right: Transport bar (pinned) + Scrollable panels
+            VStack(spacing: 0) {
+                // Vital Controls bar - pinned at top
+                VitalControlsBar(
+                    timelineManager: timelineManager,
+                    playbackEngine: playbackEngine,
+                    timelineViewModel: timelineViewModel
                 )
-            }
-            .overlay(alignment: .bottomTrailing) {
-                FullScreenToggleButton(isFullScreen: false, action: enterFullScreen)
-            }
-
-            // Vital Controls bar (always visible)
-            VitalControlsBar(
-                timelineManager: timelineManager,
-                playbackEngine: playbackEngine,
-                timelineViewModel: timelineViewModel,
-                onSettingsPressed: { showSettings = true }
-            )
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .background(
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear {
-                            DispatchQueue.main.async {
-                                vitalControlsHeight = proxy.size.height
-                            }
-                        }
-                        .onChange(of: proxy.size.height) { _, newValue in
-                            if newValue != vitalControlsHeight {
+                .padding(.top, Spacing.md)
+                .padding(.horizontal, Spacing.md)
+                .padding(.bottom, Spacing.sm)
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear
+                            .onAppear {
                                 DispatchQueue.main.async {
-                                    vitalControlsHeight = newValue
-                                    clampPlaybackHeightIfNeeded()
+                                    vitalControlsHeight = proxy.size.height
                                 }
                             }
-                        }
-                }
-            )
-
-            ScrollView(.vertical) {
-                VStack(spacing: 0) {
-                    // Timeline accordion
-                    TimelineAccordionView(
-                        timelineManager: timelineManager,
-                        playbackEngine: playbackEngine,
-                        waveformCache: waveformCache,
-                        audioOutputManager: audioManager,
-                        timelineViewModel: timelineViewModel,
-                        mediaLibrary: mediaLibrary,
-                        thumbnailCache: thumbnailCache,
-                        onDropVideoMedia: handleVideoDropOnTimeline,
-                        onDropAudioMedia: handleAudioDropOnTimeline,
-                        onSeek: { frame in playbackEngine.seekToFrame(frame) },
-                        onSettingsPressed: { showSettings = true },
-                        onAddAudioLane: {
-                            let laneNumber = timelineManager.timeline.audioLanes.count + 1
-                            _ = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
-                            timelineViewModel.expandIfNeeded()
-                        },
-                        onDropMixedMedia: { videoURLs, audioURLs, atFrame in
-                            handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: atFrame)
-                        }
-                    )
-                    .padding(.horizontal, Spacing.lg)
-                    .padding(.top, Spacing.sm)
-                    .onChange(of: mediaLibrary.items.count) { _, newCount in
-                        // Auto-expand timeline when media is first imported
-                        if newCount > 0 && !timelineViewModel.isExpanded {
-                            timelineViewModel.expandIfNeeded()
-                        }
+                            .onChange(of: proxy.size.height) { _, newValue in
+                                if newValue != vitalControlsHeight {
+                                    DispatchQueue.main.async {
+                                        vitalControlsHeight = newValue
+                                    }
+                                }
+                            }
                     }
+                )
 
-                    // File Manager panel
-                    if showFileManager {
-                        FileManagerView(
-                            mediaLibrary: mediaLibrary,
-                            projectDocument: projectDocument,
-                            timelineManager: timelineManager,
-                            onAddToVideoTrack: handleAddToVideoTrack,
-                            onAddToAudioLane: handleAddToAudioLane,
-                            onDeleteItems: handleDeleteMediaItems,
-                            onSaveProject: { showSaveProjectSheet = true }
-                        )
-                        .padding(.horizontal, Spacing.lg)
-                        .padding(.top, Spacing.sm)
-                        .padding(.bottom, Spacing.sm)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .top)
+                // Scrollable panels section
+                rightPanelSection
             }
-            .frame(minHeight: lowerPanelsMinHeight)
+            .frame(minWidth: HorizontalLayoutConstants.minPanelWidth)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environmentObject(dragContext)
@@ -503,15 +370,11 @@ struct ContentView: View {
                         if newValue != normalViewHeight {
                             DispatchQueue.main.async {
                                 normalViewHeight = newValue
-                                clampPlaybackHeightIfNeeded()
                             }
                         }
                     }
             }
         )
-        .onChange(of: showFileManager) { _, _ in
-            clampPlaybackHeightIfNeeded()
-        }
         .onChange(of: audioManager.mappedOutputs) { _, outputs in
             guard !outputs.isEmpty else { return }
             let lanes = timelineManager.timeline.audioLanes
@@ -531,12 +394,189 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Video Section (Left Panel)
+
+    private var videoSection: some View {
+        ZStack {
+            if isVideoFloating {
+                // Placeholder when video is floating
+                videoFloatingPlaceholder
+            } else {
+                // Embedded video player
+                embeddedVideoPlayer
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: PanelLayout.cornerRadius))
+        .glassPanel()
+        .padding(Spacing.md)
+    }
+
+    private var embeddedVideoPlayer: some View {
+        VideoContentViewForEngine(
+            playbackEngine: playbackEngine,
+            showTimecode: settings.showTimecodeOverlay,
+            overlayPosition: settings.timecodeOverlayPosition,
+            overlayOpacity: 0.3,
+            extraTrailingPadding: (settings.timecodeOverlayPosition == .bottomRight || settings.timecodeOverlayPosition == .bottomLeft) ? 80 : 0
+        )
+        .onDrop(of: [UTType.fileURL, UTType.url, UTType.projectorMediaItem], isTargeted: $isPlaybackDropTargeted) { providers in
+            // Check for internal drag from media panel first
+            if dragContext.isDragging && !dragContext.mediaItems.isEmpty {
+                let urls = dragContext.mediaItems.map { $0.url }
+                handlePlaybackAreaDrop(urls: urls)
+                dragContext.end()
+                return true
+            }
+            // Fall back to external drop handling
+            return mediaImportCoordinator.handleDrop(providers: providers)
+        }
+        .overlay {
+            DropTargetOverlay(isTargeted: $isPlaybackDropTargeted)
+        }
+        .animation(AppAnimations.quick, value: isPlaybackDropTargeted)
+        .overlay {
+            LoadingOverlay(isLoading: isLoadingMedia)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            // Video control buttons
+            HStack(spacing: Spacing.sm) {
+                // Float button
+                Button(action: { floatVideoWindow() }) {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .frame(width: 32, height: 32)
+                        .background(AppColors.overlayDarker)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .help("Float video in separate window")
+
+                // Full screen button
+                FullScreenToggleButton(isFullScreen: false, action: enterFullScreen)
+            }
+            .padding(Spacing.sm)
+        }
+    }
+
+    private var videoFloatingPlaceholder: some View {
+        VStack(spacing: Spacing.lg) {
+            Image(systemName: "rectangle.portrait.and.arrow.right.fill")
+                .font(.system(size: 48))
+                .foregroundColor(AppColors.textTertiary)
+
+            Text("Video is floating")
+                .font(Typography.heading)
+                .foregroundColor(AppColors.textSecondary)
+
+            Text("The video is in a separate window")
+                .font(Typography.caption)
+                .foregroundColor(AppColors.textTertiary)
+
+            Button("Return Video Here") {
+                returnVideoFromFloat()
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(AppColors.accent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Right Panel Section (Settings + Timeline + Media)
+
+    private var rightPanelSection: some View {
+        ScrollView(.vertical) {
+            VStack(spacing: Spacing.md) {
+                // Collapsible Settings section (collapsed by default)
+                SettingsAccordionView(
+                    audioManager: audioManager,
+                    isExpanded: $isSettingsExpanded
+                )
+
+                // Timeline accordion
+                TimelineAccordionView(
+                    timelineManager: timelineManager,
+                    playbackEngine: playbackEngine,
+                    waveformCache: waveformCache,
+                    audioOutputManager: audioManager,
+                    timelineViewModel: timelineViewModel,
+                    mediaLibrary: mediaLibrary,
+                    thumbnailCache: thumbnailCache,
+                    onDropVideoMedia: handleVideoDropOnTimeline,
+                    onDropAudioMedia: handleAudioDropOnTimeline,
+                    onSeek: { frame in playbackEngine.seekToFrame(frame) },
+                    onSettingsPressed: { },
+                    onAddAudioLane: {
+                        let laneNumber = timelineManager.timeline.audioLanes.count + 1
+                        _ = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+                        timelineViewModel.expandIfNeeded()
+                    },
+                    onDropMixedMedia: { videoURLs, audioURLs, atFrame in
+                        handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: atFrame)
+                    }
+                )
+                .onChange(of: mediaLibrary.items.count) { _, newCount in
+                    // Auto-expand timeline when media is first imported
+                    if newCount > 0 && !timelineViewModel.isExpanded {
+                        timelineViewModel.expandIfNeeded()
+                    }
+                }
+
+                // File Manager panel
+                if showFileManager {
+                    FileManagerView(
+                        mediaLibrary: mediaLibrary,
+                        projectDocument: projectDocument,
+                        timelineManager: timelineManager,
+                        onAddToVideoTrack: handleAddToVideoTrack,
+                        onAddToAudioLane: handleAddToAudioLane,
+                        onDeleteItems: handleDeleteMediaItems,
+                        onSaveProject: {
+                            showSaveProjectSheetViaCoordinator()
+                        }
+                    )
+                }
+            }
+            .padding(Spacing.md)
+        }
+    }
+
+    // MARK: - Floating Video Actions
+
+    private func floatVideoWindow() {
+        isVideoFloating = true
+        FloatingVideoPanelController.shared.showPanel(
+            playbackEngine: playbackEngine,
+            settings: settings,
+            onClose: {
+                returnVideoFromFloat()
+            }
+        )
+    }
+
+    private func returnVideoFromFloat() {
+        FloatingVideoPanelController.shared.closePanel()
+        isVideoFloating = false
+    }
+
     private var fullScreenView: some View {
         FullScreenVideoView(
             playbackEngine: playbackEngine,
             settings: settings,
             mediaImportCoordinator: mediaImportCoordinator,
             onExitFullScreen: exitFullScreen
+        )
+    }
+
+    // MARK: - Audio Lane Preset Application
+
+    // MARK: - Sheet Content (Extracted for Type Checker)
+
+    private func onboardingSheetContent() -> OnboardingView {
+        OnboardingView(
+            audioManager: audioManager,
+            onComplete: { showOnboarding = false }
         )
     }
 }

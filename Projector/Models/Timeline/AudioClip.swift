@@ -2,7 +2,7 @@ import Foundation
 import SwiftTimecodeCore
 
 /// Type of audio source
-enum AudioSourceType: String, Codable {
+public enum AudioSourceType: String, Codable, Sendable {
     /// Audio extracted from a video file's audio track
     case videoTrack
     /// Standalone audio file (WAV, AIFF, etc.)
@@ -10,65 +10,65 @@ enum AudioSourceType: String, Codable {
 }
 
 /// Represents an audio clip placed on an audio lane
-struct AudioClip: Identifiable, Codable, Equatable {
+public struct AudioClip: Identifiable, Codable, Equatable, Sendable {
     /// Unique identifier for the clip
-    let id: UUID
+    public let id: UUID
 
     /// Reference to the MediaItem in the library (for optimization status lookup)
     /// For videoTrack sources, this references the parent video's MediaItem
-    var mediaItemId: UUID?
+    public var mediaItemId: UUID?
 
     /// Source file URL (video file for videoTrack, audio file for audioFile)
-    var sourceURL: URL
+    public var sourceURL: URL
 
     /// Security-scoped bookmark for sandbox access
-    var sourceBookmark: Data?
+    public var sourceBookmark: Data?
 
     /// Position on the master timeline (in frames from timeline start)
-    var timelineStartFrame: Int
+    public var timelineStartFrame: Int
 
     /// Duration of the clip on the timeline (in frames)
-    var durationFrames: Int
+    public var durationFrames: Int
 
     /// In-point within the source file (in source frames)
-    var sourceStartFrame: Int
+    public var sourceStartFrame: Int
 
     /// Type of audio source
-    var sourceType: AudioSourceType
+    public var sourceType: AudioSourceType
 
     /// Track index within source file (for videoTrack type)
-    var sourceTrackIndex: Int?
+    public var sourceTrackIndex: Int?
 
     /// Clip volume (0.0 to 1.0)
-    var volume: Float
+    public var volume: Float
 
     /// Whether this clip is muted
-    var isMuted: Bool
+    public var isMuted: Bool
 
     /// Display name (derived from filename if not set)
-    var name: String?
+    public var name: String?
 
     /// Channel count of the source audio
-    var channelCount: Int
+    public var channelCount: Int
 
     /// Sample rate of the source audio
-    var sampleRate: Double
+    public var sampleRate: Double
 
     /// Pre-extracted audio file URL (for videoTrack sources extracted during import)
     /// This avoids security-scoped resource issues in async contexts
-    var extractedAudioURL: URL?
+    public var extractedAudioURL: URL?
 
     /// Source frame rate (for videoTrack sources - needed for sync with video)
     /// This must match the video's sourceFrameRate for proper audio/video sync
-    var sourceFrameRate: TimecodeFrameRate?
+    public var sourceFrameRate: TimecodeFrameRate?
 
     /// End frame on timeline (exclusive)
-    var timelineEndFrame: Int {
+    public var timelineEndFrame: Int {
         timelineStartFrame + durationFrames
     }
 
     /// Computed display name
-    var displayName: String {
+    public var displayName: String {
         if let name = name {
             return name
         }
@@ -79,7 +79,7 @@ struct AudioClip: Identifiable, Codable, Equatable {
         return baseName
     }
 
-    init(
+    public init(
         id: UUID = UUID(),
         mediaItemId: UUID? = nil,
         sourceURL: URL,
@@ -116,13 +116,13 @@ struct AudioClip: Identifiable, Codable, Equatable {
     }
 
     /// Check if this clip is active at a given timeline frame
-    func isActive(at frame: Int) -> Bool {
+    public func isActive(at frame: Int) -> Bool {
         frame >= timelineStartFrame && frame < timelineEndFrame
     }
 
     /// Convert a timeline frame to a source frame
     /// Returns nil if the timeline frame is outside this clip's range
-    func sourceFrame(at timelineFrame: Int) -> Int? {
+    public func sourceFrame(at timelineFrame: Int) -> Int? {
         guard isActive(at: timelineFrame) else { return nil }
         return sourceStartFrame + (timelineFrame - timelineStartFrame)
     }
@@ -152,7 +152,7 @@ struct AudioClip: Identifiable, Codable, Equatable {
     ///
     /// Truncation loses ~0.6 samples per frame at 29.97 fps, causing ~1.3 second drift
     /// over 1 hour of playback.
-    func sourceTime(at timelineFrame: Int, masterFrameRate: TimecodeFrameRate) -> Double? {
+    public func sourceTime(at timelineFrame: Int, masterFrameRate: TimecodeFrameRate) -> Double? {
         guard let frame = sourceFrame(at: timelineFrame) else { return nil }
         // Use source frame rate for video-sourced clips to match video timing exactly
         let fps = sourceFrameRate?.fps ?? masterFrameRate.fps
@@ -182,7 +182,7 @@ extension AudioClip {
         case sourceFrameRate
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         id = try container.decode(UUID.self, forKey: .id)
@@ -212,7 +212,7 @@ extension AudioClip {
         sourceFrameRate = try container.decodeIfPresent(TimecodeFrameRate.self, forKey: .sourceFrameRate)
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
         try container.encode(id, forKey: .id)

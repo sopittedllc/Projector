@@ -7,13 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */; };
-		67053C082F0B787BAEF7B06D /* EmbeddedTimecodeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECA2DAB208F6AEF41EA14F6 /* EmbeddedTimecodeService.swift */; };
+		553738493E8342C88FB81BA3 /* FloatingVideoPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 096C28C6F2A248279B3CCA70 /* FloatingVideoPanel.swift */; };
+		D2C1B0A98274F6E5D4C3B2A1 /* SettingsAccordionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F64728A9B0C1D2 /* SettingsAccordionView.swift */; };
+		AM01AUDIOMETER002 /* AudioMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM01AUDIOMETER001 /* AudioMeterView.swift */; };
 		0F78E7CD06BB4CCBA9AA1A36 /* WindowTitleConfigurator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04AA25E97254C758E8138F0 /* WindowTitleConfigurator.swift */; };
 		1218A8494ECAE07469982AFA /* TestAudioFileFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14506C8D8408E65D66372269 /* TestAudioFileFactory.swift */; };
 		2D32AFD4ED0B4C24B8B2504B /* MediaOptimizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1CB65275AFE49C6AFD24B05 /* MediaOptimizationService.swift */; };
 		33E7262DBE394E3DA53FDE54 /* AccordionResizeHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A60EE069664A32A9209AF1 /* AccordionResizeHandle.swift */; };
 		52E6F25BE86C6D82F69255D4 /* UITestAudioFileFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 991D568ED3E77EA1C83F341A /* UITestAudioFileFactory.swift */; };
+		67053C082F0B787BAEF7B06D /* EmbeddedTimecodeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECA2DAB208F6AEF41EA14F6 /* EmbeddedTimecodeService.swift */; };
 		74EABBA338E34AE2882468C6 /* TimelineAccordionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 648C405AE05C49199696C8C5 /* TimelineAccordionView.swift */; };
 		753331FCF4CC4E1A8578392C /* MediaOptimizationServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2403C06D2294027B9140EB4 /* MediaOptimizationServiceProtocol.swift */; };
 		864AAC5C94DAF8054F840B27 /* WaveformCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD5C2B42215FEBC92028DAE5 /* WaveformCacheTests.swift */; };
@@ -25,7 +27,6 @@
 		A1000001227D3F0000000064 /* SwiftTimecodeCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1000001227D3F0000000063 /* SwiftTimecodeCore */; };
 		A1000001227D3F0000000066 /* SwiftTimecodeAV in Frameworks */ = {isa = PBXBuildFile; productRef = A1000001227D3F0000000065 /* SwiftTimecodeAV */; };
 		A1000001227D3F0000000068 /* SwiftTimecodeUI in Frameworks */ = {isa = PBXBuildFile; productRef = A1000001227D3F0000000067 /* SwiftTimecodeUI */; };
-		A1000001227D3F0000000070 /* MIDIManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F000000006F /* MIDIManager.swift */; };
 		A1000001227D3F0000000072 /* AudioOutputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000071 /* AudioOutputManager.swift */; };
 		A1000001227D3F0000000074 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000073 /* SettingsView.swift */; };
 		A1000001227D3F0000000076 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F0000000075 /* AppSettings.swift */; };
@@ -43,17 +44,33 @@
 		A1000001227D3F00000000D0 /* ProjectDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000D1 /* ProjectDocument.swift */; };
 		A1000001227D3F00000000E2 /* DocumentIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000E3 /* DocumentIcon.icns */; };
 		AE01AUDIOEXTRACT001 /* AudioExtractionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE01AUDIOEXTRACT002 /* AudioExtractionService.swift */; };
+		B1294F4D2F7C94C400783FA8 /* TransportViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F4C2F7C94C400783FA8 /* TransportViewModel.swift */; };
+		B1294F502F7C94D400783FA8 /* AlertCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F4E2F7C94D400783FA8 /* AlertCoordinator.swift */; };
+		B1294F522F7C958C00783FA8 /* TransportActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F512F7C958C00783FA8 /* TransportActor.swift */; };
+		B1294F5A2F7C9F1600783FA8 /* TransportActorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F592F7C9F1600783FA8 /* TransportActorTests.swift */; };
+		B1294F5B2F7C9F1600783FA8 /* PlaybackEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F562F7C9F1600783FA8 /* PlaybackEngineTests.swift */; };
+		B1294F5C2F7C9F1600783FA8 /* TimelineManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F582F7C9F1600783FA8 /* TimelineManagerTests.swift */; };
+		B1294F5D2F7C9F1600783FA8 /* IntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F542F7C9F1600783FA8 /* IntegrationTests.swift */; };
+		B1294F5E2F7C9F1600783FA8 /* AudioOutputManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F532F7C9F1600783FA8 /* AudioOutputManagerTests.swift */; };
+		B1294F5F2F7C9F1600783FA8 /* TimelineActorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F572F7C9F1600783FA8 /* TimelineActorTests.swift */; };
+		B1294F602F7C9F1600783FA8 /* MIDISyncActorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F552F7C9F1600783FA8 /* MIDISyncActorTests.swift */; };
 		B149C5462F0722DA001F9C85 /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B149C5452F0722DA001F9C85 /* Quartz.framework */; };
 		B149C5522F0722DB001F9C85 /* ProjectorQuickLook.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B149C5432F0722DA001F9C85 /* ProjectorQuickLook.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B149C5582F07238C001F9C85 /* DocumentIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000E3 /* DocumentIcon.icns */; };
+		B18F62FD2F7C8B00001132AF /* TimelineServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B18F62FC2F7C8B00001132AF /* TimelineServiceProtocol.swift */; };
+		B18F62FF2F7C8B16001132AF /* TimelineActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B18F62FE2F7C8B16001132AF /* TimelineActor.swift */; };
 		B19B58B82F0889F200FA33EC /* MIDISyncViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B62F0889F200FA33EC /* MIDISyncViewModel.swift */; };
 		B19B58B92F0889F200FA33EC /* MIDISyncServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B12F0889F200FA33EC /* MIDISyncServiceProtocol.swift */; };
 		B19B58BA2F0889F200FA33EC /* LayoutConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B42F0889F200FA33EC /* LayoutConstants.swift */; };
+		DEBUGLOG00000002 /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBUGLOG00000001 /* DebugLog.swift */; };
 		B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */; };
 		B19B58BD2F088AEA00FA33EC /* MIDISyncActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */; };
 		B19B58BF2F088BFF00FA33EC /* TimelineViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */; };
 		B19B58C12F088CFF00FA33EC /* VitalControlsBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58C02F088CFF00FA33EC /* VitalControlsBar.swift */; };
-		B1ICONOIR000000001 /* Iconoir in Frameworks */ = {isa = PBXBuildFile; productRef = B1ICONOIR000000002 /* Iconoir */; };
+		BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */; };
+		BTCS0001BATCHSHEET01 /* BatchTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */; };
+		SPOT0001SPOTMEDIA01 /* SpotMediaSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPOT0002SPOTMEDIA02 /* SpotMediaSheet.swift */; };
+		ONBOARD01ONBOARD01 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ONBOARD02ONBOARD02 /* OnboardingView.swift */; };
 		C1CONSOLID0001 /* ConsolidateMediaButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1CONSOLID0002 /* ConsolidateMediaButton.swift */; };
 		C1CONSOLID0003 /* ConsolidationSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1CONSOLID0004 /* ConsolidationSheetView.swift */; };
 		C1LIQUIDGLASS0001 /* LiquidGlassStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1LIQUIDGLASS0002 /* LiquidGlassStyles.swift */; };
@@ -81,12 +98,12 @@
 		C1WAVEFORM000003 /* DSWaveformImageViews in Frameworks */ = {isa = PBXBuildFile; productRef = C1WAVEFORM000002 /* DSWaveformImageViews */; };
 		C1WAVEFORM000005 /* DSWaveformImage in Frameworks */ = {isa = PBXBuildFile; productRef = C1WAVEFORM000004 /* DSWaveformImage */; };
 		CBA9B198D87A4901A984348F /* OptimizationSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF52682FA9954FFD8CCAD64E /* OptimizationSheetView.swift */; };
+		OPTSUGG01SUGGESTION01 /* OptimizationSuggestionBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = OPTSUGG02SUGGESTION02 /* OptimizationSuggestionBanner.swift */; };
+		ETCS0001EMBEDDEDSHEET01 /* EmbeddedTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */; };
 		F587047D294B4B08BD7B94B1 /* OptimizationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE90E852077C43F9AE6F40DF /* OptimizationViewModel.swift */; };
 		FILEHANDL002CONTENTVIEW /* ContentView+FileHandling.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEHANDL001CONTENTVIEW /* ContentView+FileHandling.swift */; };
 		FSVV0001FULLSCREENVIDEO01 /* FullScreenVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */; };
 		HELPERS002CONTENTVIEW /* ContentView+Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = HELPERS001CONTENTVIEW /* ContentView+Helpers.swift */; };
-		LSQLICENSE000011 /* LicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = LSQLICENSE000010 /* LicenseManager.swift */; };
-		LSQLICENSE000021 /* LicenseEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LSQLICENSE000020 /* LicenseEntryView.swift */; };
 		MFRS001MISSINGFILE01 /* MissingFileResolutionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */; };
 		MIC001MEDIAIMPORT01 /* MediaImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */; };
 		MODIFIERS002CONTENTVIEW /* ContentViewModifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = MODIFIERS001CONTENTVIEW /* ContentViewModifiers.swift */; };
@@ -95,8 +112,6 @@
 		SETUP002CONTENTVIEW /* ContentView+Setup.swift in Sources */ = {isa = PBXBuildFile; fileRef = SETUP001CONTENTVIEW /* ContentView+Setup.swift */; };
 		TIMELINE002CONTENTVIEW /* ContentView+Timeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = TIMELINE001CONTENTVIEW /* ContentView+Timeline.swift */; };
 		VINS0001VIDEOINSERT01 /* VideoInsertSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */; };
-		ETCS0001EMBEDDEDSHEET01 /* EmbeddedTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */; };
-		BTCS0001BATCHSHEET01 /* BatchTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */; };
 		VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */; };
 /* End PBXBuildFile section */
 
@@ -146,9 +161,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeServiceProtocol.swift; sourceTree = "<group>"; };
-		CECA2DAB208F6AEF41EA14F6 /* EmbeddedTimecodeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeService.swift; sourceTree = "<group>"; };
+		AM01AUDIOMETER001 /* AudioMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMeterView.swift; sourceTree = "<group>"; };
 		020DEC73914C4FCDB4106B0D /* OptimizeMediaButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizeMediaButton.swift; sourceTree = "<group>"; };
+		096C28C6F2A248279B3CCA70 /* FloatingVideoPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingVideoPanel.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F64728A9B0C1D2 /* SettingsAccordionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAccordionView.swift; sourceTree = "<group>"; };
 		09CB2A043A720DB7314125A0 /* ProjectorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ProjectorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0D049757BEF1EE1D4B8B48BD /* ProjectorUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ProjectorUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		14506C8D8408E65D66372269 /* TestAudioFileFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestAudioFileFactory.swift; sourceTree = "<group>"; };
@@ -166,7 +182,6 @@
 		A1000001227D3F0000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1000001227D3F0000000019 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1000001227D3F000000001A /* Projector.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Projector.entitlements; sourceTree = "<group>"; };
-		A1000001227D3F000000006F /* MIDIManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDIManager.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000071 /* AudioOutputManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioOutputManager.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000073 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A1000001227D3F0000000075 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
@@ -179,15 +194,31 @@
 		A1000001227D3F00000000E1 /* Credits.rtfd */ = {isa = PBXFileReference; lastKnownFileType = wrapper.rtfd; path = Credits.rtfd; sourceTree = "<group>"; };
 		A1000001227D3F00000000E3 /* DocumentIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = DocumentIcon.icns; sourceTree = "<group>"; };
 		AE01AUDIOEXTRACT002 /* AudioExtractionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioExtractionService.swift; sourceTree = "<group>"; };
+		B1294F4C2F7C94C400783FA8 /* TransportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportViewModel.swift; sourceTree = "<group>"; };
+		B1294F4E2F7C94D400783FA8 /* AlertCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertCoordinator.swift; sourceTree = "<group>"; };
+		B1294F512F7C958C00783FA8 /* TransportActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportActor.swift; sourceTree = "<group>"; };
+		B1294F532F7C9F1600783FA8 /* AudioOutputManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioOutputManagerTests.swift; sourceTree = "<group>"; };
+		B1294F542F7C9F1600783FA8 /* IntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationTests.swift; sourceTree = "<group>"; };
+		B1294F552F7C9F1600783FA8 /* MIDISyncActorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncActorTests.swift; sourceTree = "<group>"; };
+		B1294F562F7C9F1600783FA8 /* PlaybackEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEngineTests.swift; sourceTree = "<group>"; };
+		B1294F572F7C9F1600783FA8 /* TimelineActorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineActorTests.swift; sourceTree = "<group>"; };
+		B1294F582F7C9F1600783FA8 /* TimelineManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineManagerTests.swift; sourceTree = "<group>"; };
+		B1294F592F7C9F1600783FA8 /* TransportActorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportActorTests.swift; sourceTree = "<group>"; };
 		B149C5432F0722DA001F9C85 /* ProjectorQuickLook.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ProjectorQuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B149C5452F0722DA001F9C85 /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
+		B18F62FC2F7C8B00001132AF /* TimelineServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineServiceProtocol.swift; sourceTree = "<group>"; };
+		B18F62FE2F7C8B16001132AF /* TimelineActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineActor.swift; sourceTree = "<group>"; };
 		B19B58B12F0889F200FA33EC /* MIDISyncServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncServiceProtocol.swift; sourceTree = "<group>"; };
 		B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportServiceProtocol.swift; sourceTree = "<group>"; };
 		B19B58B42F0889F200FA33EC /* LayoutConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutConstants.swift; sourceTree = "<group>"; };
+		DEBUGLOG00000001 /* DebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLog.swift; sourceTree = "<group>"; };
 		B19B58B62F0889F200FA33EC /* MIDISyncViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncViewModel.swift; sourceTree = "<group>"; };
 		B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncActor.swift; sourceTree = "<group>"; };
 		B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineViewModel.swift; sourceTree = "<group>"; };
 		B19B58C02F088CFF00FA33EC /* VitalControlsBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalControlsBar.swift; sourceTree = "<group>"; };
+		BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTimecodeSheetView.swift; sourceTree = "<group>"; };
+		SPOT0002SPOTMEDIA02 /* SpotMediaSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotMediaSheet.swift; sourceTree = "<group>"; };
+		ONBOARD02ONBOARD02 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		C1CONSOLID0002 /* ConsolidateMediaButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidateMediaButton.swift; sourceTree = "<group>"; };
 		C1CONSOLID0004 /* ConsolidationSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidationSheetView.swift; sourceTree = "<group>"; };
 		C1LIQUIDGLASS0002 /* LiquidGlassStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidGlassStyles.swift; sourceTree = "<group>"; };
@@ -212,16 +243,18 @@
 		C1TIMELINE0000002B /* ThumbnailStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailStrip.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000003A /* ThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailCache.swift; sourceTree = "<group>"; };
 		C1VISUALFX0000002 /* VisualEffectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEffectView.swift; sourceTree = "<group>"; };
+		CECA2DAB208F6AEF41EA14F6 /* EmbeddedTimecodeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeService.swift; sourceTree = "<group>"; };
 		CF52682FA9954FFD8CCAD64E /* OptimizationSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizationSheetView.swift; sourceTree = "<group>"; };
+		OPTSUGG02SUGGESTION02 /* OptimizationSuggestionBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizationSuggestionBanner.swift; sourceTree = "<group>"; };
 		D2403C06D2294027B9140EB4 /* MediaOptimizationServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaOptimizationServiceProtocol.swift; sourceTree = "<group>"; };
 		DE90E852077C43F9AE6F40DF /* OptimizationViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizationViewModel.swift; sourceTree = "<group>"; };
+		ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeSheetView.swift; sourceTree = "<group>"; };
 		F1CB65275AFE49C6AFD24B05 /* MediaOptimizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaOptimizationService.swift; sourceTree = "<group>"; };
+		F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeServiceProtocol.swift; sourceTree = "<group>"; };
 		FD5C2B42215FEBC92028DAE5 /* WaveformCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformCacheTests.swift; sourceTree = "<group>"; };
 		FILEHANDL001CONTENTVIEW /* ContentView+FileHandling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+FileHandling.swift"; sourceTree = "<group>"; };
 		FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullScreenVideoView.swift; sourceTree = "<group>"; };
 		HELPERS001CONTENTVIEW /* ContentView+Helpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Helpers.swift"; sourceTree = "<group>"; };
-		LSQLICENSE000010 /* LicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseManager.swift; sourceTree = "<group>"; };
-		LSQLICENSE000020 /* LicenseEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseEntryView.swift; sourceTree = "<group>"; };
 		MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingFileResolutionService.swift; sourceTree = "<group>"; };
 		MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaImportCoordinator.swift; sourceTree = "<group>"; };
 		MODIFIERS001CONTENTVIEW /* ContentViewModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewModifiers.swift; sourceTree = "<group>"; };
@@ -230,8 +263,6 @@
 		SETUP001CONTENTVIEW /* ContentView+Setup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Setup.swift"; sourceTree = "<group>"; };
 		TIMELINE001CONTENTVIEW /* ContentView+Timeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Timeline.swift"; sourceTree = "<group>"; };
 		VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoInsertSheetView.swift; sourceTree = "<group>"; };
-		ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeSheetView.swift; sourceTree = "<group>"; };
-		BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTimecodeSheetView.swift; sourceTree = "<group>"; };
 		VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerOverlays.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -273,7 +304,6 @@
 				A1000001227D3F0000000064 /* SwiftTimecodeCore in Frameworks */,
 				A1000001227D3F0000000066 /* SwiftTimecodeAV in Frameworks */,
 				A1000001227D3F0000000068 /* SwiftTimecodeUI in Frameworks */,
-				B1ICONOIR000000001 /* Iconoir in Frameworks */,
 				C1WAVEFORM000003 /* DSWaveformImageViews in Frameworks */,
 				C1WAVEFORM000005 /* DSWaveformImage in Frameworks */,
 			);
@@ -293,6 +323,13 @@
 		3BD953EF1BF1714A87337C38 /* ProjectorTests */ = {
 			isa = PBXGroup;
 			children = (
+				B1294F532F7C9F1600783FA8 /* AudioOutputManagerTests.swift */,
+				B1294F542F7C9F1600783FA8 /* IntegrationTests.swift */,
+				B1294F552F7C9F1600783FA8 /* MIDISyncActorTests.swift */,
+				B1294F562F7C9F1600783FA8 /* PlaybackEngineTests.swift */,
+				B1294F572F7C9F1600783FA8 /* TimelineActorTests.swift */,
+				B1294F582F7C9F1600783FA8 /* TimelineManagerTests.swift */,
+				B1294F592F7C9F1600783FA8 /* TransportActorTests.swift */,
 				14506C8D8408E65D66372269 /* TestAudioFileFactory.swift */,
 				FD5C2B42215FEBC92028DAE5 /* WaveformCacheTests.swift */,
 			);
@@ -304,6 +341,7 @@
 			children = (
 				020DEC73914C4FCDB4106B0D /* OptimizeMediaButton.swift */,
 				CF52682FA9954FFD8CCAD64E /* OptimizationSheetView.swift */,
+				OPTSUGG02SUGGESTION02 /* OptimizationSuggestionBanner.swift */,
 			);
 			path = Optimization;
 			sourceTree = "<group>";
@@ -332,6 +370,7 @@
 		A1000001227D3F0000000021 /* Projector */ = {
 			isa = PBXGroup;
 			children = (
+				B1294F4F2F7C94D400783FA8 /* Coordinators */,
 				B19B58B32F0889F200FA33EC /* Contracts */,
 				B19B58B52F0889F200FA33EC /* Utilities */,
 				B19B58B72F0889F200FA33EC /* ViewModels */,
@@ -361,6 +400,8 @@
 		A1000001227D3F0000000023 /* Managers */ = {
 			isa = PBXGroup;
 			children = (
+				B1294F512F7C958C00783FA8 /* TransportActor.swift */,
+				B18F62FE2F7C8B16001132AF /* TimelineActor.swift */,
 				AE01AUDIOEXTRACT002 /* AudioExtractionService.swift */,
 				MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */,
 				MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */,
@@ -368,9 +409,7 @@
 				F1CB65275AFE49C6AFD24B05 /* MediaOptimizationService.swift */,
 				B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */,
 				CECA2DAB208F6AEF41EA14F6 /* EmbeddedTimecodeService.swift */,
-				A1000001227D3F000000006F /* MIDIManager.swift */,
 				A1000001227D3F0000000071 /* AudioOutputManager.swift */,
-				LSQLICENSE000010 /* LicenseManager.swift */,
 				A1000001227D3F0000000083 /* WaveformGenerator.swift */,
 				A1000001227D3F0000000090 /* TimecodeOCRManager.swift */,
 				C1TIMELINE00000007 /* TimelineManager.swift */,
@@ -395,9 +434,11 @@
 				A1000001227D3F0000000013 /* VideoPlayerView.swift */,
 				A1000001227D3F0000000014 /* TransportBarView.swift */,
 				A1000001227D3F0000000073 /* SettingsView.swift */,
+				AM01AUDIOMETER001 /* AudioMeterView.swift */,
 				5BDAFB14BA0E492A986FE676 /* WelcomeOverlayView.swift */,
-				LSQLICENSE000020 /* LicenseEntryView.swift */,
 				B19B58C02F088CFF00FA33EC /* VitalControlsBar.swift */,
+				096C28C6F2A248279B3CCA70 /* FloatingVideoPanel.swift */,
+				A1B2C3D4E5F64728A9B0C1D2 /* SettingsAccordionView.swift */,
 				C1VISUALFX0000002 /* VisualEffectView.swift */,
 				C1LIQUIDGLASS0002 /* LiquidGlassStyles.swift */,
 				A1000001227D3F0000000089 /* Timeline */,
@@ -409,6 +450,8 @@
 				VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */,
 				ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */,
 				BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */,
+				SPOT0002SPOTMEDIA02 /* SpotMediaSheet.swift */,
+				ONBOARD02ONBOARD02 /* OnboardingView.swift */,
 				VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */,
 				FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */,
 			);
@@ -451,6 +494,14 @@
 			path = Timeline;
 			sourceTree = "<group>";
 		};
+		B1294F4F2F7C94D400783FA8 /* Coordinators */ = {
+			isa = PBXGroup;
+			children = (
+				B1294F4E2F7C94D400783FA8 /* AlertCoordinator.swift */,
+			);
+			path = Coordinators;
+			sourceTree = "<group>";
+		};
 		B149C5442F0722DA001F9C85 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -462,6 +513,7 @@
 		B19B58B32F0889F200FA33EC /* Contracts */ = {
 			isa = PBXGroup;
 			children = (
+				B18F62FC2F7C8B00001132AF /* TimelineServiceProtocol.swift */,
 				D2403C06D2294027B9140EB4 /* MediaOptimizationServiceProtocol.swift */,
 				B19B58B12F0889F200FA33EC /* MIDISyncServiceProtocol.swift */,
 				B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */,
@@ -474,6 +526,7 @@
 			isa = PBXGroup;
 			children = (
 				B19B58B42F0889F200FA33EC /* LayoutConstants.swift */,
+				DEBUGLOG00000001 /* DebugLog.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -481,6 +534,7 @@
 		B19B58B72F0889F200FA33EC /* ViewModels */ = {
 			isa = PBXGroup;
 			children = (
+				B1294F4C2F7C94C400783FA8 /* TransportViewModel.swift */,
 				DE90E852077C43F9AE6F40DF /* OptimizationViewModel.swift */,
 				B19B58B62F0889F200FA33EC /* MIDISyncViewModel.swift */,
 				B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */,
@@ -557,7 +611,6 @@
 				A1000001227D3F0000000063 /* SwiftTimecodeCore */,
 				A1000001227D3F0000000065 /* SwiftTimecodeAV */,
 				A1000001227D3F0000000067 /* SwiftTimecodeUI */,
-				B1ICONOIR000000002 /* Iconoir */,
 				C1WAVEFORM000002 /* DSWaveformImageViews */,
 				C1WAVEFORM000004 /* DSWaveformImage */,
 			);
@@ -643,7 +696,6 @@
 			packageReferences = (
 				A1000001227D3F000000005D /* XCRemoteSwiftPackageReference "MIDIKit" */,
 				A1000001227D3F000000005E /* XCRemoteSwiftPackageReference "swift-timecode" */,
-				B1ICONOIR000000003 /* XCRemoteSwiftPackageReference "iconoir-swift" */,
 				C1WAVEFORM000001 /* XCRemoteSwiftPackageReference "DSWaveformImage" */,
 			);
 			productRefGroup = A1000001227D3F000000002F /* Products */;
@@ -707,6 +759,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B1294F5A2F7C9F1600783FA8 /* TransportActorTests.swift in Sources */,
+				B1294F5B2F7C9F1600783FA8 /* PlaybackEngineTests.swift in Sources */,
+				B1294F5C2F7C9F1600783FA8 /* TimelineManagerTests.swift in Sources */,
+				B1294F5D2F7C9F1600783FA8 /* IntegrationTests.swift in Sources */,
+				B1294F5E2F7C9F1600783FA8 /* AudioOutputManagerTests.swift in Sources */,
+				B1294F5F2F7C9F1600783FA8 /* TimelineActorTests.swift in Sources */,
+				B1294F602F7C9F1600783FA8 /* MIDISyncActorTests.swift in Sources */,
 				1218A8494ECAE07469982AFA /* TestAudioFileFactory.swift in Sources */,
 				864AAC5C94DAF8054F840B27 /* WaveformCacheTests.swift in Sources */,
 			);
@@ -716,6 +775,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AM01AUDIOMETER002 /* AudioMeterView.swift in Sources */,
+				B1294F502F7C94D400783FA8 /* AlertCoordinator.swift in Sources */,
 				753331FCF4CC4E1A8578392C /* MediaOptimizationServiceProtocol.swift in Sources */,
 				2D32AFD4ED0B4C24B8B2504B /* MediaOptimizationService.swift in Sources */,
 				AE01AUDIOEXTRACT001 /* AudioExtractionService.swift in Sources */,
@@ -725,12 +786,16 @@
 				F587047D294B4B08BD7B94B1 /* OptimizationViewModel.swift in Sources */,
 				8FA4E4EA4DA645D395B3ACD7 /* OptimizeMediaButton.swift in Sources */,
 				CBA9B198D87A4901A984348F /* OptimizationSheetView.swift in Sources */,
+				OPTSUGG01SUGGESTION01 /* OptimizationSuggestionBanner.swift in Sources */,
 				A1000001227D3F00000000B1 /* ProjectorApp.swift in Sources */,
 				B19B58B82F0889F200FA33EC /* MIDISyncViewModel.swift in Sources */,
 				B19B58BF2F088BFF00FA33EC /* TimelineViewModel.swift in Sources */,
 				B19B58C12F088CFF00FA33EC /* VitalControlsBar.swift in Sources */,
+				553738493E8342C88FB81BA3 /* FloatingVideoPanel.swift in Sources */,
+				D2C1B0A98274F6E5D4C3B2A1 /* SettingsAccordionView.swift in Sources */,
 				B19B58B92F0889F200FA33EC /* MIDISyncServiceProtocol.swift in Sources */,
 				B19B58BA2F0889F200FA33EC /* LayoutConstants.swift in Sources */,
+				DEBUGLOG00000002 /* DebugLog.swift in Sources */,
 				B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */,
 				BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */,
 				67053C082F0B787BAEF7B06D /* EmbeddedTimecodeService.swift in Sources */,
@@ -742,16 +807,15 @@
 				MODIFIERS002CONTENTVIEW /* ContentViewModifiers.swift in Sources */,
 				A1000001227D3F00000000B3 /* VideoPlayerView.swift in Sources */,
 				A1000001227D3F00000000B4 /* TransportBarView.swift in Sources */,
-				A1000001227D3F0000000070 /* MIDIManager.swift in Sources */,
 				A1000001227D3F0000000072 /* AudioOutputManager.swift in Sources */,
-				LSQLICENSE000011 /* LicenseManager.swift in Sources */,
 				A1000001227D3F0000000074 /* SettingsView.swift in Sources */,
 				A06C07CF5E2F4619BBD1F685 /* WelcomeOverlayView.swift in Sources */,
-				LSQLICENSE000021 /* LicenseEntryView.swift in Sources */,
 				A1000001227D3F0000000076 /* AppSettings.swift in Sources */,
 				A1000001227D3F00000000D0 /* ProjectDocument.swift in Sources */,
 				A1000001227D3F00000000C2 /* WaveformData.swift in Sources */,
+				B18F62FF2F7C8B16001132AF /* TimelineActor.swift in Sources */,
 				A1000001227D3F00000000C3 /* WaveformGenerator.swift in Sources */,
+				B18F62FD2F7C8B00001132AF /* TimelineServiceProtocol.swift in Sources */,
 				A1000001227D3F00000000C5 /* TimelineRulerView.swift in Sources */,
 				A1000001227D3F00000000C7 /* WaveformShape.swift in Sources */,
 				A1000001227D3F00000000C9 /* TimecodeOCRManager.swift in Sources */,
@@ -774,11 +838,13 @@
 				C1TIMELINE0000001F /* AudioLaneView.swift in Sources */,
 				C1TIMELINE00000020 /* PlayheadView.swift in Sources */,
 				C1TIMELINE00000021 /* MultiTrackTimelineView.swift in Sources */,
+				B1294F4D2F7C94C400783FA8 /* TransportViewModel.swift in Sources */,
 				C1TIMELINE00000025 /* MediaItemRow.swift in Sources */,
 				C1TIMELINE00000026 /* FileManagerView.swift in Sources */,
 				C1CONSOLID0001 /* ConsolidateMediaButton.swift in Sources */,
 				C1CONSOLID0003 /* ConsolidationSheetView.swift in Sources */,
 				C1VISUALFX0000001 /* VisualEffectView.swift in Sources */,
+				B1294F522F7C958C00783FA8 /* TransportActor.swift in Sources */,
 				C1LIQUIDGLASS0001 /* LiquidGlassStyles.swift in Sources */,
 				74EABBA338E34AE2882468C6 /* TimelineAccordionView.swift in Sources */,
 				0F78E7CD06BB4CCBA9AA1A36 /* WindowTitleConfigurator.swift in Sources */,
@@ -787,6 +853,8 @@
 				VINS0001VIDEOINSERT01 /* VideoInsertSheetView.swift in Sources */,
 				ETCS0001EMBEDDEDSHEET01 /* EmbeddedTimecodeSheetView.swift in Sources */,
 				BTCS0001BATCHSHEET01 /* BatchTimecodeSheetView.swift in Sources */,
+				SPOT0001SPOTMEDIA01 /* SpotMediaSheet.swift in Sources */,
+				ONBOARD01ONBOARD01 /* OnboardingView.swift in Sources */,
 				VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */,
 				FSVV0001FULLSCREENVIDEO01 /* FullScreenVideoView.swift in Sources */,
 			);
@@ -1214,14 +1282,6 @@
 				minimumVersion = 3.0.0;
 			};
 		};
-		B1ICONOIR000000003 /* XCRemoteSwiftPackageReference "iconoir-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/iconoir-icons/iconoir-swift";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 7.0.0;
-			};
-		};
 		C1WAVEFORM000001 /* XCRemoteSwiftPackageReference "DSWaveformImage" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/dmrschmidt/DSWaveformImage";
@@ -1257,11 +1317,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A1000001227D3F000000005E /* XCRemoteSwiftPackageReference "swift-timecode" */;
 			productName = SwiftTimecodeUI;
-		};
-		B1ICONOIR000000002 /* Iconoir */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B1ICONOIR000000003 /* XCRemoteSwiftPackageReference "iconoir-swift" */;
-			productName = Iconoir;
 		};
 		C1WAVEFORM000002 /* DSWaveformImageViews */ = {
 			isa = XCSwiftPackageProductDependency;
