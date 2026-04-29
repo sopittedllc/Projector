@@ -3143,6 +3143,82 @@ struct SettingsView: View {
 
 ---
 
+### GP-028: TextField Behavior Standardization
+**Added**: 2026-04-28
+**Source**: TextField audit across 8 files
+**Category**: UI/UX
+
+#### Problem
+TextFields across the app had inconsistent behavior:
+- Some saved on Return, some didn't exit edit mode
+- Escape behavior varied (some cancelled, some did nothing)
+- Blur behavior was inconsistent (some saved, some lost changes)
+- macOS system focus ring appeared on some fields
+
+#### Solution
+Standardize ALL TextFields to follow this pattern:
+
+```swift
+@FocusState private var isFocused: Bool
+@State private var editingText = ""
+
+TextField("Placeholder", text: $editingText)
+    .focused($isFocused)
+    .onSubmit {
+        applyChanges()
+        isFocused = false  // Exit edit mode on Return
+    }
+    .onExitCommand {
+        cancelChanges()
+        isFocused = false  // Exit edit mode on Escape
+    }
+    .onChange(of: isFocused) { wasFocused, nowFocused in
+        if wasFocused && !nowFocused {
+            applyChanges()  // Save on blur
+        }
+    }
+```
+
+For fields needing NO system styling (no focus ring, no background):
+
+```swift
+struct TransparentTextField: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = NSTextField()
+        textField.isBordered = false
+        textField.drawsBackground = false
+        textField.backgroundColor = .clear
+        textField.focusRingType = .none
+        return textField
+    }
+}
+```
+
+#### Why It Works
+- **Consistent UX**: Users learn one behavior pattern
+- **No lost data**: Blur always saves (most common exit method)
+- **Clean escape hatch**: Escape explicitly cancels
+- **Explicit commit**: Return confirms intent
+
+#### Critical: GlassControlModifier Tint
+When using `.glassControl(isHighlighted:)` on text fields, the modifier applies `.glassEffect(.regular.tint(.accentColor))` which creates a bright blue background. Fix:
+
+```swift
+// In LiquidGlassStyles.swift GlassControlModifier
+.glassEffect(
+    isHighlighted ? .regular.tint(.white.opacity(0.15)) : .clear,  // NOT .accentColor
+    in: RoundedRectangle(cornerRadius: cornerRadius)
+)
+```
+
+#### Related Files
+- `Projector/Views/Components/TransparentTextField.swift`
+- `Projector/Views/Components/TimecodeTextField.swift`
+- `Projector/Views/LiquidGlassStyles.swift`
+- `Projector/Views/VitalControlsBar.swift`
+
+---
+
 ## Contributing to This Document
 
 When adding new entries:
