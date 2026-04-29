@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-/// Button that triggers optimization and consolidation of media files
+/// Button that triggers consolidation of media files into the project folder
 struct ConsolidateMediaButton: View {
     @Binding var showSheet: Bool
     let hasExternalFiles: Bool
@@ -16,12 +16,12 @@ struct ConsolidateMediaButton: View {
         if hasExternalFiles {
             Button(action: { showSheet = true }) {
                 HStack(spacing: Spacing.xs) {
-                    Image(systemName: "bolt.fill")
-                    Text("Optimize")
+                    Image(systemName: "arrow.down.doc.fill")
+                    Text("Consolidate")
                 }
             }
             .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentGreen))
-            .help("Optimize media files for better playback and consolidate into project folder")
+            .help("Copy external media files into the project folder for portability")
         }
     }
 }

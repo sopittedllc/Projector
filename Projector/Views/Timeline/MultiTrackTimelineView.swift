@@ -95,8 +95,8 @@ struct MultiTrackTimelineView: View {
     @State private var isHoveringDuration = false
     @State private var editingStartTCText = ""
     @State private var editingDurationText = ""
-    @FocusState private var isStartTCFocused: Bool
-    @FocusState private var isDurationFocused: Bool
+    @State private var isStartTCFocused: Bool = false
+    @State private var isDurationFocused: Bool = false
     @State private var isEmptyAudioDropAllowed = false
     @State private var isEmptyAudioDropLoading = false
     @State private var emptyAudioDropPreviewFrame: Int?
@@ -681,20 +681,31 @@ struct MultiTrackTimelineView: View {
                 .lineLimit(1)
                 .fixedSize()
 
-            TextField("00:00:00:00", text: $editingStartTCText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .frame(width: 85)
-                .focused($isStartTCFocused)
-                .onChange(of: editingStartTCText) { _, newValue in
-                    let formatted = formatTimecodeInput(newValue)
-                    if formatted != newValue {
-                        editingStartTCText = formatted
-                    }
+            TransparentTextField(
+                text: $editingStartTCText,
+                placeholder: "00:00:00:00",
+                font: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium),
+                onSubmit: {
+                    applyStartTimecode()
+                },
+                onEscape: {
+                    editingStartTCText = timeline.config.startTimecode.stringValue()
+                },
+                isFocused: $isStartTCFocused
+            )
+            .frame(width: 85)
+            .onChange(of: editingStartTCText) { _, newValue in
+                let formatted = formatTimecodeInput(newValue)
+                if formatted != newValue {
+                    editingStartTCText = formatted
                 }
-                .onSubmit {
+            }
+            .onChange(of: isStartTCFocused) { _, focused in
+                // Save on blur
+                if !focused {
                     applyStartTimecode()
                 }
+            }
         }
         .padding(.horizontal, Spacing.sm)
         .padding(.vertical, 6)
@@ -716,11 +727,11 @@ struct MultiTrackTimelineView: View {
 
     private var startTCBackground: Color {
         if isStartTCFocused {
-            return Color.clear
+            return Color.red  // DEBUG: Should be RED not blue
         } else if isHoveringStartTC {
-            return Color.white.opacity(0.1)
+            return Color.green  // DEBUG: Should be GREEN on hover
         } else {
-            return Color(nsColor: .controlBackgroundColor)
+            return Color.white.opacity(0.04)
         }
     }
 
@@ -732,20 +743,31 @@ struct MultiTrackTimelineView: View {
                 .lineLimit(1)
                 .fixedSize()
 
-            TextField("00:00:00:00", text: $editingDurationText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .frame(width: 85)
-                .focused($isDurationFocused)
-                .onChange(of: editingDurationText) { _, newValue in
-                    let formatted = formatTimecodeInput(newValue)
-                    if formatted != newValue {
-                        editingDurationText = formatted
-                    }
+            TransparentTextField(
+                text: $editingDurationText,
+                placeholder: "00:00:00:00",
+                font: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium),
+                onSubmit: {
+                    applyDuration()
+                },
+                onEscape: {
+                    editingDurationText = durationTimecodeString
+                },
+                isFocused: $isDurationFocused
+            )
+            .frame(width: 85)
+            .onChange(of: editingDurationText) { _, newValue in
+                let formatted = formatTimecodeInput(newValue)
+                if formatted != newValue {
+                    editingDurationText = formatted
                 }
-                .onSubmit {
+            }
+            .onChange(of: isDurationFocused) { _, focused in
+                // Save on blur
+                if !focused {
                     applyDuration()
                 }
+            }
         }
         .padding(.horizontal, Spacing.sm)
         .padding(.vertical, 6)
@@ -772,11 +794,11 @@ struct MultiTrackTimelineView: View {
 
     private var durationBackground: Color {
         if isDurationFocused {
-            return Color.clear
-        } else if isHoveringDuration {
-            return Color.white.opacity(0.1)
-        } else {
             return Color(nsColor: .controlBackgroundColor)
+        } else if isHoveringDuration {
+            return Color.white.opacity(0.08)
+        } else {
+            return Color.white.opacity(0.04)
         }
     }
 
@@ -2755,5 +2777,96 @@ private struct TimelineDebugFlags {
             disableRulerGesture: arguments.contains("-debug-disable-ruler-gesture"),
             disableClipInteractions: arguments.contains("-debug-disable-clip-interactions")
         )
+    }
+}
+
+// MARK: - Transparent TextField
+
+/// A TextField that removes all macOS system styling (focus ring, background)
+/// so parent views can apply custom styling without interference.
+private struct TransparentTextField: NSViewRepresentable {
+    @Binding var text: String
+    var placeholder: String = ""
+    var font: NSFont = .monospacedSystemFont(ofSize: 12, weight: .medium)
+    var alignment: NSTextAlignment = .left
+    var onSubmit: (() -> Void)?
+    var onEscape: (() -> Void)?
+
+    @Binding var isFocused: Bool
+
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = NSTextField()
+        textField.delegate = context.coordinator
+        textField.isBordered = false
+        textField.drawsBackground = false
+        textField.backgroundColor = .clear
+        textField.focusRingType = .none
+        textField.font = font
+        textField.alignment = alignment
+        textField.placeholderString = placeholder
+        textField.cell?.sendsActionOnEndEditing = true
+        return textField
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+        nsView.font = font
+        nsView.alignment = alignment
+        nsView.placeholderString = placeholder
+
+        // Handle focus changes from SwiftUI
+        DispatchQueue.main.async {
+            if isFocused && nsView.window?.firstResponder != nsView.currentEditor() {
+                nsView.window?.makeFirstResponder(nsView)
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: TransparentTextField
+
+        init(_ parent: TransparentTextField) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let textField = obj.object as? NSTextField else { return }
+            parent.text = textField.stringValue
+        }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            DispatchQueue.main.async {
+                self.parent.isFocused = true
+            }
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            DispatchQueue.main.async {
+                self.parent.isFocused = false
+            }
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                // Return key pressed
+                parent.onSubmit?()
+                // Resign first responder to exit edit mode
+                control.window?.makeFirstResponder(nil)
+                return true
+            }
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                // Escape key pressed
+                parent.onEscape?()
+                control.window?.makeFirstResponder(nil)
+                return true
+            }
+            return false
+        }
     }
 }

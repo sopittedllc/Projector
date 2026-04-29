@@ -22,6 +22,13 @@ struct SaveProjectSheet: View {
     /// Error message if any
     @State private var errorMessage: String?
 
+    /// Show overwrite confirmation
+    @State private var showOverwriteConfirmation: Bool = false
+    @State private var pendingOverwriteURL: URL?
+
+    /// Focus state for project name field
+    @FocusState private var isProjectNameFocused: Bool
+
     /// Callback when save is confirmed
     let onSave: (URL) -> Void
 
@@ -83,6 +90,12 @@ struct SaveProjectSheet: View {
 
                     TextField("My Project", text: $projectName)
                         .textFieldStyle(.roundedBorder)
+                        .focused($isProjectNameFocused)
+                        .onSubmit {
+                            if canSave {
+                                save()
+                            }
+                        }
                 }
 
                 // Location picker
@@ -160,6 +173,20 @@ struct SaveProjectSheet: View {
             .padding()
         }
         .frame(width: 400)
+        .alert("Replace Existing Project?", isPresented: $showOverwriteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                pendingOverwriteURL = nil
+            }
+            Button("Replace", role: .destructive) {
+                if let url = pendingOverwriteURL {
+                    let folderURL = url.deletingLastPathComponent()
+                    performSave(projectFolderURL: folderURL, projectFileURL: url, overwrite: true)
+                }
+                pendingOverwriteURL = nil
+            }
+        } message: {
+            Text("A project named \"\(sanitizedName)\" already exists. Replacing it will delete all files in the existing project folder.")
+        }
     }
 
     private func chooseLocation() {
@@ -186,11 +213,21 @@ struct SaveProjectSheet: View {
 
         // Check if folder already exists
         if FileManager.default.fileExists(atPath: projectFolderURL.path) {
-            errorMessage = "A folder named \"\(sanitizedName)\" already exists at this location"
+            pendingOverwriteURL = projectFileURL
+            showOverwriteConfirmation = true
             return
         }
 
+        performSave(projectFolderURL: projectFolderURL, projectFileURL: projectFileURL, overwrite: false)
+    }
+
+    private func performSave(projectFolderURL: URL, projectFileURL: URL, overwrite: Bool) {
         do {
+            if overwrite {
+                // Remove existing folder before creating new one
+                try FileManager.default.removeItem(at: projectFolderURL)
+            }
+
             // Create the project folder
             try FileManager.default.createDirectory(at: projectFolderURL, withIntermediateDirectories: true)
 

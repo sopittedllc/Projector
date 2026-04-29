@@ -148,9 +148,9 @@ struct OptimizationSheetView: View {
     private var fileListView: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                // Header row with select all
+                // Header row with select all optimizable (2.4)
                 HStack {
-                    // Select all checkbox
+                    // Select all optimizable checkbox
                     Button(action: {
                         if viewModel.allSelected {
                             viewModel.deselectAll()
@@ -158,11 +158,18 @@ struct OptimizationSheetView: View {
                             viewModel.selectAll()
                         }
                     }) {
-                        Image(systemName: viewModel.allSelected ? "checkmark.square.fill" : "square")
-                            .foregroundColor(viewModel.allSelected ? .accentColor : .secondary)
+                        HStack(spacing: 4) {
+                            Image(systemName: viewModel.allSelected ? "checkmark.square.fill" : "square")
+                                .foregroundColor(viewModel.allSelected ? .accentColor : .secondary)
+                            Text(viewModel.allSelected ? "Deselect All" : "Select All Optimizable")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
                     .buttonStyle(.plain)
-                    .frame(width: 20)
+                    .help("Selects only files that can be optimized (skips already-optimized)")
+
+                    Spacer()
 
                     Text("File")
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -180,11 +187,12 @@ struct OptimizationSheetView: View {
 
                 Divider()
 
-                // File rows
-                ForEach(viewModel.analysisResult.items) { item in
+                // File rows (3.2 - with alternating backgrounds)
+                ForEach(Array(viewModel.analysisResult.items.enumerated()), id: \.element.id) { index, item in
                     FileAnalysisRow(
                         item: item,
                         isSelected: viewModel.isSelected(item.id),
+                        rowIndex: index,
                         onToggle: { viewModel.toggleSelection(for: item.id) }
                     )
                 }
@@ -574,7 +582,21 @@ struct OptimizationSheetView: View {
 private struct FileAnalysisRow: View {
     let item: MediaAnalysisItem
     let isSelected: Bool
+    let rowIndex: Int
     let onToggle: () -> Void
+
+    @State private var isHovered = false
+
+    // Alternating background (3.2)
+    private var rowBackground: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.15)
+        }
+        if isHovered && item.needsOptimization {
+            return Color.accentColor.opacity(0.08)
+        }
+        return rowIndex.isMultiple(of: 2) ? Color.clear : Color.primary.opacity(0.03)
+    }
 
     var body: some View {
         HStack {
@@ -637,7 +659,18 @@ private struct FileAnalysisRow: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 6)
-        .background(isSelected ? Color.accentColor.opacity(0.1) : Color.primary.opacity(0.02))
+        .background(rowBackground)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .onTapGesture {
+            // Click anywhere on row to toggle (3.2)
+            if item.needsOptimization {
+                onToggle()
+            }
+        }
+        .cursor(item.needsOptimization ? .pointingHand : .arrow)
     }
 
     private func formatBytes(_ bytes: UInt64) -> String {

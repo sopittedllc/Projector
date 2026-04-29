@@ -4,6 +4,12 @@ import AppKit
 
 /// File manager panel for importing and organizing media files
 struct FileManagerView: View {
+    /// Sort options for media library
+    enum SortOption: String, CaseIterable {
+        case name = "Name"
+        case dateAdded = "Date Added"
+        case type = "Type"
+    }
     @ObservedObject var mediaLibrary: ProjectMediaLibrary
     @ObservedObject var projectDocument: ProjectDocument
     @ObservedObject var timelineManager: TimelineManager
@@ -46,6 +52,7 @@ struct FileManagerView: View {
     @State private var isDropTargeted = false
     @State private var filterType: MediaType? = nil
     @State private var searchText = ""
+    @State private var sortOption: SortOption = .dateAdded
     @State private var isExpanded = true
     @State private var showDeleteAlert = false
     @State private var pendingDeleteItems: [MediaItem] = []
@@ -134,6 +141,17 @@ struct FileManagerView: View {
         .focused($isMediaListFocused)
         .onDeleteCommand {
             requestDeleteSelectedItems()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editSelectAll)) { _ in
+            // Only select all if this view has focus
+            if isMediaListFocused {
+                selectedItemIds = Set(filteredItems.map { $0.id })
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editDeselectAll)) { _ in
+            if isMediaListFocused {
+                selectedItemIds.removeAll()
+            }
         }
         .alert("Remove Media Item", isPresented: $showDeleteAlert) {
             Button("Remove", role: .destructive) {
@@ -299,8 +317,35 @@ struct FileManagerView: View {
             .buttonStyle(.plain)
 
             if isExpanded {
+                // Search field
+                TextField("Search media...", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(Typography.body)
+                    .frame(width: 150)
+                    .padding(.horizontal, Spacing.sm)
+                    .padding(.vertical, Spacing.xs)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(Spacing.xs)
+
                 // Filter buttons
                 filterButtons
+
+                // Sort menu
+                Menu {
+                    ForEach(SortOption.allCases, id: \.self) { option in
+                        Button(option.rawValue) {
+                            sortOption = option
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "arrow.up.arrow.down")
+                        Text(sortOption.rawValue)
+                    }
+                    .font(Typography.caption)
+                    .foregroundColor(.secondary)
+                }
+                .menuStyle(.borderlessButton)
 
                 // Note: Optimize button removed - the contextual banner handles this better
                 // The banner appears when high-bitrate media is detected and is more informative
@@ -527,6 +572,22 @@ struct FileManagerView: View {
         if !searchText.isEmpty {
             items = items.filter {
                 $0.displayName.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+
+        // Sort
+        switch sortOption {
+        case .name:
+            items.sort { (a: MediaItem, b: MediaItem) -> Bool in
+                a.displayName.localizedCaseInsensitiveCompare(b.displayName) == .orderedAscending
+            }
+        case .dateAdded:
+            items.sort { (a: MediaItem, b: MediaItem) -> Bool in
+                a.importedAt > b.importedAt
+            }
+        case .type:
+            items.sort { (a: MediaItem, b: MediaItem) -> Bool in
+                a.type.rawValue < b.type.rawValue
             }
         }
 

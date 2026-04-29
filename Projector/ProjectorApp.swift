@@ -240,57 +240,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
         editMenu.addItem(NSMenuItem.separator())
 
-        // Cut
+        // Cut - uses NSResponder chain so TextField gets it when focused
         let cutItem = NSMenuItem(
             title: "Cut",
-            action: #selector(editCut(_:)),
+            action: #selector(NSText.cut(_:)),
             keyEquivalent: "x"
         )
-        cutItem.target = self
-        cutItem.isEnabled = true
         editMenu.addItem(cutItem)
 
-        // Copy
+        // Copy - uses NSResponder chain
         let copyItem = NSMenuItem(
             title: "Copy",
-            action: #selector(editCopy(_:)),
+            action: #selector(NSText.copy(_:)),
             keyEquivalent: "c"
         )
-        copyItem.target = self
-        copyItem.isEnabled = true
         editMenu.addItem(copyItem)
 
-        // Paste
+        // Paste - uses NSResponder chain
         let pasteItem = NSMenuItem(
             title: "Paste",
-            action: #selector(editPaste(_:)),
+            action: #selector(NSText.paste(_:)),
             keyEquivalent: "v"
         )
-        pasteItem.target = self
-        pasteItem.isEnabled = true
         editMenu.addItem(pasteItem)
 
-        // Delete
+        // Delete - uses NSResponder chain
         let deleteItem = NSMenuItem(
             title: "Delete",
-            action: #selector(editDelete(_:)),
+            action: #selector(NSText.delete(_:)),
             keyEquivalent: "\u{8}" // Backspace
         )
         deleteItem.keyEquivalentModifierMask = []
-        deleteItem.target = self
-        deleteItem.isEnabled = true
         editMenu.addItem(deleteItem)
 
         editMenu.addItem(NSMenuItem.separator())
 
-        // Select All
+        // Select All - uses NSResponder chain
         let selectAllItem = NSMenuItem(
             title: "Select All",
-            action: #selector(editSelectAll(_:)),
+            action: #selector(NSText.selectAll(_:)),
             keyEquivalent: "a"
         )
-        selectAllItem.target = self
-        selectAllItem.isEnabled = true
         editMenu.addItem(selectAllItem)
 
         // Deselect All

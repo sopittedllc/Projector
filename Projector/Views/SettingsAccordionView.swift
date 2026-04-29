@@ -223,6 +223,12 @@ struct SettingsAccordionView: View {
                         settings.setMappedOutputs(newOutputs, for: audioManager.selectedDeviceUID)
                     }
                 )
+            } else {
+                // 2.5: Device no-channels feedback
+                Text("Selected device has no configurable outputs")
+                    .font(Typography.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.top, Spacing.xs)
             }
         }
     }
@@ -249,8 +255,6 @@ private struct ChannelGridView: View {
     @State private var dragTargetChannel: Int? = nil  // Channel being hovered over during drag
     @State private var hoveredStereoGroup: UUID? = nil  // Currently hovered stereo group
     @State private var dragLocation: CGPoint = .zero  // Current drag position in grid coordinates
-    @State private var editingOutputId: UUID?
-    @State private var editedName: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
@@ -259,7 +263,7 @@ private struct ChannelGridView: View {
                 Text("Channels")
                     .font(Typography.label)
                     .foregroundColor(AppColors.textTertiary)
-                Text("Drag channels together to create stereo pairs.")
+                Text("Click to select for stereo linking • Double-click for mono")
                     .font(Typography.caption)
                     .foregroundColor(AppColors.textTertiary)
             }
@@ -433,22 +437,32 @@ private struct ChannelGridView: View {
             ForEach(outputs) { output in
                 OutputRowView(
                     output: output,
-                    isEditing: editingOutputId == output.id,
-                    editedName: editingOutputId == output.id ? $editedName : .constant(""),
-                    onStartEdit: {
-                        editedName = output.name
-                        editingOutputId = output.id
-                    },
-                    onCommitEdit: {
-                        commitRename(output.id)
-                    },
-                    onCancelEdit: {
-                        editingOutputId = nil
+                    outputName: bindingForOutputName(output.id),
+                    onNameChanged: { newName in
+                        renameOutput(output.id, to: newName)
                     },
                     onUnlink: output.channelCount > 1 ? { unlinkOutput(output.id) } : nil,
                     onDelete: { deleteOutput(output.id) }
                 )
             }
+        }
+    }
+
+    /// Create a binding to an output's name for inline editing
+    private func bindingForOutputName(_ id: UUID) -> Binding<String> {
+        Binding(
+            get: { outputs.first(where: { $0.id == id })?.name ?? "" },
+            set: { newValue in
+                renameOutput(id, to: newValue)
+            }
+        )
+    }
+
+    private func renameOutput(_ id: UUID, to newName: String) {
+        var newOutputs = outputs
+        if let index = newOutputs.firstIndex(where: { $0.id == id }) {
+            newOutputs[index].name = newName
+            onOutputsChanged(newOutputs)
         }
     }
 
@@ -498,21 +512,6 @@ private struct ChannelGridView: View {
 
     // MARK: - Output Management
 
-    private func commitRename(_ id: UUID) {
-        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            editingOutputId = nil
-            return
-        }
-
-        var newOutputs = outputs
-        if let index = newOutputs.firstIndex(where: { $0.id == id }) {
-            newOutputs[index].name = trimmed
-            onOutputsChanged(newOutputs)
-        }
-        editingOutputId = nil
-    }
-
     private func unlinkOutput(_ id: UUID) {
         var newOutputs = outputs
         newOutputs.removeAll { $0.id == id }
@@ -545,17 +544,37 @@ private struct StereoGroupView: View {
     var body: some View {
         Button(action: onUnlink) {
             HStack(spacing: 4) {
-                Text("\(channels.0)")
-                    .font(Typography.captionSmall)
-                    .foregroundColor(.primary)
+                // Left channel with L badge (2.3)
+                HStack(spacing: 2) {
+                    Text("\(channels.0)")
+                        .font(Typography.captionSmall)
+                        .foregroundColor(.primary)
+                    Text("L")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 2)
+                        .padding(.vertical, 1)
+                        .background(AppColors.accentGreen)
+                        .cornerRadius(2)
+                }
 
                 Image(systemName: "link")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(AppColors.accentGreen.opacity(0.8))
 
-                Text("\(channels.1)")
-                    .font(Typography.captionSmall)
-                    .foregroundColor(.primary)
+                // Right channel with R badge (2.3)
+                HStack(spacing: 2) {
+                    Text("\(channels.1)")
+                        .font(Typography.captionSmall)
+                        .foregroundColor(.primary)
+                    Text("R")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 2)
+                        .padding(.vertical, 1)
+                        .background(AppColors.accentGreen)
+                        .cornerRadius(2)
+                }
             }
             .frame(width: totalWidth, height: SettingsLayout.channelCellSize)
             .background(
@@ -627,6 +646,11 @@ private struct ChannelCellView: View {
         return 0
     }
 
+    private var isMono: Bool {
+        if case .activeMono = state { return true }
+        return false
+    }
+
     var body: some View {
         ZStack {
             // Background
@@ -641,6 +665,33 @@ private struct ChannelCellView: View {
             Text("\(channel)")
                 .font(Typography.mono)
                 .foregroundColor(textColor)
+
+            // Mono badge (2.3) - shown for active mono channels
+            if isMono {
+                Text("M")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(2)
+                    .background(AppColors.accentBlue)
+                    .cornerRadius(3)
+                    .offset(x: 14, y: -14)
+            }
+
+            // Mono activation button (1.3) - shown on hover for inactive channels
+            if isInactive && isHovered {
+                Button(action: { onActivate() }) {
+                    Text("M")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 16, height: 16)
+                        .background(AppColors.accentBlue)
+                        .cornerRadius(4)
+                }
+                .buttonStyle(.plain)
+                .offset(x: 14, y: -14)
+                .help("Activate as mono output")
+                .transition(.scale.combined(with: .opacity))
+            }
         }
         .frame(width: SettingsLayout.channelCellSize, height: SettingsLayout.channelCellSize)
         .contentShape(Rectangle())
@@ -655,9 +706,16 @@ private struct ChannelCellView: View {
             }
             onHoverChanged(hovering)
         }
-        .onTapGesture {
+        .onTapGesture(count: 2) {
+            // Double-click to activate as mono
             if isInactive {
-                onDragStarted()  // Use tap to select/link
+                onActivate()
+            }
+        }
+        .onTapGesture(count: 1) {
+            // Single click to select for linking
+            if isInactive {
+                onDragStarted()
             }
         }
         .gesture(
@@ -766,16 +824,14 @@ extension View {
 /// Row showing a configured output with rename/delete controls
 private struct OutputRowView: View {
     let output: MappedAudioOutput
-    let isEditing: Bool
-    @Binding var editedName: String
-    let onStartEdit: () -> Void
-    let onCommitEdit: () -> Void
-    let onCancelEdit: () -> Void
+    @Binding var outputName: String
+    let onNameChanged: (String) -> Void
     let onUnlink: (() -> Void)?
     let onDelete: () -> Void
 
     @State private var isHovered = false
     @FocusState private var isNameFocused: Bool
+    @State private var originalName = ""
 
     var body: some View {
         HStack(spacing: Spacing.sm) {
@@ -797,44 +853,35 @@ private struct OutputRowView: View {
             }
             .frame(width: 50, alignment: .leading)
 
-            // Name (editable)
-            if isEditing {
-                TextField("Name", text: $editedName)
-                    .textFieldStyle(.plain)
-                    .font(Typography.body)
-                    .padding(.horizontal, Spacing.xs)
-                    .padding(.vertical, 2)
-                    .background(AppColors.surfaceMedium)
-                    .cornerRadius(4)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(AppColors.accentBlue, lineWidth: 1)
-                    )
-                    .focused($isNameFocused)
-                    .onSubmit { onCommitEdit() }
-                    .onExitCommand { onCancelEdit() }
-                    .allowsHitTesting(true)
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            isNameFocused = true
+            // Name - always-visible TextField (2.1)
+            TextField("Output Name", text: $outputName)
+                .textFieldStyle(.roundedBorder)
+                .font(Typography.body)
+                .frame(width: 120)
+                .focused($isNameFocused)
+                .onSubmit {
+                    let trimmed = outputName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        onNameChanged(trimmed)
+                    }
+                    isNameFocused = false
+                }
+                .onExitCommand {
+                    outputName = originalName
+                    isNameFocused = false
+                }
+                .onChange(of: isNameFocused) { _, focused in
+                    if focused {
+                        // Capture original when focus gained
+                        originalName = outputName
+                    } else {
+                        // Save on blur
+                        let trimmed = outputName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            onNameChanged(trimmed)
                         }
                     }
-            } else {
-                HStack(spacing: 4) {
-                    Text(output.name)
-                        .font(Typography.body)
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-
-                    if isHovered {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                    }
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { onStartEdit() }
-            }
 
             Spacer()
 

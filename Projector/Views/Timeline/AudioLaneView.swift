@@ -127,6 +127,12 @@ struct AudioLaneView: View {
                         .onExitCommand {
                             cancelNameEdit()
                         }
+                        .onChange(of: isNameFieldFocused) { _, focused in
+                            // Save on blur (3.1)
+                            if !focused && isEditingName {
+                                commitNameEdit()
+                            }
+                        }
                         .frame(maxWidth: TimelineLayout.headerWidth - Spacing.md - Spacing.sm - 12)
                 } else {
                     // Use Button instead of onTapGesture to avoid ScrollView latency (GP-003)

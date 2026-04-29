@@ -60,7 +60,7 @@ struct GlassControlModifier: ViewModifier {
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .fill(.clear)
                         .glassEffect(
-                            isHighlighted ? .regular.tint(.accentColor) : .clear,
+                            isHighlighted ? .regular.tint(.white.opacity(0.15)) : .clear,
                             in: RoundedRectangle(cornerRadius: cornerRadius)
                         )
                 }

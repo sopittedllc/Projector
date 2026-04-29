@@ -38,6 +38,7 @@ struct TimecodeTextField: View {
 
     @State private var isEditing = false
     @State private var isInvalid = false
+    @State private var lastValidTimecode = ""
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -51,7 +52,19 @@ struct TimecodeTextField: View {
                 timecode = formatted
                 isInvalid = !valid
             }
+            .onChange(of: isFocused) { _, focused in
+                if focused {
+                    // Capture last valid when focus gained
+                    lastValidTimecode = timecode
+                } else {
+                    // Save on blur (already in timecode binding)
+                }
+            }
             .onSubmit {
+                isFocused = false
+            }
+            .onExitCommand {
+                timecode = lastValidTimecode
                 isFocused = false
             }
             .overlay(

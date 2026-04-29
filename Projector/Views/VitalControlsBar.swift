@@ -115,6 +115,11 @@ struct VitalControlsBar: View {
                 }
                 .onSubmit {
                     applyStartTimecode()
+                    isStartTCFocused = false
+                }
+                .onExitCommand {
+                    editingStartTCText = timelineManager.timeline.config.startTimecode.stringValue()
+                    isStartTCFocused = false
                 }
         }
         .padding(.horizontal, Spacing.md)
@@ -128,8 +133,9 @@ struct VitalControlsBar: View {
         }
         .help("Click to edit start timecode")
         .onChange(of: isStartTCFocused) { wasFocused, isFocused in
-            if wasFocused && !isFocused {
-                editingStartTCText = timelineManager.timeline.config.startTimecode.stringValue()
+            if !isFocused && wasFocused {
+                // Save on blur
+                applyStartTimecode()
             }
         }
         .onAppear {
@@ -175,6 +181,11 @@ struct VitalControlsBar: View {
                 }
                 .onSubmit {
                     applyDuration()
+                    isDurationFocused = false
+                }
+                .onExitCommand {
+                    editingDurationText = durationTimecodeString
+                    isDurationFocused = false
                 }
         }
         .padding(.horizontal, Spacing.md)
@@ -188,8 +199,9 @@ struct VitalControlsBar: View {
         }
         .help("Click to edit timeline duration")
         .onChange(of: isDurationFocused) { wasFocused, isFocused in
-            if wasFocused && !isFocused {
-                editingDurationText = durationTimecodeString
+            if !isFocused && wasFocused {
+                // Save on blur
+                applyDuration()
             }
         }
         .onChange(of: timelineManager.timeline.config.durationFrames) { _, _ in

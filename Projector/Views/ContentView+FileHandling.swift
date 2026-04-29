@@ -102,18 +102,24 @@ extension ContentView {
                         self.mediaImportCoordinator.showDuplicateMediaAlert = true
                     }
 
+                    // Separate videos and audio
+                    var videoURLs: [URL] = []
+                    var audioURLs: [URL] = []
+
                     for url in newURLs {
                         if let mediaType = ProjectMediaLibrary.mediaType(for: url) {
                             switch mediaType {
                             case .video:
-                                await self.addVideoToTimeline(url: url, atFrame: nil)
+                                videoURLs.append(url)
                             case .audio:
-                                // Create a new lane for each audio file
-                                let laneNumber = self.timelineManager.timeline.audioLanes.count + 1
-                                let newLane = self.timelineManager.addAudioLane(name: "Audio \(laneNumber)")
-                                _ = await self.addAudioToTimeline(url: url, laneId: newLane.id, atFrame: nil)
+                                audioURLs.append(url)
                             }
                         }
+                    }
+
+                    // Use batch handling for consistent timecode dialog
+                    if !videoURLs.isEmpty || !audioURLs.isEmpty {
+                        await self.handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: 0)
                     }
                     // Auto-expand timeline
                     self.timelineViewModel.expandIfNeeded()

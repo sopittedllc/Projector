@@ -162,6 +162,9 @@ struct SpotMediaSheet: View {
     /// Error message for invalid manual timecode
     @State private var manualError: String?
 
+    /// Focus state for manual timecode field
+    @FocusState private var isManualTCFocused: Bool
+
     // MARK: - Computed Properties
 
     /// File duration string (if available)
@@ -428,9 +431,13 @@ struct SpotMediaSheet: View {
                             RoundedRectangle(cornerRadius: 6)
                                 .strokeBorder(manualError != nil ? AppColors.error : AppColors.borderLight, lineWidth: 1)
                         )
+                        .focused($isManualTCFocused)
                         .onChange(of: manualTimecode) { _, newValue in
                             manualTimecode = formatTimecodeInput(newValue)
                             manualError = nil
+                        }
+                        .onSubmit {
+                            confirmSpot()
                         }
                         .onTapGesture {
                             selectedOption = .manual
