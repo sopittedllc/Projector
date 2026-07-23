@@ -25,16 +25,22 @@ final class ProjectorUITests: XCTestCase {
         XCTAssertTrue(clipCount.waitForExistence(timeout: 5))
         XCTAssertTrue((Int(clipCount.label) ?? 0) > 0, "UI test clip count: \(clipCount.label)")
 
-        let clip = window.otherElements["audio-clip"]
+        let clip = window.descendants(matching: .any)
+            .matching(identifier: "audio-clip")
+            .firstMatch
         XCTAssertTrue(clip.waitForExistence(timeout: 15))
 
-        let waveform = window.otherElements["audio-waveform"]
-        let loading = window.otherElements["audio-waveform-loading"]
+        let waveform = window.descendants(matching: .any)
+            .matching(identifier: "audio-waveform")
+            .firstMatch
+        let loading = window.descendants(matching: .any)
+            .matching(identifier: "audio-waveform-loading")
+            .firstMatch
         let waveformVisible = waveform.waitForExistence(timeout: 10)
         let loadingVisible = loading.waitForExistence(timeout: 2)
         XCTAssertTrue(waveformVisible || loadingVisible)
 
-        let zoomIn = window.buttons["zoom-in"]
+        let zoomIn = window.buttons["Zoom in"]
         XCTAssertTrue(zoomIn.waitForExistence(timeout: 5))
         zoomIn.click()
 

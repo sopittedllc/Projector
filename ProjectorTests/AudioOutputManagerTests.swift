@@ -13,13 +13,16 @@ import AVFoundation
 final class AudioOutputManagerTests: XCTestCase {
 
     var manager: AudioOutputManager!
+    private var originalSelectedAudioOutput = ""
 
     override func setUp() async throws {
         try await super.setUp()
+        originalSelectedAudioOutput = AppSettings.shared.selectedAudioOutput
         manager = AudioOutputManager()
     }
 
     override func tearDown() async throws {
+        manager.selectedDeviceUID = originalSelectedAudioOutput.isEmpty ? nil : originalSelectedAudioOutput
         manager = nil
         try await super.tearDown()
     }
@@ -39,10 +42,9 @@ final class AudioOutputManagerTests: XCTestCase {
 
     // MARK: - Device Selection Tests
 
-    func testSelectedDeviceUIDInitialValue() {
-        // Then: Selected device UID starts empty or with default
-        // The actual value depends on system state
-        XCTAssertNotNil(manager.selectedDeviceUID, "Selected device UID should exist")
+    func testSelectedDeviceUIDDefaultsToSystemOutput() {
+        // nil intentionally represents the current macOS system output device.
+        XCTAssertNil(manager.selectedDeviceUID)
     }
 
     func testSetSelectedDeviceUID() {
@@ -65,18 +67,18 @@ final class AudioOutputManagerTests: XCTestCase {
         // When: Change selected device
         manager.selectedDeviceUID = "new-device-uid"
 
-        // Small delay to allow callback
-        try? await Task.sleep(nanoseconds: 100_000_000)
-
-        // Then: Callback should fire
-        // Note: Callback might not fire immediately depending on implementation
-        // This test documents the expected behavior
+        // Then: Callback fires synchronously with the selected UID
+        XCTAssertEqual(receivedDeviceUID, "new-device-uid")
     }
 
     // MARK: - Lane Routing Tests
 
-    func testMappedOutputsInitiallyEmpty() {
-        // Then: No outputs are mapped initially
-        XCTAssertTrue(manager.mappedOutputs.isEmpty, "Mapped outputs should be empty initially")
+    func testMappedOutputsAreValidForCurrentDevice() {
+        // Saved mappings are user preferences and may legitimately be present.
+        // When no mapping is saved, the manager creates valid stereo/mono defaults.
+        XCTAssertFalse(manager.mappedOutputs.isEmpty)
+        XCTAssertTrue(manager.mappedOutputs.allSatisfy {
+            $0.channelStart >= 0 && $0.channelCount > 0
+        })
     }
 }
