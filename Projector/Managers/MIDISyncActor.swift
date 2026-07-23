@@ -156,8 +156,12 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
     // MARK: - AsyncStream Infrastructure
 
-    /// Continuation for emitting state updates.
-    private var stateContinuation: AsyncStream<MIDISyncState>.Continuation?
+    /// Continuations for every active state subscriber.
+    ///
+    /// Both the UI-facing view model and the transport actor consume this stream.
+    /// Keeping one continuation caused the newest subscriber to disconnect the
+    /// previous subscriber, which could silently stop synchronization updates.
+    private var stateContinuations: [UUID: AsyncStream<MIDISyncState>.Continuation] = [:]
 
     /// The stream of MIDI sync state updates.
     ///
@@ -171,9 +175,10 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// - Note: High-frequency during active MTC sync (up to 120 updates/sec at 30fps).
     ///         Consider throttling in the consuming ViewModel if needed.
     public nonisolated var syncStateStream: AsyncStream<MIDISyncState> {
-        AsyncStream { continuation in
+        let subscriberID = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             Task {
-                await self.registerContinuation(continuation)
+                await self.registerContinuation(continuation, id: subscriberID)
             }
         }
     }
@@ -264,8 +269,10 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// ## Thread Safety
     /// This method runs on the actor and is safe to call from any context.
     public func stop() async {
-        stateContinuation?.finish()
-        stateContinuation = nil
+        for continuation in stateContinuations.values {
+            continuation.finish()
+        }
+        stateContinuations.removeAll()
         mtcReceiver = nil
         midiManager = nil
         debugLog("MIDISyncActor stopped")
@@ -890,6 +897,9 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     private func handleMMCCommand(_ command: MMCCommand) {
         lastMMCCommand = command
         emitState()
+        // MMC is an event, not persistent state. Keeping the last command in
+        // subsequent MTC snapshots caused Play/Stop/Locate to execute repeatedly.
+        lastMMCCommand = nil
         debugLog("MMC COMMAND RECEIVED: \(command.displayName)")
     }
 
@@ -914,10 +924,11 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// Registers a continuation for the AsyncStream.
     ///
     /// - Parameter continuation: The continuation to register.
-    private func registerContinuation(_ continuation: AsyncStream<MIDISyncState>.Continuation) {
-        // Finish any existing continuation
-        stateContinuation?.finish()
-        stateContinuation = continuation
+    private func registerContinuation(
+        _ continuation: AsyncStream<MIDISyncState>.Continuation,
+        id: UUID
+    ) {
+        stateContinuations[id] = continuation
 
         // Emit initial state immediately
         emitState()
@@ -925,15 +936,14 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         // Handle termination
         continuation.onTermination = { [weak self] _ in
             Task { [weak self] in
-                await self?.handleContinuationTermination()
+                await self?.handleContinuationTermination(id: id)
             }
         }
     }
 
     /// Handles continuation termination.
-    private func handleContinuationTermination() {
-        // Clean up if needed
-        stateContinuation = nil
+    private func handleContinuationTermination(id: UUID) {
+        stateContinuations.removeValue(forKey: id)
     }
 
     /// Emits the current state to all subscribers.
@@ -992,7 +1002,9 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             driftFrames: driftFrames,
             driftStatus: driftStatus
         )
-        stateContinuation?.yield(state)
+        for continuation in stateContinuations.values {
+            continuation.yield(state)
+        }
     }
 
     // MARK: - Debug Logging

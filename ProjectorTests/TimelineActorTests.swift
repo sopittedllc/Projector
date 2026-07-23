@@ -123,4 +123,46 @@ final class TimelineActorTests: XCTestCase {
         XCTAssertTrue(lane.clips.isEmpty)
         XCTAssertEqual(lane.volume, 1.0, accuracy: 0.001, "Default volume should be 1.0")
     }
+
+    // MARK: - State Stream Tests
+
+    @MainActor
+    func testStateStreamBroadcastsToMultipleSubscribers() async {
+        let manager = TimelineManager(timeline: .empty)
+        let actor = TimelineActor(timelineManager: manager)
+        let firstUpdated = expectation(description: "First subscriber receives update")
+        let secondUpdated = expectation(description: "Second subscriber receives update")
+
+        let firstTask = Task {
+            for await state in actor.timelineStateStream where state.frameRate == .fps25 {
+                firstUpdated.fulfill()
+                break
+            }
+        }
+
+        let secondTask = Task {
+            for await state in actor.timelineStateStream where state.frameRate == .fps25 {
+                secondUpdated.fulfill()
+                break
+            }
+        }
+
+        var config = manager.timeline.config
+        config.frameRate = .fps25
+        config.startTimecode = Timecode(
+            .frames(config.startTimecode.frameCount.wholeFrames),
+            at: .fps25,
+            by: .clamping
+        )
+        config.endTimecode = Timecode(
+            .frames(config.endTimecode.frameCount.wholeFrames),
+            at: .fps25,
+            by: .clamping
+        )
+        await actor.updateConfiguration(config)
+
+        await fulfillment(of: [firstUpdated, secondUpdated], timeout: 1.0)
+        firstTask.cancel()
+        secondTask.cancel()
+    }
 }

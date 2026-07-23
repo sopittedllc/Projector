@@ -41,9 +41,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     func applicationDidFinishLaunching(_ notification: Notification) {
         debugPrint("AppDelegate: applicationDidFinishLaunching")
 
-        // DEBUG: Reset welcome overlay flag so it shows on every fresh build
+        // Allow developers to exercise onboarding intentionally without making
+        // every Debug launch forget the user's completed setup.
         #if DEBUG
-        AppSettings.shared.hasCompletedWelcome = false
+        if ProcessInfo.processInfo.arguments.contains("-reset-welcome") {
+            AppSettings.shared.hasCompletedWelcome = false
+        }
         #endif
 
         // Swizzle NSApplication's sendEvent to intercept CMD+S

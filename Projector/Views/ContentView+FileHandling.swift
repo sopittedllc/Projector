@@ -119,7 +119,7 @@ extension ContentView {
 
                     // Use batch handling for consistent timecode dialog
                     if !videoURLs.isEmpty || !audioURLs.isEmpty {
-                        await self.handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: 0)
+                        self.handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: 0)
                     }
                     // Auto-expand timeline
                     self.timelineViewModel.expandIfNeeded()

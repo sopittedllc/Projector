@@ -57,4 +57,50 @@ final class MIDISyncActorTests: XCTestCase {
 
         XCTAssertEqual(frameRates.count, 7, "Should have 7 common frame rates")
     }
+
+    // MARK: - State Stream Tests
+
+    func testStateStreamBroadcastsToMultipleSubscribers() async {
+        let actor = MIDISyncActor()
+        let firstReady = expectation(description: "First subscriber receives initial state")
+        let secondReady = expectation(description: "Second subscriber receives initial state")
+        let firstUpdated = expectation(description: "First subscriber receives update")
+        let secondUpdated = expectation(description: "Second subscriber receives update")
+
+        let firstTask = Task {
+            var receivedInitialState = false
+            for await state in actor.syncStateStream {
+                if !receivedInitialState {
+                    receivedInitialState = true
+                    firstReady.fulfill()
+                }
+                if state.localFrameRate == .fps25 {
+                    firstUpdated.fulfill()
+                    break
+                }
+            }
+        }
+
+        let secondTask = Task {
+            var receivedInitialState = false
+            for await state in actor.syncStateStream {
+                if !receivedInitialState {
+                    receivedInitialState = true
+                    secondReady.fulfill()
+                }
+                if state.localFrameRate == .fps25 {
+                    secondUpdated.fulfill()
+                    break
+                }
+            }
+        }
+
+        await fulfillment(of: [firstReady, secondReady], timeout: 1.0)
+        await actor.setLocalFrameRate(.fps25)
+        await fulfillment(of: [firstUpdated, secondUpdated], timeout: 1.0)
+
+        firstTask.cancel()
+        secondTask.cancel()
+        await actor.stop()
+    }
 }

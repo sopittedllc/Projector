@@ -127,7 +127,9 @@ struct AudioClipView: View {
                 onDoubleClick()
             }
         }
-        .accessibilityElement(children: .ignore)
+        // Keep the clip addressable as one timeline item while exposing useful
+        // descendants (notably waveform/loading state) to VoiceOver and UI tests.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("audio-clip")
     }
 

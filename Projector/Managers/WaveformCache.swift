@@ -108,6 +108,13 @@ final class WaveformCache: ObservableObject {
     /// Prevents duplicate generation requests for the same clip.
     private var generationTasks: [UUID: Task<Void, Never>] = [:]
 
+    /// Requests deferred until the current SwiftUI update has completed.
+    ///
+    /// `renderData` is called while SwiftUI evaluates a view. Starting generation
+    /// synchronously from there publishes state during the view update, which is
+    /// undefined behavior. This set prevents duplicate deferred requests.
+    private var queuedGenerationIDs: Set<UUID> = []
+
     /// DSWaveformImage analyzer for legacy track-based mode.
     private let analyzer = WaveformAnalyzer()
 
@@ -147,8 +154,15 @@ final class WaveformCache: ObservableObject {
             }
         }
 
-        if generationTasks[clip.id] == nil {
-            startGeneration(for: clip)
+        if generationTasks[clip.id] == nil, !queuedGenerationIDs.contains(clip.id) {
+            queuedGenerationIDs.insert(clip.id)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.queuedGenerationIDs.remove(clip.id)
+                guard self.clipAtlases[clip.id] == nil,
+                      self.generationTasks[clip.id] == nil else { return }
+                self.startGeneration(for: clip)
+            }
         }
 
         return nil
@@ -165,29 +179,41 @@ final class WaveformCache: ObservableObject {
     private func startGeneration(for clip: AudioClip) {
         let clipId = clip.id
         let sps = samplesPerSecond
+        let bucketCounts = atlasBucketCounts
 
         pendingCount += 1
 
-        let task = Task {
+        let worker = Task.detached(priority: .userInitiated) {
+            try await Self.generateAtlasForClip(
+                clip: clip,
+                samplesPerSecond: sps,
+                bucketCounts: bucketCounts
+            )
+        }
+
+        let task = Task { [weak self] in
+            guard let self else {
+                worker.cancel()
+                return
+            }
+
+            defer {
+                self.finishGeneration(for: clipId)
+            }
+
             do {
-                let bucketCounts = atlasBucketCounts
-                let atlas = try await Task.detached(priority: .userInitiated) {
-                    try await Self.generateAtlasForClip(
-                        clip: clip,
-                        samplesPerSecond: sps,
-                        bucketCounts: bucketCounts
-                    )
-                }.value
+                let atlas = try await withTaskCancellationHandler {
+                    try await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
+                try Task.checkCancellation()
 
                 self.clipAtlases[clipId] = atlas
-                self.generationTasks.removeValue(forKey: clipId)
-                self.pendingCount -= 1
-                self.updateGeneratingState()
+            } catch is CancellationError {
+                // Cancellation is expected when clips are removed or caches reset.
             } catch {
                 debugPrint("WaveformCache: Failed to generate waveform for clip \(clipId): \(error)")
-                self.generationTasks.removeValue(forKey: clipId)
-                self.pendingCount -= 1
-                self.updateGeneratingState()
             }
         }
 
@@ -364,17 +390,16 @@ final class WaveformCache: ObservableObject {
     /// - Parameter clip: The audio clip to check
     /// - Returns: `true` if a generation task is running, `false` otherwise
     func isLoading(for clip: AudioClip) -> Bool {
-        generationTasks[clip.id] != nil
+        generationTasks[clip.id] != nil || queuedGenerationIDs.contains(clip.id)
     }
 
     /// Cancels any pending waveform generation for a clip.
     ///
     /// - Parameter clipId: The UUID of the clip to cancel
     func cancelGeneration(for clipId: UUID) {
-        if let task = generationTasks.removeValue(forKey: clipId) {
+        queuedGenerationIDs.remove(clipId)
+        if let task = generationTasks[clipId] {
             task.cancel()
-            pendingCount -= 1
-            updateGeneratingState()
         }
     }
 
@@ -457,15 +482,23 @@ final class WaveformCache: ObservableObject {
         isGenerating = pendingCount > 0
     }
 
+    /// Completes one tracked generation exactly once.
+    private func finishGeneration(for clipId: UUID) {
+        guard generationTasks.removeValue(forKey: clipId) != nil else { return }
+        pendingCount = max(0, pendingCount - 1)
+        updateGeneratingState()
+    }
+
     /// Clears all cached waveforms and cancels pending tasks.
     ///
     /// Removes both clip-based and legacy track-based waveforms.
     func clearAll() {
         // Cancel all pending tasks
-        for (id, task) in generationTasks {
+        for task in generationTasks.values {
             task.cancel()
-            generationTasks.removeValue(forKey: id)
         }
+        generationTasks.removeAll()
+        queuedGenerationIDs.removeAll()
         pendingCount = 0
 
         clipAtlases.removeAll()
@@ -478,10 +511,11 @@ final class WaveformCache: ObservableObject {
     ///
     /// Keeps legacy track waveforms intact.
     func clearClipWaveforms() {
-        for (id, task) in generationTasks {
+        for task in generationTasks.values {
             task.cancel()
-            generationTasks.removeValue(forKey: id)
         }
+        generationTasks.removeAll()
+        queuedGenerationIDs.removeAll()
         pendingCount = 0
 
         clipAtlases.removeAll()

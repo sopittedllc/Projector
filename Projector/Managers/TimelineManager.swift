@@ -90,6 +90,13 @@ final class TimelineManager: ObservableObject {
     /// Called when the timeline is modified
     var onTimelineChanged: (() -> Void)?
 
+    /// Additional observers used by logic-layer consumers.
+    ///
+    /// `onTimelineChanged` is retained for the presentation layer, while this
+    /// collection prevents one subsystem from overwriting another subsystem's
+    /// callback.
+    private var timelineChangeObservers: [UUID: () -> Void] = [:]
+
     // MARK: - Initialization
 
     init(timeline: Timeline = .empty) {
@@ -101,6 +108,26 @@ final class TimelineManager: ObservableObject {
     private func markDirty() {
         hasChanges = true
         onTimelineChanged?()
+        for observer in timelineChangeObservers.values {
+            observer()
+        }
+    }
+
+    /// Registers an additional timeline-change observer.
+    ///
+    /// - Parameter observer: Closure invoked after the timeline changes.
+    /// - Returns: A token used to remove the observer.
+    func addTimelineChangeObserver(_ observer: @escaping () -> Void) -> UUID {
+        let id = UUID()
+        timelineChangeObservers[id] = observer
+        return id
+    }
+
+    /// Removes a previously registered timeline-change observer.
+    ///
+    /// - Parameter id: Token returned by ``addTimelineChangeObserver(_:)``.
+    func removeTimelineChangeObserver(id: UUID) {
+        timelineChangeObservers.removeValue(forKey: id)
     }
 
     func markClean() {
