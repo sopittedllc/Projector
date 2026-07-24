@@ -122,7 +122,15 @@ final class TimelineViewModel: ObservableObject {
     let minExpandedHeight: CGFloat = TimelineSectionLayout.minHeight
 
     /// Maximum expanded height
-    let maxExpandedHeight: CGFloat = TimelineSectionLayout.maxHeight
+    /// The tallest the expanded timeline may grow.
+    ///
+    /// Screen-aware rather than a fixed constant: on a large display the panel
+    /// can keep growing to show more lanes; `TimelineSectionLayout.maxHeight`
+    /// only acts as the floor so small screens still get a usable timeline.
+    var maxExpandedHeight: CGFloat {
+        let screenHeight = NSScreen.main?.visibleFrame.height ?? TimelineSectionLayout.maxHeight
+        return max(TimelineSectionLayout.maxHeight, screenHeight - TimelineSectionLayout.reservedVerticalChrome)
+    }
 
     // MARK: - Private
 
@@ -313,6 +321,8 @@ final class TimelineViewModel: ObservableObject {
 
             for await state in service.timelineStateStream {
                 await MainActor.run {
+                    let previousLaneCount = self.audioLanes.count
+
                     self.videoReels = state.videoReels
                     self.audioLanes = state.audioLanes
                     self.config = state.config
@@ -323,6 +333,13 @@ final class TimelineViewModel: ObservableObject {
                     if hasContent {
                         self.expandIfNeeded()
                     }
+
+                    // Grow the panel to fit newly added lanes. Only on growth:
+                    // resizeToFitLanes never shrinks, so a user who has manually
+                    // dragged the panel taller keeps that height.
+                    if self.audioLanes.count > previousLaneCount {
+                        self.resizeToFitLanes()
+                    }
                 }
             }
         }
@@ -332,14 +349,19 @@ final class TimelineViewModel: ObservableObject {
         let laneCount = audioLanes.count
         let audioHeight = max(TimelineLayout.audioLaneHeight, CGFloat(laneCount) * (TimelineLayout.audioLaneHeight + 1))
 
-        // Calculate content height: header + ruler + video track + audio lanes + footer
-        let contentHeight = PanelLayout.headerHeight
-            + TimelineLayout.rulerHeight
-            + 1  // divider
-            + TimelineLayout.videoTrackHeight
-            + 1  // divider
-            + audioHeight
-            + PanelLayout.footerHeight
+        // Every vertical component of the expanded accordion. The original
+        // calculation omitted the toolbar, the new-lane drop zone, the bottom
+        // padding, and the hint row's resize-handle allowance (~80pt total),
+        // which left the last lane partially cut off after auto-grow.
+        let contentHeight = PanelLayout.headerHeight            // accordion header
+            + TimelineLayout.toolbarHeight + 1                  // transport/zoom toolbar + divider
+            + TimelineLayout.rulerHeight + 1                    // timecode ruler + divider
+            + 4                                                 // top padding above video track
+            + TimelineLayout.videoTrackHeight + 1               // video track + divider
+            + audioHeight                                       // audio lanes incl. dividers
+            + TimelineLayout.newLaneDropZoneInactiveHeight      // "drop to create lane" strip
+            + Spacing.sm                                        // bottom padding below lanes
+            + PanelLayout.footerHeight + Spacing.md             // hint row incl. resize handle
 
         let clamped = min(maxExpandedHeight, max(minExpandedHeight, contentHeight))
         if clamped > expandedHeight {

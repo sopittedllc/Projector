@@ -166,6 +166,19 @@ struct ContentView: View {
     /// Flag to prevent concurrent timecode detection from multiple drop events
     @State var isProcessingTimecodeDetection = false
 
+    /// Whether timecode detection is actively scanning files, as opposed to
+    /// waiting on the user in one of the placement sheets.
+    ///
+    /// `isProcessingTimecodeDetection` stays true for the whole drop flow -
+    /// including while a sheet is up - so it can't drive the loading overlay on
+    /// its own without dimming the sheet the user is trying to read.
+    var isDetectingTimecode: Bool {
+        isProcessingTimecodeDetection
+            && !isShowingBatchTimecodeSheet
+            && !isShowingEmbeddedTimecodeAlert
+            && !isShowingSpotMediaSheet
+    }
+
     /// Service for detecting embedded timecode from media files
     let embeddedTimecodeService = EmbeddedTimecodeService()
 
@@ -436,7 +449,7 @@ struct ContentView: View {
         }
         .animation(AppAnimations.quick, value: isPlaybackDropTargeted)
         .overlay {
-            LoadingOverlay(isLoading: isLoadingMedia)
+            LoadingOverlay(isLoading: isLoadingMedia || isDetectingTimecode)
         }
         .overlay(alignment: .bottomTrailing) {
             // Video control buttons
@@ -463,7 +476,7 @@ struct ContentView: View {
     private var videoFloatingPlaceholder: some View {
         VStack(spacing: Spacing.lg) {
             Image(systemName: "rectangle.portrait.and.arrow.right.fill")
-                .font(.system(size: 48))
+                .font(Typography.iconEmptyState)
                 .foregroundColor(AppColors.textTertiary)
 
             Text("Video is floating")
@@ -516,10 +529,24 @@ struct ContentView: View {
                         handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: atFrame)
                     }
                 )
-                .onChange(of: mediaLibrary.items.count) { _, newCount in
+                .onChange(of: mediaLibrary.items.count) { oldCount, newCount in
                     // Auto-expand timeline when media is first imported
                     if newCount > 0 && !timelineViewModel.isExpanded {
                         timelineViewModel.expandIfNeeded()
+                    }
+                    // Grow the window on the very first import so the newly-expanded
+                    // timeline and media panels have room instead of being squeezed
+                    // into the small pre-import frame.
+                    if oldCount == 0 && newCount > 0 {
+                        growWindowForFirstImport()
+                    }
+                }
+                .onChange(of: timelineViewModel.expandedHeight) { oldHeight, newHeight in
+                    // The timeline panel auto-grows when lanes are added; grow
+                    // the window by the same amount so the new height shows
+                    // lanes instead of compressing the media panel below it.
+                    if newHeight > oldHeight {
+                        growWindow(byAdditionalHeight: newHeight - oldHeight)
                     }
                 }
 

@@ -117,6 +117,25 @@ enum Typography {
 
     /// Tiny icon size (8pt)
     static let iconTiny = Font.system(size: 8, weight: .medium)
+
+    /// Secondary icon on the macOS HIG scale (16pt)
+    static let iconMedium = Font.system(size: 16)
+
+    /// Prominent icon on the macOS HIG scale (20pt)
+    static let iconLarge = Font.system(size: 20)
+
+    /// Large icon on the macOS HIG scale (24pt)
+    static let iconXLarge = Font.system(size: 24)
+
+    /// Decorative glyph for empty states and placeholders (48pt).
+    ///
+    /// Deliberately outside the HIG control scale - these are illustrative
+    /// artwork rather than interactive controls.
+    static let iconEmptyState = Font.system(size: 48)
+
+    // NOTE: An icon rendered inline beside a text label should use that label's
+    // text token (`caption`, `bodySmall`, ...) so the two stay the same size if
+    // the text scale is retuned. The icon tokens above are for standalone icons.
 }
 
 // ============================================================================
@@ -365,6 +384,20 @@ enum HorizontalLayoutConstants {
     static let defaultPanelWidth: CGFloat = 400
 }
 
+/// Layout constants for the main app window's grow-on-import behavior.
+///
+/// The window opens small (see `ContentView`'s `.frame(minWidth:minHeight:)`) before any
+/// media exists. Once the timeline and media panels expand to show imported content, the
+/// window is grown to these dimensions so the expanded panels aren't squeezed into the
+/// original small frame.
+enum MainWindowLayout {
+    /// Width the window grows to after the first media import.
+    static let expandedWidth: CGFloat = 1400
+
+    /// Height the window grows to after the first media import.
+    static let expandedHeight: CGFloat = 900
+}
+
 // ============================================================================
 // MARK: - Layout Constants
 // ============================================================================
@@ -388,6 +421,9 @@ enum TimelineLayout {
 
     /// Height of the toolbar area
     static let toolbarHeight: CGFloat = 40
+
+    /// Height of the new-lane drop zone strip when no drag is in progress
+    static let newLaneDropZoneInactiveHeight: CGFloat = 20
 
     /// Height of video reel clips
     static let videoClipHeight: CGFloat = 42
@@ -463,8 +499,13 @@ enum FileManagerLayout {
     /// Height when collapsed (header only)
     static let collapsedHeight: CGFloat = PanelLayout.headerHeight
 
-    /// Height when expanded (header + content with comfortable padding)
-    static let expandedHeight: CGFloat = 180
+    /// Minimum header-bar width for the full (icon + label) header controls.
+    /// Below this the header switches to compact icon-only buttons.
+    ///
+    /// Approximates the measured natural width of the full control set (title
+    /// area + search field + filters + sort + consolidate + import + spacing),
+    /// rounded up so the switch to compact happens before anything clips.
+    static let headerFullControlsMinWidth: CGFloat = 720
 
     /// Grid cell thumbnail size
     static let gridThumbnailWidth: CGFloat = 64
@@ -474,6 +515,31 @@ enum FileManagerLayout {
 
     /// Grid cell label width
     static let gridLabelWidth: CGFloat = 80
+
+    /// Height of the filename label under each thumbnail (two lines at 9pt).
+    static let gridLabelHeight: CGFloat = 24
+
+    /// Full height of one grid cell: thumbnail, label, and the cell's own padding.
+    static let gridCellHeight: CGFloat =
+        gridThumbnailHeight + Spacing.xs + gridLabelHeight + (Spacing.xs * 2)
+
+    /// Height reserved for the horizontal scroll indicator, which is always
+    /// shown (`.scrollIndicators(.visible)`) and would otherwise overlap the
+    /// bottom row of cells.
+    static let scrollIndicatorHeight: CGFloat = 15
+
+    /// Height when expanded.
+    ///
+    /// Derived from the content rather than fixed, so the panel keeps fitting a
+    /// full grid cell if the thumbnail or label size is ever changed. The media
+    /// grid scrolls horizontally, so this does not grow with the number of
+    /// files - one row is always enough.
+    static let expandedHeight: CGFloat =
+        PanelLayout.headerHeight
+        + 1  // divider
+        + gridCellHeight
+        + (Spacing.sm * 2)  // scroll content padding
+        + scrollIndicatorHeight
 }
 
 /// Timeline section constants (in ContentView)
@@ -485,7 +551,17 @@ enum TimelineSectionLayout {
     static let minHeight: CGFloat = 100
 
     /// Maximum height when expanded
+    ///
+    /// A floor, not the real ceiling: `TimelineViewModel.maxExpandedHeight`
+    /// extends this on displays with room to spare, so the panel can grow to
+    /// show more lanes on a large screen instead of always clamping at 500.
     static let maxHeight: CGFloat = 500
+
+    /// Vertical space reserved for everything that is not the timeline panel
+    /// when sizing it against the display: settings header (44), the expanded
+    /// media panel with its optimization banner (~250), inter-panel spacing
+    /// and window margins (~90).
+    static let reservedVerticalChrome: CGFloat = 384
 
     /// Default height - sized to show Video track + 1 Audio lane without scrolling
     /// Calculation: header(44) + ruler(24) + spacer(4) + videoTrack(60) + divider(1) + audioArea(60) + padding(8) + footer(44) = 245

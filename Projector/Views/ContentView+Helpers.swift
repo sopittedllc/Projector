@@ -65,6 +65,72 @@ extension ContentView {
         }
     }
 
+    /// Grow the app window to `MainWindowLayout`'s expanded size after the first media import.
+    ///
+    /// The window opens at its small pre-import minimum (`ContentView`'s
+    /// `.frame(minWidth:minHeight:)`). Once media is imported the timeline and media panels
+    /// expand to show real content, so the window needs to grow to give them room. Anchors on
+    /// the window's current top-left corner and clamps to the screen's visible frame so the
+    /// window never grows off-screen or over the menu bar/dock.
+    func growWindowForFirstImport() {
+        guard let window = NSApp.mainWindow ?? NSApp.keyWindow ?? NSApp.windows.first,
+              !window.styleMask.contains(.fullScreen) else { return }
+        guard let screen = window.screen ?? NSScreen.main else { return }
+
+        let visibleFrame = screen.visibleFrame
+        let targetWidth = min(MainWindowLayout.expandedWidth, visibleFrame.width)
+        let targetHeight = min(MainWindowLayout.expandedHeight, visibleFrame.height)
+
+        var newFrame = window.frame
+        guard newFrame.width < targetWidth || newFrame.height < targetHeight else { return }
+
+        let heightDelta = max(0, targetHeight - newFrame.height)
+        newFrame.size.width = max(newFrame.width, targetWidth)
+        newFrame.size.height = max(newFrame.height, targetHeight)
+        // NSWindow's origin is its bottom-left corner; keep the top edge anchored while
+        // growing downward by shifting the origin down by the added height.
+        newFrame.origin.y -= heightDelta
+
+        if newFrame.origin.y < visibleFrame.minY {
+            newFrame.origin.y = visibleFrame.minY
+        }
+        if newFrame.maxX > visibleFrame.maxX {
+            newFrame.origin.x = max(visibleFrame.minX, visibleFrame.maxX - newFrame.width)
+        }
+
+        window.setFrame(newFrame, display: true, animate: true)
+    }
+
+    /// Grow the window taller by `delta` points, anchored at its top-left and
+    /// clamped to the screen's visible frame.
+    ///
+    /// Used when the timeline panel auto-grows for new lanes: without this the
+    /// panel's extra height just squeezes the other panels inside a fixed
+    /// window. Growth only - the window never shrinks when lanes are removed,
+    /// so a size the user chose by hand is left alone.
+    func growWindow(byAdditionalHeight delta: CGFloat) {
+        guard delta > 0,
+              let window = NSApp.mainWindow ?? NSApp.keyWindow ?? NSApp.windows.first,
+              !window.styleMask.contains(.fullScreen) else { return }
+        guard let screen = window.screen ?? NSScreen.main else { return }
+
+        let visibleFrame = screen.visibleFrame
+        var newFrame = window.frame
+        let targetHeight = min(newFrame.height + delta, visibleFrame.height)
+        let heightDelta = targetHeight - newFrame.height
+        guard heightDelta > 0 else { return }
+
+        newFrame.size.height = targetHeight
+        // NSWindow's origin is its bottom-left corner; keep the top edge
+        // anchored while growing downward.
+        newFrame.origin.y -= heightDelta
+        if newFrame.origin.y < visibleFrame.minY {
+            newFrame.origin.y = visibleFrame.minY
+        }
+
+        window.setFrame(newFrame, display: true, animate: true)
+    }
+
     // MARK: - AlertCoordinator Helpers
 
     /// Show the save project sheet via AlertCoordinator

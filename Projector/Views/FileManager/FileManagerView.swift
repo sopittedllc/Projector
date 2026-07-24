@@ -47,6 +47,11 @@ struct FileManagerView: View {
 
     @EnvironmentObject private var dragContext: DragContext
 
+    /// Measured width of the header bar, used to pick full vs compact controls.
+    /// Starts at infinity so the first (unmeasured) frame renders the full
+    /// variant rather than flashing compact.
+    @State private var headerBarWidth: CGFloat = .infinity
+
     @State private var selectedItemIds: Set<UUID> = []
     @State private var lastSelectedIndex: Int?
     @State private var isDropTargeted = false
@@ -305,70 +310,118 @@ struct FileManagerView: View {
                     Text("Media")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
 
                     Text("(\(filteredItems.count))")
-                        .font(.system(size: 10))
+                        .font(Typography.caption)
                         .foregroundColor(.secondary)
-
-                    Spacer()
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .help(isExpanded ? "Collapse media panel" : "Expand media panel")
+            .accessibilityLabel("Media panel, \(filteredItems.count) items, \(isExpanded ? "expanded" : "collapsed")")
 
             if isExpanded {
-                // Search field
-                TextField("Search media...", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(Typography.body)
-                    .frame(width: 150)
-                    .padding(.horizontal, Spacing.sm)
-                    .padding(.vertical, Spacing.xs)
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(Spacing.xs)
+                Spacer(minLength: 0)
 
-                // Filter buttons
-                filterButtons
-
-                // Sort menu
-                Menu {
-                    ForEach(SortOption.allCases, id: \.self) { option in
-                        Button(option.rawValue) {
-                            sortOption = option
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 2) {
-                        Image(systemName: "arrow.up.arrow.down")
-                        Text(sortOption.rawValue)
-                    }
-                    .font(Typography.caption)
-                    .foregroundColor(.secondary)
-                }
-                .menuStyle(.borderlessButton)
-
-                // Note: Optimize button removed - the contextual banner handles this better
-                // The banner appears when high-bitrate media is detected and is more informative
-
-                // Consolidate button (only show if there are external files or project unsaved)
-                ConsolidateMediaButton(
-                    showSheet: $showConsolidationSheet,
-                    hasExternalFiles: showConsolidateButton
-                )
-
-                // Import button
-                Button(action: importMedia) {
-                    HStack(spacing: Spacing.xs) {
-                        Image(systemName: "plus")
-                            .frame(width: 12, height: 12)
-                        Text("Import")
-                    }
-                }
-                .buttonStyle(GlassActionButtonStyle(tint: AppColors.accent))
+                // A single variant chosen by measured width, not ViewThatFits.
+                // ViewThatFits builds BOTH variants and only lays out one; the
+                // hidden duplicate registered its own tooltip regions, which
+                // broke .help() on the visible controls. One rendered subtree
+                // means one set of tooltip regions.
+                expandedHeaderControls(compact: headerBarWidth < FileManagerLayout.headerFullControlsMinWidth)
             }
         }
         .frame(height: PanelLayout.headerHeight)
         .padding(.horizontal, Spacing.md)
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { headerBarWidth = geo.size.width }
+                    .onChange(of: geo.size.width) { _, newWidth in
+                        headerBarWidth = newWidth
+                    }
+            }
+        )
+    }
+
+    /// Search field, filters, sort menu, consolidate, and import controls.
+    /// - Parameter compact: When true, renders icon-only buttons (with `.help()` tooltips)
+    ///   instead of icon+label, for use as the fallback in `ViewThatFits`.
+    private func expandedHeaderControls(compact: Bool) -> some View {
+        HStack(spacing: Spacing.md) {
+            // Search field
+            TextField("Search media...", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(Typography.body)
+                .frame(width: compact ? 80 : 150)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(Spacing.xs)
+
+            // Filter buttons
+            filterButtons
+
+            // Sort menu
+            Menu {
+                ForEach(SortOption.allCases, id: \.self) { option in
+                    Button(option.rawValue) {
+                        sortOption = option
+                    }
+                }
+            } label: {
+                HStack(spacing: 2) {
+                    Image(systemName: "arrow.up.arrow.down")
+                    if !compact {
+                        Text(sortOption.rawValue)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+                .font(Typography.caption)
+                .foregroundColor(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize(horizontal: true, vertical: false)
+            .help("Sort by \(sortOption.rawValue)")
+
+            // Note: Optimize button removed - the contextual banner handles this better
+            // The banner appears when high-bitrate media is detected and is more informative
+
+            // Consolidate button (only show if there are external files or project unsaved)
+            ConsolidateMediaButton(
+                showSheet: $showConsolidationSheet,
+                hasExternalFiles: showConsolidateButton,
+                compact: compact
+            )
+            .fixedSize(horizontal: true, vertical: false)
+
+            // Import button
+            Button(action: importMedia) {
+                HStack(spacing: Spacing.xs) {
+                    Image(systemName: "plus")
+                        .frame(width: 12, height: 12)
+                    if !compact {
+                        Text("Import")
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+            }
+            // Tooltip goes through the style, not .help(): NSToolTip never
+            // fires through the macOS 26 glassEffect layer this button sits on.
+            // Compact only - when the "Import" label is visible the tooltip
+            // would just repeat it.
+            .buttonStyle(GlassActionButtonStyle(tint: AppColors.accent, help: compact ? "Import media files" : nil))
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityLabel("Import media files")
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     // MARK: - Filter Buttons
@@ -386,6 +439,8 @@ struct FileManagerView: View {
             Text(title)
                 .font(.system(size: 10, weight: filterType == type ? .semibold : .regular))
                 .foregroundColor(filterType == type ? .accentColor : .secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, Spacing.sm)
                 .padding(.vertical, Spacing.xs)
                 .background(filterType == type ? Color.accentColor.opacity(0.1) : Color.clear)
@@ -399,7 +454,15 @@ struct FileManagerView: View {
     private var contentArea: some View {
         ZStack {
             if filteredItems.isEmpty {
-                emptyStateView
+                // An empty library and an over-narrow filter are different
+                // problems with different fixes - telling someone with 50 files
+                // that they have "no media files" just because their search
+                // missed sends them to the Import button for no reason.
+                if mediaLibrary.items.isEmpty {
+                    emptyStateView
+                } else {
+                    noMatchesStateView
+                }
             } else {
                 itemsList
             }
@@ -423,12 +486,47 @@ struct FileManagerView: View {
                 .foregroundColor(.secondary.opacity(0.5))
 
             Text("No media files")
-                .font(.system(size: 13, weight: .medium))
+                .font(Typography.heading)
                 .foregroundColor(.secondary)
 
             Text("Drop files here or click Import")
-                .font(.system(size: 11))
+                .font(Typography.bodySmall)
                 .foregroundColor(.secondary.opacity(0.7))
+        }
+    }
+
+    /// Shown when the library has media but the current search or type filter
+    /// excludes all of it. Offers a way back rather than a dead end.
+    private var noMatchesStateView: some View {
+        VStack(spacing: Spacing.sm) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 32))
+                .foregroundColor(.secondary.opacity(0.5))
+
+            Text(noMatchesTitle)
+                .font(Typography.heading)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+
+            Button("Clear filters") {
+                searchText = ""
+                filterType = nil
+            }
+            .buttonStyle(.link)
+            .font(Typography.bodySmall)
+            .help("Show all \(mediaLibrary.items.count) media files again")
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var noMatchesTitle: String {
+        if !searchText.isEmpty {
+            return "No media matching \"\(searchText)\""
+        }
+        switch filterType {
+        case .video: return "No video files in this project"
+        case .audio: return "No audio files in this project"
+        case nil: return "No media matches the current filters"
         }
     }
 
@@ -784,7 +882,7 @@ struct MediaGridCell: View {
 
                 // Filename
                 Text(item.displayName)
-                    .font(.system(size: 9))
+                    .font(Typography.captionSmall)
                     .foregroundColor(.primary)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
@@ -824,7 +922,7 @@ struct MediaGridCell: View {
         switch status {
         case .optimized:
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 10))
+                .font(Typography.caption)
                 .foregroundColor(.green)
                 .padding(Spacing.xs)
                 .background(Color.black.opacity(0.6))
@@ -833,7 +931,7 @@ struct MediaGridCell: View {
                 .help("Optimized for playback")
         case .needsOptimization(let reason):
             Image(systemName: reason.icon)
-                .font(.system(size: 10))
+                .font(Typography.caption)
                 .foregroundColor(reason.color)
                 .padding(Spacing.xs)
                 .background(Color.black.opacity(0.6))
