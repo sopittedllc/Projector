@@ -133,6 +133,8 @@ struct ConsolidationSheetView: View {
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
+            .help("Close")
+            .accessibilityLabel("Close")
         }
         .padding()
     }
@@ -162,7 +164,7 @@ struct ConsolidationSheetView: View {
                     .font(.caption.bold())
                     .foregroundColor(.secondary)
                     .padding(.horizontal)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, Spacing.sm)
 
                     Divider()
 
@@ -242,7 +244,7 @@ struct ConsolidationSheetView: View {
 
             if let result = result {
                 Image(systemName: result.failedCount == 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                    .font(.system(size: 48))
+                    .font(Typography.iconEmptyState)
                     .foregroundColor(result.failedCount == 0 ? .green : .orange)
 
                 VStack(spacing: Spacing.sm) {
@@ -286,7 +288,7 @@ struct ConsolidationSheetView: View {
             Spacer()
 
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 48))
+                .font(Typography.iconEmptyState)
                 .foregroundColor(.orange)
 
             Text("Consolidation Error")

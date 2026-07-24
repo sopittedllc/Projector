@@ -903,6 +903,7 @@ private struct OutputRowView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Unlink stereo pair")
+                .accessibilityLabel("Unlink stereo pair")
             }
 
             // Delete button
@@ -914,6 +915,7 @@ private struct OutputRowView: View {
             .buttonStyle(.plain)
             .opacity(isHovered ? 1.0 : 0.4)
             .help("Remove output")
+            .accessibilityLabel("Remove output")
         }
         .padding(.horizontal, Spacing.sm)
         .padding(.vertical, Spacing.sm)

@@ -60,7 +60,7 @@ struct VideoInsertSheetView: View {
                 .font(.system(size: 14, weight: .semibold))
 
             Text("Enter the timecode where the video should start.")
-                .font(.system(size: 12))
+                .font(Typography.body)
                 .foregroundColor(.secondary)
 
             TextField("00:00:00:00", text: $timecodeText)
@@ -76,7 +76,7 @@ struct VideoInsertSheetView: View {
 
             if let error = errorMessage {
                 Text(error)
-                    .font(.system(size: 11))
+                    .font(Typography.bodySmall)
                     .foregroundColor(.red)
             }
 
@@ -85,6 +85,7 @@ struct VideoInsertSheetView: View {
                 Button("Cancel") {
                     clearAndDismiss()
                 }
+                .keyboardShortcut(.cancelAction)
                 Button("Place") {
                     confirmVideoInsert()
                 }

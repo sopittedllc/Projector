@@ -239,10 +239,11 @@ struct SpotMediaSheet: View {
 
             Button(action: { onCancel(); dismiss() }) {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 20))
+                    .font(Typography.iconLarge)
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
+            .help("Close without placing media")
             .accessibilityLabel("Close")
         }
     }

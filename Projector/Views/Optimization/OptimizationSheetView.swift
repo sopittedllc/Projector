@@ -86,6 +86,8 @@ struct OptimizationSheetView: View {
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
+            .help("Close")
+            .accessibilityLabel("Close")
         }
         .padding()
     }
@@ -183,7 +185,7 @@ struct OptimizationSheetView: View {
                 .font(.caption.bold())
                 .foregroundColor(.secondary)
                 .padding(.horizontal)
-                .padding(.vertical, 8)
+                .padding(.vertical, Spacing.sm)
 
                 Divider()
 
@@ -214,7 +216,7 @@ struct OptimizationSheetView: View {
 
                 Image(systemName: "arrow.right")
                     .foregroundColor(.secondary)
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, Spacing.xs)
 
                 Text(ByteCountFormatter.string(fromByteCount: Int64(viewModel.selectedEstimatedSize), countStyle: .file))
                     .foregroundColor(.green)
@@ -317,7 +319,7 @@ struct OptimizationSheetView: View {
             // Success icon
             Image(systemName: "checkmark.circle.fill")
                 .foregroundColor(.green)
-                .font(.system(size: 48))
+                .font(Typography.iconEmptyState)
                 .padding(.bottom, Spacing.md)
 
             // Success message
@@ -381,7 +383,7 @@ struct OptimizationSheetView: View {
             Spacer()
 
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 48))
+                .font(Typography.iconEmptyState)
                 .foregroundColor(.orange)
 
             Text("Optimization Error")
@@ -608,6 +610,8 @@ private struct FileAnalysisRow: View {
                 }
                 .buttonStyle(.plain)
                 .frame(width: 20)
+                .help(isSelected ? "Exclude from optimization" : "Include in optimization")
+                .accessibilityLabel(isSelected ? "Selected for optimization" : "Not selected for optimization")
             } else {
                 // Placeholder for alignment
                 Color.clear.frame(width: 20)
@@ -719,8 +723,8 @@ private struct VerificationItemRow: View {
                     .foregroundColor(.secondary)
             }
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
+        .padding(.vertical, Spacing.sm)
+        .padding(.horizontal, Spacing.md)
         .background(Color.primary.opacity(0.03))
         .cornerRadius(6)
     }
@@ -746,7 +750,7 @@ private struct FailedItemRow: View {
                     .foregroundColor(.secondary)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Spacing.xs)
     }
 }
 
@@ -797,6 +801,8 @@ private struct CleanupOriginalFilesDialog: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
+                .help("Close")
+                .accessibilityLabel("Close")
             }
             .padding()
 

@@ -155,11 +155,20 @@ struct GlassTransportButtonStyle: ButtonStyle {
 /// Includes hover state for polished feel.
 struct GlassActionButtonStyle: ButtonStyle {
     var tint: Color = AppColors.accent
+    /// Tooltip text, rendered by the style itself on hover.
+    ///
+    /// Pass help text here instead of using `.help()` on the button: these
+    /// buttons render on the macOS 26 `glassEffect` layer, which the system
+    /// tooltip (NSToolTip) never fires through. The style's own `.onHover`
+    /// does receive events - it already drives the hover glow - so the
+    /// tooltip is drawn from that instead.
+    var help: String? = nil
 
     func makeBody(configuration: Configuration) -> some View {
         GlassActionButtonBody(
             configuration: configuration,
-            tint: tint
+            tint: tint,
+            help: help
         )
     }
 }
@@ -168,9 +177,57 @@ struct GlassActionButtonStyle: ButtonStyle {
 private struct GlassActionButtonBody: View {
     let configuration: ButtonStyleConfiguration
     let tint: Color
+    let help: String?
     @State private var isHovered = false
+    @State private var isShowingHelp = false
+
+    /// Matches the feel of the system tooltip delay.
+    private static let helpDelay: TimeInterval = 0.8
 
     var body: some View {
+        styledLabel
+            .onHover { hovering in
+                if hovering {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.helpDelay) {
+                        if isHovered {
+                            isShowingHelp = true
+                        }
+                    }
+                } else {
+                    isShowingHelp = false
+                }
+            }
+            .overlay(alignment: .leading) {
+                if isShowingHelp, let help {
+                    helpBubble(help)
+                        // Sit just left of the button, vertically centered, so
+                        // the bubble stays inside the panel header and clear of
+                        // panel-level .clipped() bounds.
+                        .alignmentGuide(.leading) { d in d.width + Spacing.sm }
+                }
+            }
+            .animation(AppAnimations.quick, value: isShowingHelp)
+    }
+
+    private func helpBubble(_ text: String) -> some View {
+        Text(text)
+            .font(Typography.caption)
+            .foregroundColor(.primary)
+            .lineLimit(1)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(nsColor: .windowBackgroundColor))
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+            )
+            .fixedSize()
+            .allowsHitTesting(false)
+            .transition(.opacity)
+    }
+
+    @ViewBuilder
+    private var styledLabel: some View {
         if #available(macOS 26, *) {
             configuration.label
                 .font(Typography.button)
@@ -494,7 +551,7 @@ extension Color {
         HStack(spacing: Spacing.md) {
             HStack {
                 Text("TC:")
-                    .font(.system(size: 10))
+                    .font(Typography.caption)
                     .foregroundColor(.secondary)
                 Text("01:00:00:00")
                     .font(.system(size: 12, design: .monospaced))
@@ -505,7 +562,7 @@ extension Color {
 
             HStack {
                 Text("FPS:")
-                    .font(.system(size: 10))
+                    .font(Typography.caption)
                     .foregroundColor(.secondary)
                 Text("24")
                     .font(.system(size: 12, design: .monospaced))
