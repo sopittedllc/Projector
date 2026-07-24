@@ -153,7 +153,7 @@ struct MultiTrackTimelineView: View {
     // MARK: - Constants
 
     /// Height for the inactive "new lane" drop target
-    private let newLaneDropInactiveHeight: CGFloat = 20
+    private let newLaneDropInactiveHeight: CGFloat = TimelineLayout.newLaneDropZoneInactiveHeight
 
     /// Distance from edge to trigger auto-scroll during marquee selection
     private let autoScrollEdgeInset: CGFloat = 50
@@ -592,6 +592,8 @@ struct MultiTrackTimelineView: View {
                         .frame(width: 18, height: 18)
                 }
                 .buttonStyle(.plain)
+                .help("Timeline settings")
+                .accessibilityLabel("Timeline settings")
             }
             .padding(.horizontal, Spacing.md)
             .frame(height: TimelineLayout.toolbarHeight)
@@ -609,6 +611,8 @@ struct MultiTrackTimelineView: View {
             }
             .buttonStyle(.plain)
             .disabled(!playbackEngine.hasContent)
+            .help("Step back one frame")
+            .accessibilityLabel("Step back one frame")
 
             Button(action: { playbackEngine.togglePlayback() }) {
                 Image(systemName: playbackEngine.isPlaying ? "pause.fill" : "play.fill")
@@ -617,6 +621,8 @@ struct MultiTrackTimelineView: View {
             .buttonStyle(.plain)
             .disabled(!playbackEngine.hasContent)
             .keyboardShortcut(.space, modifiers: [])
+            .help(playbackEngine.isPlaying ? "Pause (Space)" : "Play (Space)")
+            .accessibilityLabel(playbackEngine.isPlaying ? "Pause" : "Play")
 
             Button(action: { playbackEngine.stepForward() }) {
                 Image(systemName: "forward.fill")
@@ -624,6 +630,8 @@ struct MultiTrackTimelineView: View {
             }
             .buttonStyle(.plain)
             .disabled(!playbackEngine.hasContent)
+            .help("Step forward one frame")
+            .accessibilityLabel("Step forward one frame")
 
             Button(action: { playbackEngine.stop() }) {
                 Image(systemName: "stop.fill")
@@ -631,6 +639,8 @@ struct MultiTrackTimelineView: View {
             }
             .buttonStyle(.plain)
             .disabled(!playbackEngine.hasContent)
+            .help("Stop and return to start")
+            .accessibilityLabel("Stop and return to start")
         }
         .padding(.horizontal, Spacing.sm)
         .padding(.vertical, 6)
@@ -648,10 +658,11 @@ struct MultiTrackTimelineView: View {
         HStack(spacing: Spacing.xs) {
             Button(action: { zoomOut() }) {
                 Image(systemName: "minus.magnifyingglass")
-                    .font(.system(size: 11))
+                    .font(Typography.bodySmall)
             }
             .buttonStyle(.plain)
             .disabled(zoomLevel <= minZoom)
+            .help("Zoom out")
             .accessibilityLabel("Zoom out")
 
             Slider(value: $zoomLevel, in: minZoom...maxZoom)
@@ -662,13 +673,17 @@ struct MultiTrackTimelineView: View {
                     TapGesture(count: 2)
                         .onEnded { _ in resetZoom() }
                 )
+                // Double-click-to-reset is otherwise undiscoverable
+                .help("Timeline zoom - double-click to reset to fit")
+                .accessibilityLabel("Timeline zoom")
 
             Button(action: { zoomIn() }) {
                 Image(systemName: "plus.magnifyingglass")
-                    .font(.system(size: 11))
+                    .font(Typography.bodySmall)
             }
             .buttonStyle(.plain)
             .disabled(zoomLevel >= maxZoom)
+            .help("Zoom in")
             .accessibilityLabel("Zoom in")
         }
     }
@@ -1202,6 +1217,9 @@ struct MultiTrackTimelineView: View {
                         if dragContext.mediaItems.isEmpty {
                             let pasteboardItems = info.draggingPasteboard.pasteboardItems ?? []
                             externalDragItemCount = pasteboardItems.count
+                        } else {
+                            // Drag is still live - keep the context from timing out
+                            dragContext.refresh()
                         }
                         return []
                     },
@@ -1349,60 +1367,11 @@ struct MultiTrackTimelineView: View {
         }
     }
 
-    /// Handle multi-file drop from NSDraggingInfo
-    private func handleMultiFileDropNative(info: NSDraggingInfo) -> Bool {
-        // Only handle multi-file drops
-        let isInternalMulti = dragContext.mediaItems.count > 1
-        let pasteboardItems = info.draggingPasteboard.pasteboardItems ?? []
-        let isExternalMulti = dragContext.mediaItems.isEmpty && pasteboardItems.count > 1
-
-        guard isInternalMulti || isExternalMulti else { return false }
-
-        if isInternalMulti {
-            // Internal drag from media panel - use dragContext URLs
-            let urls = dragContext.mediaItems.map { $0.url }
-            var videoURLs: [URL] = []
-            var audioURLs: [URL] = []
-
-            for url in urls {
-                guard let mediaType = ProjectMediaLibrary.mediaType(for: url) else { continue }
-                switch mediaType {
-                case .video:
-                    videoURLs.append(url)
-                case .audio:
-                    audioURLs.append(url)
-                }
-            }
-
-            if let onDropMixedMedia = onDropMixedMedia {
-                onDropMixedMedia(videoURLs, audioURLs, 0)
-            }
-            dragContext.end()
-        } else {
-            // External drag from Finder - extract URLs from pasteboard
-            var videoURLs: [URL] = []
-            var audioURLs: [URL] = []
-
-            for item in pasteboardItems {
-                if let urlString = item.string(forType: .fileURL),
-                   let url = URL(string: urlString) {
-                    guard let mediaType = ProjectMediaLibrary.mediaType(for: url) else { continue }
-                    switch mediaType {
-                    case .video:
-                        videoURLs.append(url)
-                    case .audio:
-                        audioURLs.append(url)
-                    }
-                }
-            }
-            if let onDropMixedMedia = onDropMixedMedia, (!videoURLs.isEmpty || !audioURLs.isEmpty) {
-                onDropMixedMedia(videoURLs, audioURLs, 0)
-            }
-        }
-
-        externalDragItemCount = 0
-        return true
-    }
+    // NOTE: `handleMultiFileDropNative` was removed here. It had no call sites -
+    // the parent DragCaptureView deliberately never claims drops (see its
+    // onPerform above), so multi-file drops are routed by the per-lane handlers
+    // instead. It also hardcoded a drop frame of 0, so wiring it up as-written
+    // would have silently ignored the cursor position on every batch drop.
 
     /// Overlay shown when dragging multiple files to the timeline
     private var multiFileDropOverlay: some View {
@@ -1472,15 +1441,15 @@ struct MultiTrackTimelineView: View {
                 .overlay(
                     VStack(spacing: Spacing.xs) {
                         Image(systemName: "speaker.slash")
-                            .font(.system(size: 12))
+                            .font(Typography.body)
                             .foregroundColor(.secondary.opacity(0.4))
 
                         Text("No audio")
-                            .font(.system(size: 9))
+                            .font(Typography.captionSmall)
                             .foregroundColor(.secondary.opacity(0.4))
 
                         Text("lanes")
-                            .font(.system(size: 9))
+                            .font(Typography.captionSmall)
                             .foregroundColor(.secondary.opacity(0.4))
                     }
                 )
@@ -1508,7 +1477,7 @@ struct MultiTrackTimelineView: View {
                             .foregroundColor(.secondary.opacity(0.4))
 
                         Text("Click \"+Audio Lane\" to add a lane, or drop audio files here")
-                            .font(.system(size: 10))
+                            .font(Typography.caption)
                             .foregroundColor(.secondary.opacity(0.5))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1583,7 +1552,7 @@ struct MultiTrackTimelineView: View {
                     if isActive {
                         VStack(spacing: Spacing.xs) {
                             Text("Drop to create new lane")
-                                .font(.system(size: 10))
+                                .font(Typography.caption)
                                 .foregroundColor(.secondary.opacity(0.7))
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1639,6 +1608,7 @@ struct MultiTrackTimelineView: View {
         location: CGPoint,
         pixelsPerFrame: CGFloat
     ) -> NSDragOperation {
+        dragContext.refresh()
         let allowed = updateEmptyAudioDrop(from: info, location: location, pixelsPerFrame: pixelsPerFrame)
         return allowed ? .copy : []
     }
@@ -1656,7 +1626,7 @@ struct MultiTrackTimelineView: View {
             return false
         }
         let targetFrame = max(0, Int(location.x / max(pixelsPerFrame, 0.001)))
-        let isInternal = dragContext.mediaItem != nil
+        let isInternal = dragContext.isDragging
         onDropAudioMedia(laneIndex, urls, targetFrame, isInternal)
         dragContext.end()
         clearEmptyAudioDrop()
@@ -1709,8 +1679,11 @@ struct MultiTrackTimelineView: View {
     }
 
     private func audioCandidate(from info: NSDraggingInfo) -> (urls: [URL], duration: Double?, isInternal: Bool) {
-        if let item = dragContext.mediaItem, item.type == .audio {
-            return ([item.url], item.duration, true)
+        if dragContext.isDragging {
+            let audioItems = dragContext.mediaItems.filter { $0.type == .audio }
+            if !audioItems.isEmpty {
+                return (audioItems.map { $0.url }, audioItems.first?.duration, true)
+            }
         }
 
         let pasteboard = info.draggingPasteboard
@@ -1844,38 +1817,52 @@ struct MultiTrackTimelineView: View {
         pixelsPerFrame: CGFloat,
         laneIndex: Int
     ) -> Bool {
-        var urls: [URL] = []
+        // Provider callbacks fire on arbitrary queues, so each result is written to
+        // its own reserved slot rather than appended. This keeps the collection
+        // race-free without a lock and preserves the order the files were dragged
+        // in - appending would interleave by completion time, scattering a batch
+        // drop across the timeline in arbitrary order.
+        var slots = [URL?](repeating: nil, count: providers.count)
+        let slotsLock = NSLock()
         let group = DispatchGroup()
         let isInternalDrag = providers.contains { provider in
             provider.hasItemConformingToTypeIdentifier(UTType.projectorMediaItem.identifier)
         }
         let internalItem = dragContext.mediaItem ?? mediaItem(from: providers)
 
-        for provider in providers {
+        for (index, provider) in providers.enumerated() {
             group.enter()
+            let store: (URL?) -> Void = { url in
+                guard let url else { return }
+                slotsLock.lock()
+                slots[index] = url
+                slotsLock.unlock()
+            }
+
             if provider.hasItemConformingToTypeIdentifier(UTType.projectorMediaItem.identifier) {
                 provider.loadDataRepresentation(forTypeIdentifier: UTType.projectorMediaItem.identifier) { data, _ in
                     defer { group.leave() }
                     let info = extractProjectorMediaInfo(from: data)
-                    if info.type == .audio, let url = info.url {
-                        urls.append(url)
+                    if info.type == .audio {
+                        store(info.url)
                     }
                 }
             } else {
                 loadURL(from: provider) { url in
                     defer { group.leave() }
-                    if let url = url {
-                        urls.append(url)
-                    }
+                    store(url)
                 }
             }
         }
 
         group.notify(queue: .main) {
+            var urls = slots.compactMap { $0 }
             if urls.isEmpty, let internalItem, internalItem.type == .audio {
                 urls.append(internalItem.url)
             }
-            let audioURLs = Array(Set(urls.filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }))
+            let audioURLs = urls
+                .filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
+                .orderedDeduplicated()
             guard !audioURLs.isEmpty else { return }
             let targetFrame = max(0, Int(location.x / max(pixelsPerFrame, 0.001)))
             onDropAudioMedia(laneIndex, audioURLs, targetFrame, isInternalDrag)

@@ -21,7 +21,13 @@ final class DragContext: ObservableObject {
     /// Cleanup task handle for automatic timeout
     private var cleanupTask: Task<Void, Never>?
 
-    /// Timeout duration for automatic cleanup (seconds)
+    /// Timeout duration for automatic cleanup, measured from the last observed
+    /// drag activity rather than from the start of the drag.
+    ///
+    /// The timer is restarted by `refresh()` on every hover update, so it only
+    /// fires once a drag has gone silent — a cancelled drag, or one that ended
+    /// outside any drop target. A drag the user is still positioning keeps
+    /// resetting it and is never cleared out from under the drop handlers.
     private let cleanupTimeout: TimeInterval = 5.0
 
     /// Legacy single-item accessor for backwards compatibility
@@ -49,6 +55,18 @@ final class DragContext: ObservableObject {
     /// Whether there's an active drag
     var isDragging: Bool { !mediaItems.isEmpty }
 
+    /// Restart the cleanup timer because the drag is still live.
+    ///
+    /// Call from drag hover/update handlers. Without this the timer would fire
+    /// mid-drag on any drag the user spends more than `cleanupTimeout`
+    /// positioning, silently emptying `mediaItems` — drop handlers would then
+    /// fall back to the pasteboard, which carries only one file, and a
+    /// multi-selection would land as a single clip.
+    func refresh() {
+        guard isDragging else { return }
+        scheduleCleanup()
+    }
+
     /// Schedule automatic cleanup for cancelled drags
     ///
     /// When a drag is cancelled (escape key, dropped outside valid target),
@@ -63,6 +81,21 @@ final class DragContext: ObservableObject {
                 self?.mediaItems = []
             }
         }
+    }
+}
+
+extension Sequence where Element: Hashable {
+    /// Returns the elements with duplicates removed, keeping the first
+    /// occurrence of each and preserving the original order.
+    ///
+    /// Use this instead of `Array(Set(_:))` anywhere order carries meaning. The
+    /// drop handlers rely on it: the order files arrive in determines the order
+    /// clips are laid out on the timeline, and `Set` would randomize it.
+    ///
+    /// - Returns: The deduplicated elements in their original relative order.
+    func orderedDeduplicated() -> [Element] {
+        var seen = Set<Element>()
+        return filter { seen.insert($0).inserted }
     }
 }
 

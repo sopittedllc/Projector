@@ -86,7 +86,7 @@ struct VideoTrackView: View {
                         .foregroundColor(.secondary)
 
                     Text("No reels")
-                        .font(.system(size: 9))
+                        .font(Typography.captionSmall)
                         .foregroundColor(.secondary.opacity(0.5))
                 }
             }
@@ -151,6 +151,7 @@ struct VideoTrackView: View {
                     handleDrop(providers: providers, at: location)
                 },
                 updateHandler: { location in
+                    dragContext.refresh()
                     updateDropPreview(location: location)
                 },
                 enterHandler: { providers, location in
@@ -181,7 +182,7 @@ struct VideoTrackView: View {
                 .foregroundColor(.secondary.opacity(0.6))
 
             Text("Drop video files here")
-                .font(.system(size: 10))
+                .font(Typography.caption)
                 .foregroundColor(.secondary.opacity(0.6))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

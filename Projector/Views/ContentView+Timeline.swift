@@ -769,6 +769,16 @@ extension ContentView {
             debugPrint("extractAudioInBackground: COMPLETE [T+\(elapsed())]")
         } catch {
             debugPrint("extractAudioInBackground: FAILED [T+\(elapsed())] - \(error)")
+            // A placeholder audio clip is already on the timeline at this point,
+            // so failing silently leaves a clip that never fills in and gives the
+            // user no way to find out why. Remove it and say what happened.
+            await MainActor.run {
+                timelineManager.removeAudioClip(clipId: clipId, fromLane: laneId)
+                alerts.show(.error(
+                    "Couldn't extract audio from \"\(reel.displayName)\". "
+                    + "The video was added without its audio track.\n\n\(error.localizedDescription)"
+                ))
+            }
         }
     }
 
@@ -1025,6 +1035,45 @@ extension ContentView {
         }
     }
 
+    /// Whether a clip spanning `startFrame ..< startFrame + durationFrames`
+    /// would intersect any existing clip in the lane.
+    private func laneIsOccupied(_ lane: AudioLane, startFrame: Int, durationFrames: Int) -> Bool {
+        let endFrame = startFrame + durationFrames
+        return lane.clips.contains { clip in
+            clip.timelineStartFrame < endFrame && startFrame < clip.timelineEndFrame
+        }
+    }
+
+    /// Place an audio clip on the preferred lane, or on a new lane when the
+    /// destination frames are already occupied.
+    ///
+    /// The model allows overlapping clips (`AudioLane.addClip` appends
+    /// unconditionally), so placing a batch of files that share a start
+    /// timecode - stems and mix passes routinely all start at 01:00:00:00 -
+    /// used to stack every clip at the same frames of the same lane. The lane
+    /// showed one clip's waveform with the rest hidden exactly underneath,
+    /// which read as "only the first file was imported". Spilling each
+    /// overlapping file onto its own lane keeps all of them visible and
+    /// aligned, which is the layout simultaneous material wants anyway.
+    func addAudioToTimelineAvoidingOverlap(url: URL, preferredLaneId: UUID, atFrame: Int) async -> AudioClip? {
+        let fps = timelineManager.timeline.config.frameRate.fps
+        var durationFrames = 1
+        if let duration = try? await AVURLAsset(url: url).load(.duration) {
+            durationFrames = max(1, Int(duration.seconds * fps))
+        }
+
+        var targetLaneId = preferredLaneId
+        if let preferred = timelineManager.timeline.audioLanes.first(where: { $0.id == preferredLaneId }),
+           laneIsOccupied(preferred, startFrame: atFrame, durationFrames: durationFrames) {
+            let laneNumber = timelineManager.timeline.audioLanes.count + 1
+            let newLane = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+            debugPrint("addAudioToTimelineAvoidingOverlap: '\(url.lastPathComponent)' overlaps at frame \(atFrame); spilling to new lane '\(newLane.name)'")
+            targetLaneId = newLane.id
+        }
+
+        return await addAudioToTimeline(url: url, laneId: targetLaneId, atFrame: atFrame, checkTimecode: false)
+    }
+
     /// Add audio files at their embedded timecode positions (auto-confirm mode)
     ///
     /// Used when another sheet is showing and we can't display the batch timecode sheet.
@@ -1052,7 +1101,7 @@ extension ContentView {
                 debugPrint("addAudioFilesAtEmbeddedTimecode: \(item.url.lastPathComponent) -> frame \(targetFrame) (sequential)")
             }
 
-            if let clip = await addAudioToTimeline(url: item.url, laneId: laneId, atFrame: targetFrame, checkTimecode: false) {
+            if let clip = await addAudioToTimelineAvoidingOverlap(url: item.url, preferredLaneId: laneId, atFrame: targetFrame) {
                 nextSequentialFrame = clip.timelineEndFrame
             }
         }
@@ -1167,7 +1216,7 @@ extension ContentView {
                     targetFrame = dropFrame
                 }
 
-                _ = await addAudioToTimeline(url: item.url, laneId: laneId, atFrame: targetFrame, checkTimecode: false)
+                _ = await addAudioToTimelineAvoidingOverlap(url: item.url, preferredLaneId: laneId, atFrame: targetFrame)
             }
 
             // Add padding after all files

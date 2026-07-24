@@ -151,28 +151,16 @@ struct AudioLaneView: View {
                     )
                 }
 
-                // Audio metadata from first clip
-                audioMetadataView
+                // Metadata and mute/solo share a row: four stacked rows total
+                // ~63pt of content, which overflows the fixed 60pt lane height
+                // and collides with the next lane's header. Three rows fit.
+                HStack(spacing: Spacing.sm) {
+                    audioMetadataView
+                    muteSoloButtons
+                }
 
                 // Output mapping dropdown (compact)
                 outputMappingPicker
-
-                // Mute/Solo controls
-                HStack(spacing: Spacing.sm) {
-                    Button(action: onMuteToggle) {
-                        Text("M")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(lane.isMuted ? .red : .secondary)
-                    }
-                    .buttonStyle(.plain)
-
-                    Button(action: onSoloToggle) {
-                        Text("S")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(lane.isSolo ? .yellow : .secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
             }
             .frame(maxWidth: .infinity)
 
@@ -180,6 +168,28 @@ struct AudioLaneView: View {
                 .frame(width: Spacing.sm)
         }
         .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
+    }
+
+    private var muteSoloButtons: some View {
+        HStack(spacing: Spacing.sm) {
+            Button(action: onMuteToggle) {
+                Text("M")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(lane.isMuted ? .red : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help(lane.isMuted ? "Unmute this lane" : "Mute this lane")
+            .accessibilityLabel(lane.isMuted ? "Unmute lane" : "Mute lane")
+
+            Button(action: onSoloToggle) {
+                Text("S")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(lane.isSolo ? .yellow : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help(lane.isSolo ? "Unsolo this lane" : "Solo this lane - silences all other lanes")
+            .accessibilityLabel(lane.isSolo ? "Unsolo lane" : "Solo lane")
+        }
     }
 
     @ViewBuilder
@@ -242,7 +252,7 @@ struct AudioLaneView: View {
         } label: {
             HStack(spacing: Spacing.xs) {
                 Text(outputMappingName)
-                    .font(.system(size: 9))
+                    .font(Typography.captionSmall)
                     .lineLimit(1)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 7))
@@ -315,6 +325,7 @@ struct AudioLaneView: View {
                         return (isDropAllowed || isLoadingDropPreview) ? .copy : []
                     },
                     onUpdated: { info, location in
+                        dragContext.refresh()
                         updateDropPreview(location: location)
                         return (isDropAllowed || isLoadingDropPreview) ? .copy : []
                     },
@@ -347,7 +358,7 @@ struct AudioLaneView: View {
                 .foregroundColor(.secondary.opacity(0.6))
 
             Text("Drop audio files here")
-                .font(.system(size: 10))
+                .font(Typography.caption)
                 .foregroundColor(.secondary.opacity(0.6))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -606,25 +617,30 @@ struct AudioLaneView: View {
             return true
         }
 
-        // Fall back to extracting URLs from providers (external drops)
-        var urls: [URL] = []
+        // Fall back to extracting URLs from providers (external drops).
+        // Each provider writes to its own reserved slot so the results stay in
+        // drag order; appending would order them by completion time instead.
+        var slots = [URL?](repeating: nil, count: providers.count)
         let lock = NSLock()
         let group = DispatchGroup()
 
-        for provider in providers {
+        for (index, provider) in providers.enumerated() {
             group.enter()
             loadURL(from: provider) { url in
                 defer { group.leave() }
                 if let url = url {
                     lock.lock()
-                    urls.append(url)
+                    slots[index] = url
                     lock.unlock()
                 }
             }
         }
 
         group.notify(queue: .main) {
-            let audioURLs = urls.filter { self.isAudioFile($0) }
+            let audioURLs = slots
+                .compactMap { $0 }
+                .filter { self.isAudioFile($0) }
+                .orderedDeduplicated()
             if !audioURLs.isEmpty {
                 self.onDropMedia(audioURLs, targetFrame, isInternalDrag)
             }
