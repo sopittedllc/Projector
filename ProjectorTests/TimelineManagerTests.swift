@@ -103,6 +103,29 @@ final class TimelineManagerTests: XCTestCase {
         XCTAssertEqual(manager.timeline.config.frameRate, .fps30, "Frame rate should be 30fps")
     }
 
+    func testPrimaryCallbackAndAdditionalObserverBothReceiveChanges() {
+        var primaryCallbackCount = 0
+        var observerCallbackCount = 0
+
+        manager.onTimelineChanged = {
+            primaryCallbackCount += 1
+        }
+        let observerID = manager.addTimelineChangeObserver {
+            observerCallbackCount += 1
+        }
+
+        _ = manager.addAudioLane(name: "Dialog")
+
+        XCTAssertEqual(primaryCallbackCount, 1)
+        XCTAssertEqual(observerCallbackCount, 1)
+
+        manager.removeTimelineChangeObserver(id: observerID)
+        _ = manager.addAudioLane(name: "Music")
+
+        XCTAssertEqual(primaryCallbackCount, 2)
+        XCTAssertEqual(observerCallbackCount, 1)
+    }
+
     // MARK: - Timeline Duration Calculation Tests
 
     func testCalculateTotalDuration() {

@@ -224,7 +224,7 @@ struct ContentView: View {
             setupMediaImportCoordinatorCallbacks()
 
             // Show onboarding for first-time users (replaces welcome overlay)
-            if !AppSettings.shared.hasCompletedWelcome {
+            if !isUITesting && !AppSettings.shared.hasCompletedWelcome {
                 showOnboarding = true
             }
         }

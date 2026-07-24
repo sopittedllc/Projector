@@ -652,6 +652,7 @@ struct MultiTrackTimelineView: View {
             }
             .buttonStyle(.plain)
             .disabled(zoomLevel <= minZoom)
+            .accessibilityLabel("Zoom out")
 
             Slider(value: $zoomLevel, in: minZoom...maxZoom)
                 .frame(width: 80)
@@ -668,6 +669,7 @@ struct MultiTrackTimelineView: View {
             }
             .buttonStyle(.plain)
             .disabled(zoomLevel >= maxZoom)
+            .accessibilityLabel("Zoom in")
         }
     }
 

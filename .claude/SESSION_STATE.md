@@ -1,8 +1,51 @@
 # Session State
 
-> **Last Updated**: 2026-04-28
-> **Status**: IDLE
-> **Branch**: main
+> **Last Updated**: 2026-07-23
+> **Status**: READY FOR DRAFT PR
+> **Branch**: codex/repair-sync-core
+
+---
+
+## Current Task
+
+**Task**: Repair the simplified Video Sync 6 synchronization core and establish a verified build/test baseline.
+**Started**: 2026-07-20
+**Files**: MIDI sync, transport/playback wiring, waveform rendering, startup/signing, regression tests, and this session record.
+
+## Active Todos
+
+- [x] Install/select Xcode and complete first-launch setup
+- [x] Verify unsigned Debug build succeeds
+- [x] Run baseline tests (unit tests: two audio-state failures; UI runner bootstrapping failure)
+- [x] Repair MIDISyncActor and TimelineActor multi-subscriber delivery
+- [x] Make MMC commands one-shot events
+- [x] Propagate the project frame rate into MTC decoding
+- [x] Wire synchronization settings and drift correction
+- [x] Preserve both presentation and actor timeline-change observers
+- [x] Stop Debug builds from resetting onboarding on every launch
+- [x] Repair lazy waveform generation and cancellation behavior
+- [x] Make Debug builds runnable with local ad-hoc signing
+- [x] Add regression tests and rerun build/test gates
+- [x] Pass clean Debug build with no command-line overrides
+- [x] Pass full test suite: 40/40 tests, including UI waveform import/zoom
+- [x] Launch and visually verify the clean app bundle
+
+## Current Repair Summary
+
+- Clean Debug build succeeds from Xcode without Kegan's private signing certificate.
+- Release signing remains assigned to team `G398H44H6X` for Kegan's distribution workflow.
+- MIDI and timeline streams safely broadcast to the UI and transport simultaneously.
+- Timeline frame rate, non-zero start timecode, MMC events, sync preferences, and drift threshold now reach playback correctly.
+- Waveform generation no longer publishes during SwiftUI view evaluation and cancels safely.
+- First-run onboarding is remembered; `-reset-welcome` explicitly resets it for developers.
+- Test-created audio preferences are restored and no longer leak into the user's app settings.
+
+## Verification
+
+- `xcodebuild ... clean build`: PASS (Debug, local ad-hoc signing, no overrides)
+- `xcodebuild ... test`: PASS (39 unit/integration + 1 UI = 40 total)
+- Codesign deep verification: PASS
+- Visual first-run launch: PASS
 
 ---
 
@@ -59,7 +102,9 @@
 
 ## Known Issues / Next Steps
 
-None identified. App is in good state.
+- Physical MTC/MMC interoperability still requires a real DAW or MIDI generator; automated coverage verifies delivery and state wiring but cannot emulate the user's external hardware setup.
+- Have the user complete the setup guide and run a real DAW sync check before merging.
+- Publish the verified repair branch as a draft PR for Kegan's review.
 
 If starting new work:
 1. Create a feature branch from main

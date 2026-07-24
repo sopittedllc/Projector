@@ -6,9 +6,14 @@ extension ContentView {
     // MARK: - Setup
 
     func setupMIDICallbacks() {
+        let initialFrameRate = timelineManager.timeline.config.frameRate
+
         // Start the MIDI sync actor
         Task {
             do {
+                // Configure the decoder before constructing MIDIKit's MTC receiver.
+                // The actor defaults to 30 fps, while new projects default to 24 fps.
+                await midiSyncActor.setLocalFrameRate(initialFrameRate)
                 try await midiSyncActor.start()
 
                 // Restore MIDI input selection
@@ -27,12 +32,20 @@ extension ContentView {
                 guard let engine = playbackEngine else { return }
 
                 switch state {
-                case .sync, .preSync, .freewheeling:
-                    // MTC is active - enter sync mode and play
-                    engine.setMTCSynced(true)
+                case .sync:
+                    engine.setMTCSynced(
+                        true,
+                        controlPlayback: AppSettings.shared.autoPlayOnMTC
+                    )
+                case .preSync, .freewheeling:
+                    // Track incoming timecode while acquiring/freewheeling, but
+                    // do not generate an additional transport transition.
+                    engine.setMTCSynced(true, controlPlayback: false)
                 case .idle, .incompatibleFrameRate:
-                    // MTC stopped - exit sync mode and pause
-                    engine.setMTCSynced(false)
+                    engine.setMTCSynced(
+                        false,
+                        controlPlayback: AppSettings.shared.autoPauseOnMTCStop
+                    )
                 }
             }
             .store(in: &midiCancellables)
@@ -104,10 +117,16 @@ extension ContentView {
         let document = projectDocument
         let manager = timelineManager
         let library = mediaLibrary
+        let midiSync = midiSyncActor
 
         timelineManager.onTimelineChanged = {
             engine.timeline = manager.timeline
             document.timeline = manager.timeline
+
+            let frameRate = manager.timeline.config.frameRate
+            Task {
+                await midiSync.setLocalFrameRate(frameRate)
+            }
         }
 
         // Sync media library changes to document

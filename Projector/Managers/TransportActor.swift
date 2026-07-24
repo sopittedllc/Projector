@@ -263,11 +263,13 @@ actor TransportActor: TransportServiceProtocol {
     }
 
     /// Handles MIDI sync state updates.
-    private func handleMIDISyncUpdate(_ syncState: MIDISyncState) {
+    private func handleMIDISyncUpdate(_ syncState: MIDISyncState) async {
         // Handle MTC timecode updates
         if let mtcTimecode = syncState.mtcTimecode {
-            // Update current frame from MTC
-            let mtcFrame = mtcTimecode.frameCount.wholeFrames
+            // Convert absolute incoming timecode into timeline-relative frames.
+            let timelineState = await timelineActor.getCurrentState()
+            let timelineStartFrame = timelineState.config.startTimecode.frameCount.wholeFrames
+            let mtcFrame = mtcTimecode.frameCount.wholeFrames - timelineStartFrame
 
             // Only update if significantly different (avoid jitter)
             if abs(mtcFrame - currentFrame) > 1 {
@@ -433,8 +435,10 @@ actor TransportActor: TransportServiceProtocol {
         let timelineState = await timelineActor.getCurrentState()
         updateGapState(videoReels: timelineState.videoReels)
 
-        // Update MIDI sync drift tracking
-        await midiSyncService.updateLocalPlaybackFrame(frame)
+        // Drift comparison uses absolute timecode frames. PlaybackEngine reports
+        // timeline-relative frames, so add the timeline start offset first.
+        let timelineStartFrame = timelineState.config.startTimecode.frameCount.wholeFrames
+        await midiSyncService.updateLocalPlaybackFrame(timelineStartFrame + frame)
 
         emitState()
     }

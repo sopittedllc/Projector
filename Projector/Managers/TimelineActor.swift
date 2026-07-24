@@ -50,11 +50,14 @@ actor TimelineActor: TimelineServiceProtocol {
     /// The timeline manager (bridge to legacy @MainActor code)
     private let timelineManager: TimelineManager
 
-    /// AsyncStream continuation for state updates
-    private var continuation: AsyncStream<TimelineState>.Continuation?
+    /// AsyncStream continuations for every active state subscriber.
+    private var continuations: [UUID: AsyncStream<TimelineState>.Continuation] = [:]
 
     /// Observation task for timeline changes
     private var observationTask: Task<Void, Never>?
+
+    /// Token for the observer registered with TimelineManager.
+    private var timelineObserverID: UUID?
 
     // MARK: - Initialization
 
@@ -68,40 +71,57 @@ actor TimelineActor: TimelineServiceProtocol {
 
     deinit {
         observationTask?.cancel()
-        continuation?.finish()
+        for continuation in continuations.values {
+            continuation.finish()
+        }
     }
 
     // MARK: - TimelineServiceProtocol: State Stream
 
     nonisolated var timelineStateStream: AsyncStream<TimelineState> {
-        AsyncStream { continuation in
+        let subscriberID = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             Task {
-                await self.registerContinuation(continuation)
+                await self.registerContinuation(continuation, id: subscriberID)
             }
         }
     }
 
-    private func registerContinuation(_ continuation: AsyncStream<TimelineState>.Continuation) {
-        self.continuation?.finish()
-        self.continuation = continuation
+    private func registerContinuation(
+        _ continuation: AsyncStream<TimelineState>.Continuation,
+        id: UUID
+    ) {
+        continuations[id] = continuation
 
         continuation.onTermination = { [weak self] _ in
             Task {
-                await self?.handleStreamTermination()
+                await self?.handleStreamTermination(id: id)
             }
         }
 
         // Emit initial state
         Task {
             await self.emitState()
-            self.startObservingTimelineManager()
+            if self.observationTask == nil {
+                self.startObservingTimelineManager()
+            }
         }
     }
 
     /// Handles stream termination (cleanup)
-    private func handleStreamTermination() {
-        observationTask?.cancel()
-        observationTask = nil
+    private func handleStreamTermination(id: UUID) {
+        continuations.removeValue(forKey: id)
+        if continuations.isEmpty {
+            observationTask?.cancel()
+            observationTask = nil
+
+            if let observerID = timelineObserverID {
+                timelineObserverID = nil
+                Task { @MainActor [timelineManager] in
+                    timelineManager.removeTimelineChangeObserver(id: observerID)
+                }
+            }
+        }
     }
 
     /// Starts observing TimelineManager for changes
@@ -114,13 +134,14 @@ actor TimelineActor: TimelineServiceProtocol {
             let emitStateClosure: @Sendable () async -> Void = { [weak self] in
                 await self?.emitState()
             }
-            await MainActor.run {
-                self.timelineManager.onTimelineChanged = {
+            let observerID = await MainActor.run {
+                self.timelineManager.addTimelineChangeObserver {
                     Task {
                         await emitStateClosure()
                     }
                 }
             }
+            self.timelineObserverID = observerID
         }
     }
 
@@ -136,7 +157,9 @@ actor TimelineActor: TimelineServiceProtocol {
                 config: timelineManager.timeline.config
             )
         }
-        continuation?.yield(state)
+        for continuation in continuations.values {
+            continuation.yield(state)
+        }
     }
 
     // MARK: - TimelineServiceProtocol: Video Reel Operations
