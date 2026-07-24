@@ -30,12 +30,6 @@ struct ContentView: View {
     /// ViewModel for timeline UI state and interactions
     @StateObject var timelineViewModel: TimelineViewModel
 
-    // MARK: - Transport (Actor-based for thread safety)
-    /// The transport actor (logic layer) - handles transport state
-    let transportActor: TransportActor
-    /// ViewModel bridging actor state to UI
-    @StateObject var transportViewModel: TransportViewModel
-
     // MARK: - Missing File Resolution
     /// Service for handling missing file resolution when loading projects
     @StateObject var missingFileService: MissingFileResolutionService
@@ -70,15 +64,6 @@ struct ContentView: View {
         self._mediaLibrary = StateObject(wrappedValue: library)
         self._projectDocument = StateObject(wrappedValue: document)
         self._playbackEngine = StateObject(wrappedValue: engine)
-
-        // Initialize transport actor and view model (requires playbackEngine, timelineActor, midiSyncActor)
-        let transport = TransportActor(
-            playbackEngine: engine,
-            timelineActor: timelineActor,
-            midiSyncService: actor
-        )
-        self.transportActor = transport
-        self._transportViewModel = StateObject(wrappedValue: TransportViewModel(service: transport))
 
         // Initialize missing file resolution service
         self._missingFileService = StateObject(wrappedValue: MissingFileResolutionService(
@@ -214,9 +199,6 @@ struct ContentView: View {
             setupMIDICallbacks()
             setupAudioCallback()
             setupTimelineCallbacks()
-
-            // Start transport actor (sets up PlaybackEngine callbacks)
-            Task { await transportActor.start() }
 
             restoreSettings()
             handleUITestImportIfNeeded()

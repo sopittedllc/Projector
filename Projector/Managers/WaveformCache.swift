@@ -106,7 +106,17 @@ final class WaveformCache: ObservableObject {
     /// In-flight generation tasks keyed by clip ID.
     ///
     /// Prevents duplicate generation requests for the same clip.
-    private var generationTasks: [UUID: Task<Void, Never>] = [:]
+    private struct Generation {
+        let token: UUID
+        let task: Task<Void, Never>
+    }
+
+    private var generationTasks: [UUID: Generation] = [:]
+
+    private final class AssetReaderBox: @unchecked Sendable {
+        let reader: AVAssetReader
+        init(_ reader: AVAssetReader) { self.reader = reader }
+    }
 
     /// Requests deferred until the current SwiftUI update has completed.
     ///
@@ -158,7 +168,7 @@ final class WaveformCache: ObservableObject {
             queuedGenerationIDs.insert(clip.id)
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.queuedGenerationIDs.remove(clip.id)
+                guard self.queuedGenerationIDs.remove(clip.id) != nil else { return }
                 guard self.clipAtlases[clip.id] == nil,
                       self.generationTasks[clip.id] == nil else { return }
                 self.startGeneration(for: clip)
@@ -180,6 +190,7 @@ final class WaveformCache: ObservableObject {
         let clipId = clip.id
         let sps = samplesPerSecond
         let bucketCounts = atlasBucketCounts
+        let token = UUID()
 
         pendingCount += 1
 
@@ -198,7 +209,7 @@ final class WaveformCache: ObservableObject {
             }
 
             defer {
-                self.finishGeneration(for: clipId)
+                self.finishGeneration(for: clipId, token: token)
             }
 
             do {
@@ -209,6 +220,7 @@ final class WaveformCache: ObservableObject {
                 }
                 try Task.checkCancellation()
 
+                guard self.generationTasks[clipId]?.token == token else { return }
                 self.clipAtlases[clipId] = atlas
             } catch is CancellationError {
                 // Cancellation is expected when clips are removed or caches reset.
@@ -217,7 +229,7 @@ final class WaveformCache: ObservableObject {
             }
         }
 
-        generationTasks[clipId] = task
+        generationTasks[clipId] = Generation(token: token, task: task)
         updateGeneratingState()
     }
 
@@ -243,6 +255,7 @@ final class WaveformCache: ObservableObject {
         bucketCounts: [Int]
     ) async throws -> WaveformAtlas {
         let url = clip.sourceURL
+        try Task.checkCancellation()
         let accessGranted = url.startAccessingSecurityScopedResource()
         defer {
             if accessGranted {
@@ -252,6 +265,7 @@ final class WaveformCache: ObservableObject {
 
         let asset = AVAsset(url: url)
         let duration = try await asset.load(.duration)
+        try Task.checkCancellation()
         let durationSeconds = CMTimeGetSeconds(duration)
         let maxSampleCount = (bucketCounts.max() ?? 16384) * 8
         let rawSampleCount = Int(durationSeconds * Double(samplesPerSecond))
@@ -262,6 +276,7 @@ final class WaveformCache: ObservableObject {
         )
 
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        try Task.checkCancellation()
         guard !audioTracks.isEmpty else {
             throw WaveformCacheError.noAudioTracks
         }
@@ -287,8 +302,10 @@ final class WaveformCache: ObservableObject {
             durationSeconds: durationSeconds
         )
 
+        try Task.checkCancellation()
         let normalizedSamples = normalize(samples: samples)
-        let levels = buildLevels(from: normalizedSamples, bucketCounts: bucketCounts)
+        try Task.checkCancellation()
+        let levels = try buildLevels(from: normalizedSamples, bucketCounts: bucketCounts)
         return WaveformAtlas(duration: durationSeconds, levels: levels)
     }
 
@@ -311,6 +328,7 @@ final class WaveformCache: ObservableObject {
         durationSeconds: Double
     ) async throws -> [Float] {
         let reader = try AVAssetReader(asset: asset)
+        let readerBox = AssetReaderBox(reader)
         let expectedSamples = Int(durationSeconds * Double(samplesPerSecond))
         var samples: [Float] = []
         samples.reserveCapacity(expectedSamples)
@@ -344,36 +362,44 @@ final class WaveformCache: ObservableObject {
         var samplesInBucket = 0
         var currentPeak: Int32 = 0
 
-        while let sampleBuffer2 = output.copyNextSampleBuffer() {
-            guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer2) else { continue }
+        try await withTaskCancellationHandler {
+            while let sampleBuffer2 = output.copyNextSampleBuffer() {
+                try Task.checkCancellation()
+                guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer2) else { continue }
 
-            var length = 0
-            var dataPointer: UnsafeMutablePointer<Int8>?
-            CMBlockBufferGetDataPointer(
-                blockBuffer,
-                atOffset: 0,
-                lengthAtOffsetOut: nil,
-                totalLengthOut: &length,
-                dataPointerOut: &dataPointer
-            )
+                var length = 0
+                var dataPointer: UnsafeMutablePointer<Int8>?
+                CMBlockBufferGetDataPointer(
+                    blockBuffer,
+                    atOffset: 0,
+                    lengthAtOffsetOut: nil,
+                    totalLengthOut: &length,
+                    dataPointerOut: &dataPointer
+                )
 
-            guard let data = dataPointer else { continue }
+                guard let data = dataPointer else { continue }
 
-            let sampleCount = length / MemoryLayout<Int16>.size
-            let samplePointer = data.withMemoryRebound(to: Int16.self, capacity: sampleCount) { $0 }
+                let sampleCount = length / MemoryLayout<Int16>.size
+                let samplePointer = data.withMemoryRebound(to: Int16.self, capacity: sampleCount) { $0 }
 
-            for sampleIndex in 0..<sampleCount {
-                let absValue = abs(Int32(samplePointer[sampleIndex]))
-                if absValue > currentPeak {
-                    currentPeak = absValue
-                }
-                samplesInBucket += 1
-                if samplesInBucket >= samplesPerOutputSample {
-                    samples.append(min(1.0, Float(currentPeak) * int16Scale))
-                    samplesInBucket = 0
-                    currentPeak = 0
+                for sampleIndex in 0..<sampleCount {
+                    if sampleIndex.isMultiple(of: 16_384) {
+                        try Task.checkCancellation()
+                    }
+                    let absValue = abs(Int32(samplePointer[sampleIndex]))
+                    if absValue > currentPeak {
+                        currentPeak = absValue
+                    }
+                    samplesInBucket += 1
+                    if samplesInBucket >= samplesPerOutputSample {
+                        samples.append(min(1.0, Float(currentPeak) * int16Scale))
+                        samplesInBucket = 0
+                        currentPeak = 0
+                    }
                 }
             }
+        } onCancel: {
+            readerBox.reader.cancelReading()
         }
 
         if samplesInBucket > 0 {
@@ -398,8 +424,10 @@ final class WaveformCache: ObservableObject {
     /// - Parameter clipId: The UUID of the clip to cancel
     func cancelGeneration(for clipId: UUID) {
         queuedGenerationIDs.remove(clipId)
-        if let task = generationTasks[clipId] {
-            task.cancel()
+        if let generation = generationTasks.removeValue(forKey: clipId) {
+            generation.task.cancel()
+            pendingCount = max(0, pendingCount - 1)
+            updateGeneratingState()
         }
     }
 
@@ -483,8 +511,9 @@ final class WaveformCache: ObservableObject {
     }
 
     /// Completes one tracked generation exactly once.
-    private func finishGeneration(for clipId: UUID) {
-        guard generationTasks.removeValue(forKey: clipId) != nil else { return }
+    private func finishGeneration(for clipId: UUID, token: UUID) {
+        guard generationTasks[clipId]?.token == token else { return }
+        generationTasks.removeValue(forKey: clipId)
         pendingCount = max(0, pendingCount - 1)
         updateGeneratingState()
     }
@@ -494,8 +523,8 @@ final class WaveformCache: ObservableObject {
     /// Removes both clip-based and legacy track-based waveforms.
     func clearAll() {
         // Cancel all pending tasks
-        for task in generationTasks.values {
-            task.cancel()
+        for generation in generationTasks.values {
+            generation.task.cancel()
         }
         generationTasks.removeAll()
         queuedGenerationIDs.removeAll()
@@ -511,8 +540,8 @@ final class WaveformCache: ObservableObject {
     ///
     /// Keeps legacy track waveforms intact.
     func clearClipWaveforms() {
-        for task in generationTasks.values {
-            task.cancel()
+        for generation in generationTasks.values {
+            generation.task.cancel()
         }
         generationTasks.removeAll()
         queuedGenerationIDs.removeAll()
@@ -590,10 +619,14 @@ final class WaveformCache: ObservableObject {
     ///   - samples: Normalized amplitude samples
     ///   - bucketCounts: Array of target bucket counts for each level
     /// - Returns: Dictionary mapping bucket count to WaveformLevel
-    private nonisolated static func buildLevels(from samples: [Float], bucketCounts: [Int]) -> [Int: WaveformLevel] {
+    private nonisolated static func buildLevels(
+        from samples: [Float],
+        bucketCounts: [Int]
+    ) throws -> [Int: WaveformLevel] {
         var levels: [Int: WaveformLevel] = [:]
         for bucketCount in bucketCounts {
-            levels[bucketCount] = buildLevel(samples: samples, bucketCount: bucketCount)
+            try Task.checkCancellation()
+            levels[bucketCount] = try buildLevel(samples: samples, bucketCount: bucketCount)
         }
         return levels
     }
@@ -606,7 +639,10 @@ final class WaveformCache: ObservableObject {
     ///   - samples: Normalized amplitude samples
     ///   - bucketCount: Target number of buckets (output samples)
     /// - Returns: WaveformLevel with min/max/rms arrays
-    private nonisolated static func buildLevel(samples: [Float], bucketCount: Int) -> WaveformLevel {
+    private nonisolated static func buildLevel(
+        samples: [Float],
+        bucketCount: Int
+    ) throws -> WaveformLevel {
         let safeBucketCount = max(1, bucketCount)
         var minValues = Array(repeating: Float(0), count: safeBucketCount)
         var maxValues = Array(repeating: Float(0), count: safeBucketCount)
@@ -618,6 +654,9 @@ final class WaveformCache: ObservableObject {
 
         let bucketSize = Double(samples.count) / Double(safeBucketCount)
         for bucketIndex in 0..<safeBucketCount {
+            if bucketIndex.isMultiple(of: 256) {
+                try Task.checkCancellation()
+            }
             let startIndex = Int(Double(bucketIndex) * bucketSize)
             let endIndex = min(samples.count, Int(Double(bucketIndex + 1) * bucketSize))
             if startIndex >= endIndex {

@@ -3,6 +3,15 @@ import CoreAudio
 import AVFoundation
 import Combine
 
+@MainActor
+protocol AudioOutputSettingsStore: AnyObject {
+    var selectedAudioOutput: String { get set }
+    func mappedOutputs(for deviceUID: String?) -> [MappedAudioOutput]
+    func setMappedOutputs(_ outputs: [MappedAudioOutput], for deviceUID: String?)
+}
+
+extension AppSettings: AudioOutputSettingsStore {}
+
 // MARK: - AudioDevice
 
 /// Represents an audio output device available on the system.
@@ -136,11 +145,12 @@ final class AudioOutputManager: ObservableObject {
 
     private nonisolated(unsafe) var deviceListenerBlock: AudioObjectPropertyListenerBlock?
     private nonisolated(unsafe) var listenerQueue = DispatchQueue(label: "com.projector.audiodevicelistener")
-    private let settings = AppSettings.shared
+    private let settings: any AudioOutputSettingsStore
 
     // MARK: - Initialization
 
-    init() {
+    init(settings: any AudioOutputSettingsStore = AppSettings.shared) {
+        self.settings = settings
         refreshDevices()
         setupDeviceChangeListener()
         loadMappedOutputs()

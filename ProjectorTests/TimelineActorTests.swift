@@ -165,4 +165,26 @@ final class TimelineActorTests: XCTestCase {
         firstTask.cancel()
         secondTask.cancel()
     }
+
+    @MainActor
+    func testImmediateStreamTerminationDoesNotLeakTimelineObserver() async {
+        let manager = TimelineManager(timeline: .empty)
+        let actor = TimelineActor(timelineManager: manager)
+        let receivedInitialState = expectation(description: "Stream emits initial state")
+
+        let task = Task {
+            for await _ in actor.timelineStateStream {
+                receivedInitialState.fulfill()
+                // Remain suspended in the stream until explicit cancellation so
+                // AsyncStream invokes its termination handler deterministically.
+            }
+        }
+        await fulfillment(of: [receivedInitialState], timeout: 1.0)
+        task.cancel()
+        await task.value
+
+        for _ in 0..<100 { await Task.yield() }
+
+        XCTAssertEqual(manager.timelineChangeObserverCountForTesting, 0)
+    }
 }

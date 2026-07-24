@@ -22,6 +22,8 @@ final class MIDISyncActorTests: XCTestCase {
         func useProtocol<T: MIDISyncServiceProtocol>(_ service: T) async {
             // Verify protocol methods exist
             _ = service.syncStateStream
+            _ = service.mtcUpdateStream
+            _ = service.mmcCommandStream
             await service.selectInput(nil)
             await service.refreshAvailableInputs()
             await service.setLocalFrameRate(.fps24)
@@ -102,5 +104,75 @@ final class MIDISyncActorTests: XCTestCase {
         firstTask.cancel()
         secondTask.cancel()
         await actor.stop()
+    }
+
+    func testMMCCommandsRemainOrderedWhenStateTelemetryInterleaves() async {
+        let actor = MIDISyncActor()
+        let stream = actor.mmcCommandStream
+        let receiver = Task { () -> [MMCCommandEvent] in
+            var events: [MMCCommandEvent] = []
+            for await event in stream {
+                events.append(event)
+                if events.count == 3 { break }
+            }
+            return events
+        }
+
+        await waitForSubscribers(actor, commands: 1)
+        await actor.receiveMMCCommandForTesting(.play)
+        await actor.setLocalFrameRate(.fps25)
+        await actor.receiveMMCCommandForTesting(.stop)
+        await actor.setLocalFrameRate(.fps24)
+        await actor.receiveMMCCommandForTesting(.play)
+
+        let events = await receiver.value
+        XCTAssertEqual(events.map(\.command), [.play, .stop, .play])
+        XCTAssertEqual(events.map(\.id), [1, 2, 3])
+        await actor.stop()
+    }
+
+    func testMTCUpdatePreservesDirectionAndIdleClearsStaleTimecode() async throws {
+        let actor = MIDISyncActor()
+        let mtcStream = actor.mtcUpdateStream
+        let timecode = Timecode(.frames(240), at: .fps24, by: .clamping)
+
+        let updateReceiver = Task { () -> MTCUpdate? in
+            for await update in mtcStream { return update }
+            return nil
+        }
+        await waitForSubscribers(actor, mtc: 1)
+        await actor.receiveMTCUpdateForTesting(MTCUpdate(
+            timecode: timecode,
+            direction: .backwards,
+            kind: .quarterFrame
+        ))
+        let receivedUpdate = await updateReceiver.value
+        XCTAssertEqual(receivedUpdate?.direction, .backwards)
+
+        await actor.setMTCStateForTesting(.sync)
+        let stateStream = actor.syncStateStream
+        let idleReceiver = Task { () -> MIDISyncState? in
+            for await state in stateStream where state.mtcState == .idle && state.mtcTimecode == nil {
+                return state
+            }
+            return nil
+        }
+        await actor.setMTCStateForTesting(.idle)
+        let idleState = await idleReceiver.value
+        XCTAssertNil(idleState?.mtcTimecode)
+        await actor.stop()
+    }
+
+    private func waitForSubscribers(
+        _ actor: MIDISyncActor,
+        mtc: Int = 0,
+        commands: Int = 0
+    ) async {
+        for _ in 0..<100 {
+            let counts = await actor.subscriberCountsForTesting()
+            if counts.mtc >= mtc && counts.commands >= commands { return }
+            await Task.yield()
+        }
+        XCTFail("AsyncStream subscribers did not register")
     }
 }

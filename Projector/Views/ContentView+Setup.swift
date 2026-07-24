@@ -6,6 +6,8 @@ extension ContentView {
     // MARK: - Setup
 
     func setupMIDICallbacks() {
+        guard midiCancellables.isEmpty else { return }
+
         let initialFrameRate = timelineManager.timeline.config.frameRate
 
         // Start the MIDI sync actor
@@ -50,39 +52,34 @@ extension ContentView {
             }
             .store(in: &midiCancellables)
 
-        // Observe MTC timecode changes for position tracking
-        // This handles both:
-        // 1. Continuous MTC sync (quarter frames during playback) - when isMTCSynced is true
-        // 2. MTC Full Frame messages (locate commands) - seek even when not in sync mode
-        // Note: Low throttle (50ms) for responsive locates; syncToMTC uses jump detection
-        // to prevent over-seeking during continuous playback
-        midiSyncViewModel.$mtcTimecode
+        // Position telemetry is independent from UI state and carries direction.
+        // Quarter-frame updates chase the external clock; full-frame updates are
+        // exact locate events when transport is stopped.
+        midiSyncViewModel.$latestMTCUpdate
             .compactMap { $0 }
-            .throttle(for: .milliseconds(50), scheduler: DispatchQueue.main, latest: true)
-            .sink { [weak playbackEngine] timecode in
+            .sink { [weak playbackEngine] update in
                 guard let engine = playbackEngine else { return }
 
-                if engine.isMTCSynced {
-                    // Continuous sync mode - let video play, just track position
-                    engine.syncToMTC(timecode)
+                if update.kind == .quarterFrame || engine.isMTCSynced {
+                    engine.syncToMTC(update.timecode, direction: update.direction)
                 } else {
-                    // Not in sync mode - this is likely an MTC Full Frame (locate)
-                    // Seek to the position like an MMC Locate command
-                    engine.seekToTimecode(timecode)
+                    engine.seekToTimecode(update.timecode)
                 }
             }
             .store(in: &midiCancellables)
 
-        // Observe MMC transport commands
-        midiSyncViewModel.$lastMMCCommand
+        // MMC commands arrive on a lossless FIFO stream with unique identities.
+        midiSyncViewModel.$mmcCommandEvent
             .compactMap { $0 }
-            .sink { [weak playbackEngine] command in
+            .sink { [weak playbackEngine] event in
                 guard AppSettings.shared.respondToMMC else { return }
                 guard let engine = playbackEngine else { return }
 
-                switch command {
+                switch event.command {
                 case .stop:
-                    engine.stop()
+                    // MMC Stop holds the DAW's current location. The local Stop
+                    // button remains the explicit rewind-to-start operation.
+                    engine.pause()
                 case .play, .deferredPlay:
                     engine.play()
                 case .pause:
@@ -118,6 +115,15 @@ extension ContentView {
         let manager = timelineManager
         let library = mediaLibrary
         let midiSync = midiSyncActor
+
+        // PlaybackEngine is the sole production transport authority. Report the
+        // actual decoded video position directly for honest drift telemetry.
+        engine.onFrameUpdate = { frame in
+            let absoluteFrame = await MainActor.run {
+                manager.timeline.config.startTimecode.frameCount.wholeFrames + frame
+            }
+            await midiSync.updateLocalPlaybackFrame(absoluteFrame)
+        }
 
         timelineManager.onTimelineChanged = {
             engine.timeline = manager.timeline

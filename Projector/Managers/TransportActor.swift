@@ -80,6 +80,9 @@ actor TransportActor: TransportServiceProtocol {
     /// Timeline frame rate.
     private var frameRate: TimecodeFrameRate
 
+    /// Complete timeline conversion context, including non-zero start timecode.
+    private var timelineConfig: TimelineConfig?
+
     /// Whether the playhead is in a gap (no video reel at current position).
     private var isInGap: Bool = false
 
@@ -117,6 +120,8 @@ actor TransportActor: TransportServiceProtocol {
     /// Observation task for MIDI sync commands.
     private var midiCommandObservationTask: Task<Void, Never>?
 
+    private var hasStarted = false
+
     // MARK: - Initialization
 
     /// Creates a new transport actor.
@@ -152,6 +157,9 @@ actor TransportActor: TransportServiceProtocol {
     ///
     /// Call this after initialization to begin receiving state updates.
     func start() async {
+        guard !hasStarted else { return }
+        hasStarted = true
+
         // Set up PlaybackEngine callback for frame updates
         await MainActor.run {
             playbackEngine.onFrameUpdate = { [weak self] frame in
@@ -218,10 +226,10 @@ actor TransportActor: TransportServiceProtocol {
         // Update timeline-derived state
         durationFrames = state.durationFrames
         frameRate = state.frameRate
+        timelineConfig = state.config
         hasContent = !state.videoReels.isEmpty || !state.audioLanes.isEmpty
 
-        // Update currentTimecode with new frame rate
-        currentTimecode = Timecode(.frames(currentFrame), at: frameRate, by: .clamping)
+        currentTimecode = state.config.timecode(at: currentFrame)
 
         // Determine if we're in a gap
         updateGapState(videoReels: state.videoReels)
@@ -323,7 +331,8 @@ actor TransportActor: TransportServiceProtocol {
     func stop() async {
         isPlaying = false
         currentFrame = 0
-        currentTimecode = Timecode(.frames(0), at: frameRate, by: .clamping)
+        currentTimecode = timelineConfig?.timecode(at: 0)
+            ?? Timecode(.frames(0), at: frameRate, by: .clamping)
         emitState()
 
         await MainActor.run {
@@ -339,7 +348,8 @@ actor TransportActor: TransportServiceProtocol {
 
         loadingState = .seeking
         currentFrame = clampedFrame
-        currentTimecode = Timecode(.frames(clampedFrame), at: frameRate, by: .clamping)
+        currentTimecode = timelineConfig?.timecode(at: clampedFrame)
+            ?? Timecode(.frames(clampedFrame), at: frameRate, by: .clamping)
         emitState()
 
         await MainActor.run {
@@ -354,7 +364,11 @@ actor TransportActor: TransportServiceProtocol {
     ///
     /// - Parameter timecode: Target timecode.
     func seekToTimecode(_ timecode: Timecode) async {
-        let targetFrame = timecode.frameCount.wholeFrames
+        let config = await timelineActor.getCurrentState().config
+        timelineConfig = config
+        durationFrames = config.durationFrames
+        frameRate = config.frameRate
+        let targetFrame = config.frame(for: timecode)
         await seekToFrame(targetFrame)
     }
 
@@ -429,10 +443,12 @@ actor TransportActor: TransportServiceProtocol {
     /// - Note: Thread-safe, can be called from any actor
     func updateCurrentFrame(_ frame: Int) async {
         currentFrame = frame
-        currentTimecode = Timecode(.frames(frame), at: frameRate, by: .clamping)
 
         // Update gap state based on new position
         let timelineState = await timelineActor.getCurrentState()
+        timelineConfig = timelineState.config
+        currentTimecode = timelineState.config.timecode(at: frame)
+        isPlaying = await MainActor.run { playbackEngine.isPlaying }
         updateGapState(videoReels: timelineState.videoReels)
 
         // Drift comparison uses absolute timecode frames. PlaybackEngine reports

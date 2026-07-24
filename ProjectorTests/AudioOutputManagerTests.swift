@@ -12,18 +12,31 @@ import AVFoundation
 @MainActor
 final class AudioOutputManagerTests: XCTestCase {
 
+    private final class SettingsStore: AudioOutputSettingsStore {
+        var selectedAudioOutput = ""
+        var mappings: [String: [MappedAudioOutput]] = [:]
+
+        func mappedOutputs(for deviceUID: String?) -> [MappedAudioOutput] {
+            mappings[deviceUID ?? "system_default"] ?? []
+        }
+
+        func setMappedOutputs(_ outputs: [MappedAudioOutput], for deviceUID: String?) {
+            mappings[deviceUID ?? "system_default"] = outputs
+        }
+    }
+
     var manager: AudioOutputManager!
-    private var originalSelectedAudioOutput = ""
+    private var settings: SettingsStore!
 
     override func setUp() async throws {
         try await super.setUp()
-        originalSelectedAudioOutput = AppSettings.shared.selectedAudioOutput
-        manager = AudioOutputManager()
+        settings = SettingsStore()
+        manager = AudioOutputManager(settings: settings)
     }
 
     override func tearDown() async throws {
-        manager.selectedDeviceUID = originalSelectedAudioOutput.isEmpty ? nil : originalSelectedAudioOutput
         manager = nil
+        settings = nil
         try await super.tearDown()
     }
 
@@ -53,6 +66,7 @@ final class AudioOutputManagerTests: XCTestCase {
 
         // Then: Value is stored
         XCTAssertEqual(manager.selectedDeviceUID, "test-device-uid", "Should store selected device UID")
+        XCTAssertEqual(settings.selectedAudioOutput, "test-device-uid")
     }
 
     // MARK: - Callback Tests

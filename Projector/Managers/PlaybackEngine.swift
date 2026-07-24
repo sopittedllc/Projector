@@ -4,6 +4,65 @@ import Combine
 import SwiftTimecodeCore
 import AudioToolbox
 
+/// Pure MTC chase policy. Keeping the decision logic independent from AVPlayer
+/// makes phase behavior deterministic and exhaustively testable.
+struct MTCChaseController {
+    enum Action: Equatable {
+        case hold
+        case play(rate: Float)
+        case seek(frame: Int, resume: Bool)
+    }
+
+    static let hardSeekThresholdFrames = 2
+    static let maximumRateCorrection: Float = 0.04
+
+    static func action(
+        targetFrame: Int,
+        actualFrame: Int,
+        direction: MTCPlaybackDirection,
+        isPlaying: Bool,
+        isDiscontinuous: Bool,
+        canSeek: Bool
+    ) -> Action {
+        let phaseError = targetFrame - actualFrame
+
+        if direction == .backwards {
+            return canSeek ? .seek(frame: targetFrame, resume: false) : .hold
+        }
+
+        if (isDiscontinuous || abs(phaseError) >= hardSeekThresholdFrames), canSeek {
+            return .seek(frame: targetFrame, resume: isPlaying && direction != .backwards)
+        }
+
+        guard isPlaying else { return .hold }
+
+        let correction = Float(phaseError) * 0.02
+        let boundedCorrection = min(max(correction, -maximumRateCorrection), maximumRateCorrection)
+        return .play(rate: 1.0 + boundedCorrection)
+    }
+}
+
+/// Pure policy for deciding when MTC-driven audio needs reconciliation.
+/// Audio clips can start or end while the video remains on the same reel, so
+/// reel transitions alone are not a sufficient synchronization boundary.
+struct MTCAudioReconciliationPolicy {
+    static func shouldReconcile(
+        previousActiveIDs: Set<UUID>,
+        activeIDs: Set<UUID>,
+        lastSyncFrame: Int,
+        currentFrame: Int,
+        framesPerCorrection: Int,
+        force: Bool,
+        resumedFromReverse: Bool
+    ) -> Bool {
+        force
+            || resumedFromReverse
+            || previousActiveIDs != activeIDs
+            || lastSyncFrame < 0
+            || abs(currentFrame - lastSyncFrame) >= max(1, framesPerCorrection)
+    }
+}
+
 // MARK: - PlaybackEngine
 
 /// Multi-reel playback engine with timeline support.
@@ -122,11 +181,22 @@ final class PlaybackEngine: ObservableObject {
     /// Target frame from MTC (for drift calculation)
     private var mtcTargetFrame: Int = 0
 
+    /// Direction of the decoded MTC quarter-frame sequence.
+    private var mtcDirection: MTCPlaybackDirection = .ambiguous
+
+    /// Whether an MTC target has been established in the current chase session.
+    private var hasReceivedMTCTarget = false
+
     /// Last time playback was corrected to the incoming MTC position.
     private var lastMTCResyncTime: Date = .distantPast
 
     /// Minimum interval between corrective seeks to prevent seek storms.
-    private let minimumMTCResyncInterval: TimeInterval = 0.25
+    private let minimumMTCResyncInterval: TimeInterval = 0.08
+
+    /// Last MTC frame at which the active audio set was reconciled.
+    private var lastMTCAudioSyncFrame: Int = -1
+    private var lastMTCActiveAudioClipIDs: Set<UUID> = []
+    private var lastMTCAudioWasReverse = false
 
     /// Meter decay coefficient for smooth falloff
     private let meterDecay: Float = 0.9
@@ -553,40 +623,52 @@ final class PlaybackEngine: ObservableObject {
         isMTCSynced = synced
 
         if synced {
-            // MTC is active. Position is now driven by incoming timecode even
-            // when the user has disabled automatic transport control.
-            stopGapPlayback()  // Don't run our own timer - MTC drives position
-            mtcTargetFrame = currentFrame  // Initialize target to current position
+            stopGapPlayback()
+            if !wasSync {
+                hasReceivedMTCTarget = false
+                mtcTargetFrame = currentFrame
+                lastMTCAudioSyncFrame = -1
+                lastMTCActiveAudioClipIDs.removeAll()
+            }
 
             guard controlPlayback else { return }
 
             transportOverride = false
             isPlaying = true
 
-            // Start video if we have one at current position
-            if !wasSync, let reel = timeline.videoReel(at: currentFrame) {
+            if let reel = timeline.videoReel(at: currentFrame) {
                 isInGap = false
                 activeReel = reel
 
                 if currentPlayer == nil || currentReelId != reel.id {
-                    Task {
+                    Task { [weak self] in
+                        guard let self else { return }
                         do {
-                            try await loadReel(reel)
+                            try await self.loadReel(reel)
                         } catch {
                             debugPrint("PlaybackEngine.resume: Failed to load reel '\(reel.sourceURL.lastPathComponent)': \(error)")
+                            return
                         }
-                        seekWithinReel(reel, timelineFrame: currentFrame, resumeAfterSeek: true) {}
+                        self.seekWithinReel(
+                            reel,
+                            timelineFrame: self.mtcTargetFrame,
+                            resumeAfterSeek: self.isPlaying && self.mtcDirection != .backwards,
+                            exact: true
+                        ) {}
                     }
+                } else if mtcDirection == .backwards {
+                    currentPlayer?.pause()
                 } else {
-                    currentPlayer?.play()
+                    currentPlayer?.playImmediately(atRate: 1.0)
                 }
             }
 
-            // Start audio clips
-            startActiveAudioClips()
+            syncMTCAudioIfNeeded(force: true)
         } else {
+            hasReceivedMTCTarget = false
+            mtcDirection = .ambiguous
+            currentPlayer?.rate = 1.0
             if controlPlayback {
-                // MTC stopped and automatic pause is enabled.
                 isPlaying = false
                 stopGapPlayback()
                 stopAllAudioClips()
@@ -635,12 +717,11 @@ final class PlaybackEngine: ObservableObject {
 
     /// Syncs to an MTC timecode received from external sync.
     ///
-    /// MINIMAL approach: Just update timeline position for display purposes.
-    /// Let video play naturally - only seek for MAJOR drift (transport jump, reel change).
-    /// This prevents the constant seeking that causes stuttering.
-    ///
     /// - Parameter timecode: MTC timecode from external source.
-    func syncToMTC(_ timecode: Timecode) {
+    func syncToMTC(
+        _ timecode: Timecode,
+        direction: MTCPlaybackDirection = .ambiguous
+    ) {
         let mtcFrame = timeline.config.frame(for: timecode)
 
         // Clamp to valid range
@@ -653,52 +734,38 @@ final class PlaybackEngine: ObservableObject {
             targetFrame = mtcFrame
         }
 
-        // Detect MTC jump (user clicked timeline) vs normal playback
-        // During normal playback, MTC increments smoothly (1-2 frames per update)
-        // When user clicks timeline, MTC jumps discontinuously
         let previousMtcTarget = mtcTargetFrame
-        let mtcJump = abs(targetFrame - previousMtcTarget)
-        let isDiscontinuousJump = mtcJump > 10 && previousMtcTarget > 0  // >10 frames = user action
+        let expectedDirectionDelta: Int
+        switch direction {
+        case .forwards: expectedDirectionDelta = targetFrame - previousMtcTarget
+        case .backwards: expectedDirectionDelta = previousMtcTarget - targetFrame
+        case .ambiguous: expectedDirectionDelta = abs(targetFrame - previousMtcTarget)
+        }
+        let isDiscontinuousJump = hasReceivedMTCTarget && expectedDirectionDelta > 4
 
-        // Update MTC target (used by time observer for drift detection)
         mtcTargetFrame = targetFrame
+        mtcDirection = direction
+        hasReceivedMTCTarget = true
+        currentFrame = targetFrame
+        updateCurrentTimecode()
 
-        // Handle gap transitions
         let targetReel = timeline.videoReel(at: targetFrame)
         if targetReel == nil {
-            // MTC is in a gap
             if !isInGap {
                 isInGap = true
                 activeReel = nil
                 currentPlayer?.pause()
-                stopAllAudioClips()
             }
-            currentFrame = targetFrame
-            updateCurrentTimecode()
-
-            // Notify TransportActor of frame update
             if let onFrameUpdate = onFrameUpdate {
                 Task { await onFrameUpdate(currentFrame) }
             }
-
-            // Sync audio even in gaps (will stop clips that shouldn't play, start ones that should)
-            if isDiscontinuousJump {
-                syncAudioClips()
-            }
+            syncMTCAudioIfNeeded(force: isDiscontinuousJump)
             return
         }
 
-        // Check for reel transitions - this REQUIRES a seek
         if let reel = targetReel, reel.id != currentReelId {
             isInGap = false
             activeReel = reel
-            currentFrame = targetFrame
-            updateCurrentTimecode()
-
-            // Notify TransportActor of frame update
-            if let onFrameUpdate = onFrameUpdate {
-                Task { await onFrameUpdate(currentFrame) }
-            }
 
             Task { [weak self] in
                 guard let self else { return }
@@ -706,27 +773,100 @@ final class PlaybackEngine: ObservableObject {
                     try await self.loadReel(reel)
                 } catch {
                     debugPrint("PlaybackEngine.handleExternalSeek: Failed to load reel '\(reel.sourceURL.lastPathComponent)': \(error)")
+                    return
                 }
-                self.seekWithinReel(reel, timelineFrame: targetFrame, resumeAfterSeek: true) { [weak self] in
-                    self?.syncAudioClips()
-                }
+                self.seekWithinReel(
+                    reel,
+                    timelineFrame: self.mtcTargetFrame,
+                    resumeAfterSeek: self.isPlaying && self.mtcDirection != .backwards,
+                    exact: true
+                ) { [weak self] in self?.syncMTCAudioIfNeeded(force: true) }
             }
             return
         }
 
-        // Same reel - only seek if MTC jumped discontinuously (user clicked timeline)
-        currentFrame = targetFrame
-        updateCurrentTimecode()
-
-        if isDiscontinuousJump {
-            // MTC jumped discontinuously - user clicked timeline, seek to new position
-            if let reel = activeReel {
-                seekWithinReel(reel, timelineFrame: targetFrame, resumeAfterSeek: true) { [weak self] in
-                    self?.syncAudioClips()
-                }
-            }
+        guard let reel = targetReel, let actualFrame = videoTimelineFrame(for: reel) else {
+            syncMTCAudioIfNeeded(force: isDiscontinuousJump)
+            return
         }
-        // For continuous MTC (normal playback): video plays naturally, no seeking
+
+        let now = Date()
+        let canSeek = now.timeIntervalSince(lastMTCResyncTime) >= minimumMTCResyncInterval
+            && !isSeekingVideo
+        let action = MTCChaseController.action(
+            targetFrame: targetFrame,
+            actualFrame: actualFrame,
+            direction: direction,
+            isPlaying: isPlaying,
+            isDiscontinuous: isDiscontinuousJump,
+            canSeek: canSeek
+        )
+
+        applyMTCChaseAction(action, reel: reel, now: now)
+        syncMTCAudioIfNeeded(force: isDiscontinuousJump || direction == .backwards)
+    }
+
+    private func videoTimelineFrame(for reel: VideoReel) -> Int? {
+        guard let player = currentPlayer else { return nil }
+        let playerTime = CMTimeGetSeconds(player.currentTime())
+        guard playerTime.isFinite else { return nil }
+        let sourceFrame = Int((playerTime * reel.sourceFrameRate.fps).rounded())
+        return (sourceFrame - reel.sourceStartFrame) + reel.timelineStartFrame
+    }
+
+    private func applyMTCChaseAction(
+        _ action: MTCChaseController.Action,
+        reel: VideoReel,
+        now: Date
+    ) {
+        switch action {
+        case .hold:
+            if mtcDirection == .backwards || !isPlaying {
+                currentPlayer?.pause()
+            }
+        case .play(let rate):
+            guard isPlaying else { return }
+            currentPlayer?.playImmediately(atRate: rate)
+        case .seek(let frame, let resume):
+            lastMTCResyncTime = now
+            if mtcDirection == .backwards {
+                currentPlayer?.pause()
+            }
+            seekWithinReel(
+                reel,
+                timelineFrame: frame,
+                resumeAfterSeek: resume,
+                exact: true
+            ) {}
+        }
+    }
+
+    private func syncMTCAudioIfNeeded(force: Bool) {
+        if mtcDirection == .backwards {
+            if !lastMTCAudioWasReverse {
+                stopAllAudioClips()
+            }
+            lastMTCAudioWasReverse = true
+            lastMTCAudioSyncFrame = currentFrame
+            return
+        }
+
+        let resumedFromReverse = lastMTCAudioWasReverse
+        lastMTCAudioWasReverse = false
+        let activeIDs = Set(timeline.activeAudioClips(at: currentFrame).map { $0.clip.id })
+        let periodicInterval = max(1, Int(frameRate.fps.rounded()))
+        guard MTCAudioReconciliationPolicy.shouldReconcile(
+            previousActiveIDs: lastMTCActiveAudioClipIDs,
+            activeIDs: activeIDs,
+            lastSyncFrame: lastMTCAudioSyncFrame,
+            currentFrame: currentFrame,
+            framesPerCorrection: periodicInterval,
+            force: force,
+            resumedFromReverse: resumedFromReverse
+        ) else { return }
+        syncAudioClips()
+        lastMTCActiveAudioClipIDs = activeIDs
+        lastMTCAudioSyncFrame = currentFrame
     }
 
     /// Legacy method - redirects to syncToMTC
@@ -788,6 +928,7 @@ final class PlaybackEngine: ObservableObject {
         _ reel: VideoReel,
         timelineFrame: Int,
         resumeAfterSeek: Bool,
+        exact: Bool = false,
         completion: @escaping () -> Void
     ) {
         guard let sourceTime = reel.sourceTime(at: timelineFrame),
@@ -808,10 +949,8 @@ final class PlaybackEngine: ObservableObject {
 
         let time = CMTime(seconds: sourceTime, preferredTimescale: 600)
 
-        // Use frame-duration tolerance for smoother seeking during playback
-        // Zero tolerance is too aggressive and can cause stalls
         let frameDuration = CMTime(seconds: 1.0 / reel.sourceFrameRate.fps, preferredTimescale: 600)
-        let tolerance = isMTCSynced ? frameDuration : .zero
+        let tolerance = (exact || !isMTCSynced) ? CMTime.zero : frameDuration
 
         player.seek(to: time, toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] completed in
             Task { @MainActor in
@@ -822,9 +961,15 @@ final class PlaybackEngine: ObservableObject {
                 // Check for pending seek
                 if let pending = self.pendingVideoSeekFrame {
                     self.pendingVideoSeekFrame = nil
-                    self.seekWithinReel(reel, timelineFrame: pending, resumeAfterSeek: resumeAfterSeek) {}
+                    self.seekWithinReel(
+                        reel,
+                        timelineFrame: pending,
+                        resumeAfterSeek: resumeAfterSeek,
+                        exact: exact
+                    ) {}
                 } else if completed && resumeAfterSeek && self.isPlaying {
-                    self.currentPlayer?.play()
+                    let rate: Float = self.isMTCSynced ? 1.0 : self.playbackRate
+                    self.currentPlayer?.playImmediately(atRate: rate)
                 }
                 completion()
             }
@@ -1975,22 +2120,10 @@ final class PlaybackEngine: ObservableObject {
     private func handleTimeUpdate() {
         guard !isSeeking, let reel = activeReel, let player = currentPlayer else { return }
 
-        // In MTC sync mode, let video play naturally while correcting drift at
-        // the user-configured frame threshold. Corrections are rate-limited to
-        // avoid repeated seeks while a decoder is settling.
         if isMTCSynced {
-            let playerTime = CMTimeGetSeconds(player.currentTime())
-            let sourceFrame = Int(playerTime * reel.sourceFrameRate.fps)
-            let videoFrame = (sourceFrame - reel.sourceStartFrame) + reel.timelineStartFrame
-
-            let absDrift = abs(videoFrame - mtcTargetFrame)
-            let driftThreshold = max(1, AppSettings.shared.syncDriftThreshold)
-            let now = Date()
-            let canResync = now.timeIntervalSince(lastMTCResyncTime) >= minimumMTCResyncInterval
-
-            if absDrift > driftThreshold && canResync && !isSeekingVideo {
-                lastMTCResyncTime = now
-                seekWithinReel(reel, timelineFrame: mtcTargetFrame, resumeAfterSeek: true) {}
+            if let actualFrame = videoTimelineFrame(for: reel),
+               let onFrameUpdate {
+                Task { await onFrameUpdate(actualFrame) }
             }
             return
         }

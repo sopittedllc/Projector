@@ -102,6 +102,9 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// The MIDIKit manager instance.
     private var midiManager: MIDIKitIO.MIDIManager?
 
+    /// Notification token installed while MIDI services are running.
+    private var midiSetupObserver: NSObjectProtocol?
+
     /// The MTC receiver for timecode processing.
     private var mtcReceiver: MTCReceiver?
 
@@ -116,6 +119,9 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
     /// Last MMC command received.
     private var lastMMCCommand: MMCCommand?
+
+    /// Monotonic identity for MMC command occurrences.
+    private var mmcSequence: UInt64 = 0
 
     /// Name of the currently selected MIDI input.
     private var selectedInputName: String?
@@ -163,6 +169,14 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// previous subscriber, which could silently stop synchronization updates.
     private var stateContinuations: [UUID: AsyncStream<MIDISyncState>.Continuation] = [:]
 
+    /// Coalesced MTC position subscribers. Every sample contains the complete
+    /// current position, so retaining only the newest value is intentional.
+    private var mtcContinuations: [UUID: AsyncStream<MTCUpdate>.Continuation] = [:]
+
+    /// Ordered MMC event subscribers. Command traffic is low-volume and must
+    /// not use a newest-value buffer.
+    private var commandContinuations: [UUID: AsyncStream<MMCCommandEvent>.Continuation] = [:]
+
     /// The stream of MIDI sync state updates.
     ///
     /// Subscribers receive updates when:
@@ -179,6 +193,24 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             Task {
                 await self.registerContinuation(continuation, id: subscriberID)
+            }
+        }
+    }
+
+    public nonisolated var mtcUpdateStream: AsyncStream<MTCUpdate> {
+        let subscriberID = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            Task {
+                await self.registerMTCContinuation(continuation, id: subscriberID)
+            }
+        }
+    }
+
+    public nonisolated var mmcCommandStream: AsyncStream<MMCCommandEvent> {
+        let subscriberID = UUID()
+        return AsyncStream { continuation in
+            Task {
+                await self.registerCommandContinuation(continuation, id: subscriberID)
             }
         }
     }
@@ -225,6 +257,11 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// }
     /// ```
     public func start() async throws {
+        guard midiManager == nil else {
+            debugLog("MIDI services already running")
+            return
+        }
+
         do {
             debugLog("Starting MIDI services...")
             let manager = MIDIKitIO.MIDIManager(
@@ -256,6 +293,9 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
             debugLog("MIDISyncActor started successfully")
         } catch {
+            removeNotificationObserver()
+            mtcReceiver = nil
+            midiManager = nil
             debugLog("Failed to start MIDI services: \(error)")
             throw MIDISyncError.startupFailed(underlyingError: error)
         }
@@ -269,12 +309,13 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// ## Thread Safety
     /// This method runs on the actor and is safe to call from any context.
     public func stop() async {
-        for continuation in stateContinuations.values {
-            continuation.finish()
-        }
-        stateContinuations.removeAll()
+        removeNotificationObserver()
         mtcReceiver = nil
         midiManager = nil
+        mtcState = .idle
+        mtcTimecode = nil
+        isReceivingMTC = false
+        emitState()
         debugLog("MIDISyncActor stopped")
     }
 
@@ -407,11 +448,16 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             name: "Projector MTC",
             initialLocalFrameRate: localFrameRate,
             syncPolicy: .init(lockFrames: 8, dropOutFrames: 10)
-        ) { [weak self] timecode, _, _, displayNeedsUpdate in
+        ) { [weak self] timecode, event, direction, displayNeedsUpdate in
             // CRITICAL: Wrap in Task to hop to actor context
             // This callback runs on an arbitrary thread from MIDIKit
             Task { [weak self] in
-                await self?.handleMTCTimecode(timecode, displayNeedsUpdate: displayNeedsUpdate)
+                await self?.handleMTCTimecode(
+                    timecode,
+                    event: event,
+                    direction: direction,
+                    displayNeedsUpdate: displayNeedsUpdate
+                )
             }
         } stateChanged: { [weak self] state in
             // CRITICAL: Wrap in Task to hop to actor context
@@ -464,9 +510,11 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
     /// Sets up notification observers for MIDI setup changes.
     private func setupNotificationObservers() {
+        guard midiSetupObserver == nil else { return }
+
         // Note: NotificationCenter observers need careful handling with actors
         // We use Task to hop back to actor context
-        NotificationCenter.default.addObserver(
+        midiSetupObserver = NotificationCenter.default.addObserver(
             forName: .midiKitIOSetupChanged,
             object: nil,
             queue: nil
@@ -475,6 +523,12 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
                 await self?.refreshAvailableInputs()
             }
         }
+    }
+
+    private func removeNotificationObserver() {
+        guard let midiSetupObserver else { return }
+        NotificationCenter.default.removeObserver(midiSetupObserver)
+        self.midiSetupObserver = nil
     }
 
     // MARK: - Input Connection
@@ -620,18 +674,38 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     ///
     /// - Parameters:
     ///   - timecode: The current timecode value.
-    ///   - displayNeedsUpdate: Whether the display should be updated.
-    private func handleMTCTimecode(_ timecode: Timecode, displayNeedsUpdate: Bool) {
+    ///   - event: Whether the position came from quarter-frame chase or a full-frame locate.
+    ///   - direction: Direction decoded from the quarter-frame sequence.
+    ///   - displayNeedsUpdate: Whether the decoded frame changed.
+    private func handleMTCTimecode(
+        _ timecode: Timecode,
+        event: MTCMessageType,
+        direction: MTCDirection,
+        displayNeedsUpdate: Bool
+    ) {
         // Update last quarter-frame timestamp for jitter/dropout tracking
         lastQFTimestamp = Date()
 
         // Reset dropout counter when we receive data
         dropoutCounter = 0
 
-        if displayNeedsUpdate {
-            debugLog("MTC Timecode: \(timecode.stringValue())")
-            mtcTimecode = timecode
-            emitState()
+        guard displayNeedsUpdate else { return }
+
+        debugLog("MTC Timecode: \(timecode.stringValue())")
+        mtcTimecode = timecode
+        emitMTCUpdate(MTCUpdate(
+            timecode: timecode,
+            direction: convertMTCDirection(direction),
+            kind: event == .fullFrame ? .fullFrame : .quarterFrame
+        ))
+        emitState()
+    }
+
+    private func convertMTCDirection(_ direction: MTCDirection) -> MTCPlaybackDirection {
+        switch direction {
+        case .forwards: return .forwards
+        case .backwards: return .backwards
+        case .ambiguous: return .ambiguous
         }
     }
 
@@ -651,6 +725,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             lockProgress = 0
             dropoutCounter = 0
             syncStartTime = nil
+            mtcTimecode = nil
 
         case .preSync:
             // During preSync, lockProgress increases toward lockFramesRequired
@@ -778,6 +853,11 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             at: frameRate
         ) {
             mtcTimecode = timecode
+            emitMTCUpdate(MTCUpdate(
+                timecode: timecode,
+                direction: .ambiguous,
+                kind: .fullFrame
+            ))
             emitState()
         }
     }
@@ -802,6 +882,11 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             at: frameRate
         ) {
             mtcTimecode = timecode
+            emitMTCUpdate(MTCUpdate(
+                timecode: timecode,
+                direction: .ambiguous,
+                kind: .fullFrame
+            ))
             emitState()
         }
     }
@@ -896,10 +981,12 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// - Parameter command: The MMC command received.
     private func handleMMCCommand(_ command: MMCCommand) {
         lastMMCCommand = command
+        mmcSequence &+= 1
+        let event = MMCCommandEvent(id: mmcSequence, command: command)
+        for continuation in commandContinuations.values {
+            continuation.yield(event)
+        }
         emitState()
-        // MMC is an event, not persistent state. Keeping the last command in
-        // subsequent MTC snapshots caused Play/Stop/Locate to execute repeatedly.
-        lastMMCCommand = nil
         debugLog("MMC COMMAND RECEIVED: \(command.displayName)")
     }
 
@@ -944,6 +1031,65 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// Handles continuation termination.
     private func handleContinuationTermination(id: UUID) {
         stateContinuations.removeValue(forKey: id)
+    }
+
+    private func registerMTCContinuation(
+        _ continuation: AsyncStream<MTCUpdate>.Continuation,
+        id: UUID
+    ) {
+        mtcContinuations[id] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { await self?.removeMTCContinuation(id: id) }
+        }
+    }
+
+    private func removeMTCContinuation(id: UUID) {
+        mtcContinuations.removeValue(forKey: id)
+    }
+
+    private func registerCommandContinuation(
+        _ continuation: AsyncStream<MMCCommandEvent>.Continuation,
+        id: UUID
+    ) {
+        commandContinuations[id] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { await self?.removeCommandContinuation(id: id) }
+        }
+    }
+
+    private func removeCommandContinuation(id: UUID) {
+        commandContinuations.removeValue(forKey: id)
+    }
+
+    private func emitMTCUpdate(_ update: MTCUpdate) {
+        for continuation in mtcContinuations.values {
+            continuation.yield(update)
+        }
+    }
+
+    // MARK: - Deterministic test seams
+
+    func receiveMMCCommandForTesting(_ command: MMCCommand) {
+        handleMMCCommand(command)
+    }
+
+    func receiveMTCUpdateForTesting(_ update: MTCUpdate) {
+        mtcTimecode = update.timecode
+        emitMTCUpdate(update)
+        emitState()
+    }
+
+    func setMTCStateForTesting(_ state: MTCSyncState) {
+        mtcState = state
+        isReceivingMTC = state.isReceiving
+        if state == .idle {
+            mtcTimecode = nil
+        }
+        emitState()
+    }
+
+    func subscriberCountsForTesting() -> (mtc: Int, commands: Int) {
+        (mtcContinuations.count, commandContinuations.count)
     }
 
     /// Emits the current state to all subscribers.

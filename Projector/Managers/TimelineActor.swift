@@ -59,6 +59,9 @@ actor TimelineActor: TimelineServiceProtocol {
     /// Token for the observer registered with TimelineManager.
     private var timelineObserverID: UUID?
 
+    /// Identifies the currently valid asynchronous observer registration.
+    private var observationGeneration: UUID?
+
     // MARK: - Initialization
 
     /// Creates a new timeline actor wrapping an existing TimelineManager
@@ -73,6 +76,11 @@ actor TimelineActor: TimelineServiceProtocol {
         observationTask?.cancel()
         for continuation in continuations.values {
             continuation.finish()
+        }
+        if let observerID = timelineObserverID {
+            Task { @MainActor [timelineManager] in
+                timelineManager.removeTimelineChangeObserver(id: observerID)
+            }
         }
     }
 
@@ -102,7 +110,7 @@ actor TimelineActor: TimelineServiceProtocol {
         // Emit initial state
         Task {
             await self.emitState()
-            if self.observationTask == nil {
+            if !self.continuations.isEmpty, self.observationTask == nil {
                 self.startObservingTimelineManager()
             }
         }
@@ -112,6 +120,7 @@ actor TimelineActor: TimelineServiceProtocol {
     private func handleStreamTermination(id: UUID) {
         continuations.removeValue(forKey: id)
         if continuations.isEmpty {
+            observationGeneration = nil
             observationTask?.cancel()
             observationTask = nil
 
@@ -126,6 +135,10 @@ actor TimelineActor: TimelineServiceProtocol {
 
     /// Starts observing TimelineManager for changes
     private func startObservingTimelineManager() {
+        guard observationTask == nil else { return }
+        let generation = UUID()
+        observationGeneration = generation
+
         // Observe timeline changes via onTimelineChanged callback
         // Capture self strongly in the outer task since we need the actor to stay alive
         // while observing. The callback explicitly captures emitState to avoid Swift 6
@@ -141,8 +154,28 @@ actor TimelineActor: TimelineServiceProtocol {
                     }
                 }
             }
-            self.timelineObserverID = observerID
+            await self.completeObserverRegistration(
+                observerID,
+                generation: generation,
+                registrationWasCancelled: Task.isCancelled
+            )
         }
+    }
+
+    private func completeObserverRegistration(
+        _ observerID: UUID,
+        generation: UUID,
+        registrationWasCancelled: Bool
+    ) async {
+        guard !registrationWasCancelled,
+              observationGeneration == generation,
+              !continuations.isEmpty else {
+            await MainActor.run {
+                timelineManager.removeTimelineChangeObserver(id: observerID)
+            }
+            return
+        }
+        timelineObserverID = observerID
     }
 
     /// Emits current timeline state to subscribers

@@ -109,10 +109,12 @@ xcrun stapler staple /path/to/Projector.app
 
 | Configuration | Signing Identity | Use For |
 |---------------|------------------|---------|
-| Debug | Apple Development | Development/testing |
+| Debug | Ad hoc (`-`) | Local development and automated testing only |
 | Release | Apple Development | Archive → Export with Developer ID |
 
-**Note**: Release builds use Apple Development for building. Developer ID signing happens during the Archive → Export step in Xcode.
+**Never distribute the Debug product.** It is ad-hoc signed and test builds may embed XCTest support. Release builds use Apple Development for archiving; Developer ID signing happens during the Archive → Export step in Xcode.
+
+For command-line QA, unit tests may use `CODE_SIGNING_ALLOWED=NO`. macOS UI tests must use the project’s default ad-hoc Debug signing or the UI runner will not launch.
 
 ---
 

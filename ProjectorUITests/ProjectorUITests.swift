@@ -33,17 +33,23 @@ final class ProjectorUITests: XCTestCase {
         let waveform = window.descendants(matching: .any)
             .matching(identifier: "audio-waveform")
             .firstMatch
-        let loading = window.descendants(matching: .any)
-            .matching(identifier: "audio-waveform-loading")
-            .firstMatch
-        let waveformVisible = waveform.waitForExistence(timeout: 10)
-        let loadingVisible = loading.waitForExistence(timeout: 2)
-        XCTAssertTrue(waveformVisible || loadingVisible)
+        XCTAssertTrue(
+            waveform.waitForExistence(timeout: 15),
+            "Waveform generation never completed"
+        )
 
         let zoomIn = window.buttons["Zoom in"]
         XCTAssertTrue(zoomIn.waitForExistence(timeout: 5))
         zoomIn.click()
 
         XCTAssertTrue(clip.waitForExistence(timeout: 5))
+
+        let waveformAfterZoom = window.descendants(matching: .any)
+            .matching(identifier: "audio-waveform")
+            .firstMatch
+        XCTAssertTrue(
+            waveformAfterZoom.waitForExistence(timeout: 10),
+            "Rendered waveform disappeared after zoom"
+        )
     }
 }

@@ -84,6 +84,9 @@ public final class MIDISyncViewModel: ObservableObject {
     /// Use ``timecodeString`` for formatted display.
     @Published public var mtcTimecode: Timecode?
 
+    /// Latest decoded MTC position event, including chase direction and source.
+    @Published public private(set) var latestMTCUpdate: MTCUpdate?
+
     /// Whether MTC quarter-frame messages are actively being received.
     ///
     /// `true` indicates the external source is actively sending MTC at any state
@@ -95,6 +98,9 @@ public final class MIDISyncViewModel: ObservableObject {
     /// Reflects commands like play, stop, locate, etc. from the external source.
     /// Use ``MMCCommand.displayName`` for user display.
     @Published public var lastMMCCommand: MMCCommand?
+
+    /// Latest uniquely identified MMC command occurrence.
+    @Published public private(set) var mmcCommandEvent: MMCCommandEvent?
 
     /// Display name of the currently selected MIDI input port.
     ///
@@ -155,6 +161,11 @@ public final class MIDISyncViewModel: ObservableObject {
     /// Held as a property so it can be cancelled in `deinit` to prevent memory leaks.
     private var streamTask: Task<Void, Never>?
 
+    /// Independent telemetry and command subscriptions. MMC intentionally has
+    /// its own lossless stream instead of sharing coalesced UI state.
+    private var mtcUpdateTask: Task<Void, Never>?
+    private var mmcCommandTask: Task<Void, Never>?
+
     /// Local frame rate for MTC comparison.
     ///
     /// Used to compute ``syncStatusText``. May differ from the incoming MTC frame rate.
@@ -182,6 +193,8 @@ public final class MIDISyncViewModel: ObservableObject {
     public init(service: MIDISyncServiceProtocol) {
         self.service = service
         subscribeToSyncState()
+        subscribeToMTCUpdates()
+        subscribeToMMCCommands()
     }
 
     // MARK: - Lifecycle
@@ -192,6 +205,8 @@ public final class MIDISyncViewModel: ObservableObject {
     /// ensure the AsyncStream is properly terminated.
     deinit {
         streamTask?.cancel()
+        mtcUpdateTask?.cancel()
+        mmcCommandTask?.cancel()
     }
 
     // MARK: - Computed Properties for UI Display
@@ -454,13 +469,13 @@ public final class MIDISyncViewModel: ObservableObject {
         streamTask = Task {
             for await state in service.syncStateStream {
                 // Update all published properties atomically
-                self.mtcState = state.mtcState
-                self.mtcTimecode = state.mtcTimecode
-                self.isReceivingMTC = state.isReceivingMTC
-                self.lastMMCCommand = state.lastMMCCommand
-                self.selectedInputName = state.selectedInputName
-                self.availableInputs = state.availableInputs
-                self.localFrameRate = state.localFrameRate
+                if self.mtcState != state.mtcState { self.mtcState = state.mtcState }
+                if self.mtcTimecode != state.mtcTimecode { self.mtcTimecode = state.mtcTimecode }
+                if self.isReceivingMTC != state.isReceivingMTC { self.isReceivingMTC = state.isReceivingMTC }
+                if self.lastMMCCommand != state.lastMMCCommand { self.lastMMCCommand = state.lastMMCCommand }
+                if self.selectedInputName != state.selectedInputName { self.selectedInputName = state.selectedInputName }
+                if self.availableInputs != state.availableInputs { self.availableInputs = state.availableInputs }
+                if self.localFrameRate != state.localFrameRate { self.localFrameRate = state.localFrameRate }
 
                 // Sync quality metrics
                 self.lockProgress = state.lockProgress
@@ -473,6 +488,24 @@ public final class MIDISyncViewModel: ObservableObject {
                 // Drift metrics
                 self.driftFrames = state.driftFrames
                 self.driftStatus = state.driftStatus
+            }
+        }
+    }
+
+    private func subscribeToMTCUpdates() {
+        mtcUpdateTask = Task {
+            for await update in service.mtcUpdateStream {
+                guard !Task.isCancelled else { break }
+                self.latestMTCUpdate = update
+            }
+        }
+    }
+
+    private func subscribeToMMCCommands() {
+        mmcCommandTask = Task {
+            for await event in service.mmcCommandStream {
+                guard !Task.isCancelled else { break }
+                self.mmcCommandEvent = event
             }
         }
     }

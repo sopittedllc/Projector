@@ -50,6 +50,15 @@ public protocol MIDISyncServiceProtocol: Sendable {
     /// - Note: High-frequency during MTC sync (up to 120 updates/sec at 30fps)
     var syncStateStream: AsyncStream<MIDISyncState> { get }
 
+    /// Coalesced stream of decoded MTC positions. Position telemetry may safely
+    /// drop intermediate samples because every update contains the complete
+    /// current position.
+    var mtcUpdateStream: AsyncStream<MTCUpdate> { get }
+
+    /// Lossless, ordered MMC event stream. Transport commands must never share
+    /// the coalescing buffer used for high-frequency MTC telemetry.
+    var mmcCommandStream: AsyncStream<MMCCommandEvent> { get }
+
     // MARK: - Commands (UI → Logic)
 
     /// Selects a MIDI input port by name.
@@ -78,6 +87,50 @@ public protocol MIDISyncServiceProtocol: Sendable {
     /// - Parameter frame: The current playback frame position
     /// - Note: Drift updates are throttled to 1Hz to prevent UI jitter
     func updateLocalPlaybackFrame(_ frame: Int) async
+}
+
+/// Direction decoded from the incoming quarter-frame sequence.
+public enum MTCPlaybackDirection: Sendable, Equatable, Hashable {
+    case forwards
+    case backwards
+    case ambiguous
+}
+
+/// Origin of an MTC position update.
+public enum MTCUpdateKind: Sendable, Equatable, Hashable {
+    case quarterFrame
+    case fullFrame
+}
+
+/// One complete decoded MTC position sample.
+public struct MTCUpdate: Sendable, Equatable {
+    public let timecode: Timecode
+    public let direction: MTCPlaybackDirection
+    public let kind: MTCUpdateKind
+
+    public init(
+        timecode: Timecode,
+        direction: MTCPlaybackDirection,
+        kind: MTCUpdateKind
+    ) {
+        self.timecode = timecode
+        self.direction = direction
+        self.kind = kind
+    }
+}
+
+/// A uniquely identified MMC command occurrence.
+///
+/// The sequence number makes repeated commands (for example two consecutive
+/// Stop messages) distinct events instead of ambiguous snapshots.
+public struct MMCCommandEvent: Sendable, Equatable, Identifiable {
+    public let id: UInt64
+    public let command: MMCCommand
+
+    public init(id: UInt64, command: MMCCommand) {
+        self.id = id
+        self.command = command
+    }
 }
 
 // MARK: - Supporting Types

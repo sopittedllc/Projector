@@ -130,6 +130,10 @@ final class TimelineManager: ObservableObject {
         timelineChangeObservers.removeValue(forKey: id)
     }
 
+    var timelineChangeObserverCountForTesting: Int {
+        timelineChangeObservers.count
+    }
+
     func markClean() {
         hasChanges = false
     }
