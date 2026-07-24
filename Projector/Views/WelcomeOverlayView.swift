@@ -124,7 +124,7 @@ struct WelcomeOverlayView: View {
                     .frame(width: 44, height: 44)
 
                 Image(systemName: icon)
-                    .font(Typography.displaySubtitle)
+                    .font(Typography.iconLarge)
                     .foregroundColor(iconColor)
             }
 

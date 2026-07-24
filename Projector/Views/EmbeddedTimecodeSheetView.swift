@@ -67,7 +67,7 @@ struct EmbeddedTimecodeSheetView: View {
                 .keyboardShortcut(.return)
                 .buttonStyle(.borderedProminent)
             }
-            .padding(.top, 8)
+            .padding(.top, Spacing.sm)
         }
         .padding(Spacing.xxl)
         .frame(width: 480)

@@ -59,7 +59,7 @@ struct VideoContentView: View {
                     .overlay {
                         VStack(spacing: Spacing.lg) {
                             Image(systemName: "film")
-                                .font(Typography.displayLarge)
+                                .font(Typography.iconEmptyState)
                                 .foregroundColor(AppColors.textTertiary)
                             Text("Drop video files here")
                                 .font(Typography.displaySubtitle)

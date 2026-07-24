@@ -83,7 +83,7 @@ struct VideoReelClipView: View {
                             // Optimization indicator
                             if isOptimized {
                                 Image(systemName: "stopwatch.fill")
-                                    .font(.system(size: 9))
+                                    .font(Typography.captionSmall)
                                     .foregroundColor(.green)
                                     .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 1)
                             }
@@ -108,7 +108,7 @@ struct VideoReelClipView: View {
                         Text(tc)
                             .font(.system(size: 8, weight: .medium, design: .monospaced))
                             .foregroundColor(.white.opacity(0.7))
-                            .padding(.horizontal, 4)
+                            .padding(.horizontal, Spacing.xs)
                             .padding(.vertical, 1)
                             .background(Color.black.opacity(0.4))
                             .cornerRadius(2)

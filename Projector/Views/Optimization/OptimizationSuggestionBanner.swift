@@ -94,7 +94,7 @@ struct OptimizationSuggestionBanner: View {
         HStack(spacing: Spacing.md) {
             // Icon
             Image(systemName: suggestion.iconName)
-                .font(.system(size: 20))
+                .font(Typography.iconLarge)
                 .foregroundColor(suggestion.accentColor)
                 .frame(width: 28)
 
@@ -160,7 +160,7 @@ struct OptimizationSuggestionCompact: View {
         Button(action: onTap) {
             HStack(spacing: Spacing.xs) {
                 Image(systemName: suggestion.iconName)
-                    .font(.system(size: 10))
+                    .font(Typography.caption)
 
                 Text(suggestion.title)
                     .font(Typography.captionSmall)

@@ -157,6 +157,50 @@ done < <(grep -rn "VStack.*{" "$VIEWS_DIR" 2>/dev/null | \
 echo ""
 
 # ==========================================
+# 7. Hardcoded Font Sizes
+# ==========================================
+
+echo -e "${BLUE}=== 7. Hardcoded Font Sizes ===${NC}"
+echo "Looking for .font(.system(size: N)) without Typography.* constants..."
+echo ""
+
+font_hits=$(grep -rn "\.font(\.system(size: [0-9]" "$VIEWS_DIR" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$font_hits" -gt 0 ]; then
+    ((violation_count += font_hits))
+    echo -e "${YELLOW}WARNING:${NC} $font_hits hardcoded font size(s)"
+    grep -rn "\.font(\.system(size: [0-9]" "$VIEWS_DIR" 2>/dev/null | head -15 || true
+    if [ "$font_hits" -gt 15 ]; then
+        echo "  ... and $((font_hits - 15)) more"
+    fi
+fi
+
+echo ""
+
+# ==========================================
+# 8. Accessibility: Icon-Only Buttons
+# ==========================================
+
+echo -e "${BLUE}=== 8. Icon-Only Buttons Without Tooltips ===${NC}"
+echo "Comparing .help() coverage against interactive controls per file..."
+echo ""
+
+while IFS= read -r file; do
+    # grep -c prints 0 and exits 1 when there are no matches, so `|| echo 0`
+    # would emit a second line and break the numeric comparison below.
+    buttons=$(grep -c "Button(\|Toggle(\|Menu {" "$file" 2>/dev/null || true)
+    helps=$(grep -c "\.help(" "$file" 2>/dev/null || true)
+    labels=$(grep -c "accessibilityLabel" "$file" 2>/dev/null || true)
+
+    # Only flag files with a meaningful number of controls and no coverage at all
+    if [ "$buttons" -ge 4 ] && [ "$helps" -eq 0 ] && [ "$labels" -eq 0 ]; then
+        ((violation_count++))
+        echo -e "${YELLOW}WARNING:${NC} $(basename "$file") - $buttons controls, no .help() or accessibilityLabel"
+    fi
+done < <(find "$VIEWS_DIR" -name "*.swift" 2>/dev/null || true)
+
+echo ""
+
+# ==========================================
 # Summary
 # ==========================================
 

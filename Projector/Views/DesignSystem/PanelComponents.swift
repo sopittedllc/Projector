@@ -70,12 +70,12 @@ struct StandardPanel<HeaderTrailing: View, Content: View>: View {
             // Title + count
             HStack(spacing: Spacing.xs) {
                 Text(title)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(Typography.heading)
                     .foregroundColor(.primary)
 
                 if let count = itemCount {
                     Text("(\(count))")
-                        .font(.system(size: 12))
+                        .font(Typography.body)
                         .foregroundColor(.secondary)
                 }
             }
@@ -124,11 +124,11 @@ struct PanelEmptyState: View {
                 .foregroundColor(.secondary.opacity(0.5))
 
             Text(title)
-                .font(.system(size: 13, weight: .medium))
+                .font(Typography.heading)
                 .foregroundColor(.secondary)
 
             Text(subtitle)
-                .font(.system(size: 11))
+                .font(Typography.bodySmall)
                 .foregroundColor(.secondary.opacity(0.7))
         }
     }

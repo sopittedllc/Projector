@@ -468,7 +468,7 @@ struct OnboardingView: View {
 
                 // Icon
                 Image(systemName: daw.iconName)
-                    .font(Typography.displaySubtitle)
+                    .font(Typography.iconLarge)
                     .foregroundColor(.secondary)
                     .frame(width: 28)
 
@@ -507,7 +507,7 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 HStack {
                     Image(systemName: selectedDAW.iconName)
-                        .font(Typography.displaySubtitle)
+                        .font(Typography.iconLarge)
                         .foregroundColor(.accentColor)
 
                     Text("\(selectedDAW.rawValue) MTC Setup")

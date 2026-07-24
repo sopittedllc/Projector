@@ -93,7 +93,7 @@ struct BatchTimecodeSheetView: View {
                 .keyboardShortcut(.return)
                 .buttonStyle(.borderedProminent)
             }
-            .padding(.top, 8)
+            .padding(.top, Spacing.sm)
         }
         .padding(Spacing.xxl)
         .frame(width: 540, height: min(550, CGFloat(320 + (batch?.items.count ?? 0) * 40)))
@@ -125,7 +125,7 @@ struct BatchTimecodeSheetView: View {
                     .foregroundColor(.secondary)
                     .frame(width: 60, alignment: .center)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, Spacing.md)
             .padding(.vertical, 6)
             .background(Color(nsColor: .windowBackgroundColor))
 
@@ -179,7 +179,7 @@ struct BatchTimecodeSheetView: View {
                 .foregroundColor(.primary)
             Spacer()
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, Spacing.md)
         .padding(.vertical, 6)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
     }
@@ -222,8 +222,8 @@ struct BatchTimecodeSheetView: View {
                 .disabled(!item.hasTimecode)
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
         .contentShape(Rectangle())
     }
 
