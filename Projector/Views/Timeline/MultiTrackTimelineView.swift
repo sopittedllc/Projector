@@ -586,6 +586,17 @@ struct MultiTrackTimelineView: View {
                 // Zoom controls
                 zoomControls
 
+                // Show the standalone player window. Always enabled - the
+                // window may be hidden (closed) or just behind another window,
+                // and show() handles both.
+                Button(action: { PlayerWindowController.shared.show() }) {
+                    Image(systemName: "play.rectangle")
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.plain)
+                .help("Show the video player window")
+                .accessibilityLabel("Show video player window")
+
                 // Settings button
                 Button(action: onSettingsPressed) {
                     Image(systemName: "gearshape")

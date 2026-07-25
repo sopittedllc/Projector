@@ -406,7 +406,82 @@ OCR-based timecode detection from video frames using Vision framework.
 
 ---
 
+### Standalone Player Window
+
+**Status**: Active
+**Added**: 2026-07-24
+
+#### Description
+The video player is a permanent separate window, never embedded in the main
+window. Closing it hides it and playback continues; it is reopened from the
+timeline toolbar or the View menu. A "Lock to Foreground" pin floats it above
+all other apps, including fullscreen ones, so it stays visible over a
+fullscreen DAW.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Controller + View | `Views/FloatingVideoPanel.swift` | `PlayerWindowController` (window lifecycle, pin, hide-on-close) and `PlayerWindowContent` (video, hover controls, drops). Filename is historical - see the note at the top of the file. |
+
+#### State Added
+
+| Property | Location | Purpose |
+|----------|----------|---------|
+| `playerWindowPinnedToFront` | `Models/AppSettings.swift` | Persisted pin state (@AppStorage) |
+| `pinPlayerMenuItem` | `ProjectorApp.swift` (AppDelegate) | Retained menu item so the checkmark can be re-synced |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `Views/ContentView.swift` | `normalView.onAppear` | `configure(...)` + `show()`; supplies drop handlers |
+| `Views/Timeline/MultiTrackTimelineView.swift` | Toolbar | "Show the video player window" button |
+| `ProjectorApp.swift` | `setupMenus` (View menu) | "Show Video Player" (Shift-Cmd-P), "Lock Player to Foreground" (checkmark) |
+| `ProjectorApp.swift` | `applicationDidFinishLaunching` | Observes `.playerWindowPinDidChange` to sync the checkmark |
+
+#### Notes
+
+- Window frame/screen persist via `setFrameAutosaveName("PlayerWindow")`.
+- Uses `NSWindow`, not the old non-activating `NSPanel`, so it can become key
+  for native fullscreen and keyboard transport.
+- Pin = `.floating` level + `[.canJoinAllSpaces, .fullScreenAuxiliary]`.
+
+---
+
 ## Removed Features
+
+### Floating Video Panel (pop-out / pop-back)
+
+**Status**: Removed
+**Added**: 2026-01-XX
+**Removed**: 2026-07-24
+
+#### Reason
+Replaced by the always-present Standalone Player Window. Popping the video in
+and out was extra state to keep consistent with no benefit once the player has
+its own permanent window.
+
+#### What Was Removed
+
+| Symbol | Former Location | Notes |
+|--------|-----------------|-------|
+| `FloatingVideoPanelController` | `Views/FloatingVideoPanel.swift` | Rewritten as `PlayerWindowController` in the same file |
+| `FloatingVideoContent` | `Views/FloatingVideoPanel.swift` | Rewritten as `PlayerWindowContent` |
+| `isVideoFloating`, `floatVideoWindow()`, `returnVideoFromFloat()` | `Views/ContentView.swift` | Pop-out state and actions |
+| `videoSection`, `embeddedVideoPlayer`, `videoFloatingPlaceholder` | `Views/ContentView.swift` | Embedded player pane and its placeholder |
+| `isPlaybackDropTargeted` | `Views/ContentView.swift` | Drop highlight for the embedded pane |
+| `FullScreenVideoView` | `Views/FullScreenVideoView.swift` | File retained as an empty translation unit (pbxproj); see note in file |
+| `enterFullScreen()` / `exitFullScreen()` | `Views/ContentView+Helpers.swift` | Main-window video-fullscreen mode |
+| `minVideoWidth`, `defaultVideoWidth`, `defaultPanelWidth` | `Utilities/LayoutConstants.swift` | Zero call sites after the split was removed |
+
+#### Migration Note
+The main window's fullscreen observers were not filtered by window, so with a
+second window present the player entering fullscreen would have flipped the
+main window into video mode. Removing the custom fullscreen path was required,
+not optional.
+
+---
 
 ### Cue Sheet / Cue Detection
 

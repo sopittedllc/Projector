@@ -213,8 +213,10 @@ extension ContentView {
     ///   - audioURLs: Array of audio file URLs
     ///   - atFrame: Target frame position for files not using embedded timecode
     func handleMixedBatchDrop(videoURLs: [URL], audioURLs: [URL], atFrame: Int) {
+        debugPrint("handleMixedBatchDrop: ENTRY - \(videoURLs.count) video \(videoURLs.map { $0.lastPathComponent }), \(audioURLs.count) audio \(audioURLs.map { $0.lastPathComponent }), atFrame=\(atFrame)")
         // Guard: Don't process new drops while timecode detection is in progress or a sheet is visible
         guard !isProcessingTimecodeDetection, !isShowingBatchTimecodeSheet, !isShowingEmbeddedTimecodeAlert else {
+            debugPrint("handleMixedBatchDrop: BLOCKED - processing=\(isProcessingTimecodeDetection) batchSheet=\(isShowingBatchTimecodeSheet) tcAlert=\(isShowingEmbeddedTimecodeAlert)")
             return
         }
 
@@ -246,7 +248,10 @@ extension ContentView {
                 }
             }
 
+            debugPrint("handleMixedBatchDrop: after dedupe - \(newVideoURLs.count) video, \(newAudioURLs.count) audio \(newAudioURLs.map { $0.lastPathComponent })")
+
             guard !newVideoURLs.isEmpty || !newAudioURLs.isEmpty else {
+                debugPrint("handleMixedBatchDrop: nothing new after dedupe, returning")
                 return
             }
 
@@ -294,6 +299,8 @@ extension ContentView {
                 var item = BatchTimecodeItem(url: url, mediaType: .audio, detectedTimecode: result)
                 item.targetLaneId = newLane.id
                 allItems.append(item)
+                reservedAudioLaneIds.insert(newLane.id)
+                debugPrint("handleMixedBatchDrop: assigned '\(url.lastPathComponent)' -> lane '\(newLane.name)' (\(newLane.id.uuidString.prefix(8))), tc=\(result?.formattedTimecode ?? "none")")
             }
 
             // If any file has embedded timecode, show batch sheet
@@ -309,12 +316,25 @@ extension ContentView {
                 // No timecodes found, add all files directly at sequential positions
                 await addVideoFilesSequentially(urls: newVideoURLs, startFrame: atFrame)
 
-                // Add audio files to their assigned lanes
+                // Add audio files to their assigned lanes. Uses the
+                // overlap-avoiding placement like the other batch paths: video
+                // import creates its own embedded-audio lanes as it goes, so a
+                // lane reserved here can already be occupied by the time we
+                // place into it.
+                debugPrint("handleMixedBatchDrop: placing \(allItems.filter { $0.mediaType == .audio }.count) audio item(s), no-timecode path")
                 for item in allItems where item.mediaType == .audio {
-                    if let laneId = item.targetLaneId {
-                        _ = await addAudioToTimeline(url: item.url, laneId: laneId, atFrame: atFrame, checkTimecode: false)
+                    guard let laneId = item.targetLaneId else {
+                        debugPrint("handleMixedBatchDrop: '\(item.url.lastPathComponent)' has no targetLaneId, SKIPPED")
+                        continue
                     }
+                    let clip = await addAudioToTimelineAvoidingOverlap(
+                        url: item.url,
+                        preferredLaneId: laneId,
+                        atFrame: atFrame
+                    )
+                    debugPrint("handleMixedBatchDrop: placed '\(item.url.lastPathComponent)' -> \(clip == nil ? "FAILED" : "ok")")
                 }
+                reservedAudioLaneIds.removeAll()
 
                 // Add padding after all files
                 let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
@@ -717,9 +737,16 @@ extension ContentView {
                 sourceFrameRate: reel.sourceFrameRate
             )
 
-            // Try to find an existing lane where the clip fits without overlap
+            // Try to find an existing lane where the clip fits without overlap.
+            //
+            // Skips lanes reserved by an in-flight batch drop. A mixed drop
+            // reserves one empty lane per audio file before importing the
+            // videos; an empty lane never "overlaps", so without this filter the
+            // video's embedded audio would adopt a lane earmarked for one of
+            // those files, and that file would then have nowhere to land.
+            let reserved = reservedAudioLaneIds
             var targetLane: AudioLane?
-            for lane in timelineManager.timeline.audioLanes {
+            for lane in timelineManager.timeline.audioLanes where !reserved.contains(lane.id) {
                 if !lane.hasOverlap(with: clip) {
                     targetLane = lane
                     debugPrint("prepareAudioLaneIfNeeded: Found existing lane '\(lane.name)' with no overlap")
@@ -1063,15 +1090,49 @@ extension ContentView {
         }
 
         var targetLaneId = preferredLaneId
-        if let preferred = timelineManager.timeline.audioLanes.first(where: { $0.id == preferredLaneId }),
-           laneIsOccupied(preferred, startFrame: atFrame, durationFrames: durationFrames) {
+
+        if let preferred = timelineManager.timeline.audioLanes.first(where: { $0.id == preferredLaneId }) {
+            if laneIsOccupied(preferred, startFrame: atFrame, durationFrames: durationFrames) {
+                let laneNumber = timelineManager.timeline.audioLanes.count + 1
+                let newLane = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+                debugPrint("addAudioToTimelineAvoidingOverlap: '\(url.lastPathComponent)' overlaps at frame \(atFrame); spilling to new lane '\(newLane.name)'")
+                targetLaneId = newLane.id
+            }
+        } else {
+            // The reserved lane is gone. Mixed drops reserve a lane per audio
+            // file up front, but importing the videos in the same batch creates
+            // its OWN embedded-audio lanes and prunes empty ones - so by the
+            // time we place, the reserved ID can name a lane that no longer
+            // exists. `addAudioClip` guards on lane existence and returns nil,
+            // which silently dropped the file with no error anywhere. Make a
+            // fresh lane instead of losing the audio.
             let laneNumber = timelineManager.timeline.audioLanes.count + 1
             let newLane = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
-            debugPrint("addAudioToTimelineAvoidingOverlap: '\(url.lastPathComponent)' overlaps at frame \(atFrame); spilling to new lane '\(newLane.name)'")
+            debugPrint("addAudioToTimelineAvoidingOverlap: preferred lane \(preferredLaneId.uuidString.prefix(8)) no longer exists for '\(url.lastPathComponent)'; created '\(newLane.name)'")
             targetLaneId = newLane.id
         }
 
-        return await addAudioToTimeline(url: url, laneId: targetLaneId, atFrame: atFrame, checkTimecode: false)
+        if let clip = await addAudioToTimeline(url: url, laneId: targetLaneId, atFrame: atFrame, checkTimecode: false) {
+            return clip
+        }
+
+        // Backstop: placement returned nil, so the file is currently lost with
+        // no error surfaced anywhere. `addAudioClip` returns nil whenever the
+        // target lane no longer exists, and lanes reserved for a batch can be
+        // claimed out from under us - `prepareAudioLaneIfNeeded` adopts ANY
+        // lane the video's embedded audio doesn't overlap, which includes the
+        // empty ones reserved here. Retry once on a guaranteed-fresh lane
+        // rather than dropping the file silently.
+        let laneNumber = timelineManager.timeline.audioLanes.count + 1
+        let fallbackLane = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+        debugPrint("addAudioToTimelineAvoidingOverlap: first placement of '\(url.lastPathComponent)' failed; retrying on fresh lane '\(fallbackLane.name)'")
+
+        let retried = await addAudioToTimeline(url: url, laneId: fallbackLane.id, atFrame: atFrame, checkTimecode: false)
+        if retried == nil {
+            debugPrint("addAudioToTimelineAvoidingOverlap: RETRY ALSO FAILED for '\(url.lastPathComponent)'")
+            alerts.show(.error("Couldn't add \"\(url.lastPathComponent)\" to the timeline."))
+        }
+        return retried
     }
 
     /// Add audio files at their embedded timecode positions (auto-confirm mode)
@@ -1239,6 +1300,7 @@ extension ContentView {
             }
 
             await MainActor.run {
+                reservedAudioLaneIds.removeAll()
                 clearPendingBatchTimecode()
             }
         }

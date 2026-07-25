@@ -195,21 +195,12 @@ struct AudioLaneView: View {
     @ViewBuilder
     private var audioMetadataView: some View {
         if let firstClip = lane.clips.first {
-            HStack(spacing: Spacing.xs) {
-                // Sample rate
-                Text(String(format: "%.0fkHz", firstClip.sampleRate / 1000))
-                    .font(.system(size: 8, design: .monospaced))
-                    .foregroundColor(.secondary)
-
-                // Bitrate from linked MediaItem
-                if let mediaItemId = firstClip.mediaItemId,
-                   let item = mediaLibrary.items.first(where: { $0.id == mediaItemId }),
-                   let bitrate = item.formattedBitrate {
-                    Text(bitrate)
-                        .font(.system(size: 8, design: .monospaced))
-                        .foregroundColor(.secondary)
-                }
-            }
+            // Sample rate only. Bitrate was dropped from the lane header: it
+            // isn't actionable while working the timeline, and the extra token
+            // crowded the narrow header. It's still on the media item.
+            Text(String(format: "%.0fkHz", firstClip.sampleRate / 1000))
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundColor(.secondary)
         }
     }
 
