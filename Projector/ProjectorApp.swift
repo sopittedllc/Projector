@@ -28,6 +28,10 @@ struct ProjectorApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSWindowDelegate {
     private var hasSetupMenus = false
+
+    /// Retained so the checkmark can be refreshed when the pin is toggled from
+    /// the player window rather than the menu.
+    private var pinPlayerMenuItem: NSMenuItem?
     private var hasSetupWindowDelegate = false
     private var activationAttempt = 0
     private let maxActivationAttempts = 6
@@ -69,6 +73,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
             debugPrint("AppDelegate: didBecomeActive")
             self?.setupMenus()
             self?.setupWindowDelegate()
+        }
+
+        // Keep the "Lock Player to Foreground" checkmark in step when the pin
+        // is toggled from the button inside the player window.
+        NotificationCenter.default.addObserver(
+            forName: .playerWindowPinDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.syncPinPlayerMenuItemState()
+            }
         }
 
         // Setup notification observer for file open
@@ -311,6 +327,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         let viewMenu = NSMenu(title: "View")
         viewMenu.autoenablesItems = false
 
+        // Show Video Player window
+        let showPlayerItem = NSMenuItem(
+            title: "Show Video Player",
+            action: #selector(showVideoPlayer(_:)),
+            keyEquivalent: "P"
+        )
+        showPlayerItem.keyEquivalentModifierMask = [.command, .shift]
+        showPlayerItem.target = self
+        showPlayerItem.isEnabled = true
+        viewMenu.addItem(showPlayerItem)
+
+        // Lock Video Player to foreground (checkmark reflects current state)
+        let pinPlayerItem = NSMenuItem(
+            title: "Lock Player to Foreground",
+            action: #selector(togglePlayerPinned(_:)),
+            keyEquivalent: ""
+        )
+        pinPlayerItem.target = self
+        pinPlayerItem.isEnabled = true
+        pinPlayerItem.state = AppSettings.shared.playerWindowPinnedToFront ? .on : .off
+        viewMenu.addItem(pinPlayerItem)
+        self.pinPlayerMenuItem = pinPlayerItem
+
+        viewMenu.addItem(NSMenuItem.separator())
+
         // Show Onboarding
         let onboardingItem = NSMenuItem(
             title: "Setup Guide...",
@@ -379,11 +420,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     private func setupWindowDelegate() {
         guard !hasSetupWindowDelegate else { return }
 
-        // Set this as the delegate for all windows and configure appearance
+        // Adopt only windows that have NO delegate of their own.
+        //
+        // The old condition (`delegate == nil || !(delegate is AppDelegate)`)
+        // stole the delegate from any window that already had one - including
+        // the player window, whose PlayerWindowController implements
+        // hide-on-close. Once hijacked, closing the player ran AppDelegate's
+        // windowShouldClose and prompted to save the whole project.
         for window in NSApp.windows {
-            if window.delegate == nil || !(window.delegate is AppDelegate) {
+            if window.delegate == nil {
                 window.delegate = self
                 debugPrint("setupWindowDelegate: set delegate for window: %@", window.title)
+            } else if !(window.delegate is AppDelegate) {
+                debugPrint("setupWindowDelegate: leaving window '%@' to its own delegate", window.title)
             }
 
             // Configure for Liquid Glass appearance
@@ -395,6 +444,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
     /// Configure window for macOS Liquid Glass / vibrancy appearance
     private func configureWindowForLiquidGlass(_ window: NSWindow) {
+        // The player window styles itself (hidden traffic lights, black
+        // background for video) - a transparent background and vibrancy would
+        // undo both.
+        guard !(window.delegate is PlayerWindowController) else { return }
+
         // Make the title bar transparent and blend with content
         window.titlebarAppearsTransparent = true
 
@@ -573,6 +627,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     @objc func showOnboarding(_ sender: Any?) {
         debugPrint("showOnboarding called")
         NotificationCenter.default.post(name: .showOnboarding, object: nil)
+    }
+
+    // MARK: - Player Window Actions
+
+    @MainActor
+    @objc func showVideoPlayer(_ sender: Any?) {
+        debugPrint("showVideoPlayer called")
+        PlayerWindowController.shared.show()
+    }
+
+    @MainActor
+    @objc func togglePlayerPinned(_ sender: Any?) {
+        PlayerWindowController.shared.togglePinnedToFront()
+        debugPrint("togglePlayerPinned -> \(AppSettings.shared.playerWindowPinnedToFront)")
+        syncPinPlayerMenuItemState()
+    }
+
+    /// Keep the menu checkmark in step with the pin state, whichever surface
+    /// changed it (menu item or the button in the player window).
+    @MainActor
+    private func syncPinPlayerMenuItemState() {
+        pinPlayerMenuItem?.state = AppSettings.shared.playerWindowPinnedToFront ? .on : .off
     }
 
     // MARK: - Open Action

@@ -40,6 +40,12 @@ final class AppSettings: ObservableObject {
     /// Timecode overlay opacity (0-1)
     @AppStorage("timecodeOverlayOpacity") var timecodeOverlayOpacity: Double = 0.8
 
+    // MARK: - Player Window
+
+    /// Whether the standalone player window floats above all other apps,
+    /// including fullscreen ones.
+    @AppStorage("playerWindowPinnedToFront") var playerWindowPinnedToFront: Bool = false
+
     // MARK: - Sync Settings
 
     /// Number of frames drift before re-syncing to MTC

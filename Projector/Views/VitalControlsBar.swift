@@ -59,6 +59,11 @@ struct VitalControlsBar: View {
 
             Spacer()
 
+            // Bring back the player window after it's been collapsed or
+            // minimised. Lives here as well as in the timeline toolbar because
+            // this bar is always visible, even with the timeline collapsed.
+            showPlayerButton
+
             // Right-aligned: TC controls (fixed size, don't shrink)
             HStack(spacing: Spacing.md) {
                 startTCControl
@@ -73,6 +78,22 @@ struct VitalControlsBar: View {
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
         .glassPanel()
+    }
+
+    /// Reopens the standalone player window. Always enabled - `show()` handles
+    /// both "hidden" and "behind another window".
+    private var showPlayerButton: some View {
+        Button(action: { PlayerWindowController.shared.show() }) {
+            Image(systemName: "pip.enter")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white.opacity(0.7))
+                .frame(width: 26, height: 26)
+                .background(AppColors.overlayDarker)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .help("Show the video player window")
+        .accessibilityLabel("Show video player window")
         .alert("Invalid Start Timecode", isPresented: $showStartTimecodeAlert) {
             Button("OK", role: .cancel) { }
         } message: {
