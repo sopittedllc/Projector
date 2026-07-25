@@ -30,7 +30,6 @@ struct VideoTrackView: View {
     var selectedReelIds: Set<UUID> = []
 
     @State private var selectedReelId: UUID?
-    @State private var isDropTargeted = false
     @State private var dropPreviewFrame: Int?
     @State private var dropPreviewDurationFrames: Int?
     @State private var isLoadingDropPreview = false
@@ -105,14 +104,7 @@ struct VideoTrackView: View {
             .font(.system(size: 9, design: .monospaced))
             .foregroundColor(.secondary)
 
-        // Bitrate from linked MediaItem
-        if let mediaItemId = reel.mediaItemId,
-           let item = mediaLibrary.items.first(where: { $0.id == mediaItemId }),
-           let bitrate = item.formattedBitrate {
-            Text(bitrate)
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundColor(.secondary)
-        }
+        // Bitrate intentionally omitted - fps is the actionable figure here.
 
         // Reel count
         if timelineManager.timeline.videoReels.count > 1 {
@@ -140,27 +132,32 @@ struct VideoTrackView: View {
 
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity) // Ensure ZStack fills available space
-            .onDrop(of: [UTType.fileURL, UTType.url, UTType.movie, UTType.video, UTType.mpeg4Movie, UTType.projectorMediaItem], delegate: VideoTrackDropDelegate(
-                isTargeted: $isDropTargeted,
-                pixelsPerFrame: pixelsPerFrame,
-                scrollOffset: scrollOffset,
-                durationFrames: timelineManager.timeline.config.durationFrames,
-                isDropAllowed: { isDropAllowed },
-                dropOperation: { (isDropAllowed || isLoadingDropPreview) ? .copy : .cancel },
-                dropHandler: { providers, location in
-                    handleDrop(providers: providers, at: location)
-                },
-                updateHandler: { location in
-                    dragContext.refresh()
-                    updateDropPreview(location: location)
-                },
-                enterHandler: { providers, location in
-                    beginDropPreview(with: providers, at: location)
-                },
-                exitHandler: {
-                    clearDropPreview()
-                }
-            ))
+            .contentShape(Rectangle())
+            // AppKit drag capture, NOT SwiftUI's .onDrop(delegate:). The
+            // DropDelegate form has a fatal flaw for this app: on a multi-file
+            // drag, DropInfo.itemProviders(for:) vends only ONE provider (even
+            // when asked for just .fileURL), so a video + stems drop reached
+            // routing as a single video. NSDraggingInfo's pasteboard returns
+            // every dragged file. Same pattern as AudioLaneDragCaptureView.
+            .overlay {
+                VideoTrackDragCaptureView(
+                    onEntered: { info, location in
+                        beginDropPreviewNative(info: info, at: location)
+                        return (isDropAllowed || isLoadingDropPreview) ? .copy : []
+                    },
+                    onUpdated: { info, location in
+                        dragContext.refresh()
+                        updateDropPreview(location: location)
+                        return (isDropAllowed || isLoadingDropPreview) ? .copy : []
+                    },
+                    onExited: {
+                        clearDropPreview()
+                    },
+                    onPerform: { info, location in
+                        handleDropNative(info: info, at: location)
+                    }
+                )
+            }
         }
     }
 
@@ -297,55 +294,65 @@ struct VideoTrackView: View {
         // Audio-only drops on video track: ignored (existing behavior)
     }
 
-    private func handleDrop(providers: [NSItemProvider], at location: CGPoint) -> Bool {
-        let targetFrame = dropFrame(for: location)
-        let isInternalDrag = isInternalMediaDrag(providers)
-
-        // For internal drags (single or multi-file), use DragContext
-        if isInternalDrag && dragContext.isDragging && dragContext.mediaItems.count > 0 {
+    /// All dragged media, from DragContext for internal drags or from the
+    /// dragging pasteboard for Finder drags. The pasteboard returns every
+    /// dragged file in drag order.
+    private func mediaCandidates(from info: NSDraggingInfo) -> (videoURLs: [URL], audioURLs: [URL], isInternal: Bool) {
+        if dragContext.isDragging && !dragContext.mediaItems.isEmpty {
             let videoURLs = dragContext.mediaItems.filter { $0.type == .video }.map { $0.url }
             let audioURLs = dragContext.mediaItems.filter { $0.type == .audio }.map { $0.url }
-            routeDroppedMedia(videoURLs: videoURLs, audioURLs: audioURLs, targetFrame: targetFrame, isInternalDrag: isInternalDrag)
-            dragContext.end()
-            clearDropPreview()
-            return true
+            return (videoURLs, audioURLs, true)
         }
 
-        // Fall back to extracting URLs from providers (external drops)
-        var urls: [URL] = []
-        let lock = NSLock()
-        let group = DispatchGroup()
-
-        for provider in providers {
-            group.enter()
-            loadURL(from: provider) { url in
-                defer { group.leave() }
-                if let url = url {
-                    lock.lock()
-                    urls.append(url)
-                    lock.unlock()
-                }
-            }
-        }
-
-        group.notify(queue: .main) {
-            let videoURLs = urls.filter { self.isVideoFile($0) }
-            let audioURLs = urls.filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
-            self.routeDroppedMedia(videoURLs: videoURLs, audioURLs: audioURLs, targetFrame: targetFrame, isInternalDrag: isInternalDrag)
-
-            if isInternalDrag {
-                self.dragContext.end()
-            }
-        }
-        clearDropPreview()
-
-        return true
+        let allURLs = (info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true
+        ]) as? [URL]) ?? []
+        let videoURLs = allURLs.filter { ProjectMediaLibrary.mediaType(for: $0) == .video }
+        let audioURLs = allURLs.filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
+        return (videoURLs, audioURLs, false)
     }
 
-    private func isInternalMediaDrag(_ providers: [NSItemProvider]) -> Bool {
-        providers.contains { provider in
-            provider.hasItemConformingToTypeIdentifier(UTType.projectorMediaItem.identifier)
+    private func handleDropNative(info: NSDraggingInfo, at location: CGPoint) -> Bool {
+        let candidates = mediaCandidates(from: info)
+        debugPrint("VideoTrackView.handleDropNative: \(candidates.videoURLs.count) video, \(candidates.audioURLs.count) audio (internal=\(candidates.isInternal))")
+        let targetFrame = dropFrame(for: location)
+
+        routeDroppedMedia(
+            videoURLs: candidates.videoURLs,
+            audioURLs: candidates.audioURLs,
+            targetFrame: targetFrame,
+            isInternalDrag: candidates.isInternal
+        )
+
+        if candidates.isInternal {
+            dragContext.end()
         }
+        clearDropPreview()
+        // The pasteboard either had usable media or it didn't - claiming the
+        // drop when both lists are empty would just swallow it silently.
+        return !(candidates.videoURLs.isEmpty && candidates.audioURLs.isEmpty)
+    }
+
+    private func isVideoFile(_ url: URL) -> Bool {
+        ProjectMediaLibrary.mediaType(for: url) == .video
+    }
+
+    private func isLinkedPreview(_ reel: VideoReel, preview: LinkedDragPreview) -> Bool {
+        reel.sourceURL == preview.sourceURL &&
+        reel.sourceStartFrame == preview.sourceStartFrame &&
+        reel.durationFrames == preview.durationFrames &&
+        reel.timelineStartFrame == preview.fromFrame
+    }
+
+    private func isReelOptimized(_ reel: VideoReel) -> Bool {
+        // First try to find by mediaItemId (most reliable)
+        if let mediaItemId = reel.mediaItemId,
+           let item = mediaLibrary.items.first(where: { $0.id == mediaItemId }) {
+            return item.isOptimized
+        }
+        // Fall back to URL matching
+        let item = mediaLibrary.items.first { $0.url == reel.sourceURL }
+        return item?.isOptimized ?? false
     }
 
     private func dropFrame(for location: CGPoint) -> Int {
@@ -366,8 +373,7 @@ struct VideoTrackView: View {
         }
     }
 
-    private func beginDropPreview(with providers: [NSItemProvider], at location: CGPoint) {
-        // Handle both single and multi-file drops
+    private func beginDropPreviewNative(info: NSDraggingInfo, at location: CGPoint) {
         updateDropPreview(location: location)
         if dropPreviewDurationFrames != nil || isLoadingDropPreview {
             return
@@ -375,54 +381,42 @@ struct VideoTrackView: View {
         isLoadingDropPreview = true
         isDropAllowed = false
 
-        if let quickType = quickMediaType(from: providers) {
-            guard quickType == .video else {
-                isLoadingDropPreview = false
-                clearDropPreview()
-                return
-            }
+        let candidates = mediaCandidates(from: info)
+        // Audio-only drags belong to the audio lanes; preview only when the
+        // drag brings at least one video.
+        guard let firstVideo = candidates.videoURLs.first else {
+            isLoadingDropPreview = false
+            clearDropPreview()
+            return
         }
 
-        loadFirstURL(from: providers) { url in
-            guard let url = url else {
-                isLoadingDropPreview = false
-                return
-            }
-            guard isVideoFile(url) else {
-                isLoadingDropPreview = false
-                clearDropPreview()
-                return
-            }
+        // Duplicate videos are rejected at drop time; disallow the preview too.
+        if timelineManager.timeline.videoReels.contains(where: { $0.sourceURL == firstVideo }) {
+            isLoadingDropPreview = false
+            isDropAllowed = false
+            return
+        }
 
-            // Check if video already exists in timeline (duplicate)
-            if timelineManager.timeline.videoReels.contains(where: { $0.sourceURL == url }) {
-                isLoadingDropPreview = false
+        updateDropPreview(location: latestDropLocation ?? location)
+        Task {
+            let asset = AVAsset(url: firstVideo)
+            do {
+                let duration = try await asset.load(.duration)
+                let frames = max(1, Int(duration.seconds * timelineManager.timeline.config.frameRate.fps))
+                dropPreviewDurationFrames = frames
+
+                // Disallow drop if cursor is over an existing reel
+                let targetFrame = dropFrame(for: latestDropLocation ?? location)
+                let isOverExisting = isFrameInsideExistingReel(targetFrame)
+                isDropAllowed = !isOverExisting
+            } catch {
+                dropPreviewDurationFrames = nil
                 isDropAllowed = false
-                return
             }
-
-            updateDropPreview(location: latestDropLocation ?? location)
-            Task {
-                let asset = AVAsset(url: url)
-                do {
-                    let duration = try await asset.load(.duration)
-                    let frames = max(1, Int(duration.seconds * timelineManager.timeline.config.frameRate.fps))
-                    dropPreviewDurationFrames = frames
-
-                    // Disallow drop if cursor is over an existing reel
-                    let targetFrame = dropFrame(for: latestDropLocation ?? location)
-                    let isOverExisting = isFrameInsideExistingReel(targetFrame)
-                    isDropAllowed = !isOverExisting
-                } catch {
-                    dropPreviewDurationFrames = nil
-                    isDropAllowed = false
-                }
-                isLoadingDropPreview = false
-            }
+            isLoadingDropPreview = false
         }
     }
 
-    /// Check if a frame position is within any existing video reel
     private func isFrameInsideExistingReel(_ frame: Int, excluding reelId: UUID? = nil) -> Bool {
         for reel in timelineManager.timeline.videoReels {
             if reel.id == reelId { continue }
@@ -441,181 +435,114 @@ struct VideoTrackView: View {
         isDropAllowed = false
     }
 
-    private func loadFirstURL(from providers: [NSItemProvider], completion: @escaping (URL?) -> Void) {
-        guard let provider = providers.first else {
-            completion(nil)
-            return
-        }
+}
 
-        loadURL(from: provider, completion: completion)
+// MARK: - Drag Capture (AppKit)
+
+/// AppKit-level drag capture for the video track.
+///
+/// Exists because SwiftUI's `.onDrop(of:delegate:)` was vending a single
+/// NSItemProvider for multi-file drags (`DropInfo.itemProviders(for:)` returned
+/// 1 even for a bare `.fileURL` query), which silently reduced a video+stems
+/// drop to just the video. `NSDraggingInfo.draggingPasteboard` returns every
+/// dragged file. Mirrors `AudioLaneDragCaptureView` / `DragCaptureView`.
+private struct VideoTrackDragCaptureView: NSViewRepresentable {
+    var onEntered: (NSDraggingInfo, CGPoint) -> NSDragOperation
+    var onUpdated: (NSDraggingInfo, CGPoint) -> NSDragOperation
+    var onExited: () -> Void
+    var onPerform: (NSDraggingInfo, CGPoint) -> Bool
+
+    func makeNSView(context: Context) -> VideoTrackDragCaptureNSView {
+        let view = VideoTrackDragCaptureNSView()
+        view.onEntered = onEntered
+        view.onUpdated = onUpdated
+        view.onExited = onExited
+        view.onPerform = onPerform
+        return view
     }
 
-    private func isVideoFile(_ url: URL) -> Bool {
-        ProjectMediaLibrary.mediaType(for: url) == .video
-    }
-
-    private func quickMediaType(from providers: [NSItemProvider]) -> MediaType? {
-        for provider in providers {
-            if let name = provider.suggestedName {
-                let url = URL(fileURLWithPath: name)
-                if let type = ProjectMediaLibrary.mediaType(for: url) {
-                    return type
-                }
-            }
-            for typeId in provider.registeredTypeIdentifiers {
-                guard let utType = UTType(typeId) else { continue }
-                if utType.conforms(to: .movie) { return .video }
-                if utType.conforms(to: .audio) { return .audio }
-            }
-        }
-        return nil
-    }
-
-    private func isLinkedPreview(_ reel: VideoReel, preview: LinkedDragPreview) -> Bool {
-        reel.sourceURL == preview.sourceURL &&
-        reel.sourceStartFrame == preview.sourceStartFrame &&
-        reel.durationFrames == preview.durationFrames &&
-        reel.timelineStartFrame == preview.fromFrame
-    }
-
-    /// Check if the media item for this reel is optimized
-    private func isReelOptimized(_ reel: VideoReel) -> Bool {
-        // First try to find by mediaItemId (most reliable)
-        if let mediaItemId = reel.mediaItemId,
-           let item = mediaLibrary.items.first(where: { $0.id == mediaItemId }) {
-            return item.isOptimized
-        }
-        // Fall back to URL matching
-        let item = mediaLibrary.items.first { $0.url == reel.sourceURL }
-        return item?.isOptimized ?? false
-    }
-
-    private func loadURL(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {
-        var didFinish = false
-        func finish(_ url: URL?) {
-            guard !didFinish else { return }
-            didFinish = true
-            completion(url)
-        }
-
-        // Try loading as NSURL first (works for most Finder drops)
-        provider.loadObject(ofClass: NSURL.self) { object, _ in
-            if let url = object as? NSURL {
-                finish(url as URL)
-                return
-            }
-            // Try file URL identifier
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                if let url = extractURL(from: item) {
-                    finish(url)
-                    return
-                }
-                // Try movie type (for video files dragged from Finder)
-                provider.loadItem(forTypeIdentifier: UTType.movie.identifier, options: nil) { item, _ in
-                    if let url = extractURL(from: item) {
-                        finish(url)
-                        return
-                    }
-                    // Try MPEG-4 movie type specifically
-                    provider.loadItem(forTypeIdentifier: UTType.mpeg4Movie.identifier, options: nil) { item, _ in
-                        if let url = extractURL(from: item) {
-                            finish(url)
-                            return
-                        }
-                        // Try generic URL
-                        provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
-                            if let url = extractURL(from: item) {
-                                finish(url)
-                                return
-                            }
-                            // Finally try our custom projector media item
-                            provider.loadDataRepresentation(forTypeIdentifier: UTType.projectorMediaItem.identifier) { data, _ in
-                                finish(extractProjectorMediaURL(from: data))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func extractURL(from item: Any?) -> URL? {
-        if let data = item as? Data {
-            return URL(dataRepresentation: data, relativeTo: nil)
-        }
-        if let url = item as? URL {
-            return url
-        }
-        if let url = item as? NSURL {
-            return url as URL
-        }
-        if let string = item as? String {
-            return URL(string: string)
-        }
-        return nil
-    }
-
-    private func extractProjectorMediaURL(from item: Any?) -> URL? {
-        guard let data = item as? Data else { return nil }
-        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let urlString = object["url"] as? String {
-            if let url = URL(string: urlString) {
-                return url
-            }
-            if urlString.hasPrefix("/") {
-                return URL(fileURLWithPath: urlString)
-            }
-        }
-        if let string = String(data: data, encoding: .utf8) {
-            if let url = URL(string: string), url.scheme != nil {
-                return url
-            }
-            if string.hasPrefix("/") {
-                return URL(fileURLWithPath: string)
-            }
-        }
-        return nil
+    func updateNSView(_ nsView: VideoTrackDragCaptureNSView, context: Context) {
+        nsView.onEntered = onEntered
+        nsView.onUpdated = onUpdated
+        nsView.onExited = onExited
+        nsView.onPerform = onPerform
     }
 }
 
-private struct VideoTrackDropDelegate: DropDelegate {
-    @Binding var isTargeted: Bool
-    let pixelsPerFrame: CGFloat
-    let scrollOffset: CGFloat
-    let durationFrames: Int
-    let isDropAllowed: () -> Bool
-    let dropOperation: () -> DropOperation
-    let dropHandler: ([NSItemProvider], CGPoint) -> Bool
-    let updateHandler: (CGPoint) -> Void
-    let enterHandler: ([NSItemProvider], CGPoint) -> Void
-    let exitHandler: () -> Void
-    private let supportedTypes: [UTType] = [.fileURL, .url, .movie, .video, .mpeg4Movie, .projectorMediaItem]
+private final class VideoTrackDragCaptureNSView: NSView {
+    var onEntered: ((NSDraggingInfo, CGPoint) -> NSDragOperation)?
+    var onUpdated: ((NSDraggingInfo, CGPoint) -> NSDragOperation)?
+    var onExited: (() -> Void)?
+    var onPerform: ((NSDraggingInfo, CGPoint) -> Bool)?
 
-    func validateDrop(info: DropInfo) -> Bool {
-        !info.itemProviders(for: supportedTypes).isEmpty
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDragTypes()
     }
 
-    func dropEntered(info: DropInfo) {
-        isTargeted = true
-        let providers = info.itemProviders(for: supportedTypes)
-        enterHandler(providers, info.location)
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        registerForDragTypes()
     }
 
-    func dropExited(info: DropInfo) {
-        isTargeted = false
-        exitHandler()
+    private func registerForDragTypes() {
+        registerForDraggedTypes([
+            .fileURL,
+            .URL,
+            NSPasteboard.PasteboardType("com.projector.media-item"),
+            NSPasteboard.PasteboardType("public.item")
+        ])
     }
 
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        updateHandler(info.location)
-        return DropProposal(operation: dropOperation())
+    // Pass all mouse events through to the SwiftUI reels underneath; only
+    // drag-and-drop (which bypasses hitTest via registerForDraggedTypes) is
+    // handled here.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 
-    func performDrop(info: DropInfo) -> Bool {
-        isTargeted = false
-        exitHandler()
-        let providers = info.itemProviders(for: supportedTypes)
-        return dropHandler(providers, info.location)
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        false
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        nextResponder?.mouseDown(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        nextResponder?.mouseDragged(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        nextResponder?.mouseUp(with: event)
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        onEntered?(sender, localLocation(for: sender)) ?? []
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        onUpdated?(sender, localLocation(for: sender)) ?? []
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        onExited?()
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        true
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        onPerform?(sender, localLocation(for: sender)) ?? false
+    }
+
+    override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+        onExited?()
+    }
+
+    private func localLocation(for info: NSDraggingInfo) -> CGPoint {
+        convert(info.draggingLocation, from: nil)
     }
 }
 
