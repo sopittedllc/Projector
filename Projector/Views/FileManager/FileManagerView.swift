@@ -24,6 +24,18 @@ struct FileManagerView: View {
         return !mediaLibrary.externalMediaItems(projectURL: projectURL).isEmpty
     }
 
+    /// Whether Prepare Media has anything to offer: files to collect, files to
+    /// reduce, or an unsaved project (where the sheet explains the save first).
+    private var showPrepareMediaButton: Bool {
+        guard !mediaLibrary.items.isEmpty else { return false }
+        if projectDocument.fileURL == nil { return true }
+        if hasExternalFiles { return true }
+        return mediaLibrary.items.contains { item in
+            if case .needsOptimization = OptimizationStatusHelper.status(for: item) { return true }
+            return false
+        }
+    }
+
     /// True if there are external files OR project isn't saved yet (so user sees button and gets save prompt)
     private var showConsolidateButton: Bool {
         // Show button if there are items and either project isn't saved or there are external files
@@ -59,6 +71,13 @@ struct FileManagerView: View {
     @State private var searchText = ""
     @State private var sortOption: SortOption = .dateAdded
     @State private var isExpanded = true
+
+    /// Mirror the panel's expansion into the project so it reopens the same
+    /// way. Kept here rather than lifted into ContentView because the panel
+    /// also expands itself on first import.
+    private func persistExpansion(_ expanded: Bool) {
+        projectDocument.updateUIState { $0.mediaPanelExpanded = expanded }
+    }
     @State private var showDeleteAlert = false
     @State private var pendingDeleteItems: [MediaItem] = []
     @State private var isDraggingFromLibrary = false
@@ -67,6 +86,7 @@ struct FileManagerView: View {
     @State private var duplicateImportNames: [String] = []
     @State private var showOptimizationSheet = false
     @State private var showConsolidationSheet = false
+    @State private var showPrepareMediaSheet = false
 
     /// ViewModel for optimization - stored in @State to persist across re-renders
     @State private var optimizationViewModel: OptimizationViewModel?
@@ -103,7 +123,9 @@ struct FileManagerView: View {
                 OptimizationSuggestionBanner(
                     suggestion: suggestion,
                     onOptimize: {
-                        showOptimizationSheet = true
+                        // Same destination as the header button - one place to
+                        // reason about media housekeeping.
+                        showPrepareMediaSheet = true
                         activeSuggestion = nil
                     },
                     onDismiss: {
@@ -134,6 +156,12 @@ struct FileManagerView: View {
         .contentShape(Rectangle())
         .clipped()
         .glassPanel()
+        .onAppear {
+            isExpanded = projectDocument.uiState.mediaPanelExpanded
+        }
+        .onChange(of: isExpanded) { _, newValue in
+            persistExpansion(newValue)
+        }
         .onChange(of: mediaLibrary.items.count) { _, newCount in
             // Auto-expand when media is first imported
             if newCount > 0 && !isExpanded {
@@ -214,6 +242,15 @@ struct FileManagerView: View {
             }
         }
         // Consolidation sheet
+        .sheet(isPresented: $showPrepareMediaSheet) {
+            PrepareMediaSheetView(
+                mediaLibrary: mediaLibrary,
+                projectDocument: projectDocument,
+                onCollect: { showConsolidationSheet = true },
+                onReduce: { showOptimizationSheet = true },
+                onSaveProject: onSaveProject
+            )
+        }
         .sheet(isPresented: $showConsolidationSheet) {
             ConsolidationSheetView(
                 mediaLibrary: mediaLibrary,
@@ -390,13 +427,13 @@ struct FileManagerView: View {
             .fixedSize(horizontal: true, vertical: false)
             .help("Sort by \(sortOption.rawValue)")
 
-            // Note: Optimize button removed - the contextual banner handles this better
-            // The banner appears when high-bitrate media is detected and is more informative
-
-            // Consolidate button (only show if there are external files or project unsaved)
-            ConsolidateMediaButton(
-                showSheet: $showConsolidationSheet,
-                hasExternalFiles: showConsolidateButton,
+            // Single entry point for media housekeeping. Collecting (moving
+            // files into the project) and reducing (re-encoding) are different
+            // jobs, but as two adjacent pill buttons they read as duplicates -
+            // they're now steps inside PrepareMediaSheetView.
+            PrepareMediaButton(
+                showSheet: $showPrepareMediaSheet,
+                hasWork: showPrepareMediaButton,
                 compact: compact
             )
             .fixedSize(horizontal: true, vertical: false)
