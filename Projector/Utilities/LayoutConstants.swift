@@ -371,17 +371,21 @@ enum SettingsLayout {
 
 /// Layout constants for the horizontal split layout (video left, panels right)
 enum HorizontalLayoutConstants {
-    /// Minimum width for the video player section
-    static let minVideoWidth: CGFloat = 320
-
-    /// Default width for the video player section
-    static let defaultVideoWidth: CGFloat = 480
-
-    /// Minimum width for the right panel section (timeline + media)
+    /// Minimum width for the panel section (transport + timeline + media).
     static let minPanelWidth: CGFloat = 300
 
-    /// Default width for the right panel section
-    static let defaultPanelWidth: CGFloat = 400
+    /// Minimum width of the main window.
+    ///
+    /// The video player moved to its own window, so this no longer has to
+    /// accommodate a video pane - it only needs to keep the media panel's full
+    /// (non-compact) header controls on screen, plus window chrome.
+    static let mainWindowMinWidth: CGFloat = FileManagerLayout.headerFullControlsMinWidth + Spacing.xxl * 2
+
+    /// Minimum height of the main window.
+    static let mainWindowMinHeight: CGFloat = 500
+
+    // NOTE: minVideoWidth / defaultVideoWidth / defaultPanelWidth were removed
+    // with the embedded video pane (2026-07-24). All had zero call sites.
 }
 
 /// Layout constants for the main app window's grow-on-import behavior.
@@ -391,6 +395,14 @@ enum HorizontalLayoutConstants {
 /// window is grown to these dimensions so the expanded panels aren't squeezed into the
 /// original small frame.
 enum MainWindowLayout {
+    /// Default width on first launch, before the user has resized or a project
+    /// has supplied a saved frame. Sized so an empty project shows Settings,
+    /// Timeline, and Media with comfortable margins.
+    static let defaultWidth: CGFloat = 960
+
+    /// Default height on first launch.
+    static let defaultHeight: CGFloat = 640
+
     /// Width the window grows to after the first media import.
     static let expandedWidth: CGFloat = 1400
 

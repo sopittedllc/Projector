@@ -49,86 +49,168 @@ extension ContentView {
         }
     }
 
-    /// Enter full screen mode
-    func enterFullScreen() {
-        guard let window = NSApp.keyWindow else { return }
-        isFullScreen = true
-        window.toggleFullScreen(nil)
-    }
+    // NOTE: enterFullScreen/exitFullScreen were removed here along with the
+    // main window's video-fullscreen mode. The player is its own window now and
+    // uses native fullscreen (green traffic light, or the button in its hover
+    // overlay). The old observers listened for fullscreen notifications from
+    // ANY window, so the player going fullscreen would have flipped the main
+    // window into video mode.
 
-    /// Exit full screen mode
-    func exitFullScreen() {
-        guard let window = NSApp.keyWindow else { return }
-        isFullScreen = false
-        if window.styleMask.contains(.fullScreen) {
-            window.toggleFullScreen(nil)
-        }
-    }
-
-    /// Grow the app window to `MainWindowLayout`'s expanded size after the first media import.
+    /// Grow the window vertically so newly added lanes and media are visible.
     ///
-    /// The window opens at its small pre-import minimum (`ContentView`'s
-    /// `.frame(minWidth:minHeight:)`). Once media is imported the timeline and media panels
-    /// expand to show real content, so the window needs to grow to give them room. Anchors on
-    /// the window's current top-left corner and clamps to the screen's visible frame so the
-    /// window never grows off-screen or over the menu bar/dock.
-    func growWindowForFirstImport() {
-        guard let window = NSApp.mainWindow ?? NSApp.keyWindow ?? NSApp.windows.first,
-              !window.styleMask.contains(.fullScreen) else { return }
-        guard let screen = window.screen ?? NSScreen.main else { return }
+    /// Ceiling'd, which is the whole point: the earlier version had no bound,
+    /// so a multi-file drop added several lanes, each nudging the window taller
+    /// until it filled the display. Growth stops at
+    /// `MainWindowLayout.expandedHeight`, never shrinks the window, and never
+    /// touches a window the user has already made taller than that ceiling.
+    /// Height the main window's content wants, given the panels currently on
+    /// screen.
+    ///
+    /// Derived from the panels themselves rather than a fixed constant: the old
+    /// version grew the window by whatever delta the timeline had just gained
+    /// and stopped at a hardcoded ceiling, which both undershot (media panel
+    /// clipped once several lanes existed) and, before the ceiling, overshot
+    /// (window crept to fill the display over repeated drops).
+    var idealMainWindowContentHeight: CGFloat {
+        let transport = vitalControlsHeight > 0 ? vitalControlsHeight : 60
+        let transportChrome = Spacing.md + Spacing.sm
+
+        // Prefer the measured height of the panel stack. It accounts for
+        // whatever is actually on screen - the optimization banner, a collapsed
+        // Settings section, a hidden media panel - none of which a constant can
+        // track. Falls back to an estimate only before the first measurement.
+        if panelsContentHeight > 0 {
+            return transport + transportChrome + panelsContentHeight
+        }
+
+        let settings = PanelLayout.headerHeight
+        let timeline = timelineViewModel.currentHeight
+        let media = showFileManager ? FileManagerLayout.expandedHeight : 0
+        return transport
+            + transportChrome
+            + settings
+            + Spacing.md + timeline
+            + Spacing.md + media
+            + Spacing.md * 2
+    }
+
+    /// Resize the window so the current panels fit, without letting it creep.
+    ///
+    /// Sets an absolute target rather than accumulating deltas, so repeated
+    /// calls converge instead of compounding. Resizes in **both** directions:
+    /// deleting lanes shrinks the panel, and without a matching shrink here the
+    /// window kept a screenful of empty space. Bounded below by the default
+    /// window height so an emptied timeline can't collapse the window, and
+    /// above by the screen's visible height.
+    func fitWindowToContent() {
+        guard let window = mainAppWindow,
+              !window.styleMask.contains(.fullScreen),
+              let screen = window.screen ?? NSScreen.main else { return }
 
         let visibleFrame = screen.visibleFrame
-        let targetWidth = min(MainWindowLayout.expandedWidth, visibleFrame.width)
-        let targetHeight = min(MainWindowLayout.expandedHeight, visibleFrame.height)
+        // Window height includes the titlebar, which isn't part of content.
+        let chrome = window.frame.height - window.contentLayoutRect.height
+        let target = min(
+            max(idealMainWindowContentHeight + chrome, MainWindowLayout.defaultHeight),
+            visibleFrame.height
+        )
 
-        var newFrame = window.frame
-        guard newFrame.width < targetWidth || newFrame.height < targetHeight else { return }
+        var frame = window.frame
+        // 2pt deadband: keeps rounding from ping-ponging the window.
+        guard abs(target - frame.height) > 2 else { return }
 
-        let heightDelta = max(0, targetHeight - newFrame.height)
-        newFrame.size.width = max(newFrame.width, targetWidth)
-        newFrame.size.height = max(newFrame.height, targetHeight)
-        // NSWindow's origin is its bottom-left corner; keep the top edge anchored while
-        // growing downward by shifting the origin down by the added height.
-        newFrame.origin.y -= heightDelta
-
-        if newFrame.origin.y < visibleFrame.minY {
-            newFrame.origin.y = visibleFrame.minY
+        let delta = target - frame.height
+        frame.size.height = target
+        // NSWindow's origin is bottom-left; keep the top edge anchored so the
+        // window grows downward and shrinks upward from the same corner.
+        frame.origin.y -= delta
+        if frame.origin.y < visibleFrame.minY {
+            frame.origin.y = visibleFrame.minY
         }
-        if newFrame.maxX > visibleFrame.maxX {
-            newFrame.origin.x = max(visibleFrame.minX, visibleFrame.maxX - newFrame.width)
-        }
-
-        window.setFrame(newFrame, display: true, animate: true)
+        window.setFrame(frame, display: true, animate: true)
     }
 
-    /// Grow the window taller by `delta` points, anchored at its top-left and
-    /// clamped to the screen's visible frame.
+    // MARK: - Window & Layout State
+
+    /// Resolve the main window, however it is currently keyed.
+    var mainAppWindow: NSWindow? {
+        NSApp.mainWindow ?? NSApp.keyWindow ?? NSApp.windows.first { $0.canBecomeMain }
+    }
+
+    /// Give the main window its default size on first launch.
     ///
-    /// Used when the timeline panel auto-grows for new lanes: without this the
-    /// panel's extra height just squeezes the other panels inside a fixed
-    /// window. Growth only - the window never shrinks when lanes are removed,
-    /// so a size the user chose by hand is left alone.
-    func growWindow(byAdditionalHeight delta: CGFloat) {
-        guard delta > 0,
-              let window = NSApp.mainWindow ?? NSApp.keyWindow ?? NSApp.windows.first,
-              !window.styleMask.contains(.fullScreen) else { return }
-        guard let screen = window.screen ?? NSScreen.main else { return }
+    /// Applied only when the project has no saved frame, so it never fights a
+    /// size the user chose.
+    func applyDefaultMainWindowSizeIfNeeded() {
+        guard projectDocument.uiState.mainWindowFrame == nil,
+              let window = mainAppWindow,
+              !window.styleMask.contains(.fullScreen),
+              let screen = window.screen ?? NSScreen.main else { return }
 
         let visibleFrame = screen.visibleFrame
-        var newFrame = window.frame
-        let targetHeight = min(newFrame.height + delta, visibleFrame.height)
-        let heightDelta = targetHeight - newFrame.height
-        guard heightDelta > 0 else { return }
+        var frame = window.frame
+        frame.size.width = min(MainWindowLayout.defaultWidth, visibleFrame.width)
+        frame.size.height = min(MainWindowLayout.defaultHeight, visibleFrame.height)
+        window.setFrame(frame, display: true)
+        window.center()
+    }
 
-        newFrame.size.height = targetHeight
-        // NSWindow's origin is its bottom-left corner; keep the top edge
-        // anchored while growing downward.
-        newFrame.origin.y -= heightDelta
-        if newFrame.origin.y < visibleFrame.minY {
-            newFrame.origin.y = visibleFrame.minY
+    /// Restore the main window frame saved with the project, clamped so a frame
+    /// saved on a larger or differently-arranged display stays reachable.
+    func restoreMainWindowFrame(_ saved: ProjectUIState.WindowFrame) {
+        guard let window = mainAppWindow,
+              !window.styleMask.contains(.fullScreen) else { return }
+
+        var rect = saved.cgRect
+        guard rect.width > 0, rect.height > 0 else { return }
+
+        if let visible = (window.screen ?? NSScreen.main)?.visibleFrame {
+            rect.size.width = min(rect.width, visible.width)
+            rect.size.height = min(rect.height, visible.height)
+            rect.origin.x = min(max(rect.origin.x, visible.minX), visible.maxX - rect.width)
+            rect.origin.y = min(max(rect.origin.y, visible.minY), visible.maxY - rect.height)
+        }
+        window.setFrame(rect, display: true)
+    }
+
+    /// Record the main window's frame into the project's UI state.
+    func captureMainWindowFrame() {
+        guard let window = mainAppWindow,
+              !window.styleMask.contains(.fullScreen) else { return }
+        projectDocument.updateUIState { $0.mainWindowFrame = .init(window.frame) }
+    }
+
+    /// Apply the layout saved with the current project: window frames, panel
+    /// expansion, and timeline height.
+    ///
+    /// Each value is only written when it differs, so this doesn't fight
+    /// in-flight animations or retrigger the observers that write state back.
+    func applySavedUIState() {
+        let state = projectDocument.uiState
+
+        if let frame = state.mainWindowFrame {
+            restoreMainWindowFrame(frame)
         }
 
-        window.setFrame(newFrame, display: true, animate: true)
+        if timelineViewModel.isExpanded != state.timelineExpanded {
+            timelineViewModel.isExpanded = state.timelineExpanded
+        }
+        if let height = state.timelineExpandedHeight,
+           timelineViewModel.expandedHeight != CGFloat(height) {
+            timelineViewModel.setExpandedHeight(CGFloat(height))
+        }
+        if isSettingsExpanded != state.settingsExpanded {
+            isSettingsExpanded = state.settingsExpanded
+        }
+
+        let player = PlayerWindowController.shared
+        if let frame = state.playerWindowFrame {
+            player.restoreFrame(frame.cgRect)
+        }
+        player.setPinnedToFront(state.playerWindowPinned)
+        if state.playerWindowVisible {
+            player.show()
+        }
     }
 
     // MARK: - AlertCoordinator Helpers

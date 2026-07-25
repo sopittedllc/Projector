@@ -33,6 +33,14 @@ final class ProjectDocument: ObservableObject {
         didSet { markDirty() }
     }
 
+    /// Window sizes and panel states for this project.
+    ///
+    /// Deliberately does NOT call `markDirty()`: resizing a window or
+    /// collapsing a panel shouldn't leave the project showing unsaved changes
+    /// or prompt to save on quit. The layout rides along with the next real
+    /// save instead.
+    @Published var uiState: ProjectUIState = .default
+
     // MARK: - Initialization
 
     init() {
@@ -56,7 +64,16 @@ final class ProjectDocument: ObservableObject {
         fileURL = nil
         timeline = .empty
         mediaLibrary = []
+        uiState = .default
         hasUnsavedChanges = false
+    }
+
+    /// Update the stored UI state without marking the document dirty.
+    func updateUIState(_ mutate: (inout ProjectUIState) -> Void) {
+        var state = uiState
+        mutate(&state)
+        guard state != uiState else { return }
+        uiState = state
     }
 
     // MARK: - Serialization
@@ -66,6 +83,9 @@ final class ProjectDocument: ObservableObject {
         var version: Int = 2
         var timeline: Timeline
         var mediaLibrary: [MediaItem]
+        /// Optional so projects written before UI state existed still decode -
+        /// a synthesized decoder throws on a missing non-optional key.
+        var uiState: ProjectUIState?
     }
 
     /// Encode project to data
@@ -73,7 +93,8 @@ final class ProjectDocument: ObservableObject {
         let data = ProjectData(
             version: 2,
             timeline: timeline,
-            mediaLibrary: mediaLibrary
+            mediaLibrary: mediaLibrary,
+            uiState: uiState
         )
 
         let encoder = JSONEncoder()
@@ -88,6 +109,8 @@ final class ProjectDocument: ObservableObject {
 
         timeline = projectData.timeline
         mediaLibrary = projectData.mediaLibrary
+        // Projects saved before UI state existed fall back to the defaults.
+        uiState = projectData.uiState ?? .default
 
         // Resolve bookmarks for timeline video reels
         resolveTimelineBookmarks()
@@ -221,5 +244,78 @@ final class ProjectDocument: ObservableObject {
                 return "No file URL specified. Use Save As first."
             }
         }
+    }
+}
+
+// MARK: - Project UI State
+
+/// Window geometry and panel states saved with the project, so a project
+/// reopens laid out the way the user left it.
+///
+/// Frames are stored as plain numbers rather than `CGRect` to keep the JSON
+/// readable and stable. A nil frame means "never positioned" - the window
+/// falls back to its default size and centers itself.
+struct ProjectUIState: Codable, Equatable {
+    /// A saved window frame in screen coordinates.
+    struct WindowFrame: Codable, Equatable {
+        var x: Double
+        var y: Double
+        var width: Double
+        var height: Double
+    }
+
+    // MARK: Windows
+
+    /// Frame of the main Projector window.
+    var mainWindowFrame: WindowFrame?
+
+    /// Frame of the standalone player window.
+    var playerWindowFrame: WindowFrame?
+
+    /// Whether the player window was on screen when the project was saved.
+    var playerWindowVisible: Bool
+
+    /// Whether the player window was pinned above other apps.
+    var playerWindowPinned: Bool
+
+    // MARK: Panels
+
+    /// Height of the expanded timeline accordion.
+    var timelineExpandedHeight: Double?
+
+    /// Whether the timeline accordion was expanded.
+    var timelineExpanded: Bool
+
+    /// Whether the Settings accordion was expanded.
+    var settingsExpanded: Bool
+
+    /// Whether the Media panel was expanded.
+    var mediaPanelExpanded: Bool
+
+    /// Defaults for a brand new project.
+    static let `default` = ProjectUIState(
+        mainWindowFrame: nil,
+        playerWindowFrame: nil,
+        playerWindowVisible: false,
+        playerWindowPinned: false,
+        timelineExpandedHeight: nil,
+        timelineExpanded: true,
+        settingsExpanded: false,
+        mediaPanelExpanded: true
+    )
+}
+
+extension ProjectUIState.WindowFrame {
+    init(_ rect: CGRect) {
+        self.init(
+            x: Double(rect.origin.x),
+            y: Double(rect.origin.y),
+            width: Double(rect.size.width),
+            height: Double(rect.size.height)
+        )
+    }
+
+    var cgRect: CGRect {
+        CGRect(x: x, y: y, width: width, height: height)
     }
 }

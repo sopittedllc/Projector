@@ -334,10 +334,11 @@ final class TimelineViewModel: ObservableObject {
                         self.expandIfNeeded()
                     }
 
-                    // Grow the panel to fit newly added lanes. Only on growth:
-                    // resizeToFitLanes never shrinks, so a user who has manually
-                    // dragged the panel taller keeps that height.
-                    if self.audioLanes.count > previousLaneCount {
+                    // Resize whenever the lane count changes in either
+                    // direction. Deleting lanes used to leave the panel at its
+                    // grown height, so an emptied timeline kept a screenful of
+                    // blank space.
+                    if self.audioLanes.count != previousLaneCount {
                         self.resizeToFitLanes()
                     }
                 }
@@ -364,7 +365,9 @@ final class TimelineViewModel: ObservableObject {
             + PanelLayout.footerHeight + Spacing.md             // hint row incl. resize handle
 
         let clamped = min(maxExpandedHeight, max(minExpandedHeight, contentHeight))
-        if clamped > expandedHeight {
+        // Shrinks as well as grows. The 1pt guard keeps a no-op change from
+        // publishing and retriggering the observers that watch this value.
+        if abs(clamped - expandedHeight) > 1 {
             expandedHeight = clamped
         }
     }

@@ -113,7 +113,6 @@ struct ContentView: View {
     @State var midiCancellables = Set<AnyCancellable>()
     @StateObject var thumbnailCache = ThumbnailCache()
     @State var showFileManager = true
-    @State var isFullScreen = false
     @State var didHandleUITestImport = false
     @State var uiTestImportState: String? = "boot"
 
@@ -125,13 +124,14 @@ struct ContentView: View {
     @State var playbackMeasuredHeight: CGFloat = 0
     @State private var isResizingPlayback = false
     @State var normalViewHeight: CGFloat = 0
+
+    /// Measured height the scrollable panel stack wants, used to size the window.
+    @State var panelsContentHeight: CGFloat = 0
     @State var vitalControlsHeight: CGFloat = 0
 
-    // Floating video window state
-    @State private var isVideoFloating = false
-
-    // Settings panel state (collapsed by default)
-    @State private var isSettingsExpanded = false
+    // Settings panel state (collapsed by default).
+    // Internal, not private: ContentView+Helpers restores it from the project.
+    @State var isSettingsExpanded = false
 
     // FPS conflict state (internal for ContentView+Timeline.swift extension)
     @State var pendingVideoURL: URL?
@@ -140,7 +140,6 @@ struct ContentView: View {
     @State var videoInsertURL: URL?
     @State var videoAlreadyInTimelineName: String = ""
     @State var audioAlreadyInTimelineName: String = ""
-    @State private var isPlaybackDropTargeted = false
 
     // Embedded timecode detection state (internal for ContentView+Timeline.swift extension)
     @State var pendingTimecodeResult: EmbeddedTimecodeResult?
@@ -151,6 +150,13 @@ struct ContentView: View {
 
     // Batch timecode detection state (for multiple file drops)
     @State var pendingBatchTimecode: PendingBatchTimecode?
+
+    /// Audio lanes reserved for files in an in-flight batch drop.
+    ///
+    /// Empty lanes look available to anything scanning for a free lane, so a
+    /// video's embedded-audio import would otherwise claim a lane earmarked for
+    /// one of the batch's audio files. Cleared once the batch is placed.
+    @State var reservedAudioLaneIds: Set<UUID> = []
 
     // Spot media sheet state (for single file drops with enhanced placement options)
     @State var pendingSpotURL: URL?
@@ -202,7 +208,10 @@ struct ContentView: View {
                 )
             }
             .sheet(isPresented: $showOnboarding, content: onboardingSheetContent)
-            .frame(minWidth: 1100, minHeight: 500)
+            .frame(
+                minWidth: HorizontalLayoutConstants.mainWindowMinWidth,
+                minHeight: HorizontalLayoutConstants.mainWindowMinHeight
+            )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(WindowGlassBackground())
         .overlay {
@@ -274,32 +283,13 @@ struct ContentView: View {
                 persistenceService.openProject(from: url)
             }
         }
-        // Listen for window full screen changes
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
-            isFullScreen = false
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { _ in
-            isFullScreen = true
-        }
-        // Escape key exits full screen
-        .onKeyPress(.escape) {
-            if isFullScreen {
-                exitFullScreen()
-                return .handled
-            }
-            return .ignored
-        }
     }
 
     // MARK: - Main Content (extracted for type-checker performance)
 
     private var mainContent: some View {
         Group {
-            if isFullScreen {
-                fullScreenView
-            } else {
-                normalView
-            }
+            normalView
         }
         .overlay(alignment: .topLeading) {
             if isUITesting {
@@ -324,13 +314,9 @@ struct ContentView: View {
     // MARK: - View Modes
 
     private var normalView: some View {
-        // Horizontal split: Video (left) | Controls + Panels (right)
-        HSplitView {
-            // Left: Video player section (in glass container)
-            videoSection
-                .frame(minWidth: HorizontalLayoutConstants.minVideoWidth)
-
-            // Right: Transport bar (pinned) + Scrollable panels
+        // The player lives in its own window (PlayerWindowController), so the
+        // main window is transport + panels only - no split.
+        Group {
             VStack(spacing: 0) {
                 // Vital Controls bar - pinned at top
                 VitalControlsBar(
@@ -366,6 +352,67 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environmentObject(dragContext)
+        .onAppear {
+            // Build the player window but leave it hidden - it appears when the
+            // first video arrives (see the videoReels observer below), since a
+            // project with no video has nothing to show.
+            let player = PlayerWindowController.shared
+            player.configure(
+                playbackEngine: playbackEngine,
+                settings: settings,
+                onDropURLs: { urls in handlePlaybackAreaDrop(urls: urls) },
+                onDropProviders: { providers in mediaImportCoordinator.handleDrop(providers: providers) }
+            )
+            player.onVisibilityChanged = { visible in
+                projectDocument.updateUIState { $0.playerWindowVisible = visible }
+            }
+            player.onFrameChanged = { frame in
+                projectDocument.updateUIState { $0.playerWindowFrame = .init(frame) }
+            }
+            // The pin can also be toggled from the View menu, so mirror it
+            // from the notification rather than only from the window button.
+            NotificationCenter.default.addObserver(
+                forName: .playerWindowPinDidChange,
+                object: nil,
+                queue: .main
+            ) { _ in
+                MainActor.assumeIsolated {
+                    projectDocument.updateUIState {
+                        $0.playerWindowPinned = settings.playerWindowPinnedToFront
+                    }
+                }
+            }
+
+            applyDefaultMainWindowSizeIfNeeded()
+            applySavedUIState()
+        }
+        // Persist layout changes as the user makes them.
+        .onChange(of: normalViewHeight) { _, _ in captureMainWindowFrame() }
+        .onChange(of: timelineViewModel.expandedHeight) { _, newValue in
+            projectDocument.updateUIState { $0.timelineExpandedHeight = Double(newValue) }
+        }
+        .onChange(of: timelineViewModel.isExpanded) { _, newValue in
+            projectDocument.updateUIState { $0.timelineExpanded = newValue }
+        }
+        // Fit the window to the panels whenever the timeline's height changes
+        // (lanes added/removed, panel collapsed). Absolute target, grow-only.
+        .onChange(of: timelineViewModel.expandedHeight) { _, _ in
+            fitWindowToContent()
+        }
+        .onChange(of: timelineViewModel.isExpanded) { _, _ in
+            fitWindowToContent()
+        }
+        .onChange(of: isSettingsExpanded) { _, newValue in
+            projectDocument.updateUIState { $0.settingsExpanded = newValue }
+        }
+        // Reapply when a different project is opened.
+        .onChange(of: projectDocument.fileURL) { _, _ in applySavedUIState() }
+        // Show the player as soon as the project has video to play.
+        .onChange(of: timelineManager.timeline.videoReels.count) { oldCount, newCount in
+            if oldCount == 0 && newCount > 0 {
+                PlayerWindowController.shared.show()
+            }
+        }
         .simultaneousGesture(
             TapGesture().onEnded {
                 dismissTimecodeEditing()
@@ -407,95 +454,6 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Video Section (Left Panel)
-
-    private var videoSection: some View {
-        ZStack {
-            if isVideoFloating {
-                // Placeholder when video is floating
-                videoFloatingPlaceholder
-            } else {
-                // Embedded video player
-                embeddedVideoPlayer
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: PanelLayout.cornerRadius))
-        .glassPanel()
-        .padding(Spacing.md)
-    }
-
-    private var embeddedVideoPlayer: some View {
-        VideoContentViewForEngine(
-            playbackEngine: playbackEngine,
-            showTimecode: settings.showTimecodeOverlay,
-            overlayPosition: settings.timecodeOverlayPosition,
-            overlayOpacity: 0.3,
-            extraTrailingPadding: (settings.timecodeOverlayPosition == .bottomRight || settings.timecodeOverlayPosition == .bottomLeft) ? 80 : 0
-        )
-        .onDrop(of: [UTType.fileURL, UTType.url, UTType.projectorMediaItem], isTargeted: $isPlaybackDropTargeted) { providers in
-            // Check for internal drag from media panel first
-            if dragContext.isDragging && !dragContext.mediaItems.isEmpty {
-                let urls = dragContext.mediaItems.map { $0.url }
-                handlePlaybackAreaDrop(urls: urls)
-                dragContext.end()
-                return true
-            }
-            // Fall back to external drop handling
-            return mediaImportCoordinator.handleDrop(providers: providers)
-        }
-        .overlay {
-            DropTargetOverlay(isTargeted: $isPlaybackDropTargeted)
-        }
-        .animation(AppAnimations.quick, value: isPlaybackDropTargeted)
-        .overlay {
-            LoadingOverlay(isLoading: isLoadingMedia || isDetectingTimecode)
-        }
-        .overlay(alignment: .bottomTrailing) {
-            // Video control buttons
-            HStack(spacing: Spacing.sm) {
-                // Float button
-                Button(action: { floatVideoWindow() }) {
-                    Image(systemName: "rectangle.portrait.and.arrow.right")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.white)
-                        .frame(width: 32, height: 32)
-                        .background(AppColors.overlayDarker)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-                .help("Float video in separate window")
-
-                // Full screen button
-                FullScreenToggleButton(isFullScreen: false, action: enterFullScreen)
-            }
-            .padding(Spacing.sm)
-        }
-    }
-
-    private var videoFloatingPlaceholder: some View {
-        VStack(spacing: Spacing.lg) {
-            Image(systemName: "rectangle.portrait.and.arrow.right.fill")
-                .font(Typography.iconEmptyState)
-                .foregroundColor(AppColors.textTertiary)
-
-            Text("Video is floating")
-                .font(Typography.heading)
-                .foregroundColor(AppColors.textSecondary)
-
-            Text("The video is in a separate window")
-                .font(Typography.caption)
-                .foregroundColor(AppColors.textTertiary)
-
-            Button("Return Video Here") {
-                returnVideoFromFloat()
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(AppColors.accent)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     // MARK: - Right Panel Section (Settings + Timeline + Media)
 
     private var rightPanelSection: some View {
@@ -534,21 +492,8 @@ struct ContentView: View {
                     if newCount > 0 && !timelineViewModel.isExpanded {
                         timelineViewModel.expandIfNeeded()
                     }
-                    // Grow the window on the very first import so the newly-expanded
-                    // timeline and media panels have room instead of being squeezed
-                    // into the small pre-import frame.
-                    if oldCount == 0 && newCount > 0 {
-                        growWindowForFirstImport()
-                    }
                 }
-                .onChange(of: timelineViewModel.expandedHeight) { oldHeight, newHeight in
-                    // The timeline panel auto-grows when lanes are added; grow
-                    // the window by the same amount so the new height shows
-                    // lanes instead of compressing the media panel below it.
-                    if newHeight > oldHeight {
-                        growWindow(byAdditionalHeight: newHeight - oldHeight)
-                    }
-                }
+
 
                 // File Manager panel
                 if showFileManager {
@@ -566,34 +511,32 @@ struct ContentView: View {
                 }
             }
             .padding(Spacing.md)
+            // Measure what the panels actually want. Estimating this from
+            // layout constants missed anything conditional - the optimization
+            // banner most visibly - so the window came up short and the media
+            // panel ended up behind a scrollbar.
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { updatePanelsContentHeight(proxy.size.height) }
+                        .onChange(of: proxy.size.height) { _, newValue in
+                            updatePanelsContentHeight(newValue)
+                        }
+                }
+            )
         }
     }
 
-    // MARK: - Floating Video Actions
-
-    private func floatVideoWindow() {
-        isVideoFloating = true
-        FloatingVideoPanelController.shared.showPanel(
-            playbackEngine: playbackEngine,
-            settings: settings,
-            onClose: {
-                returnVideoFromFloat()
-            }
-        )
-    }
-
-    private func returnVideoFromFloat() {
-        FloatingVideoPanelController.shared.closePanel()
-        isVideoFloating = false
-    }
-
-    private var fullScreenView: some View {
-        FullScreenVideoView(
-            playbackEngine: playbackEngine,
-            settings: settings,
-            mediaImportCoordinator: mediaImportCoordinator,
-            onExitFullScreen: exitFullScreen
-        )
+    /// Record the panels' measured height and refit the window.
+    ///
+    /// Debounced by a 1pt threshold: SwiftUI republishes this during
+    /// animations, and refitting on every frame would fight the animation.
+    private func updatePanelsContentHeight(_ height: CGFloat) {
+        guard height > 0, abs(height - panelsContentHeight) > 1 else { return }
+        panelsContentHeight = height
+        DispatchQueue.main.async {
+            fitWindowToContent()
+        }
     }
 
     // MARK: - Audio Lane Preset Application
