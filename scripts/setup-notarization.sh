@@ -33,11 +33,17 @@ echo "To create an app-specific password:"
 echo "  1. Go to https://appleid.apple.com"
 echo "  2. Sign in > App-Specific Passwords > Generate"
 echo ""
-read -p "Press Enter to continue..."
+read -r -p "Apple ID email: " APPLE_ID
+if [ -z "${APPLE_ID}" ]; then
+    echo "An Apple ID is required." >&2
+    exit 1
+fi
 echo ""
 
+# Prompts for the app-specific password rather than taking it as an argument,
+# which would leave it in shell history and in the process list.
 xcrun notarytool store-credentials "notary" \
-    --apple-id "" \
+    --apple-id "${APPLE_ID}" \
     --team-id "G398H44H6X"
 
 echo ""
