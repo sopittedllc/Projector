@@ -50,11 +50,22 @@ struct TimelineAccordionView: View {
     /// Called when mixed video/audio files are dropped on the timeline
     var onDropMixedMedia: (([URL], [URL], Int) -> Void)?
 
-    @State private var isResizingTimeline = false
-    @State private var isHoveringTimelineResize = false
-    @State private var timelineDragStartHeight: CGFloat = 0
-    @State private var timelineDragStartLocationY: CGFloat = 0
-    @State private var didPushResizeCursorForDrag = false
+    // MARK: - Section sizing
+
+    /// Height the section authority has given this panel.
+    ///
+    /// Passed in rather than held: `SectionLayout` resolves it from the window's
+    /// size, so a panel that kept its own height would be a second opinion on a
+    /// question that already has an answer.
+    ///
+    /// The resize handle that used to live along this panel's bottom edge moved
+    /// out to `ContentView`'s section splitter, in the gap above the panel. Under
+    /// the section authority the window's height is fixed while dragging, so
+    /// growing the timeline has to take the room from the top row - which means
+    /// the edge that moves is the timeline's *top* edge. A handle on the bottom
+    /// edge would have stayed still while the panel grew upward out from under
+    /// the cursor.
+    var height: CGFloat
 
     // MARK: - Body
 
@@ -76,12 +87,9 @@ struct TimelineAccordionView: View {
                 timelineHint
             }
         }
-        .frame(height: timelineViewModel.currentHeight, alignment: .top)
+        .frame(height: height, alignment: .top)
         .clipped()
         .glassPanel()
-        .overlay(alignment: .bottom) {
-            timelineResizeHandle
-        }
         // Refit the view whenever the timeline grows.
         //
         // Media dropped past the end extends the duration via
@@ -102,7 +110,7 @@ struct TimelineAccordionView: View {
     /// Floored at zero so a mid-drag resize cannot hand the tracks a negative
     /// height.
     private var tracksHeight: CGFloat {
-        max(0, timelineViewModel.currentHeight
+        max(0, height
             - PanelLayout.headerHeight
             - (PanelLayout.footerHeight + Spacing.md))
     }
@@ -240,57 +248,6 @@ struct TimelineAccordionView: View {
             showHeader: false,
             zoomLevel: $timelineViewModel.zoomLevel
         )
-    }
-
-    private var timelineResizeHandle: some View {
-        Rectangle()
-            .fill(Color.clear)
-            .frame(height: Spacing.md)
-            .contentShape(Rectangle())
-            .overlay {
-                // Only show indicator line when actively resizing (panel border is visible otherwise)
-                if isResizingTimeline {
-                    Rectangle()
-                        .fill(Color.accentColor)
-                        .frame(height: 2)
-                }
-            }
-            .accessibilityLabel("Resize timeline")
-            .onHover { hovering in
-                guard !isResizingTimeline else { return }
-                if hovering, !isHoveringTimelineResize {
-                    NSCursor.resizeUpDown.push()
-                    isHoveringTimelineResize = true
-                } else if !hovering, isHoveringTimelineResize {
-                    NSCursor.pop()
-                    isHoveringTimelineResize = false
-                }
-            }
-            .gesture(
-                DragGesture(coordinateSpace: .global)
-                    .onChanged { value in
-                        if !isResizingTimeline {
-                            timelineDragStartHeight = timelineViewModel.expandedHeight
-                            timelineDragStartLocationY = value.startLocation.y
-                            isResizingTimeline = true
-                            if !isHoveringTimelineResize {
-                                NSCursor.resizeUpDown.push()
-                                didPushResizeCursorForDrag = true
-                            } else {
-                                didPushResizeCursorForDrag = false
-                            }
-                        }
-                        let delta = value.location.y - timelineDragStartLocationY
-                        timelineViewModel.setExpandedHeight(timelineDragStartHeight + delta)
-                    }
-                    .onEnded { _ in
-                        isResizingTimeline = false
-                        if didPushResizeCursorForDrag {
-                            NSCursor.pop()
-                        }
-                        didPushResizeCursorForDrag = false
-                    }
-            )
     }
 }
 

@@ -280,7 +280,18 @@ struct ProjectUIState: Codable, Equatable {
 
     // MARK: Panels
 
+    /// Fraction of the window's flexible height the top row was given.
+    ///
+    /// A proportion rather than a height, so it restores correctly onto a window
+    /// of any size - see rule 2 of the section authority in `SectionLayout`.
+    /// Optional so projects saved before the section split still decode; those
+    /// fall back to `timelineExpandedHeight`.
+    var topRowShare: Double?
+
     /// Height of the expanded timeline accordion.
+    ///
+    /// Legacy. Nothing writes it any more; it is read once, on open, to
+    /// reconstruct `topRowShare` for a project saved before the split existed.
     var timelineExpandedHeight: Double?
 
     /// Whether the timeline accordion was expanded.
@@ -298,6 +309,7 @@ struct ProjectUIState: Codable, Equatable {
         playerWindowFrame: nil,
         playerWindowVisible: false,
         playerWindowPinned: false,
+        topRowShare: nil,
         timelineExpandedHeight: nil,
         timelineExpanded: true,
         settingsExpanded: false,

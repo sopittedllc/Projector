@@ -93,9 +93,6 @@ final class TimelineViewModel: ObservableObject {
     /// Current zoom level (0.0 = fit, 1.0 = max zoom)
     @Published var zoomLevel: CGFloat = 0.0
 
-    /// Height of the expanded timeline section
-    @Published var expandedHeight: CGFloat = TimelineViewModel.defaultExpandedHeight
-
     /// Currently selected video reel ID, if any
     @Published var selectedReelId: UUID?
 
@@ -124,33 +121,12 @@ final class TimelineViewModel: ObservableObject {
     /// Zoom step for UI controls
     private let zoomStep: CGFloat = 0.1
 
-    /// Height when timeline is collapsed (header only)
-    let collapsedHeight: CGFloat = TimelineSectionLayout.collapsedHeight
-
-    /// Minimum expanded height
-    let minExpandedHeight: CGFloat = TimelineSectionLayout.minHeight
-
-    /// Maximum expanded height
-    /// The tallest the expanded timeline may grow.
-    ///
-    /// Screen-aware rather than a fixed constant: on a large display the panel
-    /// can keep growing to show more lanes; `TimelineSectionLayout.maxHeight`
-    /// only acts as the floor so small screens still get a usable timeline.
-    var maxExpandedHeight: CGFloat {
-        let screenHeight = NSScreen.main?.visibleFrame.height ?? TimelineSectionLayout.maxHeight
-        // Floored at the *minimum* usable height, not at 500. Flooring at 500
-        // meant that on a display too small to fit 500pt of timeline plus
-        // everything above it, the panel still claimed 500 and the window
-        // overflowed the screen - the timeline has its own scroller for that
-        // case, so capping it is the correct outcome.
-        return max(TimelineSectionLayout.minHeight,
-                   screenHeight - TimelineSectionLayout.reservedVerticalChrome)
-    }
+    // NOTE: collapsedHeight / minExpandedHeight / maxExpandedHeight were removed
+    // (2026-07-26) along with the panel's own height state. The timeline's height
+    // is now resolved by `SectionLayout` from the window's size and passed in,
+    // so the view model has no size to hold, clamp, or defend against the screen.
 
     // MARK: - Private
-
-    /// Default expanded height uses TimelineSectionLayout for consistency
-    private static let defaultExpandedHeight: CGFloat = TimelineSectionLayout.defaultHeight
 
     /// Task for observing timeline state stream
     private var observationTask: Task<Void, Never>?
@@ -220,11 +196,6 @@ final class TimelineViewModel: ObservableObject {
         config.endTimecode.stringValue()
     }
 
-    /// Current height based on expansion state
-    var currentHeight: CGFloat {
-        expandedHeight
-    }
-
     // MARK: - Actions
 
     /// Toggle timeline expansion
@@ -237,12 +208,6 @@ final class TimelineViewModel: ObservableObject {
         if !isExpanded {
             isExpanded = true
         }
-    }
-
-    /// Update the expanded height (clamped to min/max).
-    func setExpandedHeight(_ height: CGFloat) {
-        let clamped = min(maxExpandedHeight, max(minExpandedHeight, height))
-        expandedHeight = clamped
     }
 
     /// Reset zoom to default level

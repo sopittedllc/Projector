@@ -1,7 +1,7 @@
 # Session State
 
 > **Last Updated**: 2026-07-26
-> **Status**: IDLE — stopping point, all work committed and building
+> **Status**: IDLE — proportional section sizing landed; builds and tests green
 > **Branch**: codex/repair-sync-core
 
 ---
@@ -9,8 +9,10 @@
 ## Where we left off
 
 A long UI/UX session. The main window was reorganised into a two-row layout, MTC sync was
-debugged end to end, and the video's baked-in audio became part of a combined "Video File"
-track. Everything below is committed and builds. Nothing is half-applied.
+debugged end to end, the video's baked-in audio became part of a combined "Video File" track,
+Audio Settings was rebuilt around output roles and profiles, and the layout was inverted so the
+window's size drives the sections rather than the other way round. Everything below builds and
+the test suite is green. Nothing is half-applied.
 
 ---
 
@@ -19,24 +21,69 @@ track. Everything below is committed and builds. Nothing is half-applied.
 Both are written as numbered rules in code comments. They exist because the same class of bug
 kept returning one instance at a time. **Extend the rules rather than adding a special case.**
 
-### 1. Window sizing — `ContentView+Helpers.swift`, `syncWindowToContent()`
+### 1. Section sizing - `LayoutConstants.swift`, `SectionLayout`
 
-Seven rules, summarised: height follows content (`max(video column, panel stack)` clamped to
-`[minimumHeight, screen]`); width is defended by `mainWindowMinWidth` and never adjusted here;
-the panel stack scrolls **only** once the window hits the screen ceiling; a stale scroll offset
-is a bug, so it is re-normalised after every resize; the video column is fixed; panels are
-bounded so the window rarely needs to scroll at all.
+**The window's size is an input, not an output.** `SectionLayout.resolve(content:topRowShare:)`
+turns the window's content area into every section's size. Six rules, summarised: `everything`
+is the root and every section is carved out of it; the top row and timeline **share** the
+flexible height by a fraction (`topRowShare`), so a window resize preserves the balance instead
+of overwriting it; the video column's width is derived from the picture's height so it is
+exactly 16:9 at any size; a narrow window caps the top row at the height its width supports and
+gives the surplus to the timeline; Media absorbs the leftover width; and the window's minimum is
+the sum of the section minimums, which is what guarantees the content always fits.
 
-Two traps already paid for:
+Verified by measurement, not inspection:
 
-- **Never resize the window synchronously from inside a SwiftUI update.**
-  `setFrame(animate: true)` spins a nested run loop, re-enters the view graph mid-layout and
-  **segfaults**. The function defers to the next runloop turn and uses `window.animator()`.
-  There is a crash report from exactly this path.
-- **Rule 6's test reads the window, never the content.** Asking "is the content taller than the
-  viewport" is circular — that height is measured *inside* the scroll view, so disabling
-  scrolling makes the content report as fitting, which keeps it disabled. That left a full
-  timeline unscrollable with its top cut off.
+```
+win   1440x783   | top  306.0  timeline  409.0  | video  480.0x270.0  16:9  | media  924.0  rows 2
+win   1440x900   | top  356.1  timeline  475.9  | video  569.0x320.1  16:9  | media  835.0  rows 3
+win  2560x1400   | top  570.1  timeline  761.9  | video  949.4x534.1  16:9  | media 1574.6  rows 5
+win  1100x1200   | top  229.5  timeline  902.5  | video  344.0x193.5  16:9  | media  720.0  rows 2   <- rule 4
+win   1076x571   | top  216.0  timeline  287.0  | video  320.0x180.0  16:9  | media  720.0  rows 2   <- every minimum
+```
+
+The last two rows are the ones worth keeping: rule 4 fires on a tall narrow window, and the
+minimum window puts every section on its floor simultaneously with the heights still summing
+exactly to the content.
+
+Traps already paid for:
+
+- **`.frame(minWidth:minHeight:)` takes the *view* minimum, not the window's.** SwiftUI
+  constrains the content below the titlebar, so passing `minimumWindowSize` put the floor a
+  titlebar too high - measured, the window stopped shrinking at 603pt where the sections were
+  still fine at 571. `minimumViewSize` (no titlebar) is for SwiftUI; `minimumWindowSize` is for
+  clamping an NSWindow frame.
+- **A fixed `.frame` on a child beats the parent's frame.** `InlineVideoArea` named
+  480x270 internally, so the column grew with the window while the picture inside it did not.
+  Children of a resolved section fill (`maxWidth/maxHeight: .infinity`); they never name a size.
+- **The GeometryReader has to be outside anything that scrolls.** Inside a ScrollView it
+  reports the content's height, which is the height it is being asked to decide.
+
+#### What this replaced, and why it cannot come back
+
+The previous authority did the opposite: panels had fixed heights, measured themselves, and the
+window was resized to fit. It needed a 2pt deadband, two deferred normalization passes, and a
+"has the scroller been earned" test that had to read the window rather than the content to avoid
+being circular. All of that was the cost of a feedback loop. It also silently undid every manual
+window resize the moment a lane was added, which is what made proportional sizing impossible.
+
+Deleted with it: the panel stack's `ScrollView` and `PanelScrollCapture`, `panelsCanScroll` /
+`panelsContentHeight` / `normalizePanelScroll()`, `idealMainWindowContentHeight`,
+`syncWindowToContent()`, `videoAreaHeight`, `normalViewHeight`, `TimelineViewModel.expandedHeight`
+and its min/max/clamp, `TimelineSectionLayout.reservedVerticalChrome`, `MediaPanelLayout`,
+`PlaybackResizeHandle` and the `playbackHeight` cluster. **If a section starts measuring itself
+and reporting back, the loop is being rebuilt.**
+
+#### The splitter
+
+The one draggable boundary is `ContentView.sectionSplitter`, in the 12pt gap between the two
+rows. It writes a **share**, never a height. It used to be a handle along the timeline's bottom
+edge, which worked only because the drag resized the window; with the window fixed, whatever the
+timeline gains the top row gives up, so the edge that moves is the timeline's *top* edge - a
+bottom handle would have stayed still while the panel grew out from under the cursor.
+
+Persisted as `ProjectUIState.topRowShare`. The legacy `timelineExpandedHeight` is read once, on
+open, to reconstruct a share for projects saved before the split existed; nothing writes it.
 
 ### 2. Audio routing — `TimelineManager.swift`, `reconcileOutputMappings(with:)`
 
@@ -47,27 +94,31 @@ otherwise clear it rather than silently routing somewhere the user did not choos
 
 ---
 
-## Layout model (sizes derive from constants — do not hardcode)
+## Layout model (every size is resolved, not declared)
 
 ```
-┌─────────────────────┬────────────────────────────┐
-│  video 480x270      │  Media (2 fixed rows)      │  topRowHeight = 306
-│  ─────────────────  │                            │
-│  [Settings]  [FPS][stop][full][popout]  36pt     │
-├─────────────────────┴────────────────────────────┤
-│  Timeline — full width, set height, scrolls      │  defaultHeight ~409
-└──────────────────────────────────────────────────┘
++---------------------+----------------------------+
+|  video 16:9         |  Media (rows fill height)  |   topRow    - share of the window
+|  -----------------  |                            |
+|  [Settings] [FPS][stop][full][popout]  36pt      |
++========== section splitter (12pt gap) ===========+
+|  Timeline - full width, scrolls internally       |   timeline  - the rest
++--------------------------------------------------+
 ```
 
-- Both top-row columns are framed to `MainWindowLayout.topRowHeight`. Their bottoms align
-  because they are *told the same number*, not because one is derived from the other's
-  internals — that earlier approach broke the moment the optimization banner appeared.
-- `inlineVideoHeight` is derived: `topRowHeight - videoControlsBarHeight`. 480x270 is exactly
-  16:9, so the picture fills the column with no letterboxing.
-- The Timeline is a **constant** height (Video File track + 3 audio lanes); further lanes
-  scroll inside it. `resizeToFitLanes` was **removed** — it shrank the panel below the default
-  with fewer than three lanes, so adding lanes made the timeline briefly *shorter* and the
-  window followed it down. Measured: 0 lanes → 409, 2 lanes → 328, 4 lanes → 409.
+At the default 1440x783 window this measures exactly the old fixed layout: top row 306, timeline
+409, video 480x270. Those figures now live in `SectionLayout` as the *reference* the proportions
+are struck from, not as the sizes anything is given.
+
+- Both top-row columns are framed by `SectionLayout`, so their bottoms align because they are
+  told the same number. Deriving one from the other's internals broke the moment the
+  optimization banner appeared.
+- The Media grid's **row count** follows the panel's height (`mediaGridRows(forHeight:)`), two
+  rows minimum. Cells stay a fixed size, so a taller panel earns more rows rather than bigger
+  thumbnails - without this the top row growing with the window was just dead space.
+- The timeline scrolls internally past what its height shows. `resizeToFitLanes` was **removed**
+  earlier for making the panel *shorter* with fewer than three lanes; nothing sizes the panel
+  from its contents now.
 - Settings is an overlay (gear button, far left of the video controls), not a panel.
 - Media and Timeline no longer collapse. `TimelineViewModel.isExpanded` is permanently true,
   kept only so older project files still decode.
@@ -210,6 +261,8 @@ multi-file drop bug.
 
 Smaller known items:
 - `isVideoAudioExpanded` is dead state (see above).
+- The section splitter has no visible affordance until it is being dragged - only the cursor
+  changes on hover. Worth a hairline on hover if it turns out to be hard to find.
 - `SettingsAccordionView.swift` is misnamed: the accordion is gone, but the file still holds
   `ChannelGridView`, `StereoGroupView`, `ChannelCellView`, `OutputRowView` and the shared
   `View.cursor(_:)` that `OptimizationSheetView` depends on. Relocating them is its own job.

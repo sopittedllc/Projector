@@ -378,27 +378,25 @@ enum SettingsLayout {
 
 /// Layout constants for the horizontal split layout (video left, panels right)
 enum HorizontalLayoutConstants {
-    /// Minimum width for the panel section (transport + timeline + media).
-    static let minPanelWidth: CGFloat = 300
+    // NOTE: minPanelWidth was removed (2026-07-26). The Media panel's minimum is
+    // `SectionLayout.minimumMediaWidth`, derived from the width its full header
+    // controls need - a second, smaller figure only meant the two could disagree.
 
-    /// Minimum width of the main window.
+    /// Minimum width of the main window's content view.
     ///
-    /// Covers the video column plus enough panel width to keep the media
-    /// panel's full (non-compact) header controls on screen, plus chrome. The
-    /// video term returned when the video moved back into the main window,
-    /// beside the accordions rather than above them.
-    /// The wider of the two rows decides it: the top row (video column beside
-    /// the media panel's full header) or the full-width timeline header.
-    static let mainWindowMinWidth: CGFloat = max(
-        MainWindowLayout.videoColumnWidth
-            + Spacing.md
-            + FileManagerLayout.headerFullControlsMinWidth
-            + Spacing.md * 2,
-        TimelineSectionLayout.headerMinWidth + Spacing.md * 2
-    )
+    /// Both minimums now come from `SectionLayout`, which is the only thing that
+    /// knows how small each section can go. Hand-picked figures could not do the
+    /// job: too large and the sections never got to give ground; too small and
+    /// they overflowed and clipped.
+    ///
+    /// These are the *view* minimums, not the window's - they are handed to
+    /// SwiftUI's `.frame(minWidth:minHeight:)`, which constrains the content
+    /// below the titlebar. `SectionLayout.minimumWindowSize` is the one to clamp
+    /// an NSWindow frame against.
+    static var mainWindowMinWidth: CGFloat { SectionLayout.minimumViewSize.width }
 
-    /// Minimum height of the main window.
-    static let mainWindowMinHeight: CGFloat = 500
+    /// Minimum height of the main window's content view.
+    static var mainWindowMinHeight: CGFloat { SectionLayout.minimumViewSize.height }
 
     // NOTE: minVideoWidth / defaultVideoWidth / defaultPanelWidth were removed
     // with the embedded video pane (2026-07-24). All had zero call sites.
@@ -416,73 +414,305 @@ enum MainWindowLayout {
     /// Timeline, and Media with comfortable margins.
     static let defaultWidth: CGFloat = 1440
 
-    /// Size of the video column beside the accordions.
-    ///
-    /// Fixed, not proportional: the video sits to the left of the panels and
-    /// keeps this size as the window grows taller with added lanes, leaving
-    /// empty space beneath it rather than stretching. 16:9 at a size that keeps
-    /// the whole window inside a 13" laptop's 1470pt width once the panels take
-    /// their share.
-    ///
-    /// The video letterboxes within it (`videoGravity` is `.resizeAspect`), so
-    /// these are budgets rather than an aspect commitment - portrait and 4:3
-    /// media pillarbox instead.
-    static let videoColumnWidth: CGFloat = 480
-    /// Height of the picture itself. The controls are a separate section
-    /// beneath it, so this is all picture - they used to sit inside this box
-    /// and shrink it.
-    ///
-    /// Height of the picture. Derived: whatever the top row is, less the
-    /// controls strip directly beneath it. 480x270 is exactly 16:9, so the
-    /// picture fills the column edge to edge with no letterboxing.
-    static var inlineVideoHeight: CGFloat { topRowHeight - videoControlsBarHeight }
+    // NOTE: videoColumnWidth and inlineVideoHeight were removed (2026-07-26).
+    // Both named a fixed size for the video column; `SectionLayout` derives it
+    // from the top row's height instead, so the column is exactly 16:9 at any
+    // window size. At the reference `topRowHeight` that works out to the same
+    // 480x270 those constants held. The video pillarboxes within the column
+    // (`videoGravity` is `.resizeAspect`) - the 16:9 is the column's shape, not
+    // a claim about the media's.
 
     /// Height of the control strip beneath the inline picture. No padding
     /// around it - every point spent here is a point off the picture.
     static let videoControlsBarHeight: CGFloat = 36
 
-    /// Height of the whole top row: the video column and the Media panel beside
-    /// it are both exactly this tall, which is what makes their bottoms line up
-    /// without either being computed from the other's internals.
+    /// Height of the top row at the reference window size.
+    ///
+    /// No longer the height the top row *has* - `SectionLayout` resolves that
+    /// from whatever size the window currently is. This is the reference figure
+    /// the proportions are struck from, and the height the row takes at the
+    /// default window size.
     static let topRowHeight: CGFloat = 306
-
-    /// Ceiling for the top row (video beside Settings + Media).
-    ///
-    /// Settings expands to a channel-mapping grid and Media to a thumbnail row
-    /// with an optimization banner - together they can run to several hundred
-    /// points, which pushed the timeline off the bottom of the screen. Bounded
-    /// here and scrolled internally instead, leaving the timeline a predictable
-    /// share of the window.
-    ///
-    /// Sized so the top row, the timeline and window chrome all fit a 13"
-    /// laptop's ~900pt of visible height.
-    static let topRowMaxHeight: CGFloat = topRowHeight
 
     /// Default height on first launch.
     ///
-    /// Close to what the default layout actually measures (video 240 + panels
-    /// ~512 + window chrome 32 = ~784), so the window opens at roughly its
-    /// final size instead of coming up short and visibly growing once the
-    /// panels report in.
-    static let defaultHeight: CGFloat = 800
+    /// Derived from the reference layout rather than tuned, so the window opens
+    /// showing exactly the reference proportions - top row and timeline at their
+    /// design heights, with no growing or settling once the first frame lands.
+    static var defaultHeight: CGFloat { SectionLayout.defaultWindowSize.height }
 
     /// Height the window's titlebar takes above the content.
     static let titleBarAllowance: CGFloat = 32
 
     /// Smallest height the window is allowed to shrink to.
     ///
-    /// Separate from `defaultHeight`, which used to serve as both. That single
-    /// constant could not do both jobs: raising it so the window opened at a
-    /// sensible size would also have stopped it shrinking when panels collapse.
-    /// This is the fully-collapsed layout - video area plus three panel headers
-    /// and their spacing.
-    static let minimumHeight: CGFloat = 420
+    /// The point at which every section is simultaneously at its own minimum -
+    /// see `SectionLayout.minimumContentSize`. Derived, because a hand-picked
+    /// figure either lets the window shrink past what the sections can honour
+    /// (they overflow and clip) or stops it shrinking before they are done
+    /// giving ground.
+    static var minimumHeight: CGFloat { SectionLayout.minimumWindowSize.height }
+}
 
-    /// Width the window grows to after the first media import.
-    static let expandedWidth: CGFloat = 1400
+// ============================================================================
+// MARK: - Section Sizing Authority
+// ============================================================================
 
-    /// Height the window grows to after the first media import.
-    static let expandedHeight: CGFloat = 900
+/// A named region of the main window.
+///
+/// `everything` is the root - the window's content area less its outer margins -
+/// and every other case is a division of it. Naming the whole app as a section
+/// is the point: it means one calculation turns a window size into every
+/// section's size, instead of each section carrying a constant that has to be
+/// kept in step with the others by hand.
+enum AppSection: String, CaseIterable, Sendable {
+    /// The entire application content area. Parent of everything below.
+    case everything
+    /// Video column and Media panel, side by side.
+    case topRow
+    /// The picture with its controls strip beneath.
+    case video
+    /// The media panel, beside the video.
+    case media
+    /// The full-width timeline, beneath the top row.
+    case timeline
+}
+
+/// Every section's size at one particular window size.
+struct SectionSizes: Equatable, Sendable {
+    var everything: CGSize
+    var topRow: CGSize
+    var video: CGSize
+    var media: CGSize
+    var timeline: CGSize
+
+    subscript(section: AppSection) -> CGSize {
+        switch section {
+        case .everything: return everything
+        case .topRow: return topRow
+        case .video: return video
+        case .media: return media
+        case .timeline: return timeline
+        }
+    }
+
+    /// Height of the picture itself: the video column less its controls strip.
+    var videoPictureHeight: CGFloat {
+        max(0, video.height - MainWindowLayout.videoControlsBarHeight)
+    }
+}
+
+/// Turns the window's size into every section's size.
+///
+/// # Section Sizing Authority
+///
+/// The window used to be sized from its content: panels had fixed heights, they
+/// reported what they measured, and the window was resized to fit. That cannot
+/// coexist with a window size the user chose by dragging a corner - one of the
+/// two has to be the input. This authority makes it the window, and the rules
+/// below hold at every size:
+///
+///  1. EVERYTHING IS THE ROOT. `everything` is the window's content rect less
+///     the outer margins. Every other section is carved out of it. No section
+///     measures itself and reports back; sizes flow one way only, which is what
+///     removed the feedback loop the old window-fits-content authority needed
+///     a deadband and two deferred passes to keep stable.
+///
+///  2. VERTICAL SPACE IS SHARED, NOT ASSIGNED. The top row and the timeline
+///     split the height by `topRowShare`, which defaults to their reference
+///     proportion (306 : 409) and is what the splitter between them edits.
+///     Because it is a fraction, a window resize preserves whatever balance the
+///     user set instead of overwriting it.
+///
+///  3. THE PICTURE DECIDES THE VIDEO COLUMN'S WIDTH. The column is exactly 16:9
+///     plus its controls strip, so the video grows in both directions at once
+///     and never letterboxes inside its own column.
+///
+///  4. WIDTH CAN CAP THE TOP ROW. A tall narrow window would want a video wider
+///     than the Media panel can spare, so the row is capped at the height that
+///     width supports and the surplus goes to the timeline. Rule 3 stays true at
+///     every window shape rather than only at wide ones.
+///
+///  5. MEDIA TAKES WHAT IS LEFT. It is the one section with no size of its own,
+///     which is why it is the one that absorbs extra width.
+///
+///  6. THE MINIMUMS ARE THE WINDOW'S MINIMUM. `minimumContentSize` is the sum of
+///     the section minimums, so the window cannot be dragged smaller than the
+///     layout can honour. That is what lets the main content area do without a
+///     scroll view: it is guaranteed to fit, at every legal window size.
+enum SectionLayout {
+    // MARK: - Reference layout
+
+    /// Aspect of the picture. The inline video area is 16:9 exactly at every
+    /// size; media of other shapes pillarboxes within it.
+    static let videoAspect: CGFloat = 16.0 / 9.0
+
+    /// Gap between the top row and the timeline, and between the video column
+    /// and the Media panel.
+    static var gap: CGFloat { Spacing.md }
+
+    /// Margin between the content and the window's edges.
+    static var margin: CGFloat { Spacing.md }
+
+    /// Top row height at the reference window size.
+    static var referenceTopRowHeight: CGFloat { MainWindowLayout.topRowHeight }
+
+    /// Timeline height at the reference window size: the Video File track plus
+    /// three audio lanes.
+    static var referenceTimelineHeight: CGFloat { TimelineSectionLayout.defaultHeight }
+
+    /// The share of the flexible height the top row takes when the user has not
+    /// moved the splitter.
+    static var defaultTopRowShare: CGFloat {
+        referenceTopRowHeight / (referenceTopRowHeight + referenceTimelineHeight)
+    }
+
+    // MARK: - Minimums
+
+    /// Smallest useful picture. Below this the transport overlay and the frame
+    /// rate chip start colliding with the picture's own content.
+    static let minimumPictureHeight: CGFloat = 180
+
+    /// Smallest top row: a usable picture plus its controls strip.
+    static var minimumTopRowHeight: CGFloat {
+        minimumPictureHeight + MainWindowLayout.videoControlsBarHeight
+    }
+
+    /// Smallest video column, following from rule 3.
+    static var minimumVideoWidth: CGFloat { minimumPictureHeight * videoAspect }
+
+    /// Smallest Media panel: the width its full header controls need before
+    /// they collapse to icons.
+    static var minimumMediaWidth: CGFloat { FileManagerLayout.headerFullControlsMinWidth }
+
+    /// Smallest timeline: the same derivation as `TimelineSectionLayout`'s
+    /// default, with one audio lane instead of three. Everything beyond that
+    /// scrolls inside the panel, so one lane is the floor rather than a guess.
+    static var minimumTimelineHeight: CGFloat {
+        let tracks = 4                                              // top padding
+            + TimelineLayout.videoTrackHeight + 1                   // picture + divider
+            + TimelineLayout.linkedAudioStripHeight                 // its baked-in audio
+            + (TimelineLayout.audioLaneHeight + 1)                  // one audio lane
+            + TimelineLayout.newLaneDropZoneInactiveHeight
+        return PanelLayout.headerHeight
+            + TimelineLayout.rulerHeight + 1
+            + tracks
+            + Spacing.sm
+            + PanelLayout.footerHeight + Spacing.md
+    }
+
+    // MARK: - Derived sizes
+
+    /// The content area at the reference window size.
+    static var referenceContentSize: CGSize {
+        CGSize(
+            width: MainWindowLayout.defaultWidth - margin * 2,
+            height: referenceTopRowHeight + gap + referenceTimelineHeight
+        )
+    }
+
+    /// The smallest content area every section can still be honoured in.
+    ///
+    /// The width term takes the wider of the two rows: the top row (video beside
+    /// the Media panel's full header) or the timeline header, which is the
+    /// widest single thing in the app.
+    static var minimumContentSize: CGSize {
+        CGSize(
+            width: max(
+                minimumVideoWidth + gap + minimumMediaWidth,
+                TimelineSectionLayout.headerMinWidth - margin * 2
+            ),
+            height: minimumTopRowHeight + gap + minimumTimelineHeight
+        )
+    }
+
+    /// Window size that produces the reference content area.
+    static var defaultWindowSize: CGSize {
+        CGSize(
+            width: MainWindowLayout.defaultWidth,
+            height: referenceContentSize.height + margin * 2 + MainWindowLayout.titleBarAllowance
+        )
+    }
+
+    /// Smallest size for the app's *view* - `minimumContentSize` plus its
+    /// margins, and no titlebar.
+    ///
+    /// This is what SwiftUI's `.frame(minWidth:minHeight:)` takes: it constrains
+    /// the hosted view, which sits below the titlebar. Handing it the window
+    /// minimum instead put the floor a titlebar too high - measured, the window
+    /// stopped shrinking at 603pt where the sections were still fine at 571.
+    static var minimumViewSize: CGSize {
+        CGSize(
+            width: minimumContentSize.width + margin * 2,
+            height: minimumContentSize.height + margin * 2
+        )
+    }
+
+    /// Smallest *window* - `minimumViewSize` plus the titlebar. This is what
+    /// NSWindow frames are clamped against.
+    static var minimumWindowSize: CGSize {
+        CGSize(
+            width: minimumViewSize.width,
+            height: minimumViewSize.height + MainWindowLayout.titleBarAllowance
+        )
+    }
+
+    // MARK: - Resolution
+
+    /// Resolve every section's size for the content area currently on screen.
+    ///
+    /// - Parameters:
+    ///   - content: The area available to the app's content - the window's
+    ///     content rect less `margin` on each side.
+    ///   - topRowShare: Fraction of the flexible height given to the top row.
+    ///     `defaultTopRowShare` unless the user has moved the splitter.
+    static func resolve(content: CGSize, topRowShare: CGFloat) -> SectionSizes {
+        // Rule 6 in reverse: the window should never get here undersized, but a
+        // clamp costs nothing and keeps a mid-animation frame from handing a
+        // section a negative height.
+        let width = max(content.width, minimumContentSize.width)
+        let height = max(content.height, minimumContentSize.height)
+
+        // Rule 4: the widest the video column may be before the Media panel
+        // would be squeezed below its own minimum, and the top row height that
+        // width supports at 16:9.
+        let widestVideo = max(minimumVideoWidth, width - gap - minimumMediaWidth)
+        let topRowCeilingFromWidth =
+            widestVideo / videoAspect + MainWindowLayout.videoControlsBarHeight
+
+        // Rule 2.
+        let flexible = height - gap
+        var topRowHeight = flexible * min(max(topRowShare, 0), 1)
+        topRowHeight = min(topRowHeight, flexible - minimumTimelineHeight)
+        topRowHeight = min(topRowHeight, topRowCeilingFromWidth)
+        topRowHeight = max(topRowHeight, minimumTopRowHeight)
+
+        let timelineHeight = max(minimumTimelineHeight, flexible - topRowHeight)
+
+        // Rule 3, then rule 5.
+        let videoWidth = min(
+            widestVideo,
+            (topRowHeight - MainWindowLayout.videoControlsBarHeight) * videoAspect
+        )
+        let mediaWidth = max(minimumMediaWidth, width - gap - videoWidth)
+
+        return SectionSizes(
+            everything: CGSize(width: width, height: height),
+            topRow: CGSize(width: width, height: topRowHeight),
+            video: CGSize(width: videoWidth, height: topRowHeight),
+            media: CGSize(width: mediaWidth, height: topRowHeight),
+            timeline: CGSize(width: width, height: timelineHeight)
+        )
+    }
+
+    /// The share that puts the boundary between the two rows at `topRowHeight`.
+    ///
+    /// The splitter drags a boundary but stores a fraction - see rule 2 - so it
+    /// converts through here rather than writing a height anywhere.
+    static func share(forTopRowHeight topRowHeight: CGFloat, in contentHeight: CGFloat) -> CGFloat {
+        let flexible = max(1, max(contentHeight, minimumContentSize.height) - gap)
+        return min(max(topRowHeight / flexible, 0), 1)
+    }
 }
 
 // ============================================================================
@@ -646,20 +876,16 @@ enum FileManagerLayout {
 }
 
 /// Timeline section constants (in ContentView)
+///
+/// The timeline's *height* is no longer here - `SectionLayout` resolves it from
+/// the window. What remains is the width its header needs and the reference
+/// height the proportions are struck from.
+///
+/// `collapsedHeight`, `minHeight` and `maxHeight` were removed with the panel's
+/// own height state: min and max are `SectionLayout.minimumTimelineHeight` and
+/// whatever the window can give, and nothing has collapsed the timeline since it
+/// stopped being an accordion.
 enum TimelineSectionLayout {
-    /// Height when collapsed
-    static let collapsedHeight: CGFloat = PanelLayout.headerHeight
-
-    /// Minimum height when expanded
-    static let minHeight: CGFloat = 100
-
-    /// Maximum height when expanded
-    ///
-    /// A floor, not the real ceiling: `TimelineViewModel.maxExpandedHeight`
-    /// extends this on displays with room to spare, so the panel can grow to
-    /// show more lanes on a large screen instead of always clamping at 500.
-    static let maxHeight: CGFloat = 500
-
     /// Width the expanded timeline header needs before its controls clip.
     ///
     /// Title + MTC IN + Start TC + Duration + divider + zoom controls, plus the
@@ -671,34 +897,16 @@ enum TimelineSectionLayout {
     /// own horizontal padding.
     static let headerMinWidth: CGFloat = 770 + Spacing.md * 2
 
-    /// Vertical space reserved for everything that is not the timeline panel
-    /// when sizing it against the display: settings header (44), the expanded
-    /// media panel with its optimization banner (~250), inter-panel spacing
-    /// and window margins (~90).
-    /// Derived, not a constant, because a hardcoded figure goes stale the
-    /// moment the layout above the timeline changes - and it did. The 384 this
-    /// replaces enumerated the settings header, the media panel and margins,
-    /// but predated the inline video area, so ~240pt of video went unreserved.
-    /// The timeline was then allowed to grow past what the screen could hold:
-    /// expanding it with four lanes produced 1163pt of content on a 1001pt
-    /// display, pushing the video and settings off the top.
-    static var reservedVerticalChrome: CGFloat {
-        // The timeline now has its own full-width row beneath the top row, so
-        // what it must leave clear is that row's height - whichever of the video
-        // column or the Settings/Media stack is taller - plus margins.
-        // The top row is capped, so this is a constant rather than a function
-        // of whatever Settings and Media happen to be showing.
-        return MainWindowLayout.topRowMaxHeight
-            + Spacing.md          // gap between the top row and the timeline
-            + Spacing.md * 2      // window margins
-            + MainWindowLayout.titleBarAllowance
-    }
-
-    /// Default height: the combined Video File track plus three audio lanes.
+    /// Reference height: the combined Video File track plus three audio lanes.
     ///
     /// Derived rather than tuned, so it keeps meaning that if any row height
-    /// changes. Anything past three lanes scrolls inside the panel instead of
-    /// growing it - the window has a screen to fit inside.
+    /// changes. This is what the timeline measures at the default window size;
+    /// past three lanes it scrolls internally rather than demanding more room,
+    /// and the window's own size decides the rest.
+    ///
+    /// `reservedVerticalChrome` lived here to stop the timeline growing past
+    /// what the screen could hold. `SectionLayout` gives it a share of the
+    /// window instead, so there is nothing left to reserve against.
     static var defaultHeight: CGFloat {
         let tracks = 4                                              // top padding
             + TimelineLayout.videoTrackHeight + 1                   // picture + divider
@@ -713,11 +921,9 @@ enum TimelineSectionLayout {
     }
 }
 
-/// Media panel constants
-enum MediaPanelLayout {
-    /// Default height
-    static let defaultHeight: CGFloat = 200
-}
+// NOTE: MediaPanelLayout was removed (2026-07-26). Its one constant, a 200pt
+// default height, had no call sites - the Media panel takes the top row's
+// height, which `SectionLayout` resolves.
 
 /// Transport bar constants
 /// One type scale for the transport bar.

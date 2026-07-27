@@ -500,8 +500,11 @@ struct InlineVideoArea: View {
 
     var body: some View {
         picture
-        .frame(width: MainWindowLayout.videoColumnWidth,
-               height: MainWindowLayout.inlineVideoHeight)
+        // Fills whatever the section authority gives the video column, rather
+        // than naming a size. A fixed frame here would have won over the
+        // column's own frame, pinning the picture at its reference 480x270 while
+        // the column around it grew with the window.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onDrop(of: [UTType.fileURL, UTType.url, UTType.projectorMediaItem], isTargeted: $isDropTargeted) { providers in
             // Same contract as the player window: internal drags carry their
             // URLs in DragContext, Finder drags go through the import path.
@@ -587,8 +590,9 @@ struct InlineVideoArea: View {
         // No panel background. On its own surface directly beneath the picture
         // it read as a second, crowded box rather than a strip of controls.
         .padding(.horizontal, Spacing.xs)
-        .frame(width: MainWindowLayout.videoColumnWidth,
-               height: MainWindowLayout.videoControlsBarHeight)
+        // Width follows the column; only the height is the strip's own.
+        .frame(maxWidth: .infinity)
+        .frame(height: MainWindowLayout.videoControlsBarHeight)
     }
 
     /// Opens Settings. Lives at the far left of the strip, opposite the video

@@ -58,79 +58,10 @@ struct LoadingOverlay: View {
     }
 }
 
-// MARK: - Playback Resize Handle
-
-/// A draggable handle for resizing the playback area height.
-///
-/// Displays a thin horizontal line at the bottom of the video player that can be dragged
-/// to adjust the playback height. Changes cursor to resize indicator on hover.
-///
-/// - Parameters:
-///   - playbackHeight: Binding to the current playback area height (nil means natural height).
-///   - playbackMeasuredHeight: The measured natural height of the playback area.
-///   - minHeight: Minimum allowed height for the playback area.
-///   - maxHeight: Maximum allowed height for the playback area.
-///   - isResizing: Binding indicating whether a resize operation is in progress.
-struct PlaybackResizeHandle: View {
-    @Binding var playbackHeight: CGFloat?
-    let playbackMeasuredHeight: CGFloat
-    let minHeight: CGFloat
-    let maxHeight: CGFloat
-    @Binding var isResizing: Bool
-
-    @State private var isHovering = false
-    @State private var dragStartHeight: CGFloat = 0
-    @State private var dragStartLocationY: CGFloat = 0
-    @State private var didPushCursorForDrag = false
-
-    var body: some View {
-        Rectangle()
-            .fill(Color.clear)
-            .frame(height: 10)
-            .contentShape(Rectangle())
-            .overlay {
-                Rectangle()
-                    .fill(isResizing ? Color.accentColor : Color.white.opacity(0.25))
-                    .frame(height: 1)
-            }
-            .onHover { hovering in
-                guard !isResizing else { return }
-                if hovering, !isHovering {
-                    NSCursor.resizeUpDown.push()
-                    isHovering = true
-                } else if !hovering, isHovering {
-                    NSCursor.pop()
-                    isHovering = false
-                }
-            }
-            .gesture(
-                DragGesture(coordinateSpace: .global)
-                    .onChanged { value in
-                        if !isResizing {
-                            dragStartHeight = playbackHeight ?? playbackMeasuredHeight
-                            dragStartLocationY = value.startLocation.y
-                            isResizing = true
-                            if !isHovering {
-                                NSCursor.resizeUpDown.push()
-                                didPushCursorForDrag = true
-                            } else {
-                                didPushCursorForDrag = false
-                            }
-                        }
-                        let delta = value.location.y - dragStartLocationY
-                        let proposedHeight = dragStartHeight + delta
-                        playbackHeight = min(maxHeight, max(minHeight, proposedHeight))
-                    }
-                    .onEnded { _ in
-                        isResizing = false
-                        if didPushCursorForDrag {
-                            NSCursor.pop()
-                        }
-                        didPushCursorForDrag = false
-                    }
-            )
-    }
-}
+// NOTE: PlaybackResizeHandle was removed (2026-07-26). It dragged the embedded
+// player's height, and had had no call sites since the player moved into its own
+// window. The main window's one draggable boundary is now ContentView's section
+// splitter, which stores a share rather than a height.
 
 // MARK: - Full Screen Toggle Button
 

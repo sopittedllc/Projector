@@ -6,33 +6,10 @@ import AppKit
 import Combine
 
 
-/// Captures the enclosing NSScrollView for the panel stack, so its scroll
-/// offset can be inspected and driven directly.
-private struct PanelScrollCapture: NSViewRepresentable {
-    @Binding var scrollView: NSScrollView?
-
-    func makeNSView(context: Context) -> NSView {
-        let v = Finder()
-        v.onFound = { found in DispatchQueue.main.async { self.scrollView = found } }
-        return v
-    }
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    private class Finder: NSView {
-        var onFound: ((NSScrollView?) -> Void)?
-        override func viewDidMoveToSuperview() {
-            super.viewDidMoveToSuperview()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                var v: NSView? = self?.superview
-                while let cur = v {
-                    if let sv = cur as? NSScrollView { self?.onFound?(sv); return }
-                    v = cur.superview
-                }
-                self?.onFound?(nil)
-            }
-        }
-    }
-}
+// NOTE: PanelScrollCapture was removed (2026-07-26) with the panel stack's
+// scroll view. Under the section authority the content is sized from the window
+// and the window has a minimum big enough for every section's minimum, so the
+// stack always fits and there is no offset left to normalize.
 
 /// Main application content view
 struct ContentView: View {
@@ -144,29 +121,35 @@ struct ContentView: View {
     @State var didHandleUITestImport = false
     @State var uiTestImportState: String? = "boot"
 
-    // Resizable accordion heights (media panel only - timeline handled by TimelineViewModel)
-    @State private var mediaHeight: CGFloat = 200
+    /// Fraction of the window's flexible height given to the top row.
+    ///
+    /// The one piece of layout state the app keeps, and it is a *proportion*
+    /// rather than a height - see rule 2 of the section authority in
+    /// `SectionLayout`. Storing a height meant a window resize either overwrote
+    /// the balance the user had set or left it stale; storing the share means the
+    /// same balance is re-resolved at whatever size the window happens to be.
+    @State var topRowShare: CGFloat = SectionLayout.defaultTopRowShare
 
-    // Playback window resizing (internal for ContentView+Helpers.swift extension)
-    @State var playbackHeight: CGFloat?
-    @State var playbackMeasuredHeight: CGFloat = 0
-    @State private var isResizingPlayback = false
-    @State var normalViewHeight: CGFloat = 0
+    /// Height of the content area, last time the window laid out. Used only to
+    /// convert a splitter drag back into a share.
+    @State private var contentHeight: CGFloat = SectionLayout.referenceContentSize.height
 
-    /// Measured height the scrollable panel stack wants, used to size the window.
-    @State var panelsContentHeight: CGFloat = 0
-    /// The panel stack's scroll view. Internal, not private: the window sizing
-    /// authority in ContentView+Helpers normalizes its offset.
-    @State var panelsScrollView: NSScrollView?
-
-    /// Whether the panel stack is allowed to scroll. Driven by the window
-    /// sizing authority - see rule 6 in ContentView+Helpers.
-    @State var panelsCanScroll = false
+    // Section splitter drag state.
+    @State private var isDraggingSplitter = false
+    @State private var isHoveringSplitter = false
+    @State private var splitterDragStartHeight: CGFloat = 0
+    @State private var splitterDragStartLocationY: CGFloat = 0
+    @State private var didPushSplitterCursor = false
 
     /// How many runloop passes to wait for the window to exist before giving up
     /// on applying the default size.
     static let windowLookupAttempts = 20
-    @State var videoAreaHeight: CGFloat = 0
+
+    // NOTE: mediaHeight, playbackHeight/playbackMeasuredHeight/isResizingPlayback,
+    // normalViewHeight, panelsContentHeight, panelsScrollView, panelsCanScroll and
+    // videoAreaHeight were removed (2026-07-26). Every one of them existed to
+    // measure content and feed it back to the window sizer; the section authority
+    // runs the other way, so there is nothing left to measure.
 
     // Settings panel state (collapsed by default).
     // Internal, not private: ContentView+Helpers restores it from the project.
@@ -357,50 +340,44 @@ struct ContentView: View {
     private var normalView: some View {
         // The player lives in its own window (PlayerWindowController), so the
         // main window is transport + panels only - no split.
-        Group {
-            // Video on the left, panels on the right, both anchored to the top.
-            // The video keeps a fixed size as the window grows taller with added
-            // lanes - the space beneath it is left empty rather than stretching
-            // the picture or pushing the panels down.
-            // Video and the two short panels share the top row; the timeline
-            // gets its own full-width row beneath. It is the widest thing in the
-            // app - MTC IN, Start TC, Duration and zoom in one header, over a
-            // ruler - so giving it the whole window is what stops it competing
-            // with the video column for room.
-            ScrollView(.vertical) {
-              VStack(spacing: Spacing.md) {
-                topRow
+        //
+        // The `everything` section: the window's content area, less its margins.
+        // The GeometryReader has to be outside anything that could scroll -
+        // inside one it would report the content's height, which is the height it
+        // is being asked to decide, and the layout would chase its own tail.
+        GeometryReader { proxy in
+            let sections = SectionLayout.resolve(
+                content: CGSize(
+                    width: proxy.size.width - SectionLayout.margin * 2,
+                    height: proxy.size.height - SectionLayout.margin * 2
+                ),
+                topRowShare: topRowShare
+            )
 
-                timelinePanel
-              }
-              .padding(Spacing.md)
-              // Measure the whole content, not one column: this is what the
-              // window sizes itself to.
-              .background(
-                  GeometryReader { proxy in
-                      Color.clear
-                          .onAppear { updatePanelsContentHeight(proxy.size.height) }
-                          .onChange(of: proxy.size.height) { _, newValue in
-                              updatePanelsContentHeight(newValue)
-                          }
-                  }
-              )
-              .background(PanelScrollCapture(scrollView: $panelsScrollView))
-              .onChange(of: timelineViewModel.isExpanded) { _, _ in
-                  syncWindowToContent()
-              }
-              .onChange(of: showFileManager) { _, _ in
-                  syncWindowToContent()
-              }
-              // Outputs defined in Settings are the source of truth for
-              // routing; lanes follow. See the audio routing authority in
-              // TimelineManager.
-              .onChange(of: audioManager.mappedOutputs) { _, outputs in
-                  timelineManager.reconcileOutputMappings(with: outputs)
-              }
+            // Video and the Media panel share the top row; the timeline gets its
+            // own full-width row beneath. It is the widest thing in the app -
+            // MTC IN, Start TC, Duration and zoom in one header, over a ruler -
+            // so giving it the whole window is what stops it competing with the
+            // video column for room. The splitter between them moves the
+            // boundary, and stores where the user put it as a share.
+            VStack(spacing: 0) {
+                topRow(sections)
+
+                sectionSplitter(sections)
+
+                timelinePanel(sections)
             }
-            .scrollDisabled(!panelsCanScroll)
-            .scrollIndicators(panelsCanScroll ? .automatic : .hidden)
+            .padding(SectionLayout.margin)
+            .onAppear { contentHeight = sections.everything.height }
+            .onChange(of: sections.everything.height) { _, newValue in
+                contentHeight = newValue
+            }
+            // Outputs defined in Settings are the source of truth for
+            // routing; lanes follow. See the audio routing authority in
+            // TimelineManager.
+            .onChange(of: audioManager.mappedOutputs) { _, outputs in
+                timelineManager.reconcileOutputMappings(with: outputs)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environmentObject(dragContext)
@@ -439,21 +416,17 @@ struct ContentView: View {
             applyDefaultMainWindowSizeIfNeeded()
             applySavedUIState()
         }
-        // Persist layout changes as the user makes them.
-        .onChange(of: normalViewHeight) { _, _ in captureMainWindowFrame() }
-        .onChange(of: timelineViewModel.expandedHeight) { _, newValue in
-            projectDocument.updateUIState { $0.timelineExpandedHeight = Double(newValue) }
+        // Persist layout changes as the user makes them. The window's own frame
+        // is captured whenever the content area changes size, which is the only
+        // thing a user resize can produce now that nothing resizes the window
+        // back at them.
+        .onChange(of: contentHeight) { _, _ in captureMainWindowFrame() }
+        .onChange(of: topRowShare) { _, newValue in
+            projectDocument.updateUIState { $0.topRowShare = Double(newValue) }
+            captureMainWindowFrame()
         }
         .onChange(of: timelineViewModel.isExpanded) { _, newValue in
             projectDocument.updateUIState { $0.timelineExpanded = newValue }
-        }
-        // Fit the window to the panels whenever the timeline's height changes
-        // (lanes added/removed, panel collapsed). Absolute target, grow-only.
-        .onChange(of: timelineViewModel.expandedHeight) { _, _ in
-            syncWindowToContent()
-        }
-        .onChange(of: timelineViewModel.isExpanded) { _, _ in
-            syncWindowToContent()
         }
         // Reapply when a different project is opened.
         .onChange(of: projectDocument.fileURL) { _, _ in applySavedUIState() }
@@ -477,23 +450,6 @@ struct ContentView: View {
         .simultaneousGesture(
             TapGesture().onEnded {
                 dismissTimecodeEditing()
-            }
-        )
-        .background(
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear {
-                        DispatchQueue.main.async {
-                            normalViewHeight = proxy.size.height
-                        }
-                    }
-                    .onChange(of: proxy.size.height) { _, newValue in
-                        if newValue != normalViewHeight {
-                            DispatchQueue.main.async {
-                                normalViewHeight = newValue
-                            }
-                        }
-                    }
             }
         )
         .onChange(of: audioManager.mappedOutputs) { _, outputs in
@@ -521,17 +477,21 @@ struct ContentView: View {
 
     /// Video on the left, Media on the right, both exactly the row's height so
     /// their bottom edges line up without either being derived from the other.
-    private var topRow: some View {
-        HStack(alignment: .top, spacing: Spacing.md) {
-            videoColumn
+    ///
+    /// Neither column measures itself: both are handed a size by
+    /// `SectionLayout`, which is what keeps their bottoms level at every window
+    /// size rather than only at the one the constants were tuned for.
+    private func topRow(_ sections: SectionSizes) -> some View {
+        HStack(alignment: .top, spacing: SectionLayout.gap) {
+            videoColumn(sections)
 
-            // Fixed height, absorbing its own overflow. The optimization banner
-            // comes and goes; letting that resize the row moved the video with
-            // it and broke the alignment.
+            // Absorbs its own overflow. The optimization banner comes and goes;
+            // letting that resize the row moved the video with it and broke the
+            // alignment.
             shortPanelsColumn
-                .frame(minWidth: HorizontalLayoutConstants.minPanelWidth)
-                .frame(height: MainWindowLayout.topRowHeight)
+                .frame(width: sections.media.width, height: sections.media.height)
         }
+        .frame(width: sections.topRow.width, height: sections.topRow.height, alignment: .leading)
     }
 
     // MARK: - Video Column
@@ -541,7 +501,11 @@ struct ContentView: View {
     /// No gap between them: the controls used to sit *inside* the video box and
     /// cost it 40pt, and then sat below it behind a 12pt gap. Both came out of
     /// the picture, which is the one thing here that benefits from the space.
-    private var videoColumn: some View {
+    ///
+    /// The width comes from the height, not the other way round - see rule 3 of
+    /// the section authority - so the column is exactly 16:9 plus its controls
+    /// strip at every window size and the picture never letterboxes inside it.
+    private func videoColumn(_ sections: SectionSizes) -> some View {
         VStack(spacing: 0) {
             let video = InlineVideoArea(
                 playbackEngine: playbackEngine,
@@ -555,7 +519,7 @@ struct ContentView: View {
             video
             video.controlsSection
         }
-        .frame(height: MainWindowLayout.topRowHeight)
+        .frame(width: sections.video.width, height: sections.video.height)
         // One surface for picture and controls, so the column has a visible
         // bottom edge level with the Media panel beside it. Both columns have
         // always measured the same rectangle (global maxY 633 for each); what
@@ -569,15 +533,71 @@ struct ContentView: View {
                 .stroke(Color.white.opacity(PanelLayout.borderOpacity),
                         lineWidth: PanelLayout.borderWidth)
         )
-        .background(
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear { updateVideoAreaHeight(proxy.size.height) }
-                    .onChange(of: proxy.size.height) { _, newValue in
-                        updateVideoAreaHeight(newValue)
-                    }
+    }
+
+    // MARK: - Section Splitter
+
+    /// The boundary between the top row and the timeline.
+    ///
+    /// Lives in the gap between the two sections, which is the only honest place
+    /// for it: the window's height is fixed while dragging, so whatever the
+    /// timeline gains the top row gives up, and the edge under the cursor is the
+    /// one that moves. It used to sit along the timeline's bottom edge, where it
+    /// worked only because the drag resized the *window* rather than the split.
+    ///
+    /// Stores a share, not a height - rule 2 - so the balance survives the next
+    /// window resize instead of being overwritten by it.
+    private func sectionSplitter(_ sections: SectionSizes) -> some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(height: SectionLayout.gap)
+            .contentShape(Rectangle())
+            .overlay {
+                if isDraggingSplitter {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(height: 2)
+                }
             }
-        )
+            .accessibilityLabel("Resize timeline")
+            .onHover { hovering in
+                guard !isDraggingSplitter else { return }
+                if hovering, !isHoveringSplitter {
+                    NSCursor.resizeUpDown.push()
+                    isHoveringSplitter = true
+                } else if !hovering, isHoveringSplitter {
+                    NSCursor.pop()
+                    isHoveringSplitter = false
+                }
+            }
+            .gesture(
+                DragGesture(coordinateSpace: .global)
+                    .onChanged { value in
+                        if !isDraggingSplitter {
+                            splitterDragStartHeight = sections.topRow.height
+                            splitterDragStartLocationY = value.startLocation.y
+                            isDraggingSplitter = true
+                            if !isHoveringSplitter {
+                                NSCursor.resizeUpDown.push()
+                                didPushSplitterCursor = true
+                            } else {
+                                didPushSplitterCursor = false
+                            }
+                        }
+                        let delta = value.location.y - splitterDragStartLocationY
+                        topRowShare = SectionLayout.share(
+                            forTopRowHeight: splitterDragStartHeight + delta,
+                            in: sections.everything.height
+                        )
+                    }
+                    .onEnded { _ in
+                        isDraggingSplitter = false
+                        if didPushSplitterCursor {
+                            NSCursor.pop()
+                        }
+                        didPushSplitterCursor = false
+                    }
+            )
     }
 
     // MARK: - Top Row Panels (Settings + Media)
@@ -612,7 +632,7 @@ struct ContentView: View {
     // MARK: - Timeline Row
 
     /// The timeline, across the full width of the window.
-    private var timelinePanel: some View {
+    private func timelinePanel(_ sections: SectionSizes) -> some View {
         TimelineAccordionView(
             timelineManager: timelineManager,
             playbackEngine: playbackEngine,
@@ -633,39 +653,14 @@ struct ContentView: View {
             },
             onDropMixedMedia: { videoURLs, audioURLs, atFrame in
                 handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: atFrame)
-            }
+            },
+            height: sections.timeline.height
         )
         .onChange(of: mediaLibrary.items.count) { oldCount, newCount in
             // Auto-expand timeline when media is first imported
             if newCount > 0 && !timelineViewModel.isExpanded {
                 timelineViewModel.expandIfNeeded()
             }
-        }
-    }
-
-    /// Record the video area's measured height and refit the window.
-    ///
-    /// The refit matters as much as the measurement: the video area settles a
-    /// frame after the panels do, so the launch fit used to run while this was
-    /// still 0 and sized the window as though the video were not there - about
-    /// 160pt short, which is what put the media panel behind the window edge.
-    private func updateVideoAreaHeight(_ height: CGFloat) {
-        guard height > 0, abs(height - videoAreaHeight) > 1 else { return }
-        videoAreaHeight = height
-        DispatchQueue.main.async {
-            syncWindowToContent()
-        }
-    }
-
-    /// Record the panels' measured height and refit the window.
-    ///
-    /// Debounced by a 1pt threshold: SwiftUI republishes this during
-    /// animations, and refitting on every frame would fight the animation.
-    private func updatePanelsContentHeight(_ height: CGFloat) {
-        guard height > 0, abs(height - panelsContentHeight) > 1 else { return }
-        panelsContentHeight = height
-        DispatchQueue.main.async {
-            syncWindowToContent()
         }
     }
 

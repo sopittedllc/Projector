@@ -69,12 +69,24 @@ struct FileManagerView: View {
     /// Height for the optimization banner when visible
     private static let bannerHeight: CGFloat = 70
 
-    /// The media grid's two rows. Fixed rather than flexible so a cell is the
-    /// same size whether the panel holds two files or two hundred.
-    private static let mediaGridRows: [GridItem] = [
-        GridItem(.fixed(FileManagerLayout.gridCellHeight), spacing: Spacing.sm),
-        GridItem(.fixed(FileManagerLayout.gridCellHeight), spacing: Spacing.sm)
-    ]
+    /// The media grid's rows, for a given amount of vertical room.
+    ///
+    /// Cells stay a fixed size - a thumbnail is the same whether the panel holds
+    /// two files or two hundred - so a taller panel earns more *rows* rather
+    /// than bigger cells. That is what makes the top row growing with the window
+    /// worth something here: without it the extra height was dead space beneath
+    /// two rows that would not use it.
+    ///
+    /// Two rows is the floor, matching `FileManagerLayout.expandedHeight`.
+    private static func mediaGridRows(forHeight height: CGFloat) -> [GridItem] {
+        let rowPitch = FileManagerLayout.gridCellHeight + Spacing.sm
+        let usable = height - FileManagerLayout.scrollIndicatorHeight - Spacing.sm * 2
+        let fits = Int(((usable + Spacing.sm) / rowPitch).rounded(.down))
+        return Array(
+            repeating: GridItem(.fixed(FileManagerLayout.gridCellHeight), spacing: Spacing.sm),
+            count: max(2, fits)
+        )
+    }
 
     /// Calculate minimum height based on expanded state and banner visibility
     @EnvironmentObject private var dragContext: DragContext
@@ -527,10 +539,11 @@ struct FileManagerView: View {
     private var itemsList: some View {
         GeometryReader { outerGeometry in
             ScrollView(.horizontal, showsIndicators: true) {
-                // Two rows, filled column by column, still scrolling sideways.
-                // A single HStack meant the panel was one thumbnail tall no
-                // matter how much media a project held.
-                LazyHGrid(rows: Self.mediaGridRows, spacing: Spacing.sm) {
+                // Filled column by column, still scrolling sideways. A single
+                // HStack meant the panel was one thumbnail tall no matter how
+                // much media a project held.
+                LazyHGrid(rows: Self.mediaGridRows(forHeight: outerGeometry.size.height),
+                          spacing: Spacing.sm) {
                     ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
                         MediaGridCell(
                             item: item,
