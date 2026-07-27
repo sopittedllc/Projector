@@ -23,7 +23,7 @@ extension ContentView {
 
     /// Maximum height for the playback view based on available space
     var playbackMaxHeight: CGFloat {
-        let reservedHeight = vitalControlsHeight + lowerPanelsMinHeight
+        let reservedHeight = videoAreaHeight + lowerPanelsMinHeight
         if normalViewHeight > 0 {
             return max(playbackMinHeight, normalViewHeight - reservedHeight)
         }
@@ -72,26 +72,33 @@ extension ContentView {
     /// clipped once several lanes existed) and, before the ceiling, overshot
     /// (window crept to fill the display over repeated drops).
     var idealMainWindowContentHeight: CGFloat {
-        let transport = vitalControlsHeight > 0 ? vitalControlsHeight : 60
-        let transportChrome = Spacing.md + Spacing.sm
+        // The measured value already includes the video area's own padding -
+        // the GeometryReader sits in a `.background` applied after it - so no
+        // chrome is added here. The fallback covers the frames before the first
+        // measurement lands and is derived from the same constant, not a guess.
+        let video = videoAreaHeight > 0
+            ? videoAreaHeight
+            : MainWindowLayout.inlineVideoHeight + Spacing.md + Spacing.sm
 
         // Prefer the measured height of the panel stack. It accounts for
         // whatever is actually on screen - the optimization banner, a collapsed
         // Settings section, a hidden media panel - none of which a constant can
         // track. Falls back to an estimate only before the first measurement.
+        // The taller of the two columns, not their sum: the video sits beside
+        // the panels now. Summing them made the window grow by the video's
+        // height for content that no longer stacks above anything.
         if panelsContentHeight > 0 {
-            return transport + transportChrome + panelsContentHeight
+            return max(video, panelsContentHeight)
         }
 
         let settings = PanelLayout.headerHeight
         let timeline = timelineViewModel.currentHeight
         let media = showFileManager ? FileManagerLayout.expandedHeight : 0
-        return transport
-            + transportChrome
-            + settings
+        let panels = settings
             + Spacing.md + timeline
             + Spacing.md + media
             + Spacing.md * 2
+        return max(video, panels)
     }
 
     /// Resize the window so the current panels fit, without letting it creep.
@@ -102,7 +109,60 @@ extension ContentView {
     /// window kept a screenful of empty space. Bounded below by the default
     /// window height so an emptied timeline can't collapse the window, and
     /// above by the screen's visible height.
-    func fitWindowToContent() {
+    // MARK: - Window Sizing Authority
+    //
+    // One place decides how big the window is and where the panel scroller
+    // sits. These rules hold at all times; anything that changes layout calls
+    // `syncWindowToContent()` and lets them re-apply, rather than nudging the
+    // window itself:
+    //
+    //  1. HEIGHT FOLLOWS CONTENT. The target is the taller of the two columns -
+    //     the fixed video column, or the panel stack - plus window chrome,
+    //     clamped to [`minimumHeight`, the screen's visible height]. It shrinks
+    //     as readily as it grows, so collapsing a panel reclaims the space.
+    //
+    //  2. WIDTH IS NEVER THE PROBLEM. `mainWindowMinWidth` covers the video
+    //     column plus the widest panel header, so panel content never has to
+    //     compress. Width is not adjusted here - only defended by that minimum.
+    //
+    //  3. THE PANEL STACK SCROLLS ONLY WHEN IT MUST. If the window is at screen
+    //     height and content still overflows, the scroller earns its keep.
+    //     Otherwise the offset is forced to zero.
+    //
+    //  4. A STALE OFFSET IS A BUG, NOT A PREFERENCE. Collapsing a panel shrinks
+    //     the content under a scroller that keeps its old offset, which is what
+    //     leaves panels stranded half off-screen. Rule 3 is therefore re-applied
+    //     after every resize, not only when a panel expands.
+    //
+    //  5. THE VIDEO COLUMN IS FIXED. It never participates in vertical growth;
+    //     the space beneath it is left empty by design.
+    //
+    //  6. NO SCROLLER UNLESS IT IS EARNED. Rule 1 means the window normally
+    //     grows or shrinks to fit, so the scroller has nothing to do - but a
+    //     live NSScrollView still flashes its indicator whenever the content
+    //     resizes under it, which reads as a glitch during every collapse.
+    //     Scrolling is enabled once the window reaches the screen ceiling, and
+    //     that test reads the window, never the content: measuring content
+    //     inside the scroll view to decide whether it should scroll is circular.
+    //
+    //  7. PANELS ARE BOUNDED, SO THE WINDOW DOES NOT HAVE TO BE. The top row and
+    //     the timeline each have a height ceiling and scroll inside it. Between
+    //     them they are sized to fit a 13" laptop, so reaching rule 6 at all is
+    //     the exception rather than the normal state.
+
+    /// Bring the window and the panel scroller into line with the current
+    /// content. Safe to call as often as layout changes, and from any context.
+    ///
+    /// Deferred to the next runloop turn on purpose. Callers include SwiftUI
+    /// `onChange` handlers, which run inside the view graph's update pass -
+    /// resizing the window from there re-enters SwiftUI mid-layout and crashes
+    /// (EXC_BAD_ACCESS through `NSHostingView.layout()`). Hopping out first
+    /// means no caller has to know where it is being called from.
+    func syncWindowToContent() {
+        DispatchQueue.main.async { applyWindowSync() }
+    }
+
+    private func applyWindowSync() {
         guard let window = mainAppWindow,
               !window.styleMask.contains(.fullScreen),
               let screen = window.screen ?? NSScreen.main else { return }
@@ -111,23 +171,64 @@ extension ContentView {
         // Window height includes the titlebar, which isn't part of content.
         let chrome = window.frame.height - window.contentLayoutRect.height
         let target = min(
-            max(idealMainWindowContentHeight + chrome, MainWindowLayout.defaultHeight),
+            max(idealMainWindowContentHeight + chrome, MainWindowLayout.minimumHeight),
             visibleFrame.height
         )
 
+        // Rule 6: the scroller is offered once the window is against the screen
+        // ceiling, because that is the point at which growing further is no
+        // longer an option.
+        //
+        // Deliberately decided from the window, not from the content. Asking
+        // "is the content taller than the viewport" is circular: that height is
+        // measured inside the scroll view, so disabling scrolling makes the
+        // content report as fitting, which keeps scrolling disabled. That is
+        // what left a full timeline unscrollable with its top cut off.
+        let needsScroller = target >= visibleFrame.height - 1
+        if panelsCanScroll != needsScroller {
+            panelsCanScroll = needsScroller
+        }
+
         var frame = window.frame
         // 2pt deadband: keeps rounding from ping-ponging the window.
-        guard abs(target - frame.height) > 2 else { return }
-
-        let delta = target - frame.height
-        frame.size.height = target
-        // NSWindow's origin is bottom-left; keep the top edge anchored so the
-        // window grows downward and shrinks upward from the same corner.
-        frame.origin.y -= delta
-        if frame.origin.y < visibleFrame.minY {
-            frame.origin.y = visibleFrame.minY
+        if abs(target - frame.height) > 2 {
+            let delta = target - frame.height
+            frame.size.height = target
+            // NSWindow's origin is bottom-left; keep the top edge anchored so
+            // the window grows downward and shrinks upward from the same corner.
+            frame.origin.y -= delta
+            if frame.origin.y < visibleFrame.minY {
+                frame.origin.y = visibleFrame.minY
+            }
+            // `animator()` rather than `animate: true`: the latter drives the
+            // animation from a nested run loop, which is the other half of the
+            // re-entrancy problem above. This animates off the main runloop
+            // without blocking or nesting.
+            window.animator().setFrame(frame, display: true)
         }
-        window.setFrame(frame, display: true, animate: true)
+
+        normalizePanelScroll()
+    }
+
+    /// Rules 3 and 4: the panel stack sits at the top unless it genuinely has
+    /// more content than the window can show.
+    ///
+    /// Applied twice - immediately, and again once any resize animation has
+    /// settled - because the content height that decides "does this fit" is
+    /// still changing on the first pass.
+    func normalizePanelScroll() {
+        func normalize() {
+            guard let sv = panelsScrollView else { return }
+            let overflow = (sv.documentView?.frame.height ?? 0) - sv.contentView.bounds.height
+            let maxOffset = max(0, overflow)
+            let clamped = min(sv.contentView.bounds.origin.y, maxOffset)
+            let target = maxOffset <= 0 ? 0 : clamped
+            guard abs(sv.contentView.bounds.origin.y - target) > 0.5 else { return }
+            sv.contentView.setBoundsOrigin(NSPoint(x: 0, y: target))
+            sv.reflectScrolledClipView(sv.contentView)
+        }
+        DispatchQueue.main.async { normalize() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { normalize() }
     }
 
     // MARK: - Window & Layout State
@@ -141,11 +242,25 @@ extension ContentView {
     ///
     /// Applied only when the project has no saved frame, so it never fights a
     /// size the user chose.
-    func applyDefaultMainWindowSizeIfNeeded() {
-        guard projectDocument.uiState.mainWindowFrame == nil,
-              let window = mainAppWindow,
+    func applyDefaultMainWindowSizeIfNeeded(attempt: Int = 0) {
+        guard projectDocument.uiState.mainWindowFrame == nil else { return }
+
+        // The window does not exist yet on the first `onAppear` - `mainAppWindow`
+        // resolves through NSApp.mainWindow/keyWindow, and neither is set that
+        // early - so this silently did nothing and the window kept whatever size
+        // SwiftUI gave it. That was survivable while the default was narrower
+        // than SwiftUI's choice; it stopped being so once the video moved
+        // alongside the panels and the default had to be wider. Retry briefly
+        // rather than firing once into a nil window.
+        guard let window = mainAppWindow,
               !window.styleMask.contains(.fullScreen),
-              let screen = window.screen ?? NSScreen.main else { return }
+              let screen = window.screen ?? NSScreen.main else {
+            guard attempt < Self.windowLookupAttempts else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                applyDefaultMainWindowSizeIfNeeded(attempt: attempt + 1)
+            }
+            return
+        }
 
         let visibleFrame = screen.visibleFrame
         var frame = window.frame
@@ -198,9 +313,6 @@ extension ContentView {
         if let height = state.timelineExpandedHeight,
            timelineViewModel.expandedHeight != CGFloat(height) {
             timelineViewModel.setExpandedHeight(CGFloat(height))
-        }
-        if isSettingsExpanded != state.settingsExpanded {
-            isSettingsExpanded = state.settingsExpanded
         }
 
         let player = PlayerWindowController.shared

@@ -118,7 +118,12 @@ extension ContentView {
                 // Ensure the lane exists - create lanes until we have enough
                 while self.timelineManager.timeline.audioLanes.count <= laneIndex {
                     debugPrint("handleAudioDropOnTimeline: Creating lane - current count: \(self.timelineManager.timeline.audioLanes.count), need index: \(laneIndex)")
-                    _ = self.timelineManager.addAudioLane()
+                    // Registered so cancelling the placement dialog takes it
+                    // away again. This is the path a plain audio drop takes -
+                    // it creates lanes up to the dropped index - and it was the
+                    // one creation site the rollback did not know about.
+                    let created = self.timelineManager.addAudioLane()
+                    self.batchCreatedLaneIds.insert(created.id)
                 }
 
                 // Verify lane was created
@@ -263,8 +268,8 @@ extension ContentView {
 
             // For single audio + no video, use existing single-file flow with new lane
             if newAudioURLs.count == 1 && newVideoURLs.isEmpty {
-                let laneNumber = timelineManager.timeline.audioLanes.count + 1
-                let newLane = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+                let newLane = timelineManager.addAudioLane(name: laneName(for: newAudioURLs[0]))
+                batchCreatedLaneIds.insert(newLane.id)
                 let clip = await addAudioToTimeline(url: newAudioURLs[0], laneId: newLane.id, atFrame: atFrame)
                 if let clip = clip {
                     let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
@@ -285,21 +290,22 @@ extension ContentView {
             // IMPORTANT: Reserve lanes for video embedded audio FIRST
             // Each video may have an audio track that needs its own lane
             // We create placeholder lanes now so standalone audio files get assigned to subsequent lanes
-            for _ in newVideoURLs {
-                let laneNumber = timelineManager.timeline.audioLanes.count + 1
-                let _ = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+            for url in newVideoURLs {
+                let lane = timelineManager.addAudioLane(name: laneName(for: url))
+                batchCreatedLaneIds.insert(lane.id)
             }
 
             // Detect timecode for audio files and create a lane for each
             // These lanes come AFTER the video audio lanes
             for url in newAudioURLs {
                 let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil)
-                let laneNumber = timelineManager.timeline.audioLanes.count + 1
-                let newLane = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+                let newLane = timelineManager.addAudioLane(name: laneName(for: url))
+                batchCreatedLaneIds.insert(newLane.id)
                 var item = BatchTimecodeItem(url: url, mediaType: .audio, detectedTimecode: result)
                 item.targetLaneId = newLane.id
                 allItems.append(item)
                 reservedAudioLaneIds.insert(newLane.id)
+                batchCreatedLaneIds.insert(newLane.id)
                 debugPrint("handleMixedBatchDrop: assigned '\(url.lastPathComponent)' -> lane '\(newLane.name)' (\(newLane.id.uuidString.prefix(8))), tc=\(result?.formattedTimecode ?? "none")")
             }
 
@@ -335,6 +341,7 @@ extension ContentView {
                     debugPrint("handleMixedBatchDrop: placed '\(item.url.lastPathComponent)' -> \(clip == nil ? "FAILED" : "ok")")
                 }
                 reservedAudioLaneIds.removeAll()
+                batchCreatedLaneIds.removeAll()
 
                 // Add padding after all files
                 let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
@@ -756,9 +763,18 @@ extension ContentView {
 
             // If no existing lane can fit the clip, create a new one
             if targetLane == nil {
-                let laneNumber = timelineManager.timeline.audioLanes.count + 1
-                targetLane = timelineManager.addAudioLaneAtTop(name: "Audio \(laneNumber)")
+                targetLane = timelineManager.addAudioLaneAtTop(name: laneName(for: reel.sourceURL))
                 debugPrint("prepareAudioLaneIfNeeded: Created new lane '\(targetLane!.name)'")
+            } else if let adopted = targetLane,
+                      adopted.clips.isEmpty,
+                      isGenericLaneName(adopted.name) {
+                // Adopting an empty, never-named lane: give it the media's name
+                // like a freshly created one would get. A lane the user has
+                // named, or one that already holds clips, keeps its name.
+                let named = laneName(for: reel.sourceURL)
+                timelineManager.renameAudioLane(id: adopted.id, name: named)
+                targetLane = timelineManager.timeline.audioLanes.first { $0.id == adopted.id }
+                debugPrint("prepareAudioLaneIfNeeded: renamed adopted lane '\(adopted.name)' -> '\(named)'")
             }
 
             guard let lane = targetLane else {
@@ -977,6 +993,7 @@ extension ContentView {
         if isShowingEmbeddedTimecodeAlert {
             alerts.dismiss()
         }
+        discardLanesCreatedForCancelledDrop()
         pendingTimecodeResult = nil
         pendingTimecodeURL = nil
         pendingTimecodeDropFrame = nil
@@ -1062,6 +1079,64 @@ extension ContentView {
         }
     }
 
+    // MARK: - Lane Naming
+
+    /// A lane name derived from the media that will occupy it.
+    ///
+    /// A lane created to hold a specific file is named after that file rather
+    /// than "Audio 3" - when stems are dropped together, the generic numbering
+    /// gives no way to tell which lane is dialogue and which is FX without
+    /// clicking each clip. Falls back to the numbered name when there's no
+    /// file to name it after (an empty lane added by hand).
+    ///
+    /// - Parameter url: Source media for the lane.
+    /// - Returns: The file's name without its extension, trimmed.
+    /// Size the player window to a reel's media.
+    ///
+    /// Prefers the library's cached `videoSize` - it was measured when the file
+    /// was imported and costs nothing to read. Falls back to loading the track
+    /// directly, because a reel can exist without a matching library item (added
+    /// straight to the timeline rather than through the media panel), and in
+    /// that case there is no cached size to use.
+    func sizePlayerToReel(_ reel: VideoReel) async {
+        if let cached = mediaLibrary.existingItem(for: reel.sourceURL)?.videoSize, cached.width > 0 {
+            PlayerWindowController.shared.sizeToMedia(cached)
+            return
+        }
+
+        let asset = AVURLAsset(url: reel.sourceURL)
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let naturalSize = try? await track.load(.naturalSize),
+              let transform = try? await track.load(.preferredTransform) else { return }
+
+        // Same display-size derivation the library uses: rotated footage encodes
+        // its dimensions the other way round.
+        let display = CGRect(origin: .zero, size: naturalSize).applying(transform).standardized
+        let size = CGSize(width: abs(display.width), height: abs(display.height))
+        guard size.width > 0, size.height > 0 else { return }
+        PlayerWindowController.shared.sizeToMedia(size)
+    }
+
+    func laneName(for url: URL) -> String {
+        let base = url.deletingPathExtension().lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return base.isEmpty ? nextGenericLaneName() : base
+    }
+
+    /// The next "Audio N" name, for lanes with no associated file.
+    func nextGenericLaneName() -> String {
+        "Audio \(timelineManager.timeline.audioLanes.count + 1)"
+    }
+
+    /// Whether a lane still carries an auto-generated "Audio N" name, meaning
+    /// the user hasn't named it and it's safe to rename after its content.
+    func isGenericLaneName(_ name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("Audio ") else { return false }
+        let suffix = trimmed.dropFirst("Audio ".count)
+        return !suffix.isEmpty && suffix.allSatisfy(\.isNumber)
+    }
+
     /// Whether a clip spanning `startFrame ..< startFrame + durationFrames`
     /// would intersect any existing clip in the lane.
     private func laneIsOccupied(_ lane: AudioLane, startFrame: Int, durationFrames: Int) -> Bool {
@@ -1093,8 +1168,7 @@ extension ContentView {
 
         if let preferred = timelineManager.timeline.audioLanes.first(where: { $0.id == preferredLaneId }) {
             if laneIsOccupied(preferred, startFrame: atFrame, durationFrames: durationFrames) {
-                let laneNumber = timelineManager.timeline.audioLanes.count + 1
-                let newLane = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+                let newLane = timelineManager.addAudioLane(name: laneName(for: url))
                 debugPrint("addAudioToTimelineAvoidingOverlap: '\(url.lastPathComponent)' overlaps at frame \(atFrame); spilling to new lane '\(newLane.name)'")
                 targetLaneId = newLane.id
             }
@@ -1106,8 +1180,7 @@ extension ContentView {
             // exists. `addAudioClip` guards on lane existence and returns nil,
             // which silently dropped the file with no error anywhere. Make a
             // fresh lane instead of losing the audio.
-            let laneNumber = timelineManager.timeline.audioLanes.count + 1
-            let newLane = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+            let newLane = timelineManager.addAudioLane(name: laneName(for: url))
             debugPrint("addAudioToTimelineAvoidingOverlap: preferred lane \(preferredLaneId.uuidString.prefix(8)) no longer exists for '\(url.lastPathComponent)'; created '\(newLane.name)'")
             targetLaneId = newLane.id
         }
@@ -1123,8 +1196,7 @@ extension ContentView {
         // lane the video's embedded audio doesn't overlap, which includes the
         // empty ones reserved here. Retry once on a guaranteed-fresh lane
         // rather than dropping the file silently.
-        let laneNumber = timelineManager.timeline.audioLanes.count + 1
-        let fallbackLane = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+        let fallbackLane = timelineManager.addAudioLane(name: laneName(for: url))
         debugPrint("addAudioToTimelineAvoidingOverlap: first placement of '\(url.lastPathComponent)' failed; retrying on fresh lane '\(fallbackLane.name)'")
 
         let retried = await addAudioToTimeline(url: url, laneId: fallbackLane.id, atFrame: atFrame, checkTimecode: false)
@@ -1301,6 +1373,7 @@ extension ContentView {
 
             await MainActor.run {
                 reservedAudioLaneIds.removeAll()
+                batchCreatedLaneIds.removeAll()
                 clearPendingBatchTimecode()
             }
         }
@@ -1311,8 +1384,28 @@ extension ContentView {
         if isShowingBatchTimecodeSheet {
             alerts.dismiss()
         }
+        discardLanesCreatedForCancelledDrop()
+        reservedAudioLaneIds.removeAll()
         pendingBatchTimecode = nil
         isProcessingTimecodeDetection = false
+    }
+
+    /// Undo the lanes a drop created when the user cancels its dialog.
+    ///
+    /// Lanes have to exist before the dialog opens - placement needs a lane to
+    /// target, and a batch needs lane identities to work out its ordering - but
+    /// they are only *wanted* if the user confirms. Cancelling used to leave one
+    /// empty lane per dropped file behind.
+    ///
+    /// Only empty lanes are removed, so a lane that has already received a clip
+    /// is never destroyed by a later cancel.
+    func discardLanesCreatedForCancelledDrop() {
+        for laneId in batchCreatedLaneIds {
+            guard let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
+                  lane.clips.isEmpty else { continue }
+            timelineManager.removeAudioLane(id: laneId)
+        }
+        batchCreatedLaneIds.removeAll()
     }
 
     // MARK: - AlertCoordinator Helper Methods
@@ -1503,6 +1596,7 @@ extension ContentView {
         if isShowingSpotMediaSheet {
             alerts.dismiss()
         }
+        discardLanesCreatedForCancelledDrop()
         pendingSpotURL = nil
         pendingSpotFilenameTC = nil
         pendingSpotMetadataTC = nil

@@ -4,12 +4,6 @@ import AppKit
 
 /// File manager panel for importing and organizing media files
 struct FileManagerView: View {
-    /// Sort options for media library
-    enum SortOption: String, CaseIterable {
-        case name = "Name"
-        case dateAdded = "Date Added"
-        case type = "Type"
-    }
     @ObservedObject var mediaLibrary: ProjectMediaLibrary
     @ObservedObject var projectDocument: ProjectDocument
     @ObservedObject var timelineManager: TimelineManager
@@ -18,23 +12,51 @@ struct FileManagerView: View {
     let onDeleteItems: ([MediaItem]) -> Void
     let onSaveProject: () -> Void
 
+    // MARK: - Media Actions
+    //
+    // Both are the same shape: a project must be on disk before either can run,
+    // because both write files next to it. If it is unsaved we raise the save
+    // sheet and remember what was being attempted - `onChange(of:
+    // projectDocument.fileURL)` resumes it once a URL exists. Previously the
+    // prompt told the user to save and then dropped the request, so saving
+    // appeared to do nothing.
+
+    /// Copy external media into the project folder.
+    private func startConsolidate() {
+        guard projectDocument.fileURL != nil else {
+            pendingConsolidationAfterSave = true
+            onSaveProject()
+            return
+        }
+        showConsolidationSheet = true
+    }
+
+    /// Re-encode heavy media for smoother playback.
+    private func startOptimize() {
+        guard projectDocument.fileURL != nil else {
+            pendingOptimizationAfterSave = true
+            onSaveProject()
+            return
+        }
+        showOptimizationSheet = true
+    }
+
+    /// Whether optimizing has anything to offer.
+    private var showOptimizeButton: Bool {
+        guard !mediaLibrary.items.isEmpty else { return false }
+        if projectDocument.fileURL == nil { return true }
+        return mediaLibrary.items.contains { item in
+            if case .needsOptimization = OptimizationStatusHelper.status(for: item) { return true }
+            return false
+        }
+    }
+
     /// Whether there are media files stored outside the project folder
     private var hasExternalFiles: Bool {
         guard let projectURL = projectDocument.fileURL else { return false }
         return !mediaLibrary.externalMediaItems(projectURL: projectURL).isEmpty
     }
 
-    /// Whether Prepare Media has anything to offer: files to collect, files to
-    /// reduce, or an unsaved project (where the sheet explains the save first).
-    private var showPrepareMediaButton: Bool {
-        guard !mediaLibrary.items.isEmpty else { return false }
-        if projectDocument.fileURL == nil { return true }
-        if hasExternalFiles { return true }
-        return mediaLibrary.items.contains { item in
-            if case .needsOptimization = OptimizationStatusHelper.status(for: item) { return true }
-            return false
-        }
-    }
 
     /// True if there are external files OR project isn't saved yet (so user sees button and gets save prompt)
     private var showConsolidateButton: Bool {
@@ -47,16 +69,14 @@ struct FileManagerView: View {
     /// Height for the optimization banner when visible
     private static let bannerHeight: CGFloat = 70
 
-    /// Calculate minimum height based on expanded state and banner visibility
-    private func calculateMinHeight() -> CGFloat {
-        if !isExpanded {
-            return FileManagerLayout.collapsedHeight
-        }
-        let baseHeight = FileManagerLayout.expandedHeight
-        let bannerExtra = activeSuggestion != nil ? Self.bannerHeight : 0
-        return baseHeight + bannerExtra
-    }
+    /// The media grid's two rows. Fixed rather than flexible so a cell is the
+    /// same size whether the panel holds two files or two hundred.
+    private static let mediaGridRows: [GridItem] = [
+        GridItem(.fixed(FileManagerLayout.gridCellHeight), spacing: Spacing.sm),
+        GridItem(.fixed(FileManagerLayout.gridCellHeight), spacing: Spacing.sm)
+    ]
 
+    /// Calculate minimum height based on expanded state and banner visibility
     @EnvironmentObject private var dragContext: DragContext
 
     /// Measured width of the header bar, used to pick full vs compact controls.
@@ -68,16 +88,7 @@ struct FileManagerView: View {
     @State private var lastSelectedIndex: Int?
     @State private var isDropTargeted = false
     @State private var filterType: MediaType? = nil
-    @State private var searchText = ""
-    @State private var sortOption: SortOption = .dateAdded
-    @State private var isExpanded = true
 
-    /// Mirror the panel's expansion into the project so it reopens the same
-    /// way. Kept here rather than lifted into ContentView because the panel
-    /// also expands itself on first import.
-    private func persistExpansion(_ expanded: Bool) {
-        projectDocument.updateUIState { $0.mediaPanelExpanded = expanded }
-    }
     @State private var showDeleteAlert = false
     @State private var pendingDeleteItems: [MediaItem] = []
     @State private var isDraggingFromLibrary = false
@@ -86,7 +97,6 @@ struct FileManagerView: View {
     @State private var duplicateImportNames: [String] = []
     @State private var showOptimizationSheet = false
     @State private var showConsolidationSheet = false
-    @State private var showPrepareMediaSheet = false
 
     /// ViewModel for optimization - stored in @State to persist across re-renders
     @State private var optimizationViewModel: OptimizationViewModel?
@@ -118,14 +128,16 @@ struct FileManagerView: View {
         VStack(spacing: 0) {
             headerBar
 
-            // Optimization suggestion banner
+            // Optimization suggestion banner. Hidden while collapsed - it does
+            // not fit the header-height frame, and importing auto-expands the
+            // panel anyway, so a live suggestion is still seen.
             if let suggestion = activeSuggestion {
                 OptimizationSuggestionBanner(
                     suggestion: suggestion,
                     onOptimize: {
                         // Same destination as the header button - one place to
                         // reason about media housekeeping.
-                        showPrepareMediaSheet = true
+                        startOptimize()
                         activeSuggestion = nil
                     },
                     onDismiss: {
@@ -151,22 +163,20 @@ struct FileManagerView: View {
             Divider()
             contentArea
         }
-        .frame(minHeight: calculateMinHeight(), alignment: .top)
-        .frame(maxHeight: isExpanded ? .infinity : FileManagerLayout.collapsedHeight)
+        // maxWidth is explicit because nothing else supplies it once collapsed:
+        // the content area was the only child that stretched, so with it gone
+        // the panel shrank to the header's intrinsic width and sat centred.
+        // Fills whatever the top row gives it. Collapsing was removed with the
+        // accordion chrome: the panel has a set height now, so a disclosure
+        // that toggled between that height and a header served no purpose.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .contentShape(Rectangle())
         .clipped()
         .glassPanel()
         .onAppear {
-            isExpanded = projectDocument.uiState.mediaPanelExpanded
-        }
-        .onChange(of: isExpanded) { _, newValue in
-            persistExpansion(newValue)
         }
         .onChange(of: mediaLibrary.items.count) { _, newCount in
             // Auto-expand when media is first imported
-            if newCount > 0 && !isExpanded {
-                isExpanded = true
-            }
             // Check for optimization opportunities
             evaluateOptimizationSuggestion()
         }
@@ -242,15 +252,6 @@ struct FileManagerView: View {
             }
         }
         // Consolidation sheet
-        .sheet(isPresented: $showPrepareMediaSheet) {
-            PrepareMediaSheetView(
-                mediaLibrary: mediaLibrary,
-                projectDocument: projectDocument,
-                onCollect: { showConsolidationSheet = true },
-                onReduce: { showOptimizationSheet = true },
-                onSaveProject: onSaveProject
-            )
-        }
         .sheet(isPresented: $showConsolidationSheet) {
             ConsolidationSheetView(
                 mediaLibrary: mediaLibrary,
@@ -260,10 +261,6 @@ struct FileManagerView: View {
                     pendingConsolidationAfterSave = true
                 }
             )
-        }
-        // Handle File menu consolidation trigger
-        .onReceive(NotificationCenter.default.publisher(for: .consolidateMedia)) { _ in
-            showConsolidationSheet = true
         }
         // Take focus when an item is selected
         .onChange(of: selectedItemIds) { _, newValue in
@@ -332,37 +329,28 @@ struct FileManagerView: View {
 
     private var headerBar: some View {
         HStack(spacing: Spacing.md) {
-            // Expand/collapse area - entire left side is clickable
-            Button(action: { isExpanded.toggle() }) {
-                HStack(spacing: Spacing.sm) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.secondary)
-                        .frame(width: 12)
+            // A title, not a control. The panel has a set height, so there is
+            // nothing for a disclosure to toggle between.
+            HStack(spacing: Spacing.sm) {
+                Image(systemName: "folder")
+                    .frame(width: 14, height: 14)
+                    .foregroundColor(.secondary)
 
-                    Image(systemName: "folder")
-                        .frame(width: 14, height: 14)
-                        .foregroundColor(.secondary)
+                Text("Media")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
 
-                    Text("Media")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-
-                    Text("(\(filteredItems.count))")
-                        .font(Typography.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-                .contentShape(Rectangle())
+                Text("(\(filteredItems.count))")
+                    .font(Typography.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
-            .buttonStyle(.plain)
-            .help(isExpanded ? "Collapse media panel" : "Expand media panel")
-            .accessibilityLabel("Media panel, \(filteredItems.count) items, \(isExpanded ? "expanded" : "collapsed")")
+            .accessibilityLabel("Media, \(filteredItems.count) items")
 
-            if isExpanded {
+            do {
                 Spacer(minLength: 0)
 
                 // A single variant chosen by measured width, not ViewThatFits.
@@ -386,55 +374,28 @@ struct FileManagerView: View {
         )
     }
 
-    /// Search field, filters, sort menu, consolidate, and import controls.
+    /// Filters, consolidate, and import controls.
     /// - Parameter compact: When true, renders icon-only buttons (with `.help()` tooltips)
     ///   instead of icon+label, for use as the fallback in `ViewThatFits`.
     private func expandedHeaderControls(compact: Bool) -> some View {
         HStack(spacing: Spacing.md) {
-            // Search field
-            TextField("Search media...", text: $searchText)
-                .textFieldStyle(.plain)
-                .font(Typography.body)
-                .frame(width: compact ? 80 : 150)
-                .padding(.horizontal, Spacing.sm)
-                .padding(.vertical, Spacing.xs)
-                .background(Color.secondary.opacity(0.1))
-                .cornerRadius(Spacing.xs)
-
             // Filter buttons
             filterButtons
 
-            // Sort menu
-            Menu {
-                ForEach(SortOption.allCases, id: \.self) { option in
-                    Button(option.rawValue) {
-                        sortOption = option
-                    }
-                }
-            } label: {
-                HStack(spacing: 2) {
-                    Image(systemName: "arrow.up.arrow.down")
-                    if !compact {
-                        Text(sortOption.rawValue)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
-                .font(Typography.caption)
-                .foregroundColor(.secondary)
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize(horizontal: true, vertical: false)
-            .help("Sort by \(sortOption.rawValue)")
+            // Two buttons, two jobs. They were briefly one "Prepare Media"
+            // sheet with checkable steps; separated again because consolidating
+            // and optimizing answer different questions and are wanted at
+            // different times.
+            ConsolidateMediaButton(
+                hasWork: showConsolidateButton,
+                compact: compact,
+                action: { startConsolidate() }
+            )
 
-            // Single entry point for media housekeeping. Collecting (moving
-            // files into the project) and reducing (re-encoding) are different
-            // jobs, but as two adjacent pill buttons they read as duplicates -
-            // they're now steps inside PrepareMediaSheetView.
             PrepareMediaButton(
-                showSheet: $showPrepareMediaSheet,
-                hasWork: showPrepareMediaButton,
-                compact: compact
+                hasWork: showOptimizeButton,
+                compact: compact,
+                action: { startOptimize() }
             )
             .fixedSize(horizontal: true, vertical: false)
 
@@ -546,7 +507,6 @@ struct FileManagerView: View {
                 .lineLimit(1)
 
             Button("Clear filters") {
-                searchText = ""
                 filterType = nil
             }
             .buttonStyle(.link)
@@ -557,9 +517,6 @@ struct FileManagerView: View {
     }
 
     private var noMatchesTitle: String {
-        if !searchText.isEmpty {
-            return "No media matching \"\(searchText)\""
-        }
         switch filterType {
         case .video: return "No video files in this project"
         case .audio: return "No audio files in this project"
@@ -570,7 +527,10 @@ struct FileManagerView: View {
     private var itemsList: some View {
         GeometryReader { outerGeometry in
             ScrollView(.horizontal, showsIndicators: true) {
-                HStack(spacing: Spacing.sm) {
+                // Two rows, filled column by column, still scrolling sideways.
+                // A single HStack meant the panel was one thumbnail tall no
+                // matter how much media a project held.
+                LazyHGrid(rows: Self.mediaGridRows, spacing: Spacing.sm) {
                     ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
                         MediaGridCell(
                             item: item,
@@ -703,27 +663,10 @@ struct FileManagerView: View {
             items = items.filter { $0.type == type }
         }
 
-        // Filter by search
-        if !searchText.isEmpty {
-            items = items.filter {
-                $0.displayName.localizedCaseInsensitiveContains(searchText)
-            }
-        }
-
-        // Sort
-        switch sortOption {
-        case .name:
-            items.sort { (a: MediaItem, b: MediaItem) -> Bool in
-                a.displayName.localizedCaseInsensitiveCompare(b.displayName) == .orderedAscending
-            }
-        case .dateAdded:
-            items.sort { (a: MediaItem, b: MediaItem) -> Bool in
-                a.importedAt > b.importedAt
-            }
-        case .type:
-            items.sort { (a: MediaItem, b: MediaItem) -> Bool in
-                a.type.rawValue < b.type.rawValue
-            }
+        // Newest first. Was one of three user-selectable orders; with the sort
+        // menu gone this is the order the library always had by default.
+        items.sort { (a: MediaItem, b: MediaItem) -> Bool in
+            a.importedAt > b.importedAt
         }
 
         return items

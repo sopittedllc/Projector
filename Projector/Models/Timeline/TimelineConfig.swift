@@ -22,11 +22,22 @@ public struct TimelineConfig: Codable, Equatable, Sendable {
         Double(durationFrames) / frameRate.fps
     }
 
-    /// Default timeline configuration (4 hours at 24fps, starting at 00:00:00:00)
+    /// Default timeline configuration (1 hour at 24fps, starting at 00:00:00:00)
+    ///
+    /// Was 4 hours, which cost nothing to store but made the default view
+    /// unusable: zoom is relative to duration, so fit-to-view on a 4-hour
+    /// timeline put the playhead at ~0.0024pt per frame - it advanced half a
+    /// point in ten seconds, and running playback was indistinguishable from a
+    /// stopped transport.
+    ///
+    /// Nothing depends on the timeline starting out long. `extendTimelineIfNeeded`
+    /// grows it whenever media lands past the end, and media drops add padding
+    /// beyond the clip, so a shorter default simply defers the length until
+    /// there is content to justify it.
     public static var `default`: TimelineConfig {
         TimelineConfig(
             startTimecode: Timecode(.components(h: 0, m: 0, s: 0, f: 0), at: .fps24, by: .clamping),
-            endTimecode: Timecode(.components(h: 4, m: 0, s: 0, f: 0), at: .fps24, by: .clamping),
+            endTimecode: Timecode(.components(h: 1, m: 0, s: 0, f: 0), at: .fps24, by: .clamping),
             frameRate: .fps24
         )
     }

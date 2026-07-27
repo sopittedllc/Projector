@@ -214,3 +214,29 @@ extension Timeline {
         return Int(seconds * destRate.fps)
     }
 }
+
+// MARK: - Video File Lane
+
+extension Timeline {
+    /// The lane holding audio baked into video files, if one exists.
+    ///
+    /// Derived from the clips rather than stored on the lane, which keeps
+    /// existing project files readable without a migration. A lane qualifies
+    /// only if every clip on it came from a video track - a lane holding a mix
+    /// could not be presented as "the video file's audio", so nothing else is
+    /// allowed to land there (see the drop guards in the timeline view).
+    var videoAudioLane: AudioLane? {
+        audioLanes.first { lane in
+            !lane.clips.isEmpty && lane.clips.allSatisfy { $0.sourceType == .videoTrack }
+        }
+    }
+
+    /// Audio lanes the user owns - everything except the video file's own audio.
+    ///
+    /// The video's audio is drawn as part of the combined Video File track, so
+    /// it must not also appear in the ordinary lane list.
+    var standaloneAudioLanes: [AudioLane] {
+        guard let linked = videoAudioLane else { return audioLanes }
+        return audioLanes.filter { $0.id != linked.id }
+    }
+}

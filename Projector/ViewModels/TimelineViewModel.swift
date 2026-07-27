@@ -84,6 +84,10 @@ final class TimelineViewModel: ObservableObject {
     // MARK: - UI State
 
     /// Whether the timeline accordion is expanded
+    /// Always true. The timeline panel no longer collapses - it has a set
+    /// height that shows the Video File track and three lanes, and scrolls
+    /// internally beyond that. Kept so saved projects carrying the old flag
+    /// still decode; nothing sets it to false.
     @Published var isExpanded: Bool = true
 
     /// Current zoom level (0.0 = fit, 1.0 = max zoom)
@@ -109,7 +113,12 @@ final class TimelineViewModel: ObservableObject {
     /// Maximum zoom level
     let maxZoom: CGFloat = 1.0
 
-    /// Default zoom level (fit to view)
+    /// Default zoom level: fit the whole timeline.
+    ///
+    /// Note that at fit, the playhead advances only a fraction of a point per
+    /// second on a long timeline (~0.06pt/sec on the 4-hour default), so motion
+    /// is not perceptible until zoomed in. Zoom now reaches frame level at any
+    /// duration, and the view follows the playhead while playing.
     let defaultZoom: CGFloat = 0.0
 
     /// Zoom step for UI controls
@@ -129,7 +138,13 @@ final class TimelineViewModel: ObservableObject {
     /// only acts as the floor so small screens still get a usable timeline.
     var maxExpandedHeight: CGFloat {
         let screenHeight = NSScreen.main?.visibleFrame.height ?? TimelineSectionLayout.maxHeight
-        return max(TimelineSectionLayout.maxHeight, screenHeight - TimelineSectionLayout.reservedVerticalChrome)
+        // Floored at the *minimum* usable height, not at 500. Flooring at 500
+        // meant that on a display too small to fit 500pt of timeline plus
+        // everything above it, the panel still claimed 500 and the window
+        // overflowed the screen - the timeline has its own scroller for that
+        // case, so capping it is the correct outcome.
+        return max(TimelineSectionLayout.minHeight,
+                   screenHeight - TimelineSectionLayout.reservedVerticalChrome)
     }
 
     // MARK: - Private
@@ -207,7 +222,7 @@ final class TimelineViewModel: ObservableObject {
 
     /// Current height based on expansion state
     var currentHeight: CGFloat {
-        isExpanded ? expandedHeight : collapsedHeight
+        expandedHeight
     }
 
     // MARK: - Actions
@@ -338,37 +353,23 @@ final class TimelineViewModel: ObservableObject {
                     // direction. Deleting lanes used to leave the panel at its
                     // grown height, so an emptied timeline kept a screenful of
                     // blank space.
-                    if self.audioLanes.count != previousLaneCount {
-                        self.resizeToFitLanes()
-                    }
+                    // Lane count no longer changes the panel height - it is a
+                    // set height with internal scrolling.
+                    _ = previousLaneCount
                 }
             }
         }
     }
 
-    private func resizeToFitLanes() {
-        let laneCount = audioLanes.count
-        let audioHeight = max(TimelineLayout.audioLaneHeight, CGFloat(laneCount) * (TimelineLayout.audioLaneHeight + 1))
-
-        // Every vertical component of the expanded accordion. The original
-        // calculation omitted the toolbar, the new-lane drop zone, the bottom
-        // padding, and the hint row's resize-handle allowance (~80pt total),
-        // which left the last lane partially cut off after auto-grow.
-        let contentHeight = PanelLayout.headerHeight            // accordion header
-            + TimelineLayout.toolbarHeight + 1                  // transport/zoom toolbar + divider
-            + TimelineLayout.rulerHeight + 1                    // timecode ruler + divider
-            + 4                                                 // top padding above video track
-            + TimelineLayout.videoTrackHeight + 1               // video track + divider
-            + audioHeight                                       // audio lanes incl. dividers
-            + TimelineLayout.newLaneDropZoneInactiveHeight      // "drop to create lane" strip
-            + Spacing.sm                                        // bottom padding below lanes
-            + PanelLayout.footerHeight + Spacing.md             // hint row incl. resize handle
-
-        let clamped = min(maxExpandedHeight, max(minExpandedHeight, contentHeight))
-        // Shrinks as well as grows. The 1pt guard keeps a no-op change from
-        // publishing and retriggering the observers that watch this value.
-        if abs(clamped - expandedHeight) > 1 {
-            expandedHeight = clamped
-        }
-    }
+    // NOTE: resizeToFitLanes was removed 2026-07-26.
+    //
+    // It grew and shrank the panel to fit the lane count, which fought the
+    // "set height" model: with fewer than three lanes it shrank *below* the
+    // default, so adding lanes made the timeline briefly shorter and the window
+    // followed it down before growing back. Measured: 0 lanes -> 409pt,
+    // 2 lanes -> 328pt, 4 lanes -> 409pt.
+    //
+    // The panel is now a constant `defaultHeight` - the Video File track plus
+    // three audio lanes - and anything beyond that scrolls inside it. The only
+    // thing that changes the height is the user dragging the resize handle.
 }

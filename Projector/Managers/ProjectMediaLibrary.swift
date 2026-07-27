@@ -198,8 +198,14 @@ final class ProjectMediaLibrary: ObservableObject {
             let nominalFrameRate = try await videoTrack.load(.nominalFrameRate)
             frameRate = Double(nominalFrameRate)
 
+            // Apply the track's preferred transform: `naturalSize` is the
+            // encoded size, which for rotated footage has width and height the
+            // wrong way round. Anything sizing itself to the media - the player
+            // window, resolution readouts - needs the *display* size.
             let naturalSize = try await videoTrack.load(.naturalSize)
-            videoSize = naturalSize
+            let transform = try await videoTrack.load(.preferredTransform)
+            let displayRect = CGRect(origin: .zero, size: naturalSize).applying(transform).standardized
+            videoSize = CGSize(width: abs(displayRect.width), height: abs(displayRect.height))
         }
 
         // Get audio track info

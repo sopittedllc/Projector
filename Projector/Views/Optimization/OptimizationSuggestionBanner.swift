@@ -114,7 +114,7 @@ struct OptimizationSuggestionBanner: View {
 
             // Actions
             HStack(spacing: Spacing.sm) {
-                Button("Optimize") {
+                Button("Optimize Media") {
                     onOptimize()
                 }
                 .buttonStyle(.borderedProminent)

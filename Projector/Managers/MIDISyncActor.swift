@@ -5,6 +5,22 @@ import SwiftTimecodeCore
 
 // MARK: - MIDISyncActor
 
+/// Logging for the MIDI subsystem.
+///
+/// Deliberately its own function rather than the shared `debugPrint` helper:
+/// that name collides with Swift's stdlib `debugPrint(_:separator:terminator:)`,
+/// and inside this file the stdlib overload won. Its output goes to stdout,
+/// which is fully buffered when stderr is redirected to a file - so every MIDI
+/// log line silently disappeared, including the ones reporting why the virtual
+/// port failed to open. NSLog writes to stderr unbuffered and cannot be
+/// shadowed.
+@inline(__always)
+func midiLog(_ message: @autoclosure () -> String) {
+    #if DEBUG
+    NSLog(">>> [MIDI] \(message())")
+    #endif
+}
+
 /// A Swift Actor that manages MIDI synchronization via MTC and MMC.
 ///
 /// This actor handles all MIDI Time Code (MTC) reception and MIDI Machine Control (MMC)
@@ -102,6 +118,22 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// The MIDIKit manager instance.
     private var midiManager: MIDIKitIO.MIDIManager?
 
+    /// What kind of MIDI traffic was seen most recently.
+    private var incomingSignal: IncomingMIDISignal = .none
+
+    /// When traffic was last seen, used to decay the signal back to `.none`.
+    private var lastIncomingAt: Date?
+
+    /// Frame rate reported by the incoming MTC stream.
+    private var incomingFrameRate: TimecodeFrameRate?
+
+    /// Quarter-frames seen since start, logged periodically as proof of arrival.
+    private var quarterFrameCount: Int = 0
+
+    /// Why the virtual MIDI input could not be created, if it failed.
+    /// Nil when the port exists.
+    public private(set) var virtualInputError: String?
+
     /// The MTC receiver for timecode processing.
     private var mtcReceiver: MTCReceiver?
 
@@ -116,6 +148,16 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
     /// Last MMC command received.
     private var lastMMCCommand: MMCCommand?
+
+    /// When an external device last drove the transport (MTC or MMC).
+    private var lastExternalControlAt: Date?
+
+    /// Whether an external device is currently driving the transport.
+    private var isExternallyControlled = false
+
+    /// How long external control persists after the last MTC frame or MMC
+    /// command before the local transport is handed back.
+    private static let externalControlTimeout: TimeInterval = 2.0
 
     /// Name of the currently selected MIDI input.
     private var selectedInputName: String?
@@ -226,7 +268,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// ```
     public func start() async throws {
         do {
-            debugLog("Starting MIDI services...")
+            midiLog("Starting MIDI services...")
             let manager = MIDIKitIO.MIDIManager(
                 clientName: "Projector",
                 model: "Projector",
@@ -235,28 +277,30 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
             try manager.start()
             self.midiManager = manager
-            debugLog("MIDI manager started")
+            midiLog("MIDI manager started")
 
             setupMTCReceiver()
-            debugLog("MTC receiver configured")
+            midiLog("MTC receiver configured")
 
             setupVirtualInput()
-            debugLog("Virtual input created")
+            midiLog("Virtual input created")
 
             setupVirtualOutput()
-            debugLog("Virtual output created")
+            midiLog("Virtual output created")
 
             await refreshAvailableInputs()
-            debugLog("Available inputs: \(availableInputs)")
+            midiLog("Available inputs: \(availableInputs)")
 
             reconnectInput()
-            debugLog("Connected to input: \(selectedInputName ?? "none")")
+            midiLog("Connected to input: \(selectedInputName ?? "none")")
 
             setupNotificationObservers()
 
-            debugLog("MIDISyncActor started successfully")
+            startIdleHeartbeat()
+
+            midiLog("MIDISyncActor started successfully")
         } catch {
-            debugLog("Failed to start MIDI services: \(error)")
+            midiLog("Failed to start MIDI services: \(error)")
             throw MIDISyncError.startupFailed(underlyingError: error)
         }
     }
@@ -269,13 +313,47 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// ## Thread Safety
     /// This method runs on the actor and is safe to call from any context.
     public func stop() async {
+        idleHeartbeat?.cancel()
+        idleHeartbeat = nil
         for continuation in stateContinuations.values {
             continuation.finish()
         }
         stateContinuations.removeAll()
         mtcReceiver = nil
         midiManager = nil
-        debugLog("MIDISyncActor stopped")
+        midiLog("MIDISyncActor stopped")
+    }
+
+    // MARK: - Idle Heartbeat
+
+    /// Re-emits state on a timer so the incoming-signal readout can go stale.
+    private var idleHeartbeat: Task<Void, Never>?
+
+    /// Interval between idle state emissions.
+    ///
+    /// Shorter than the 1.5s staleness threshold in
+    /// `decayIncomingSignalIfStale()`, so a feed that stops is reported as gone
+    /// within roughly two seconds.
+    private static let heartbeatInterval: Duration = .milliseconds(500)
+
+    /// Starts the periodic state emission.
+    ///
+    /// `decayIncomingSignalIfStale()` is only reachable from `emitState()`, and
+    /// every other call to `emitState()` is triggered by an incoming MIDI event.
+    /// That made the decay unreachable in the one situation it exists for: when
+    /// the sender stops, no further events arrive, nothing re-emits, and the
+    /// readout holds its last timecode behind a green "live" dot indefinitely -
+    /// indistinguishable from a running feed. This heartbeat is what lets a
+    /// stalled feed actually be reported as stalled.
+    private func startIdleHeartbeat() {
+        idleHeartbeat?.cancel()
+        idleHeartbeat = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.heartbeatInterval)
+                guard !Task.isCancelled else { return }
+                await self?.emitState()
+            }
+        }
     }
 
     // MARK: - MIDISyncServiceProtocol Commands
@@ -309,7 +387,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         selectedInputName = name
         reconnectInput()
         emitState()
-        debugLog("Selected MIDI input: \(name ?? "none")")
+        midiLog("Selected MIDI input: \(name ?? "none")")
     }
 
     /// Refreshes the list of available MIDI inputs.
@@ -342,7 +420,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
         availableInputs = inputs
         emitState()
-        debugLog("Refreshed available inputs: \(inputs.count) found")
+        midiLog("Refreshed available inputs: \(inputs.count) found")
     }
 
     /// Sets the local MTC frame rate for sync comparison.
@@ -367,7 +445,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         localFrameRate = frameRate
         mtcReceiver?.setLocalFrameRate(frameRate)
         emitState()
-        debugLog("Set local frame rate: \(frameRate)")
+        midiLog("Set local frame rate: \(frameRate)")
     }
 
     /// Updates the local playback frame position for drift calculation.
@@ -421,7 +499,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         }
 
         self.mtcReceiver = receiver
-        debugLog("MTC receiver configured")
+        midiLog("MTC receiver configured")
     }
 
     /// Sets up the virtual MIDI input port that DAWs can send to.
@@ -440,9 +518,13 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
                     }
                 }
             )
-            debugLog("Virtual MIDI input '\(Self.virtualInputName)' created")
+            midiLog("Virtual MIDI input '\(Self.virtualInputName)' created")
+            virtualInputError = nil
         } catch {
-            debugLog("Failed to create virtual MIDI input: \(error)")
+            // Surfaced, not swallowed: without this port nothing a DAW sends can
+            // ever arrive, and the failure was previously invisible.
+            virtualInputError = error.localizedDescription
+            midiLog("FAILED to create virtual MIDI input '\(Self.virtualInputName)': \(error)")
         }
     }
 
@@ -456,9 +538,9 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
                 tag: Self.virtualOutputTag,
                 uniqueID: .userDefaultsManaged(key: "ProjectorMIDIOutputUID")
             )
-            debugLog("Virtual MIDI output '\(Self.virtualOutputName)' created")
+            midiLog("Virtual MIDI output '\(Self.virtualOutputName)' created")
         } catch {
-            debugLog("Failed to create virtual MIDI output: \(error)")
+            midiLog("Failed to create virtual MIDI output: \(error)")
         }
     }
 
@@ -493,20 +575,20 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         // If selecting our virtual port, we don't need to connect to anything external
         // The virtual input is always receiving via setupVirtualInput()
         if inputName == Self.virtualInputName {
-            debugLog("Using virtual MIDI input: \(inputName)")
+            midiLog("Using virtual MIDI input: \(inputName)")
             return
         }
 
         // Find matching endpoint (outputs are sources that send MIDI data)
         guard let endpoint = manager.endpoints.outputs.first(where: { $0.displayName == inputName }) else {
-            debugLog("MIDI source not found: \(inputName)")
+            midiLog("MIDI source not found: \(inputName)")
             return
         }
 
         do {
             if let existingConnection = manager.managedInputConnections[Self.inputConnectionTag] {
                 existingConnection.add(outputs: [endpoint])
-                debugLog("Added MIDI source: \(inputName)")
+                midiLog("Added MIDI source: \(inputName)")
             } else {
                 try manager.addInputConnection(
                     to: .none,
@@ -518,10 +600,10 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
                     }
                 )
                 manager.managedInputConnections[Self.inputConnectionTag]?.add(outputs: [endpoint])
-                debugLog("Connected to MIDI source: \(inputName)")
+                midiLog("Connected to MIDI source: \(inputName)")
             }
         } catch {
-            debugLog("Failed to connect to MIDI source: \(error)")
+            midiLog("Failed to connect to MIDI source: \(error)")
         }
     }
 
@@ -541,18 +623,84 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             // Check for SysEx messages (MTC Full Frame, MMC commands, Identity Request)
             switch event {
             case .sysEx7(let sysEx):
-                debugLog("SysEx7: \(sysEx.data.map { String(format: "%02X", $0) }.joined(separator: " "))")
+                midiLog("SysEx7: \(sysEx.data.map { String(format: "%02X", $0) }.joined(separator: " "))")
                 handleSysEx(sysEx.data)
             case .universalSysEx7(let universalSysEx):
-                debugLog("UniversalSysEx7: type=\(universalSysEx.universalType), subID1=\(universalSysEx.subID1), subID2=\(universalSysEx.subID2)")
+                midiLog("UniversalSysEx7: type=\(universalSysEx.universalType), subID1=\(universalSysEx.subID1), subID2=\(universalSysEx.subID2)")
                 handleUniversalSysEx(universalSysEx)
             case .timecodeQuarterFrame:
-                // MTC quarter frames - don't log each one (too noisy)
-                break
+                // Individually far too noisy to log, but silence made it
+                // impossible to tell "no quarter-frames" from "not logged".
+                // Count them and report at a readable cadence instead.
+                quarterFrameCount += 1
+                noteIncoming(.timecode)
+                if quarterFrameCount % 120 == 1 {
+                    midiLog("MTC quarter-frames received: \(quarterFrameCount) (rate: \(incomingFrameRate?.stringValue ?? "detecting"))")
+                }
+            case .timingClock:
+                // MIDI Beat Clock: tempo, not position. Sync can never lock on
+                // it, so it's tracked separately rather than counted as MIDI.
+                noteIncoming(.beatClock)
             default:
-                // Log other event types we might be missing
-                debugLog("Other event: \(event)")
+                noteIncoming(.other)
+                midiLog("Other event: \(event)")
             }
+        }
+    }
+
+    /// Record incoming traffic, preferring timecode over lesser signals so a
+    /// DAW sending both clock and MTC reports as timecode.
+    private func noteIncoming(_ signal: IncomingMIDISignal) {
+        lastIncomingAt = Date()
+        let rank: (IncomingMIDISignal) -> Int = { s in
+            switch s {
+            case .none: return 0
+            case .other: return 1
+            case .beatClock: return 2
+            case .timecode: return 3
+            }
+        }
+        if rank(signal) >= rank(incomingSignal) {
+            incomingSignal = signal
+        }
+        // Only positional timecode counts as being driven. Beat clock carries
+        // tempo but cannot position the playhead, and `.other` is any stray note
+        // or SysEx - treating either as control would lock the user out of their
+        // own transport whenever a controller sent something incidental.
+        if signal == .timecode {
+            noteExternalControl()
+        }
+    }
+
+    /// Record that an external device is driving the transport.
+    ///
+    /// Called for MTC and for MMC transport commands. MMC is a one-shot event -
+    /// `handleMMCCommand` clears `lastMMCCommand` as soon as it emits, so there
+    /// is no lasting state to read - which is why control is tracked here as a
+    /// timestamp instead.
+    private func noteExternalControl() {
+        lastExternalControlAt = Date()
+        if !isExternallyControlled {
+            isExternallyControlled = true
+            midiLog("External control ACQUIRED - local transport disabled (slave mode)")
+        }
+    }
+
+    /// Decay the incoming signal when traffic stops, so the readout doesn't
+    /// claim a live feed after the sender goes away.
+    private func decayIncomingSignalIfStale() {
+        if let last = lastIncomingAt, Date().timeIntervalSince(last) > 1.5 {
+            incomingSignal = .none
+            incomingFrameRate = nil
+        }
+        // Released on a longer window than the readout: MMC arrives as isolated
+        // commands rather than a stream, so a tighter timeout would hand the
+        // transport back between a DAW's Locate and its Play.
+        if isExternallyControlled,
+           let last = lastExternalControlAt,
+           Date().timeIntervalSince(last) > Self.externalControlTimeout {
+            isExternallyControlled = false
+            midiLog("External control RELEASED - local transport re-enabled")
         }
     }
 
@@ -568,7 +716,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         // Only respond if the request is for us (our device ID) or all-call (0x7F)
         guard channel == Self.mmcDeviceID || channel == 0x7F else { return }
 
-        debugLog("Received Identity Request, sending reply")
+        midiLog("Received Identity Request, sending reply")
 
         // Send Identity Reply
         // Using non-commercial manufacturer ID (0x7D) for development
@@ -582,7 +730,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     private func sendIdentityReply(channel: UInt8) {
         guard let manager = midiManager,
               let output = manager.managedOutputs[Self.virtualOutputTag] else {
-            debugLog("Cannot send Identity Reply - no output port")
+            midiLog("Cannot send Identity Reply - no output port")
             return
         }
 
@@ -596,23 +744,24 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             0x01, 0x00, 0x00, 0x00  // Version 1.0.0.0
         ]
 
-        // Build raw SysEx message for Identity Reply
-        // Format: F0 7E <channel> 06 02 <manufacturer-id> <family-lsb> <family-msb> <model-lsb> <model-msb> <ver...> F7
-        var sysExData: [UInt8] = [
-            0x7E,                   // Universal Non-Real Time
-            channel & 0x7F,         // Device ID (masked to 7 bits)
-            0x06,                   // Sub-ID#1: General Information
-            0x02                    // Sub-ID#2: Identity Reply
-        ]
-        sysExData.append(contentsOf: replyData)
-
+        // Built with MIDIKit's Universal SysEx constructor rather than raw
+        // bytes. The previous version hand-assembled the message starting at
+        // 0x7E and passed it to `sysEx7(rawBytes:)`, which expects a COMPLETE
+        // message including the 0xF0 / 0xF7 framing - so every reply was
+        // rejected as `malformed` and the app never answered a device enquiry.
+        // This constructor supplies the framing and the 0x7E itself.
         do {
-            // Create raw SysEx event
-            let sysExEvent = try MIDIEvent.sysEx7(rawBytes: sysExData)
+            let sysExEvent = try MIDIEvent.universalSysEx7(
+                universalType: .nonRealTime,
+                deviceID: UInt7(channel & 0x7F),
+                subID1: 0x06,   // General Information
+                subID2: 0x02,   // Identity Reply
+                data: replyData
+            )
             try output.send(event: sysExEvent)
-            debugLog("Sent Identity Reply on channel \(channel)")
+            midiLog("Sent Identity Reply on channel \(channel)")
         } catch {
-            debugLog("Failed to send Identity Reply: \(error)")
+            midiLog("Failed to send Identity Reply: \(error)")
         }
     }
 
@@ -628,8 +777,23 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         // Reset dropout counter when we receive data
         dropoutCounter = 0
 
+        noteIncoming(.timecode)
+
+        // Read the rate from the DECODER, not from the delivered Timecode.
+        //
+        // `timecode.frameRate` is the rate the receiver converted INTO - which
+        // is our local project rate, or a conversion artifact mid-lock. Using it
+        // made the readout oscillate between 24 and 25 while Cubase held a
+        // steady rate. `MTCReceiver.mtcFrameRate` is the rate decoded from the
+        // quarter-frame stream itself: what the sender is actually running at.
+        let decoded = mtcReceiver?.mtcFrameRate.directEquivalentFrameRate
+        if incomingFrameRate != decoded {
+            incomingFrameRate = decoded
+            midiLog("Incoming MTC frame rate: \(decoded?.stringValue ?? "unknown") (project: \(localFrameRate.stringValue))")
+        }
+
         if displayNeedsUpdate {
-            debugLog("MTC Timecode: \(timecode.stringValue())")
+            midiLog("MTC Timecode: \(timecode.stringValue())")
             mtcTimecode = timecode
             emitState()
         }
@@ -643,7 +807,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         mtcState = convertMTCState(state)
         isReceivingMTC = mtcState.isReceiving
 
-        debugLog("MTC State changed: \(previousState.displayName) -> \(mtcState.displayName)")
+        midiLog("MTC State changed: \(previousState.displayName) -> \(mtcState.displayName)")
 
         // Update sync quality metrics based on state transitions
         switch mtcState {
@@ -681,7 +845,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         }
 
         emitState()
-        debugLog("MTC state changed: \(mtcState.displayName)")
+        midiLog("MTC state changed: \(mtcState.displayName)")
     }
 
     /// Converts MIDIKit's MTCReceiver.State to our protocol's MTCSyncState.
@@ -896,11 +1060,12 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// - Parameter command: The MMC command received.
     private func handleMMCCommand(_ command: MMCCommand) {
         lastMMCCommand = command
+        noteExternalControl()
         emitState()
         // MMC is an event, not persistent state. Keeping the last command in
         // subsequent MTC snapshots caused Play/Stop/Locate to execute repeatedly.
         lastMMCCommand = nil
-        debugLog("MMC COMMAND RECEIVED: \(command.displayName)")
+        midiLog("MMC COMMAND RECEIVED: \(command.displayName)")
     }
 
     // MARK: - Utility Methods
@@ -948,6 +1113,8 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
     /// Emits the current state to all subscribers.
     private func emitState() {
+        decayIncomingSignalIfStale()
+
         // Calculate sync duration if currently synced
         let syncDuration: TimeInterval
         if let startTime = syncStartTime, mtcState == .sync {
@@ -993,6 +1160,9 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             selectedInputName: selectedInputName,
             availableInputs: availableInputs,
             localFrameRate: localFrameRate,
+            incomingSignal: incomingSignal,
+            incomingFrameRate: incomingFrameRate,
+            isExternallyControlled: isExternallyControlled,
             lockProgress: lockProgress,
             lockFramesRequired: lockFramesRequired,
             dropoutCounter: dropoutCounter,
@@ -1023,7 +1193,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// Writes a debug log message to the log file.
     ///
     /// - Parameter message: The message to log.
-    private nonisolated func debugLog(_ message: String) {
+    private nonisolated func debugPrint(_ message: String) {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "HH:mm:ss.SSS"
         let timestamp = dateFormatter.string(from: Date())

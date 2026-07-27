@@ -248,7 +248,7 @@ struct SettingsView: View {
                             Text(position.rawValue).tag(position)
                         }
                     }
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.menu)
                     .labelsHidden()
                     .accessibilityLabel("Timecode overlay position")
                 }

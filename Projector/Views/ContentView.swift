@@ -6,6 +6,34 @@ import AppKit
 import Combine
 
 
+/// Captures the enclosing NSScrollView for the panel stack, so its scroll
+/// offset can be inspected and driven directly.
+private struct PanelScrollCapture: NSViewRepresentable {
+    @Binding var scrollView: NSScrollView?
+
+    func makeNSView(context: Context) -> NSView {
+        let v = Finder()
+        v.onFound = { found in DispatchQueue.main.async { self.scrollView = found } }
+        return v
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private class Finder: NSView {
+        var onFound: ((NSScrollView?) -> Void)?
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                var v: NSView? = self?.superview
+                while let cur = v {
+                    if let sv = cur as? NSScrollView { self?.onFound?(sv); return }
+                    v = cur.superview
+                }
+                self?.onFound?(nil)
+            }
+        }
+    }
+}
+
 /// Main application content view
 struct ContentView: View {
     // MARK: - Managers
@@ -127,11 +155,21 @@ struct ContentView: View {
 
     /// Measured height the scrollable panel stack wants, used to size the window.
     @State var panelsContentHeight: CGFloat = 0
-    @State var vitalControlsHeight: CGFloat = 0
+    /// The panel stack's scroll view. Internal, not private: the window sizing
+    /// authority in ContentView+Helpers normalizes its offset.
+    @State var panelsScrollView: NSScrollView?
+
+    /// Whether the panel stack is allowed to scroll. Driven by the window
+    /// sizing authority - see rule 6 in ContentView+Helpers.
+    @State var panelsCanScroll = false
+
+    /// How many runloop passes to wait for the window to exist before giving up
+    /// on applying the default size.
+    static let windowLookupAttempts = 20
+    @State var videoAreaHeight: CGFloat = 0
 
     // Settings panel state (collapsed by default).
     // Internal, not private: ContentView+Helpers restores it from the project.
-    @State var isSettingsExpanded = false
 
     // FPS conflict state (internal for ContentView+Timeline.swift extension)
     @State var pendingVideoURL: URL?
@@ -157,6 +195,10 @@ struct ContentView: View {
     /// video's embedded-audio import would otherwise claim a lane earmarked for
     /// one of the batch's audio files. Cleared once the batch is placed.
     @State var reservedAudioLaneIds: Set<UUID> = []
+
+    /// Lanes created by an in-flight batch drop, so they can be removed again if
+    /// the user cancels the confirmation sheet.
+    @State var batchCreatedLaneIds: Set<UUID> = []
 
     // Spot media sheet state (for single file drops with enhanced placement options)
     @State var pendingSpotURL: URL?
@@ -273,7 +315,6 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openProjectFromMenu)) { _ in
             persistenceService.showOpenProjectPanel()
         }
-        // Note: .consolidateMedia notification is handled by FileManagerView
         .onReceive(NotificationCenter.default.publisher(for: .showOnboarding)) { _ in
             showOnboarding = true
         }
@@ -317,38 +358,49 @@ struct ContentView: View {
         // The player lives in its own window (PlayerWindowController), so the
         // main window is transport + panels only - no split.
         Group {
-            VStack(spacing: 0) {
-                // Vital Controls bar - pinned at top
-                VitalControlsBar(
-                    timelineManager: timelineManager,
-                    playbackEngine: playbackEngine,
-                    timelineViewModel: timelineViewModel
-                )
-                .padding(.top, Spacing.md)
-                .padding(.horizontal, Spacing.md)
-                .padding(.bottom, Spacing.sm)
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear
-                            .onAppear {
-                                DispatchQueue.main.async {
-                                    vitalControlsHeight = proxy.size.height
-                                }
-                            }
-                            .onChange(of: proxy.size.height) { _, newValue in
-                                if newValue != vitalControlsHeight {
-                                    DispatchQueue.main.async {
-                                        vitalControlsHeight = newValue
-                                    }
-                                }
-                            }
-                    }
-                )
+            // Video on the left, panels on the right, both anchored to the top.
+            // The video keeps a fixed size as the window grows taller with added
+            // lanes - the space beneath it is left empty rather than stretching
+            // the picture or pushing the panels down.
+            // Video and the two short panels share the top row; the timeline
+            // gets its own full-width row beneath. It is the widest thing in the
+            // app - MTC IN, Start TC, Duration and zoom in one header, over a
+            // ruler - so giving it the whole window is what stops it competing
+            // with the video column for room.
+            ScrollView(.vertical) {
+              VStack(spacing: Spacing.md) {
+                topRow
 
-                // Scrollable panels section
-                rightPanelSection
+                timelinePanel
+              }
+              .padding(Spacing.md)
+              // Measure the whole content, not one column: this is what the
+              // window sizes itself to.
+              .background(
+                  GeometryReader { proxy in
+                      Color.clear
+                          .onAppear { updatePanelsContentHeight(proxy.size.height) }
+                          .onChange(of: proxy.size.height) { _, newValue in
+                              updatePanelsContentHeight(newValue)
+                          }
+                  }
+              )
+              .background(PanelScrollCapture(scrollView: $panelsScrollView))
+              .onChange(of: timelineViewModel.isExpanded) { _, _ in
+                  syncWindowToContent()
+              }
+              .onChange(of: showFileManager) { _, _ in
+                  syncWindowToContent()
+              }
+              // Outputs defined in Settings are the source of truth for
+              // routing; lanes follow. See the audio routing authority in
+              // TimelineManager.
+              .onChange(of: audioManager.mappedOutputs) { _, outputs in
+                  timelineManager.reconcileOutputMappings(with: outputs)
+              }
             }
-            .frame(minWidth: HorizontalLayoutConstants.minPanelWidth)
+            .scrollDisabled(!panelsCanScroll)
+            .scrollIndicators(panelsCanScroll ? .automatic : .hidden)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environmentObject(dragContext)
@@ -360,6 +412,7 @@ struct ContentView: View {
             player.configure(
                 playbackEngine: playbackEngine,
                 settings: settings,
+                dragContext: dragContext,
                 onDropURLs: { urls in handlePlaybackAreaDrop(urls: urls) },
                 onDropProviders: { providers in mediaImportCoordinator.handleDrop(providers: providers) }
             )
@@ -397,20 +450,28 @@ struct ContentView: View {
         // Fit the window to the panels whenever the timeline's height changes
         // (lanes added/removed, panel collapsed). Absolute target, grow-only.
         .onChange(of: timelineViewModel.expandedHeight) { _, _ in
-            fitWindowToContent()
+            syncWindowToContent()
         }
         .onChange(of: timelineViewModel.isExpanded) { _, _ in
-            fitWindowToContent()
-        }
-        .onChange(of: isSettingsExpanded) { _, newValue in
-            projectDocument.updateUIState { $0.settingsExpanded = newValue }
+            syncWindowToContent()
         }
         // Reapply when a different project is opened.
         .onChange(of: projectDocument.fileURL) { _, _ in applySavedUIState() }
-        // Show the player as soon as the project has video to play.
+        // Size the player window to the media, so that if it is popped out it
+        // arrives on the video's aspect rather than a fixed 640x360.
+        //
+        // It is no longer *shown* here: the video now appears inline in the
+        // main window, and opening the separate window on import would pull the
+        // picture straight back out of it.
         .onChange(of: timelineManager.timeline.videoReels.count) { oldCount, newCount in
             if oldCount == 0 && newCount > 0 {
-                PlayerWindowController.shared.show()
+                // Only when the project has no player layout of its own. A saved
+                // frame is a size the user chose - matching the media is a
+                // sensible default, not something to impose over that.
+                if projectDocument.uiState.playerWindowFrame == nil,
+                   let reel = timelineManager.timeline.videoReels.first {
+                    Task { await sizePlayerToReel(reel) }
+                }
             }
         }
         .simultaneousGesture(
@@ -456,74 +517,130 @@ struct ContentView: View {
 
     // MARK: - Right Panel Section (Settings + Timeline + Media)
 
-    private var rightPanelSection: some View {
-        ScrollView(.vertical) {
-            VStack(spacing: Spacing.md) {
-                // Collapsible Settings section (collapsed by default)
-                SettingsAccordionView(
-                    audioManager: audioManager,
-                    isExpanded: $isSettingsExpanded
-                )
+    // MARK: - Top Row
 
-                // Timeline accordion
-                TimelineAccordionView(
-                    timelineManager: timelineManager,
-                    playbackEngine: playbackEngine,
-                    waveformCache: waveformCache,
-                    audioOutputManager: audioManager,
-                    timelineViewModel: timelineViewModel,
-                    mediaLibrary: mediaLibrary,
-                    thumbnailCache: thumbnailCache,
-                    onDropVideoMedia: handleVideoDropOnTimeline,
-                    onDropAudioMedia: handleAudioDropOnTimeline,
-                    onSeek: { frame in playbackEngine.seekToFrame(frame) },
-                    onSettingsPressed: { },
-                    onAddAudioLane: {
-                        let laneNumber = timelineManager.timeline.audioLanes.count + 1
-                        _ = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
-                        timelineViewModel.expandIfNeeded()
-                    },
-                    onDropMixedMedia: { videoURLs, audioURLs, atFrame in
-                        handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: atFrame)
-                    }
-                )
-                .onChange(of: mediaLibrary.items.count) { oldCount, newCount in
-                    // Auto-expand timeline when media is first imported
-                    if newCount > 0 && !timelineViewModel.isExpanded {
-                        timelineViewModel.expandIfNeeded()
-                    }
-                }
+    /// Video on the left, Media on the right, both exactly the row's height so
+    /// their bottom edges line up without either being derived from the other.
+    private var topRow: some View {
+        HStack(alignment: .top, spacing: Spacing.md) {
+            videoColumn
 
+            // Fixed height, absorbing its own overflow. The optimization banner
+            // comes and goes; letting that resize the row moved the video with
+            // it and broke the alignment.
+            shortPanelsColumn
+                .frame(minWidth: HorizontalLayoutConstants.minPanelWidth)
+                .frame(height: MainWindowLayout.topRowHeight)
+        }
+    }
 
-                // File Manager panel
-                if showFileManager {
-                    FileManagerView(
-                        mediaLibrary: mediaLibrary,
-                        projectDocument: projectDocument,
-                        timelineManager: timelineManager,
-                        onAddToVideoTrack: handleAddToVideoTrack,
-                        onAddToAudioLane: handleAddToAudioLane,
-                        onDeleteItems: handleDeleteMediaItems,
-                        onSaveProject: {
-                            showSaveProjectSheetViaCoordinator()
-                        }
-                    )
-                }
-            }
-            .padding(Spacing.md)
-            // Measure what the panels actually want. Estimating this from
-            // layout constants missed anything conditional - the optimization
-            // banner most visibly - so the window came up short and the media
-            // panel ended up behind a scrollbar.
-            .background(
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear { updatePanelsContentHeight(proxy.size.height) }
-                        .onChange(of: proxy.size.height) { _, newValue in
-                            updatePanelsContentHeight(newValue)
-                        }
-                }
+    // MARK: - Video Column
+
+    /// The picture with its controls directly beneath, as tall as the top row.
+    ///
+    /// No gap between them: the controls used to sit *inside* the video box and
+    /// cost it 40pt, and then sat below it behind a 12pt gap. Both came out of
+    /// the picture, which is the one thing here that benefits from the space.
+    private var videoColumn: some View {
+        VStack(spacing: 0) {
+            let video = InlineVideoArea(
+                playbackEngine: playbackEngine,
+                midiSyncViewModel: midiSyncViewModel,
+                settings: settings,
+                playerWindow: PlayerWindowController.shared,
+                onDropURLs: { urls in handlePlaybackAreaDrop(urls: urls) },
+                onDropProviders: { providers in mediaImportCoordinator.handleDrop(providers: providers) },
+                onOpenSettings: { alerts.show(.settings(content: AnyView(EmptyView()))) }
             )
+            video
+            video.controlsSection
+        }
+        .frame(height: MainWindowLayout.topRowHeight)
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { updateVideoAreaHeight(proxy.size.height) }
+                    .onChange(of: proxy.size.height) { _, newValue in
+                        updateVideoAreaHeight(newValue)
+                    }
+            }
+        )
+    }
+
+    // MARK: - Top Row Panels (Settings + Media)
+
+    /// The two short panels, stacked beside the video.
+    ///
+    /// Both are headers most of the time - Settings is collapsed by default and
+    /// Media is a single row of thumbnails - so they fit the video column's
+    /// height rather than needing a row of their own.
+    private var shortPanelsColumn: some View {
+        VStack(spacing: Spacing.md) {
+            // Settings used to sit here as a third accordion. It is an overlay
+            // now, opened from the gear in the video controls - app
+            // configuration rather than part of the project, and as a panel it
+            // competed for height with the media it sat above.
+            if showFileManager {
+                FileManagerView(
+                    mediaLibrary: mediaLibrary,
+                    projectDocument: projectDocument,
+                    timelineManager: timelineManager,
+                    onAddToVideoTrack: handleAddToVideoTrack,
+                    onAddToAudioLane: handleAddToAudioLane,
+                    onDeleteItems: handleDeleteMediaItems,
+                    onSaveProject: {
+                        showSaveProjectSheetViaCoordinator()
+                    }
+                )
+            }
+        }
+    }
+
+    // MARK: - Timeline Row
+
+    /// The timeline, across the full width of the window.
+    private var timelinePanel: some View {
+        TimelineAccordionView(
+            timelineManager: timelineManager,
+            playbackEngine: playbackEngine,
+            waveformCache: waveformCache,
+            audioOutputManager: audioManager,
+            timelineViewModel: timelineViewModel,
+            mediaLibrary: mediaLibrary,
+            midiSyncViewModel: midiSyncViewModel,
+            thumbnailCache: thumbnailCache,
+            onDropVideoMedia: handleVideoDropOnTimeline,
+            onDropAudioMedia: handleAudioDropOnTimeline,
+            onSeek: { frame in playbackEngine.seekToFrame(frame) },
+            onSettingsPressed: { },
+            onAddAudioLane: {
+                let laneNumber = timelineManager.timeline.audioLanes.count + 1
+                _ = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+                timelineViewModel.expandIfNeeded()
+            },
+            onDropMixedMedia: { videoURLs, audioURLs, atFrame in
+                handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: atFrame)
+            }
+        )
+        .onChange(of: mediaLibrary.items.count) { oldCount, newCount in
+            // Auto-expand timeline when media is first imported
+            if newCount > 0 && !timelineViewModel.isExpanded {
+                timelineViewModel.expandIfNeeded()
+            }
+        }
+    }
+
+    /// Record the video area's measured height and refit the window.
+    ///
+    /// The refit matters as much as the measurement: the video area settles a
+    /// frame after the panels do, so the launch fit used to run while this was
+    /// still 0 and sized the window as though the video were not there - about
+    /// 160pt short, which is what put the media panel behind the window edge.
+    private func updateVideoAreaHeight(_ height: CGFloat) {
+        guard height > 0, abs(height - videoAreaHeight) > 1 else { return }
+        videoAreaHeight = height
+        DispatchQueue.main.async {
+            syncWindowToContent()
         }
     }
 
@@ -535,7 +652,7 @@ struct ContentView: View {
         guard height > 0, abs(height - panelsContentHeight) > 1 else { return }
         panelsContentHeight = height
         DispatchQueue.main.async {
-            fitWindowToContent()
+            syncWindowToContent()
         }
     }
 

@@ -18,9 +18,6 @@ final class AppSettings: ObservableObject {
     /// Selected MIDI input source name
     @AppStorage("selectedMIDIInput") var selectedMIDIInput: String = ""
 
-    /// Whether to respond to MMC commands
-    @AppStorage("respondToMMC") var respondToMMC: Bool = true
-
     // MARK: - Audio Settings
 
     /// Selected audio output device UID (empty = system default)
@@ -34,11 +31,13 @@ final class AppSettings: ObservableObject {
     /// Whether to show the timecode overlay on video
     @AppStorage("showTimecodeOverlay") var showTimecodeOverlay: Bool = true
 
-    /// Timecode overlay position
-    @AppStorage("timecodeOverlayPosition") var timecodeOverlayPosition: TimecodeOverlayPosition = .bottomRight
 
     /// Timecode overlay opacity (0-1)
     @AppStorage("timecodeOverlayOpacity") var timecodeOverlayOpacity: Double = 0.8
+
+    /// Where the timecode overlay sits on the picture.
+    @AppStorage("timecodeOverlayPosition") var timecodeOverlayPosition: TimecodeOverlayPosition = .bottomCenter
+
 
     // MARK: - Player Window
 
@@ -51,12 +50,6 @@ final class AppSettings: ObservableObject {
     /// Number of frames drift before re-syncing to MTC
     /// Higher values reduce stuttering, lower values improve sync accuracy
     @AppStorage("syncDriftThreshold") var syncDriftThreshold: Int = 5
-
-    /// Whether to auto-play when MTC starts
-    @AppStorage("autoPlayOnMTC") var autoPlayOnMTC: Bool = true
-
-    /// Whether to auto-pause when MTC stops
-    @AppStorage("autoPauseOnMTCStop") var autoPauseOnMTCStop: Bool = true
 
     // MARK: - Frame Rate Settings
 
@@ -126,12 +119,9 @@ final class AppSettings: ObservableObject {
         selectedAudioOutput = ""
         audioOutputMappingsJSON = ""
         showTimecodeOverlay = true
-        timecodeOverlayPosition = .bottomRight
         timecodeOverlayOpacity = 0.8
+        timecodeOverlayPosition = .bottomCenter
         syncDriftThreshold = 5
-        autoPlayOnMTC = true
-        autoPauseOnMTCStop = true
-        respondToMMC = true
         defaultFrameRateRaw = TimecodeFrameRate.fps24.stringValue
     }
 }
@@ -152,13 +142,36 @@ struct MappedAudioOutput: Identifiable, Codable, Hashable {
 
 // MARK: - Timecode Overlay Position
 
+/// Where the timecode overlay is drawn on the video.
+///
+/// A 3x2 grid rather than the original four corners: bottom centre is the
+/// default because it is the one cell that never shares space with the hover
+/// controls (bottom right) or the frame-rate chip (bottom left).
 enum TimecodeOverlayPosition: String, CaseIterable, Identifiable {
     case topLeft = "Top Left"
+    case topCenter = "Top Center"
     case topRight = "Top Right"
     case bottomLeft = "Bottom Left"
+    case bottomCenter = "Bottom Center"
     case bottomRight = "Bottom Right"
 
     var id: String { rawValue }
+
+    var isTop: Bool {
+        self == .topLeft || self == .topCenter || self == .topRight
+    }
+
+    /// SwiftUI alignment for placing the overlay within the video frame.
+    var alignment: Alignment {
+        switch self {
+        case .topLeft:      return .topLeading
+        case .topCenter:    return .top
+        case .topRight:     return .topTrailing
+        case .bottomLeft:   return .bottomLeading
+        case .bottomCenter: return .bottom
+        case .bottomRight:  return .bottomTrailing
+        }
+    }
 }
 
 // MARK: - TimecodeFrameRate Extensions

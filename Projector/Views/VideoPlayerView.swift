@@ -33,9 +33,8 @@ struct VideoPlayerView: NSViewRepresentable {
 struct VideoContentView: View {
     @ObservedObject var playbackEngine: PlaybackEngine
     let showTimecode: Bool
-    var overlayPosition: TimecodeOverlayPosition = .bottomRight
+    var overlayPosition: TimecodeOverlayPosition = .bottomCenter
     var overlayOpacity: Double = 0.8
-    var extraTrailingPadding: CGFloat = 0
 
     var body: some View {
         ZStack {
@@ -68,68 +67,72 @@ struct VideoContentView: View {
                                 .font(Typography.caption)
                                 .foregroundColor(AppColors.textMuted)
                         }
+                        // Centre in the space the timecode is not using, on
+                        // whichever edge it occupies. The placeholder centres on
+                        // the whole area otherwise, which in the 270pt inline
+                        // column puts its hint text right where the overlay sits.
+                        .padding(.top, showTimecode && overlayPosition.isTop ? TimecodeOverlayView.reservedHeight : 0)
+                        .padding(.bottom, showTimecode && !overlayPosition.isTop ? TimecodeOverlayView.reservedHeight : 0)
                     }
             }
 
-            // Timecode overlay
-            if showTimecode && playbackEngine.hasContent {
+            // Timecode overlay.
+            //
+            // Not gated on media: the playhead follows incoming MTC with an
+            // empty timeline, and that is exactly when a large readout is worth
+            // having - there is no picture to read position from.
+            if showTimecode {
                 TimecodeOverlayView(
                     timecode: playbackEngine.currentTimecode,
                     position: overlayPosition,
-                    opacity: overlayOpacity,
-                    extraTrailingPadding: extraTrailingPadding
+                    opacity: overlayOpacity
                 )
             }
         }
     }
 }
 
-/// Timecode overlay displayed on top of video
+/// Timecode overlay displayed on top of video.
+///
+/// Placement is the user's choice, and every cell sits the same short distance
+/// from its edges. Three of the six share space with something else - the hover
+/// controls bottom right, the frame-rate chip bottom left, the player window's
+/// titlebar along the top - but this draws underneath all of them, so they
+/// occlude it rather than displace it.
 struct TimecodeOverlayView: View {
     let timecode: Timecode
-    var position: TimecodeOverlayPosition = .bottomRight
+    var position: TimecodeOverlayPosition = .bottomCenter
     var opacity: Double = 0.3
-    var extraTrailingPadding: CGFloat = 0
 
-    /// Extra bottom padding when positioned at bottom to clear video controls
-    private var extraBottomPadding: CGFloat {
-        (position == .bottomLeft || position == .bottomRight) ? 50 : 0
-    }
+    /// Fixed size. This was briefly user-selectable across four scales; 14pt
+    /// read best at every window size and every position, so the choice was
+    /// removed rather than left as three ways to make it worse.
+    private static let font = Font.system(size: 14, weight: .medium, design: .monospaced)
+
+    /// Vertical space this claims on whichever edge it occupies, for anything
+    /// that has to stay clear of it.
+    static let reservedHeight: CGFloat = 44
 
     var body: some View {
-        VStack {
-            if position == .bottomLeft || position == .bottomRight {
-                Spacer()
-            }
+        ZStack(alignment: position.alignment) {
+            Color.clear
 
-            HStack {
-                if position == .topRight || position == .bottomRight {
-                    Spacer()
-                }
-
-                Text(timecode.stringValue())
-                    .font(Typography.monoXLarge)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, Spacing.md)
-                    .padding(.vertical, Spacing.sm)
-                    .background(
-                        RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
-                            .fill(Color.black.opacity(0.6))
-                    )
-                    .opacity(opacity)
-                    .padding(.leading, Spacing.lg)
-                    .padding(.trailing, Spacing.lg + extraTrailingPadding)
-                    .padding(.top, Spacing.lg)
-                    .padding(.bottom, Spacing.lg + extraBottomPadding)
-
-                if position == .topLeft || position == .bottomLeft {
-                    Spacer()
-                }
-            }
-
-            if position == .topLeft || position == .topRight {
-                Spacer()
-            }
+            Text(timecode.stringValue())
+                .font(Self.font)
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
+                        .fill(Color.black.opacity(0.6))
+                )
+                .opacity(opacity)
+                // The same tight inset on every edge. Nothing is dodged: the
+                // overlay renders beneath the hover controls, so where the two
+                // share a corner the controls simply draw over it.
+                .padding(Spacing.md)
         }
     }
 }

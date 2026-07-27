@@ -96,6 +96,18 @@ public final class MIDISyncViewModel: ObservableObject {
     /// Use ``MMCCommand.displayName`` for user display.
     @Published public var lastMMCCommand: MMCCommand?
 
+    /// What kind of MIDI is arriving on the selected input.
+    @Published public var incomingSignal: IncomingMIDISignal = .none
+
+    /// Frame rate reported by the incoming MTC stream, if any.
+    @Published public var incomingFrameRate: TimecodeFrameRate?
+
+    /// Whether an external device (MTC or MMC) is driving the transport.
+    ///
+    /// When true the app is slaved to the DAW and local transport input is
+    /// ignored, so the two cannot fight over the playhead.
+    @Published public var isExternallyControlled: Bool = false
+
     /// Display name of the currently selected MIDI input port.
     ///
     /// `nil` indicates no input is selected (all inputs disconnected).
@@ -458,6 +470,9 @@ public final class MIDISyncViewModel: ObservableObject {
                 self.mtcTimecode = state.mtcTimecode
                 self.isReceivingMTC = state.isReceivingMTC
                 self.lastMMCCommand = state.lastMMCCommand
+                self.incomingSignal = state.incomingSignal
+                self.incomingFrameRate = state.incomingFrameRate
+                self.isExternallyControlled = state.isExternallyControlled
                 self.selectedInputName = state.selectedInputName
                 self.availableInputs = state.availableInputs
                 self.localFrameRate = state.localFrameRate

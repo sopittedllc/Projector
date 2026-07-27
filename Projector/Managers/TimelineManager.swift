@@ -362,6 +362,18 @@ final class TimelineManager: ObservableObject {
         }
     }
 
+    /// Rename a video reel.
+    ///
+    /// Passing an empty name clears the override so `displayName` falls back to
+    /// the source filename, which is what an emptied rename field should mean.
+    func renameVideoReel(id: UUID, name: String) {
+        if var reel = timeline.videoReels.first(where: { $0.id == id }) {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            reel.name = trimmed.isEmpty ? nil : trimmed
+            timeline.updateVideoReel(reel)
+        }
+    }
+
     /// Update the source URL for a video reel (used when relocating missing files)
     func updateVideoReelURL(id: UUID, newURL: URL) {
         if var reel = timeline.videoReels.first(where: { $0.id == id }) {
@@ -824,3 +836,47 @@ final class TimelineManager: ObservableObject {
 
 // MARK: - Errors
 // TimelineError is now defined in TimelineServiceProtocol.swift
+
+// MARK: - Audio Routing Authority
+//
+// One place decides how lanes follow the outputs defined in Settings. The
+// dropdowns render whatever these rules produce; they never resolve routing
+// themselves:
+//
+//  1. NAMES ARE NOT COPIED. A lane stores the mapping's identity, and the menu
+//     reads the current name from Settings - so renaming "MX" to "Music" in
+//     Settings retitles every lane using it, with nothing to keep in sync.
+//
+//  2. A LANE KEEPS ITS MAPPING WHILE THAT MAPPING EXISTS.
+//
+//  3. IF A MAPPING DISAPPEARS, MATCH THE CHANNELS. Switching interfaces
+//     replaces every mapping with new identities, but a lane sent to channels
+//     3-4 still means channels 3-4. Re-binding by channel range keeps a project
+//     routed correctly across a device change.
+//
+//  4. OTHERWISE CLEAR IT. An unresolvable mapping shows as "Output" rather than
+//     silently routing audio somewhere the user did not choose.
+
+extension TimelineManager {
+    /// Re-bind lanes after the set of configured outputs changes.
+    ///
+    /// - Parameter outputs: The outputs currently defined for the active device.
+    func reconcileOutputMappings(with outputs: [MappedAudioOutput]) {
+        guard !outputs.isEmpty else { return }
+        let byId = Dictionary(uniqueKeysWithValues: outputs.map { ($0.id, $0) })
+
+        for lane in timeline.audioLanes {
+            // Rule 2.
+            if let id = lane.outputMappingId, byId[id] != nil { continue }
+
+            // Rule 3: same channels, new identity.
+            let match = outputs.first {
+                max(0, $0.channelStart - 1) == lane.outputChannelOffset
+                    && max(1, $0.channelCount) == lane.outputChannelCount
+            }
+
+            // Rule 4 when there is no match.
+            setLaneOutputMapping(id: lane.id, mapping: match)
+        }
+    }
+}

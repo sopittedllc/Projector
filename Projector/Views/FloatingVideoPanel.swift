@@ -14,6 +14,7 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import SwiftTimecodeCore
 
 // MARK: - PlayerWindowController
 
@@ -39,7 +40,15 @@ import UniformTypeIdentifiers
 /// PlayerWindowController.shared.show()
 /// ```
 @MainActor
-final class PlayerWindowController: NSObject {
+final class PlayerWindowController: NSObject, ObservableObject {
+    /// Whether the player is currently in its own window.
+    ///
+    /// The app renders exactly one video instance. An `AVPlayer` drives one
+    /// `AVPlayerView` at a time - attach a second and the first goes black - so
+    /// the inline view in the main window and this window are mutually
+    /// exclusive, and the inline view watches this to know when to detach.
+    @Published private(set) var isPoppedOut = false
+
     static let shared = PlayerWindowController()
 
     /// Default content size on first launch, before an autosaved frame exists.
@@ -56,6 +65,12 @@ final class PlayerWindowController: NSObject {
     private var settings: AppSettings?
     private var onDropURLs: (([URL]) -> Void)?
     private var onDropProviders: (([NSItemProvider]) -> Bool)?
+
+    /// Shared drag state. Held because `PlayerWindowContent` reads it as an
+    /// `@EnvironmentObject`, and this window hosts that content itself - a
+    /// hosting view does not inherit the main window's environment, so without
+    /// injecting it here the first drop onto the player traps.
+    private var dragContext: DragContext?
 
     /// Called when the window is shown or hidden, so the project can record it.
     var onVisibilityChanged: ((Bool) -> Void)?
@@ -84,11 +99,13 @@ final class PlayerWindowController: NSObject {
     func configure(
         playbackEngine: PlaybackEngine,
         settings: AppSettings,
+        dragContext: DragContext,
         onDropURLs: @escaping ([URL]) -> Void,
         onDropProviders: @escaping ([NSItemProvider]) -> Bool
     ) {
         self.playbackEngine = playbackEngine
         self.settings = settings
+        self.dragContext = dragContext
         self.onDropURLs = onDropURLs
         self.onDropProviders = onDropProviders
 
@@ -99,7 +116,7 @@ final class PlayerWindowController: NSObject {
     }
 
     private func createWindow() {
-        guard let playbackEngine, let settings else { return }
+        guard let playbackEngine, let settings, let dragContext else { return }
 
         // A regular NSWindow, not the old non-activating NSPanel: the player
         // has to be able to become key for native fullscreen and keyboard
@@ -139,7 +156,7 @@ final class PlayerWindowController: NSObject {
             onDropURLs: { [weak self] urls in self?.onDropURLs?(urls) },
             onDropProviders: { [weak self] providers in self?.onDropProviders?(providers) ?? false }
         )
-        window.contentView = NSHostingView(rootView: content)
+        window.contentView = NSHostingView(rootView: content.environmentObject(dragContext))
 
         // Restore the saved frame, or center on first run.
         window.setFrameAutosaveName(Self.frameAutosaveName)
@@ -162,6 +179,7 @@ final class PlayerWindowController: NSObject {
             }
         }
         window?.makeKeyAndOrderFront(nil)
+        isPoppedOut = true
         onVisibilityChanged?(true)
     }
 
@@ -180,6 +198,7 @@ final class PlayerWindowController: NSObject {
     /// titlebar is transparent over the video.
     func hide() {
         window?.orderOut(nil)
+        isPoppedOut = false
         onVisibilityChanged?(false)
     }
 
@@ -192,6 +211,63 @@ final class PlayerWindowController: NSObject {
     func restoreFrame(_ rect: CGRect) {
         guard let window, rect.width > 0, rect.height > 0 else { return }
         window.setFrame(rect, display: true)
+    }
+
+    // MARK: - Sizing to Media
+
+    /// Largest fraction of the screen the player will claim when sizing itself
+    /// to the media. A 4K clip would otherwise open larger than the display.
+    private static let maxScreenFraction: CGFloat = 0.8
+
+    /// Resize the player to the media's own dimensions.
+    ///
+    /// Scaled down to fit the screen and up to the window's minimum, but always
+    /// on the media's aspect ratio, so the picture fills the window instead of
+    /// sitting in letterbox bars. Native size is a ceiling - a 320x240 clip is
+    /// not blown up to fill the display.
+    ///
+    /// Also sets `contentAspectRatio`, so the proportions survive the user
+    /// resizing the window afterwards.
+    ///
+    /// - Parameter mediaSize: The media's *display* size, with any rotation
+    ///   already applied.
+    func sizeToMedia(_ mediaSize: CGSize) {
+        guard mediaSize.width > 0, mediaSize.height > 0 else { return }
+        if window == nil { createWindow() }
+        guard let window, !window.styleMask.contains(.fullScreen) else { return }
+
+        window.contentAspectRatio = mediaSize
+
+        let visible = (window.screen ?? NSScreen.main)?.visibleFrame
+            ?? CGRect(origin: .zero, size: Self.defaultContentSize)
+
+        // One uniform scale for both axes - scaling them independently is what
+        // produces a stretched picture.
+        let fitScale = min(
+            1.0,
+            min(visible.width * Self.maxScreenFraction / mediaSize.width,
+                visible.height * Self.maxScreenFraction / mediaSize.height)
+        )
+        // Then lift back up if that lands under the window's minimum.
+        let minScale = max(
+            Self.minContentSize.width / mediaSize.width,
+            Self.minContentSize.height / mediaSize.height
+        )
+        let scale = max(fitScale, min(minScale, 1.0))
+        let contentSize = NSSize(width: (mediaSize.width * scale).rounded(),
+                                 height: (mediaSize.height * scale).rounded())
+
+        // Anchor the top-left so the window grows downward rather than
+        // appearing to jump when it changes size.
+        let previous = window.frame
+        var frame = window.frameRect(forContentRect: NSRect(origin: previous.origin, size: contentSize))
+        frame.origin.y = previous.maxY - frame.height
+
+        // Keep it on screen after the resize.
+        frame.origin.x = min(max(frame.origin.x, visible.minX), max(visible.minX, visible.maxX - frame.width))
+        frame.origin.y = min(max(frame.origin.y, visible.minY), max(visible.minY, visible.maxY - frame.height))
+
+        window.setFrame(frame, display: true, animate: window.isVisible)
     }
 
     // MARK: - Pin to Foreground
@@ -233,6 +309,7 @@ extension PlayerWindowController: NSWindowDelegate {
     /// brought back with its frame and state intact.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         sender.orderOut(nil)
+        isPoppedOut = false
         onVisibilityChanged?(false)
         return false
     }
@@ -284,8 +361,7 @@ struct PlayerWindowContent: View {
                 playbackEngine: playbackEngine,
                 showTimecode: settings.showTimecodeOverlay,
                 overlayPosition: settings.timecodeOverlayPosition,
-                overlayOpacity: settings.timecodeOverlayOpacity,
-                extraTrailingPadding: 0
+                overlayOpacity: settings.timecodeOverlayOpacity
             )
 
             if isHovered {
@@ -320,14 +396,17 @@ struct PlayerWindowContent: View {
         VStack {
             Spacer()
             HStack {
+                VideoFrameRateChip(frameRate: playbackEngine.frameRate)
+
                 Spacer()
+
                 HStack(spacing: Spacing.sm) {
                     pinButton
                     FullScreenToggleButton(isFullScreen: false, action: onToggleFullScreen)
                     collapseButton
                 }
-                .padding(Spacing.md)
             }
+            .padding(Spacing.md)
         }
         .transition(.opacity)
     }
@@ -388,3 +467,267 @@ struct PlayerWindowContent_Previews: PreviewProvider {
     }
 }
 #endif
+
+// MARK: - InlineVideoArea
+
+/// The video, shown in the main window.
+///
+/// One video instance exists in the app. An `AVPlayer` can only drive a single
+/// `AVPlayerView` at a time - attaching a second blanks the first - so this view
+/// renders the picture only while `PlayerWindowController.isPoppedOut` is false,
+/// and stands down to a placeholder when the player is in its own window.
+///
+/// The transport controls sit *on* the video, revealed on hover, matching the
+/// player window's own overlay. They replaced the separate controls bar that
+/// used to run across the top of the main window: with the timecode readouts
+/// moved into the timeline header, play/stop and pop-out were all that remained
+/// of it, and a full-width bar for two buttons was mostly empty space.
+struct InlineVideoArea: View {
+    @ObservedObject var playbackEngine: PlaybackEngine
+    @ObservedObject var midiSyncViewModel: MIDISyncViewModel
+    @ObservedObject var settings: AppSettings
+    @ObservedObject var playerWindow: PlayerWindowController
+
+    let onDropURLs: ([URL]) -> Void
+    let onDropProviders: ([NSItemProvider]) -> Bool
+
+    /// Raises the Settings overlay.
+    var onOpenSettings: () -> Void = {}
+
+    @EnvironmentObject private var dragContext: DragContext
+
+    @State private var isDropTargeted = false
+
+    var body: some View {
+        picture
+        .frame(width: MainWindowLayout.videoColumnWidth,
+               height: MainWindowLayout.inlineVideoHeight)
+        .background(Color.black)
+        .clipShape(RoundedRectangle(cornerRadius: PanelLayout.cornerRadius))
+        .onDrop(of: [UTType.fileURL, UTType.url, UTType.projectorMediaItem], isTargeted: $isDropTargeted) { providers in
+            // Same contract as the player window: internal drags carry their
+            // URLs in DragContext, Finder drags go through the import path.
+            if dragContext.isDragging && !dragContext.mediaItems.isEmpty {
+                onDropURLs(dragContext.mediaItems.map { $0.url })
+                dragContext.end()
+                return true
+            }
+            return onDropProviders(providers)
+        }
+        .overlay {
+            DropTargetOverlay(isTargeted: $isDropTargeted)
+        }
+        .animation(AppAnimations.quick, value: isDropTargeted)
+    }
+
+    private var picture: some View {
+        ZStack {
+            if playerWindow.isPoppedOut {
+                poppedOutPlaceholder
+            } else {
+                VideoContentViewForEngine(
+                    playbackEngine: playbackEngine,
+                    showTimecode: settings.showTimecodeOverlay,
+                    overlayPosition: settings.timecodeOverlayPosition,
+                        overlayOpacity: settings.timecodeOverlayOpacity
+                )
+            }
+
+            // Always mounted, never visible: this carries the spacebar binding,
+            // which has to survive the video being popped out and must not
+            // depend on the hover overlay being on screen.
+            Button(action: { playbackEngine.togglePlayback() }) { EmptyView() }
+                .keyboardShortcut(.space, modifiers: [])
+                .disabled(midiSyncViewModel.isExternallyControlled)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Popped-Out Placeholder
+
+    private var poppedOutPlaceholder: some View {
+        VStack(spacing: Spacing.sm) {
+            Image(systemName: "pip.exit")
+                .font(Typography.iconLarge)
+                .foregroundColor(AppColors.textTertiary)
+            Text("Playing in a separate window")
+                .font(Typography.bodySmall)
+                .foregroundColor(AppColors.textTertiary)
+        }
+    }
+
+    // MARK: - Controls Overlay
+
+    /// Play/stop and pop-out, over the picture.
+    ///
+    /// Pinned bottom-trailing to match the player window's overlay, so the same
+    /// controls stay in the same corner whichever window the video is in.
+    /// Transport controls for the inline player, as a section of their own.
+    ///
+    /// Deliberately outside `InlineVideoArea`: while they lived inside it they
+    /// ate 40pt of picture. Sized and spaced so the video column ends level
+    /// with the Media panel beside it.
+    var controlsSection: some View {
+        HStack(spacing: Spacing.sm) {
+            settingsButton
+
+            Spacer()
+
+            // Only alongside the actual picture - over the popped-out
+            // placeholder it would be describing a video that isn't there.
+            if !playerWindow.isPoppedOut {
+                VideoFrameRateChip(frameRate: playbackEngine.frameRate)
+            }
+
+            playStopButton
+            fullScreenButton
+            popOutButton
+        }
+        // No panel background. On its own surface directly beneath the picture
+        // it read as a second, crowded box rather than a strip of controls.
+        .padding(.horizontal, Spacing.xs)
+        .frame(width: MainWindowLayout.videoColumnWidth,
+               height: MainWindowLayout.videoControlsBarHeight)
+    }
+
+    /// Opens Settings. Lives at the far left of the strip, opposite the video
+    /// controls, because it acts on the app rather than on playback.
+    private var settingsButton: some View {
+        Button(action: onOpenSettings) {
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13, weight: .medium))
+                Text("Settings")
+                    .font(Typography.captionSmall)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .foregroundColor(.white.opacity(0.8))
+            .padding(.horizontal, Spacing.sm)
+            .frame(height: 32)
+            .background(AppColors.overlayDarker)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .help("Open settings")
+        .accessibilityLabel("Open settings")
+    }
+
+    /// Run/stop state, and the control for it.
+    ///
+    /// Green play while running, red stop when not - the state is readable
+    /// without hovering the icon. Disabled while an external device drives the
+    /// transport: the DAW owns the playhead then, and a local toggle would be
+    /// overwritten by the next incoming frame.
+    private var playStopButton: some View {
+        Button(action: { playbackEngine.togglePlayback() }) {
+            Image(systemName: playbackEngine.isPlaying ? "play.fill" : "stop.fill")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(playbackEngine.isPlaying ? AppColors.accentGreen : AppColors.error)
+                .frame(width: 32, height: 32)
+                .background(AppColors.overlayDarker)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(alignment: .topTrailing) {
+                    // Slave-mode marker: without it a dead control is
+                    // indistinguishable from a broken one.
+                    if midiSyncViewModel.isExternallyControlled {
+                        Image(systemName: "link")
+                            .font(Typography.iconTiny)
+                            .foregroundColor(.white.opacity(0.8))
+                            .padding(3)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(midiSyncViewModel.isExternallyControlled)
+        .help(transportHelp)
+        .accessibilityLabel(transportHelp)
+    }
+
+    private var transportHelp: String {
+        let running = playbackEngine.isPlaying ? "Running" : "Stopped"
+        guard midiSyncViewModel.isExternallyControlled else {
+            return "\(running) - Space to \(playbackEngine.isPlaying ? "pause" : "play")"
+        }
+        return "\(running) - slaved to incoming MTC/MMC, local transport disabled"
+    }
+
+    /// Fills the display with the picture.
+    ///
+    /// Fullscreen needs a window of its own - inline, the video is one column of
+    /// the main window's layout, so making *that* fullscreen would just enlarge
+    /// the whole app. This pops the player out first and takes the new window
+    /// fullscreen, which is what the button is understood to mean over video.
+    private var fullScreenButton: some View {
+        FullScreenToggleButton(isFullScreen: false) {
+            playerWindow.show()
+            // A frame later: the window has to exist and be ordered in before
+            // AppKit will take it fullscreen.
+            DispatchQueue.main.async {
+                playerWindow.toggleFullScreen()
+            }
+        }
+        .help("Play full screen")
+        .accessibilityLabel("Play full screen")
+    }
+
+    /// Moves the video between this window and its own, never duplicating it.
+    private var popOutButton: some View {
+        Button(action: {
+            if playerWindow.isPoppedOut {
+                playerWindow.hide()
+            } else {
+                playerWindow.show()
+            }
+        }) {
+            Image(systemName: playerWindow.isPoppedOut ? "pip.exit" : "pip.enter")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white)
+                .frame(width: 32, height: 32)
+                .background(AppColors.overlayDarker)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .help(playerWindow.isPoppedOut
+              ? "Bring the video back into the main window"
+              : "Pop the video out into its own window")
+        .accessibilityLabel(playerWindow.isPoppedOut ? "Return video to main window" : "Pop video out")
+    }
+}
+
+// MARK: - VideoFrameRateChip
+
+/// Frame rate, shown over the picture.
+///
+/// Sits bottom-leading in both video overlays - inline and popped out - so it
+/// travels with the picture rather than staying behind in the main window. It
+/// describes the media being shown, so wherever that is, this belongs.
+///
+/// Sized to match the overlay buttons (32pt tall, same dark chip and corner
+/// radius) so the overlay reads as one row of like elements.
+struct VideoFrameRateChip: View {
+    let frameRate: TimecodeFrameRate
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            Text("FPS")
+                .font(Typography.labelSmall)
+                .foregroundColor(.white.opacity(0.6))
+
+            Text(frameRate.displayName)
+                .font(TransportTypography.value)
+                .foregroundColor(.white)
+        }
+        .lineLimit(1)
+        .fixedSize()
+        .padding(.horizontal, Spacing.sm)
+        .frame(height: 32)
+        .background(AppColors.overlayDarker)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .help("Frame rate is set by the video file")
+        .accessibilityLabel("Frame rate: \(frameRate.displayName) frames per second")
+    }
+}

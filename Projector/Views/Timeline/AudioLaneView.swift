@@ -38,6 +38,21 @@ struct AudioLaneView: View {
     let onClipMove: (UUID, Int) -> Void
     let onClipDragPreview: (AudioClip, Int?) -> Void
     let onLaneRename: (String) -> Void
+
+    /// Remove this lane and everything on it.
+    let onDeleteLane: () -> Void
+
+    /// Height of the lane row.
+    ///
+    /// Short for the video file's baked-in audio, which is drawn as a strip
+    /// under the video rather than a lane of its own.
+    var laneHeight: CGFloat = TimelineLayout.audioLaneHeight
+
+    /// Whether to draw the lane's own header column.
+    ///
+    /// Off for the video file's audio: its controls live in the combined Video
+    /// File track header above it, so a second header would duplicate them.
+    var showsHeader: Bool = true
     /// Called when a video-linked clip is dragged vertically to change lanes
     /// Parameters: clipId, laneOffset (+1 = next lane down, -1 = previous lane up)
     let onClipLaneChangeRequested: ((UUID, Int) -> Void)?
@@ -80,19 +95,41 @@ struct AudioLaneView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Lane header
-            laneHeader
+            if showsHeader {
+                laneHeader
+            } else {
+                // Keep the clips aligned with every other lane even when the
+                // header column is not drawn.
+                Color.clear.frame(width: TimelineLayout.headerWidth)
+            }
 
-            // Clips area
             clipsArea
         }
-        .frame(height: TimelineLayout.audioLaneHeight)
+        .frame(height: laneHeight)
         .background(laneBackground)
+        // Covers the header and the empty track area. Clips carry their own
+        // menu, which takes precedence where one is under the cursor - so
+        // right-clicking a clip still offers clip actions, not lane actions.
+        .contextMenu {
+            Button(deleteLaneTitle, role: .destructive) {
+                onDeleteLane()
+            }
+        }
         .onAppear {
             applyDefaultMappingIfNeeded()
         }
         .onChange(of: availableAudioOutputs) { _, _ in
             applyDefaultMappingIfNeeded()
+        }
+    }
+
+    /// Names what will be lost, so deleting a lane holding work is a
+    /// deliberate act rather than the same click as deleting an empty one.
+    private var deleteLaneTitle: String {
+        switch lane.clips.count {
+        case 0: return "Delete Lane"
+        case 1: return "Delete Lane and 1 Clip"
+        case let count: return "Delete Lane and \(count) Clips"
         }
     }
 
@@ -116,24 +153,26 @@ struct AudioLaneView: View {
             VStack(spacing: Spacing.xs) {
                 // Lane name (editable on double-click)
                 if isEditingName {
+                    // Inline rename, standard macOS semantics: Return commits,
+                    // Escape reverts, clicking away commits, and the existing
+                    // text is selected on entry so typing replaces it.
                     TextField("", text: $editedName)
                         .font(.system(size: 10, weight: .medium))
                         .textFieldStyle(.plain)
                         .multilineTextAlignment(.center)
                         .focused($isNameFieldFocused)
-                        .onSubmit {
-                            commitNameEdit()
-                        }
-                        .onExitCommand {
-                            cancelNameEdit()
-                        }
+                        .onSubmit { commitNameEdit() }
+                        .onExitCommand { cancelNameEdit() }
                         .onChange(of: isNameFieldFocused) { _, focused in
-                            // Save on blur (3.1)
-                            if !focused && isEditingName {
+                            if focused {
+                                selectAllInFieldEditor()
+                            } else if isEditingName {
+                                // Clicking away commits, matching Finder.
                                 commitNameEdit()
                             }
                         }
                         .frame(maxWidth: TimelineLayout.headerWidth - Spacing.md - Spacing.sm - 12)
+                        .help("Return to rename, Escape to cancel")
                 } else {
                     // Use Button instead of onTapGesture to avoid ScrollView latency (GP-003)
                     Button(action: {}) {
@@ -141,6 +180,7 @@ struct AudioLaneView: View {
                             .font(.system(size: 10, weight: .medium))
                             .foregroundColor(.primary)
                             .lineLimit(1)
+                            .truncationMode(.middle)
                     }
                     .buttonStyle(.plain)
                     .simultaneousGesture(
@@ -149,60 +189,30 @@ struct AudioLaneView: View {
                                 startNameEdit()
                             }
                     )
+                    .help("\(lane.name) - double-click to rename")
+                    .accessibilityLabel("Lane name: \(lane.name)")
                 }
 
-                // Metadata and mute/solo share a row: four stacked rows total
-                // ~63pt of content, which overflows the fixed 60pt lane height
-                // and collides with the next lane's header. Three rows fit.
-                HStack(spacing: Spacing.sm) {
-                    audioMetadataView
-                    muteSoloButtons
-                }
-
-                // Output mapping dropdown (compact)
-                outputMappingPicker
+                // Shared with the combined Video File track's header, so a
+                // lane's controls and the video's baked-in audio controls are
+                // the same component rather than two that drift apart.
+                AudioLaneControls(
+                    lane: lane,
+                    availableAudioOutputs: availableAudioOutputs,
+                    onMuteToggle: onMuteToggle,
+                    onSoloToggle: onSoloToggle,
+                    onOutputMappingChange: onOutputMappingChange
+                )
             }
             .frame(maxWidth: .infinity)
 
             Spacer()
                 .frame(width: Spacing.sm)
         }
-        .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
+        .frame(width: TimelineLayout.headerWidth, height: laneHeight)
     }
 
-    private var muteSoloButtons: some View {
-        HStack(spacing: Spacing.sm) {
-            Button(action: onMuteToggle) {
-                Text("M")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(lane.isMuted ? .red : .secondary)
-            }
-            .buttonStyle(.plain)
-            .help(lane.isMuted ? "Unmute this lane" : "Mute this lane")
-            .accessibilityLabel(lane.isMuted ? "Unmute lane" : "Mute lane")
 
-            Button(action: onSoloToggle) {
-                Text("S")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(lane.isSolo ? .yellow : .secondary)
-            }
-            .buttonStyle(.plain)
-            .help(lane.isSolo ? "Unsolo this lane" : "Solo this lane - silences all other lanes")
-            .accessibilityLabel(lane.isSolo ? "Unsolo lane" : "Solo lane")
-        }
-    }
-
-    @ViewBuilder
-    private var audioMetadataView: some View {
-        if let firstClip = lane.clips.first {
-            // Sample rate only. Bitrate was dropped from the lane header: it
-            // isn't actionable while working the timeline, and the extra token
-            // crowded the narrow header. It's still on the media item.
-            Text(String(format: "%.0fkHz", firstClip.sampleRate / 1000))
-                .font(.system(size: 8, design: .monospaced))
-                .foregroundColor(.secondary)
-        }
-    }
 
     private func startNameEdit() {
         editedName = lane.name
@@ -213,69 +223,38 @@ struct AudioLaneView: View {
         }
     }
 
+    /// Commit the edit. An empty or whitespace-only name reverts rather than
+    /// being accepted - a nameless lane is unusable, and silently keeping the
+    /// old name is what Finder and Logic both do.
     private func commitNameEdit() {
-        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty && trimmed != lane.name {
-            onLaneRename(trimmed)
-        }
+        guard isEditingName else { return }   // guards a double-commit from submit + blur
         isEditingName = false
+        isNameFieldFocused = false
+
+        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != lane.name else { return }
+        onLaneRename(trimmed)
     }
 
     private func cancelNameEdit() {
         isEditingName = false
+        isNameFieldFocused = false
+        editedName = lane.name
     }
 
-    private var outputMappingPicker: some View {
-        Menu {
-            ForEach(availableAudioOutputs) { output in
-                Button {
-                    onOutputMappingChange(output)
-                } label: {
-                    HStack {
-                        Text(output.name)
-                        if lane.outputMappingId == output.id {
-                            Spacer()
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: Spacing.xs) {
-                Text(outputMappingName)
-                    .font(Typography.captionSmall)
-                    .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 7))
-            }
-            .foregroundColor(.white)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xs)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.accentColor.opacity(0.8))
-            )
+    /// Select the whole name when the field takes focus, so typing replaces it.
+    ///
+    /// SwiftUI has no API for this on macOS; the field editor is an NSTextView
+    /// owned by the window, so we reach it through the first responder.
+    private func selectAllInFieldEditor() {
+        DispatchQueue.main.async {
+            guard let editor = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
+            editor.selectAll(nil)
         }
-        .buttonStyle(.plain)
-        .disabled(availableAudioOutputs.isEmpty)
     }
+
 
     /// Get display name for current output device
-    private var outputMappingName: String {
-        // Show selected output if available
-        if let id = lane.outputMappingId,
-           let output = availableAudioOutputs.first(where: { $0.id == id }) {
-            let name = output.name
-            return name.count > 12 ? String(name.prefix(10)) + "…" : name
-        }
-        // Fallback to first available output (will be auto-assigned on appear)
-        if let first = availableAudioOutputs.first {
-            let name = first.name
-            return name.count > 12 ? String(name.prefix(10)) + "…" : name
-        }
-        // No outputs configured
-        return "No Output"
-    }
 
     private func applyDefaultMappingIfNeeded() {
         guard lane.outputMappingId == nil,
@@ -1130,6 +1109,7 @@ private final class AudioLaneDragCaptureNSView: NSView {
                 onClipMove: { _, _ in },
                 onClipDragPreview: { _, _ in },
                 onLaneRename: { _ in },
+                onDeleteLane: {},
                 onClipLaneChangeRequested: nil,
                 onClipLaneChangePreview: nil,
                 laneChangePreview: nil
@@ -1140,4 +1120,122 @@ private final class AudioLaneDragCaptureNSView: NSView {
     }
 
     return PreviewWrapper()
+}
+
+// MARK: - Shared Lane Controls
+
+/// Mute/solo, sample rate, and output routing for one audio lane.
+///
+/// Shared so the combined Video File track can present the same controls for
+/// its baked-in audio as an ordinary lane does for its own. Extracted rather
+/// than duplicated: two copies of a routing menu would drift, and routing is
+/// the part that has to behave identically wherever it appears.
+struct AudioLaneControls: View {
+    let lane: AudioLane
+    let availableAudioOutputs: [MappedAudioOutput]
+    let onMuteToggle: () -> Void
+    let onSoloToggle: () -> Void
+    let onOutputMappingChange: (MappedAudioOutput?) -> Void
+
+    var body: some View {
+        VStack(spacing: Spacing.xs) {
+            HStack(spacing: Spacing.sm) {
+                sampleRate
+                muteSolo
+            }
+            outputPicker
+        }
+    }
+
+    @ViewBuilder
+    private var sampleRate: some View {
+        if let firstClip = lane.clips.first {
+            Text(String(format: "%.0fkHz", firstClip.sampleRate / 1000))
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var muteSolo: some View {
+        HStack(spacing: Spacing.xs) {
+            toggleButton(
+                "M",
+                isOn: lane.isMuted,
+                tint: .red,
+                help: lane.isMuted ? "Unmute" : "Mute",
+                action: onMuteToggle
+            )
+            toggleButton(
+                "S",
+                isOn: lane.isSolo,
+                tint: .yellow,
+                help: lane.isSolo ? "Unsolo" : "Solo - silences all other lanes",
+                action: onSoloToggle
+            )
+        }
+    }
+
+    /// Mute and solo read as controls rather than stray letters: a bordered
+    /// well that fills with the state colour when engaged.
+    private func toggleButton(
+        _ label: String,
+        isOn: Bool,
+        tint: Color,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(isOn ? .black : .secondary)
+                .frame(width: 16, height: 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(isOn ? tint : AppColors.surfaceLight)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3)
+                        .stroke(isOn ? tint : AppColors.borderMedium, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    private var outputPicker: some View {
+        Menu {
+            ForEach(availableAudioOutputs) { output in
+                Button {
+                    onOutputMappingChange(output)
+                } label: {
+                    HStack {
+                        Text(output.name)
+                        if lane.outputMappingId == output.id {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: Spacing.xs) {
+                Text(availableAudioOutputs.first { $0.id == lane.outputMappingId }?.name ?? "Output")
+                    .font(Typography.captionSmall)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 7))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.accentColor.opacity(0.8))
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(availableAudioOutputs.isEmpty)
+        .help("Audio output routing")
+    }
 }

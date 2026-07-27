@@ -21,6 +21,10 @@ struct VideoTrackView: View {
     ///   - audioURLs: Array of audio file URLs from the drop
     ///   - targetFrame: Timeline frame position where the drop occurred
     var onDropMixedMedia: (([URL], [URL], Int) -> Void)?
+    /// Called when the track header is renamed. Only offered when exactly one
+    /// reel is present - with several, the header describes the track, not a
+    /// single file, so there's nothing unambiguous to rename.
+    var onReelRename: ((UUID, String) -> Void)?
     let onReelSelected: (UUID?, SelectionModifiers) -> Void
     let onReelDoubleClick: (VideoReel) -> Void
     let onReelMove: (UUID, Int) -> Void
@@ -30,6 +34,9 @@ struct VideoTrackView: View {
     var selectedReelIds: Set<UUID> = []
 
     @State private var selectedReelId: UUID?
+    @State private var isEditingName = false
+    @State private var editedName = ""
+    @FocusState private var isNameFieldFocused: Bool
     @State private var dropPreviewFrame: Int?
     @State private var dropPreviewDurationFrames: Int?
     @State private var isLoadingDropPreview = false
@@ -39,6 +46,9 @@ struct VideoTrackView: View {
     @State private var dragStartFrame: Int = 0
     @State private var dragOffsetFrames: Int = 0
     @EnvironmentObject private var dragContext: DragContext
+
+    /// Output routing choices, for the baked-in audio's controls.
+    var availableAudioOutputs: [MappedAudioOutput] = []
 
     /// Whether we're in a multi-file drag from the media panel
     private var isMultiFileDrag: Bool {
@@ -72,13 +82,26 @@ struct VideoTrackView: View {
                 .frame(width: Spacing.md)
 
             VStack(spacing: Spacing.xs) {
-                Text("Video")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.primary)
+                trackTitle
 
                 // Show metadata for first reel if available
                 if let firstReel = timelineManager.timeline.videoReels.first {
                     videoMetadataView(for: firstReel)
+
+                    // The baked-in audio has no header of its own - it is drawn
+                    // as a strip beneath this row - so its controls live here.
+                    if let linked = timelineManager.timeline.videoAudioLane,
+                       let index = timelineManager.timeline.audioLanes.firstIndex(where: { $0.id == linked.id }) {
+                        AudioLaneControls(
+                            lane: linked,
+                            availableAudioOutputs: availableAudioOutputs,
+                            onMuteToggle: { timelineManager.toggleLaneMute(at: index) },
+                            onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
+                            onOutputMappingChange: { output in
+                                timelineManager.setLaneOutputMapping(id: linked.id, mapping: output)
+                            }
+                        )
+                    }
                 } else {
                     Image(systemName: "video")
                         .frame(width: 14, height: 14)
@@ -94,7 +117,94 @@ struct VideoTrackView: View {
             Spacer()
                 .frame(width: Spacing.sm)
         }
-        .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.videoTrackHeight)
+        .frame(width: TimelineLayout.headerWidth)
+    }
+
+    /// Track title: the reel's name when there's exactly one, otherwise the
+    /// generic "Video" label.
+    ///
+    /// Mirrors the audio lanes - a track named after its media is far easier to
+    /// scan than a row of identical generic labels. Renaming is offered only in
+    /// the single-reel case; with several reels the header summarises the whole
+    /// track and there is no single file the name would belong to.
+    @ViewBuilder
+    private var trackTitle: some View {
+        let reels = timelineManager.timeline.videoReels
+        let soleReel = reels.count == 1 ? reels.first : nil
+
+        if isEditingName, let reel = soleReel {
+            // Same semantics as lane rename: Return commits, Escape reverts,
+            // clicking away commits, existing text selected on entry.
+            TextField("", text: $editedName)
+                .font(.system(size: 10, weight: .medium))
+                .textFieldStyle(.plain)
+                .multilineTextAlignment(.center)
+                .focused($isNameFieldFocused)
+                .onSubmit { commitNameEdit(for: reel) }
+                .onExitCommand { cancelNameEdit(for: reel) }
+                .onChange(of: isNameFieldFocused) { _, focused in
+                    if focused {
+                        selectAllInFieldEditor()
+                    } else if isEditingName {
+                        commitNameEdit(for: reel)
+                    }
+                }
+                .frame(maxWidth: TimelineLayout.headerWidth - Spacing.md - Spacing.sm - 12)
+                .help("Return to rename, Escape to cancel")
+        } else if let reel = soleReel {
+            Button(action: {}) {
+                Text(reel.displayName)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .buttonStyle(.plain)
+            .simultaneousGesture(
+                TapGesture(count: 2).onEnded { _ in startNameEdit(for: reel) }
+            )
+            .help("\(reel.displayName) - double-click to rename")
+            .accessibilityLabel("Video track: \(reel.displayName)")
+        } else {
+            Text("Video")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.primary)
+        }
+    }
+
+    private func startNameEdit(for reel: VideoReel) {
+        editedName = reel.displayName
+        isEditingName = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            isNameFieldFocused = true
+        }
+    }
+
+    /// Commit the rename. Clearing the field restores the filename rather than
+    /// leaving the track blank (renameVideoReel treats empty as "no override").
+    private func commitNameEdit(for reel: VideoReel) {
+        guard isEditingName else { return }   // guards submit + blur double-commit
+        isEditingName = false
+        isNameFieldFocused = false
+
+        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != reel.displayName else { return }
+        onReelRename?(reel.id, trimmed)
+    }
+
+    private func cancelNameEdit(for reel: VideoReel) {
+        isEditingName = false
+        isNameFieldFocused = false
+        editedName = reel.displayName
+    }
+
+    /// Select the whole name on entry so typing replaces it. SwiftUI exposes no
+    /// API for this on macOS; the field editor is an NSTextView on the window.
+    private func selectAllInFieldEditor() {
+        DispatchQueue.main.async {
+            guard let editor = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
+            editor.selectAll(nil)
+        }
     }
 
     @ViewBuilder

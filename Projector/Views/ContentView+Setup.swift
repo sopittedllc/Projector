@@ -35,7 +35,10 @@ extension ContentView {
                 case .sync:
                     engine.setMTCSynced(
                         true,
-                        controlPlayback: AppSettings.shared.autoPlayOnMTC
+                        // Always. Following the DAW is what the app is for -
+                        // this was a toggle, and a slave that ignores its master
+                        // is not a mode worth offering.
+                        controlPlayback: true
                     )
                 case .preSync, .freewheeling:
                     // Track incoming timecode while acquiring/freewheeling, but
@@ -44,7 +47,7 @@ extension ContentView {
                 case .idle, .incompatibleFrameRate:
                     engine.setMTCSynced(
                         false,
-                        controlPlayback: AppSettings.shared.autoPauseOnMTCStop
+                        controlPlayback: true
                     )
                 }
             }
@@ -77,7 +80,6 @@ extension ContentView {
         midiSyncViewModel.$lastMMCCommand
             .compactMap { $0 }
             .sink { [weak playbackEngine] command in
-                guard AppSettings.shared.respondToMMC else { return }
                 guard let engine = playbackEngine else { return }
 
                 switch command {

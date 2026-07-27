@@ -1,152 +1,37 @@
-import SwiftUI
-import SwiftTimecodeCore
-
-/// Shared height for transport bar control boxes
-private let controlBoxHeight: CGFloat = TransportLayout.controlBoxHeight
-
-/// Bottom transport bar with timecode display and controls
-struct TransportBarView: View {
-    @ObservedObject var playbackEngine: PlaybackEngine
-    let onSettingsPressed: () -> Void
-
-    var body: some View {
-        HStack {
-            // Frame rate display
-            Text("\(Int(playbackEngine.frameRate.fps))fps")
-                .font(Typography.monoLarge)
-                .foregroundColor(.primary)
-                .padding(.horizontal, Spacing.md)
-                .frame(height: controlBoxHeight)
-                .glassControl()
-                .accessibilityLabel("Frame rate: \(Int(playbackEngine.frameRate.fps)) frames per second")
-
-            // Timecode display
-            HStack(spacing: Spacing.xs) {
-                Text("TC:")
-                    .font(Typography.label)
-                    .foregroundColor(.secondary)
-
-                Text(playbackEngine.currentTimecode.stringValue())
-                    .font(Typography.monoLarge)
-                    .foregroundColor(.primary)
-            }
-            .padding(.horizontal, Spacing.md)
-            .frame(height: controlBoxHeight)
-            .glassControl()
-            .accessibilityLabel("Current timecode: \(playbackEngine.currentTimecode.stringValue())")
-
-            // Transport controls
-            HStack(spacing: Spacing.sm) {
-                Button(action: { playbackEngine.stepBackward() }) {
-                    Image(systemName: "backward.fill")
-                        .font(Typography.icon)
-                }
-                .buttonStyle(GlassTransportButtonStyle())
-                .disabled(!playbackEngine.hasContent)
-                .accessibilityLabel("Step backward one frame")
-                .help("Step backward (←)")
-
-                Button(action: { playbackEngine.togglePlayback() }) {
-                    Image(systemName: playbackEngine.isPlaying ? "pause.fill" : "play.fill")
-                        .font(Typography.icon)
-                }
-                .buttonStyle(GlassTransportButtonStyle(isActive: playbackEngine.isPlaying))
-                .disabled(!playbackEngine.hasContent)
-                .keyboardShortcut(.space, modifiers: [])
-                .accessibilityLabel(playbackEngine.isPlaying ? "Pause" : "Play")
-                .help(playbackEngine.isPlaying ? "Pause (Space)" : "Play (Space)")
-
-                Button(action: { playbackEngine.stepForward() }) {
-                    Image(systemName: "forward.fill")
-                        .font(Typography.icon)
-                }
-                .buttonStyle(GlassTransportButtonStyle())
-                .disabled(!playbackEngine.hasContent)
-                .accessibilityLabel("Step forward one frame")
-                .help("Step forward (→)")
-
-                Button(action: { playbackEngine.stop() }) {
-                    Image(systemName: "stop.fill")
-                        .font(Typography.icon)
-                }
-                .buttonStyle(GlassTransportButtonStyle())
-                .disabled(!playbackEngine.hasContent)
-                .accessibilityLabel("Stop and return to start")
-                .help("Stop")
-            }
-            .padding(.horizontal, Spacing.md)
-            .frame(height: controlBoxHeight)
-            .glassControl()
-
-            // Audio meter with toggle
-            HStack(spacing: Spacing.sm) {
-                Button(action: {
-                    if playbackEngine.isMeteringEnabled {
-                        playbackEngine.disableMetering()
-                    } else {
-                        playbackEngine.enableMetering()
-                    }
-                }) {
-                    Image(systemName: playbackEngine.isMeteringEnabled ? "speaker.wave.2.fill" : "speaker.wave.2")
-                        .font(Typography.icon)
-                        .foregroundColor(playbackEngine.isMeteringEnabled ? .accentColor : .secondary)
-                }
-                .buttonStyle(GlassIconButtonStyle(size: 16, isActive: playbackEngine.isMeteringEnabled))
-                .accessibilityLabel(playbackEngine.isMeteringEnabled ? "Disable audio metering" : "Enable audio metering")
-                .help(playbackEngine.isMeteringEnabled ? "Disable audio metering" : "Enable audio metering")
-
-                if playbackEngine.isMeteringEnabled {
-                    AudioMeterView(
-                        leftLevel: playbackEngine.meterLevelLeft,
-                        rightLevel: playbackEngine.meterLevelRight,
-                        isEnabled: playbackEngine.isMeteringEnabled
-                    )
-                }
-            }
-            .padding(.horizontal, Spacing.md)
-            .frame(height: controlBoxHeight)
-            .glassControl()
-
-            Spacer()
-
-            // Right: Settings
-            Button(action: onSettingsPressed) {
-                Image(systemName: "gearshape")
-            }
-            .buttonStyle(GlassIconButtonStyle(size: 20))
-            .accessibilityLabel("Settings")
-            .help("Open settings")
-        }
-        .padding(Spacing.sm)
-        .glassPanel(cornerRadius: PanelLayout.cornerRadius)
-    }
-}
-
-/// Simple styled timecode display (non-editable, for overlays)
-struct TimecodeDisplayView: View {
-    let timecode: Timecode
-
-    /// Large monospace font for overlay timecode display (28pt)
-    private static let overlayTimecodeFont = Font.system(size: 28, weight: .medium, design: .monospaced)
-
-    var body: some View {
-        Text(timecode.stringValue())
-            .font(Self.overlayTimecodeFont)
-            .foregroundColor(.primary)
-            .padding(.horizontal, Spacing.lg)
-            .padding(.vertical, Spacing.sm)
-            .glassControl()
-            .accessibilityLabel("Timecode: \(timecode.stringValue())")
-    }
-}
-
-// Backward compatibility alias
-typealias TransportBarViewForEngine = TransportBarView
-
-#Preview {
-    TransportBarView(
-        playbackEngine: PlaybackEngine(),
-        onSettingsPressed: {}
-    )
-    .frame(width: 600)
-}
+//
+//  TransportBarView.swift
+//  Projector
+//
+//  REMOVED 2026-07-25 - intentionally left as an empty translation unit.
+//
+//  Held two views, both with zero call sites:
+//
+//  - `TransportBarView` (plus its `TransportBarViewForEngine` alias). Its only
+//    reference anywhere was its own `#Preview`, so it compiled and rendered in
+//    Xcode but never appeared in the running app.
+//  - `TimecodeDisplayView`, an overlay timecode readout, referenced nowhere.
+//
+//  The first was actively misleading rather than merely unused: it held the
+//  app's only numeric playhead readout - `Text(playbackEngine.currentTimecode
+//  .stringValue())` - which made the transport look like it already had
+//  position feedback. It did not. The bar that actually renders,
+//  VitalControlsBar, showed only Start TC, Duration and FPS: three static
+//  project settings, nothing live. With no media loaded the player window is
+//  empty too, and the timeline playhead advances ~0.08pt per second of timecode
+//  at fit-to-4-hours zoom, so every source of motion feedback was absent at
+//  once and a transport correctly chasing MTC looked identical to a dead one.
+//
+//  The readout now lives in VitalControlsBar as `positionReadout`. If transport
+//  *controls* (play/pause/step/stop) are wanted, add them there - today the only
+//  control is the zero-size spacebar Button inside `playIndicator`. Note the
+//  buttons here were all gated on `playbackEngine.hasContent`, which would have
+//  disabled them on an empty timeline; don't carry that condition over.
+//
+//  Nothing else was lost: AudioMeterView, GlassTransportButtonStyle,
+//  GlassIconButtonStyle and TransportLayout.controlBoxHeight are all defined
+//  elsewhere and still used.
+//
+//  The file remains because only the ProjectorQuickLook group is
+//  filesystem-synchronized in the pbxproj; deleting it from disk alone would
+//  break the build. Safe to remove properly from within Xcode.
+//

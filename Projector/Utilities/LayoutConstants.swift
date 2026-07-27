@@ -376,10 +376,19 @@ enum HorizontalLayoutConstants {
 
     /// Minimum width of the main window.
     ///
-    /// The video player moved to its own window, so this no longer has to
-    /// accommodate a video pane - it only needs to keep the media panel's full
-    /// (non-compact) header controls on screen, plus window chrome.
-    static let mainWindowMinWidth: CGFloat = FileManagerLayout.headerFullControlsMinWidth + Spacing.xxl * 2
+    /// Covers the video column plus enough panel width to keep the media
+    /// panel's full (non-compact) header controls on screen, plus chrome. The
+    /// video term returned when the video moved back into the main window,
+    /// beside the accordions rather than above them.
+    /// The wider of the two rows decides it: the top row (video column beside
+    /// the media panel's full header) or the full-width timeline header.
+    static let mainWindowMinWidth: CGFloat = max(
+        MainWindowLayout.videoColumnWidth
+            + Spacing.md
+            + FileManagerLayout.headerFullControlsMinWidth
+            + Spacing.md * 2,
+        TimelineSectionLayout.headerMinWidth + Spacing.md * 2
+    )
 
     /// Minimum height of the main window.
     static let mainWindowMinHeight: CGFloat = 500
@@ -398,10 +407,69 @@ enum MainWindowLayout {
     /// Default width on first launch, before the user has resized or a project
     /// has supplied a saved frame. Sized so an empty project shows Settings,
     /// Timeline, and Media with comfortable margins.
-    static let defaultWidth: CGFloat = 960
+    static let defaultWidth: CGFloat = 1440
+
+    /// Size of the video column beside the accordions.
+    ///
+    /// Fixed, not proportional: the video sits to the left of the panels and
+    /// keeps this size as the window grows taller with added lanes, leaving
+    /// empty space beneath it rather than stretching. 16:9 at a size that keeps
+    /// the whole window inside a 13" laptop's 1470pt width once the panels take
+    /// their share.
+    ///
+    /// The video letterboxes within it (`videoGravity` is `.resizeAspect`), so
+    /// these are budgets rather than an aspect commitment - portrait and 4:3
+    /// media pillarbox instead.
+    static let videoColumnWidth: CGFloat = 480
+    /// Height of the picture itself. The controls are a separate section
+    /// beneath it, so this is all picture - they used to sit inside this box
+    /// and shrink it.
+    ///
+    /// Height of the picture. Derived: whatever the top row is, less the
+    /// controls strip directly beneath it. 480x270 is exactly 16:9, so the
+    /// picture fills the column edge to edge with no letterboxing.
+    static var inlineVideoHeight: CGFloat { topRowHeight - videoControlsBarHeight }
+
+    /// Height of the control strip beneath the inline picture. No padding
+    /// around it - every point spent here is a point off the picture.
+    static let videoControlsBarHeight: CGFloat = 36
+
+    /// Height of the whole top row: the video column and the Media panel beside
+    /// it are both exactly this tall, which is what makes their bottoms line up
+    /// without either being computed from the other's internals.
+    static let topRowHeight: CGFloat = 306
+
+    /// Ceiling for the top row (video beside Settings + Media).
+    ///
+    /// Settings expands to a channel-mapping grid and Media to a thumbnail row
+    /// with an optimization banner - together they can run to several hundred
+    /// points, which pushed the timeline off the bottom of the screen. Bounded
+    /// here and scrolled internally instead, leaving the timeline a predictable
+    /// share of the window.
+    ///
+    /// Sized so the top row, the timeline and window chrome all fit a 13"
+    /// laptop's ~900pt of visible height.
+    static let topRowMaxHeight: CGFloat = topRowHeight
 
     /// Default height on first launch.
-    static let defaultHeight: CGFloat = 640
+    ///
+    /// Close to what the default layout actually measures (video 240 + panels
+    /// ~512 + window chrome 32 = ~784), so the window opens at roughly its
+    /// final size instead of coming up short and visibly growing once the
+    /// panels report in.
+    static let defaultHeight: CGFloat = 800
+
+    /// Height the window's titlebar takes above the content.
+    static let titleBarAllowance: CGFloat = 32
+
+    /// Smallest height the window is allowed to shrink to.
+    ///
+    /// Separate from `defaultHeight`, which used to serve as both. That single
+    /// constant could not do both jobs: raising it so the window opened at a
+    /// sensible size would also have stopped it shrinking when panels collapse.
+    /// This is the fully-collapsed layout - video area plus three panel headers
+    /// and their spacing.
+    static let minimumHeight: CGFloat = 420
 
     /// Width the window grows to after the first media import.
     static let expandedWidth: CGFloat = 1400
@@ -427,6 +495,13 @@ enum TimelineLayout {
 
     /// Height of each audio lane
     static let audioLaneHeight: CGFloat = 60
+
+    /// Height of the video file's baked-in audio strip.
+    ///
+    /// A third of a normal lane: it is part of the Video File track, not an
+    /// audio lane the user arranges, so it reads as an attachment to the video
+    /// rather than a peer of Dialogue, Music and Effects.
+    static let linkedAudioStripHeight: CGFloat = 20
 
     /// Height of the ruler/timecode display
     static let rulerHeight: CGFloat = 24
@@ -460,6 +535,13 @@ enum TimelineLayout {
 
     /// Playhead triangle height
     static let playheadTriangleHeight: CGFloat = 8
+
+    /// Margin kept between the playhead and the edge of the visible timeline
+    /// before the view scrolls to follow it.
+    ///
+    /// Acts as a deadband: without it the view would re-scroll on every frame
+    /// once the playhead reached an edge, which reads as continuous judder.
+    static let playheadFollowInset: CGFloat = 80
 
     /// Default padding in minutes added to timeline end for workspace
     ///
@@ -515,8 +597,10 @@ enum FileManagerLayout {
     /// Below this the header switches to compact icon-only buttons.
     ///
     /// Approximates the measured natural width of the full control set (title
-    /// area + search field + filters + sort + consolidate + import + spacing),
-    /// rounded up so the switch to compact happens before anything clips.
+    /// area + filters + prepare media + import + spacing), rounded up so the
+    /// switch to compact happens before anything clips. Deliberately left at
+    /// its original figure after the search field and sort menu were removed:
+    /// erring wide only makes the compact switch happen sooner.
     static let headerFullControlsMinWidth: CGFloat = 720
 
     /// Grid cell thumbnail size
@@ -542,14 +626,14 @@ enum FileManagerLayout {
 
     /// Height when expanded.
     ///
-    /// Derived from the content rather than fixed, so the panel keeps fitting a
-    /// full grid cell if the thumbnail or label size is ever changed. The media
-    /// grid scrolls horizontally, so this does not grow with the number of
-    /// files - one row is always enough.
+    /// Derived from the content rather than fixed, so the panel keeps fitting
+    /// its cells if the thumbnail or label size is ever changed. The grid
+    /// scrolls horizontally, so this does not grow with the number of files -
+    /// two rows is the floor, and everything beyond scrolls sideways.
     static let expandedHeight: CGFloat =
         PanelLayout.headerHeight
         + 1  // divider
-        + gridCellHeight
+        + (gridCellHeight * 2) + Spacing.sm  // two rows and the gap between them
         + (Spacing.sm * 2)  // scroll content padding
         + scrollIndicatorHeight
 }
@@ -569,16 +653,57 @@ enum TimelineSectionLayout {
     /// show more lanes on a large screen instead of always clamping at 500.
     static let maxHeight: CGFloat = 500
 
+    /// Width the expanded timeline header needs before its controls clip.
+    ///
+    /// Title + MTC IN + Start TC + Duration + divider + zoom controls, plus the
+    /// header's own horizontal padding. Still the widest thing in the panel
+    /// column, so it - not the media panel - sets the window's minimum width.
+    /// Measured at runtime rather than estimated - the estimates were wrong
+    /// twice, and 20pt short is enough to break "Timeline" into "Tim/eli...".
+    /// 770pt is the header's intrinsic width; the rest is the panel column's
+    /// own horizontal padding.
+    static let headerMinWidth: CGFloat = 770 + Spacing.md * 2
+
     /// Vertical space reserved for everything that is not the timeline panel
     /// when sizing it against the display: settings header (44), the expanded
     /// media panel with its optimization banner (~250), inter-panel spacing
     /// and window margins (~90).
-    static let reservedVerticalChrome: CGFloat = 384
+    /// Derived, not a constant, because a hardcoded figure goes stale the
+    /// moment the layout above the timeline changes - and it did. The 384 this
+    /// replaces enumerated the settings header, the media panel and margins,
+    /// but predated the inline video area, so ~240pt of video went unreserved.
+    /// The timeline was then allowed to grow past what the screen could hold:
+    /// expanding it with four lanes produced 1163pt of content on a 1001pt
+    /// display, pushing the video and settings off the top.
+    static var reservedVerticalChrome: CGFloat {
+        // The timeline now has its own full-width row beneath the top row, so
+        // what it must leave clear is that row's height - whichever of the video
+        // column or the Settings/Media stack is taller - plus margins.
+        // The top row is capped, so this is a constant rather than a function
+        // of whatever Settings and Media happen to be showing.
+        return MainWindowLayout.topRowMaxHeight
+            + Spacing.md          // gap between the top row and the timeline
+            + Spacing.md * 2      // window margins
+            + MainWindowLayout.titleBarAllowance
+    }
 
-    /// Default height - sized to show Video track + 1 Audio lane without scrolling
-    /// Calculation: header(44) + ruler(24) + spacer(4) + videoTrack(60) + divider(1) + audioArea(60) + padding(8) + footer(44) = 245
-    /// Adding extra padding for comfortable viewing
-    static let defaultHeight: CGFloat = 260
+    /// Default height: the combined Video File track plus three audio lanes.
+    ///
+    /// Derived rather than tuned, so it keeps meaning that if any row height
+    /// changes. Anything past three lanes scrolls inside the panel instead of
+    /// growing it - the window has a screen to fit inside.
+    static var defaultHeight: CGFloat {
+        let tracks = 4                                              // top padding
+            + TimelineLayout.videoTrackHeight + 1                   // picture + divider
+            + TimelineLayout.linkedAudioStripHeight                 // its baked-in audio
+            + (TimelineLayout.audioLaneHeight + 1) * 3              // three audio lanes
+            + TimelineLayout.newLaneDropZoneInactiveHeight
+        return PanelLayout.headerHeight
+            + TimelineLayout.rulerHeight + 1
+            + CGFloat(tracks)
+            + Spacing.sm
+            + PanelLayout.footerHeight + Spacing.md
+    }
 }
 
 /// Media panel constants
@@ -588,9 +713,47 @@ enum MediaPanelLayout {
 }
 
 /// Transport bar constants
+/// One type scale for the transport bar.
+///
+/// The bar previously mixed six sizes for the same class of information -
+/// `monoDisplay` (14pt), `mono` (12pt), `monoSmall` (10pt), a bare 8pt system
+/// font, `label` and `subheading` - which read as inconsistent and, more
+/// practically, made the bar wider than the default window. Everything in it is
+/// one of three things: a label, a value, or a status line, so it gets three
+/// tokens sized to fit all of them at full length.
+enum TransportTypography {
+    /// Monospaced values: timecodes, frame rates.
+    static let value = Font.system(size: 11, weight: .medium, design: .monospaced)
+
+    /// Field labels: "POS:", "Start TC:", "Duration:", "FPS:".
+    static let label = Font.system(size: 10, weight: .medium)
+
+    /// Secondary status line under the incoming-MIDI readout.
+    static let caption = Font.system(size: 9, weight: .regular)
+
+    /// Emphasised variant of `caption`, for the frame-rate mismatch warning.
+    static let captionStrong = Font.system(size: 9, weight: .semibold)
+}
+
 enum TransportLayout {
     /// Height of control boxes
     static let controlBoxHeight: CGFloat = 48
+
+    /// Uniform height for every box in the transport bar.
+    ///
+    /// Set by the tallest content in the bar - the incoming-MIDI readout's two
+    /// lines, an 11pt value over a 9pt status line. Every other box holds a
+    /// single line and centres within it, so they all present as one component
+    /// instead of each sizing itself to its own contents.
+    static let controlHeight: CGFloat = 34
+
+    /// Fixed width for the run/stop state glyph.
+    ///
+    /// `play.fill` and `stop.fill` are not the same width, so without a fixed
+    /// frame the surrounding control resizes every time the transport changes
+    /// state - and in a bar whose contents are already tight, that shifts its
+    /// neighbours too.
+    static let stateGlyphWidth: CGFloat = 14
 }
 
 /// Common spacing and padding - Best Practices

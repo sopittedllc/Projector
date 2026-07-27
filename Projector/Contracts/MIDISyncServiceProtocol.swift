@@ -114,6 +114,34 @@ public enum DriftStatus: Sendable, Equatable {
 /// ## Thread Safety
 /// All properties are value types or `Sendable`, making this safe to pass
 /// between actors.
+/// What kind of MIDI traffic is currently arriving on the selected input.
+///
+/// Exists so the UI can tell "nothing is connected" apart from "something is
+/// sending, but not timecode" - previously identical from the user's side, and
+/// the reason a DAW configured to send MIDI Clock instead of MTC looked exactly
+/// like a dead cable.
+public enum IncomingMIDISignal: String, Sendable, Equatable {
+    /// No MIDI received recently.
+    case none
+    /// MTC quarter-frames arriving - this is what drives sync.
+    case timecode
+    /// MIDI Beat Clock arriving. Carries tempo, not timecode: it cannot
+    /// position the playhead, so sync will never lock on it.
+    case beatClock
+    /// Other MIDI traffic (notes, SysEx, MMC) but no timecode.
+    case other
+
+    /// Short label for the transport readout.
+    public var shortLabel: String {
+        switch self {
+        case .none: return "No MIDI"
+        case .timecode: return "MTC"
+        case .beatClock: return "Clock"
+        case .other: return "MIDI"
+        }
+    }
+}
+
 public struct MIDISyncState: Sendable, Equatable {
 
     /// Current MTC receiver state (idle, locking, synced, etc.)
@@ -136,6 +164,24 @@ public struct MIDISyncState: Sendable, Equatable {
 
     /// The local frame rate used for sync comparison.
     public let localFrameRate: TimecodeFrameRate
+
+    /// What kind of MIDI is currently arriving.
+    public let incomingSignal: IncomingMIDISignal
+
+    /// Frame rate reported by the incoming MTC stream, if any.
+    ///
+    /// MTC encodes its own rate, which may differ from the project's - a
+    /// mismatch is the usual cause of sync refusing to lock.
+    public let incomingFrameRate: TimecodeFrameRate?
+
+    /// Whether an external device is currently driving the transport.
+    ///
+    /// True while MTC is arriving or an MMC transport command was received
+    /// recently. Distinct from `incomingSignal`, which reports what kind of MIDI
+    /// is present: stray notes or SysEx are traffic, not control. Used to put
+    /// the app in slave mode, where local transport input is ignored so it
+    /// cannot fight the DAW.
+    public let isExternallyControlled: Bool
 
     // MARK: - Sync Quality Metrics
 
@@ -184,6 +230,9 @@ public struct MIDISyncState: Sendable, Equatable {
         selectedInputName: String?,
         availableInputs: [String],
         localFrameRate: TimecodeFrameRate,
+        incomingSignal: IncomingMIDISignal = .none,
+        incomingFrameRate: TimecodeFrameRate? = nil,
+        isExternallyControlled: Bool = false,
         lockProgress: Int = 0,
         lockFramesRequired: Int = 8,
         dropoutCounter: Int = 0,
@@ -200,6 +249,9 @@ public struct MIDISyncState: Sendable, Equatable {
         self.selectedInputName = selectedInputName
         self.availableInputs = availableInputs
         self.localFrameRate = localFrameRate
+        self.incomingSignal = incomingSignal
+        self.incomingFrameRate = incomingFrameRate
+        self.isExternallyControlled = isExternallyControlled
         self.lockProgress = lockProgress
         self.lockFramesRequired = lockFramesRequired
         self.dropoutCounter = dropoutCounter

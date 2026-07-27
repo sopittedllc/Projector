@@ -2,9 +2,16 @@
 //  SettingsAccordionView.swift
 //  Projector
 //
-//  Collapsible settings panel with two-column layout.
-//  Top: Timecode Overlay (left) | Playback Behavior (right)
-//  Bottom: Audio section with channel-first output configuration
+//  The accordion itself was REMOVED 2026-07-26. Settings is an overlay now,
+//  opened from the gear in the video controls: it is app configuration rather
+//  than part of the project, and as a panel it competed for height with the
+//  media it sat above. Nothing was lost - SettingsView already covered its
+//  Timecode Overlay and Audio Output sections, plus MIDI.
+//
+//  The file is NOT empty. It still holds the audio channel-mapping views
+//  (ChannelGridView, StereoGroupView, ChannelCellView, OutputRowView) and the
+//  shared `View.cursor(_:)` helper, which the optimization sheet depends on.
+//  Those belong somewhere better named, but moving them is a separate job.
 //
 
 import SwiftUI
@@ -39,209 +46,7 @@ enum ChannelItem: Identifiable {
     }
 }
 
-/// Collapsible settings section for the right panel
-struct SettingsAccordionView: View {
-    @ObservedObject var audioManager: AudioOutputManager
-    @Binding var isExpanded: Bool
-    @ObservedObject private var settings = AppSettings.shared
 
-    var body: some View {
-        VStack(spacing: 0) {
-            accordionHeader
-
-            if isExpanded {
-                Divider()
-                settingsContent
-            }
-        }
-        .glassPanel()
-    }
-
-    // MARK: - Accordion Header
-
-    private var accordionHeader: some View {
-        HStack(spacing: Spacing.sm) {
-            Button(action: {
-                withAnimation(AppAnimations.standard) {
-                    isExpanded.toggle()
-                }
-            }) {
-                HStack(spacing: Spacing.sm) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(Typography.iconSmall)
-                        .foregroundColor(.secondary)
-                        .frame(width: Spacing.md)
-
-                    Image(systemName: "gearshape")
-                        .font(Typography.icon)
-                        .foregroundColor(.secondary)
-
-                    Text("Settings")
-                        .font(Typography.subheading)
-                        .foregroundColor(.primary)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            Spacer()
-        }
-        .frame(height: PanelLayout.headerHeight)
-        .padding(.horizontal, Spacing.md)
-    }
-
-    // MARK: - Settings Content
-
-    private var settingsContent: some View {
-        VStack(alignment: .leading, spacing: SettingsLayout.sectionSpacing) {
-            // Two columns: Timecode Overlay | Playback Behavior
-            HStack(alignment: .top, spacing: Spacing.xxl) {
-                timecodeOverlaySection
-                playbackBehaviorSection
-                Spacer()
-            }
-
-            Divider()
-
-            // Audio section (full width)
-            audioSection
-        }
-        .padding(.horizontal, SettingsLayout.windowMargin)
-        .padding(.vertical, Spacing.md)
-    }
-
-    // MARK: - Timecode Overlay Section
-
-    private var timecodeOverlaySection: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            sectionHeader("Timecode Overlay")
-
-            VStack(alignment: .leading, spacing: SettingsLayout.formRowVerticalSpacing) {
-                HStack {
-                    Text("Show Overlay")
-                        .font(Typography.body)
-                    Spacer()
-                    Toggle("", isOn: $settings.showTimecodeOverlay)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                }
-
-                if settings.showTimecodeOverlay {
-                    HStack {
-                        Text("Position")
-                            .font(Typography.body)
-                        Spacer()
-                        Picker("", selection: $settings.timecodeOverlayPosition) {
-                            Text("Top Left").tag(TimecodeOverlayPosition.topLeft)
-                            Text("Top Right").tag(TimecodeOverlayPosition.topRight)
-                            Text("Bottom Left").tag(TimecodeOverlayPosition.bottomLeft)
-                            Text("Bottom Right").tag(TimecodeOverlayPosition.bottomRight)
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                    }
-                }
-            }
-        }
-        .frame(width: SettingsLayout.formSectionWidth)
-    }
-
-    // MARK: - Playback Behavior Section
-
-    private var playbackBehaviorSection: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            sectionHeader("Playback Behavior")
-
-            VStack(alignment: .leading, spacing: SettingsLayout.formRowVerticalSpacing) {
-                HStack {
-                    Text("Auto-play on MTC")
-                        .font(Typography.body)
-                    Spacer()
-                    Toggle("", isOn: $settings.autoPlayOnMTC)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                }
-
-                HStack {
-                    Text("Auto-pause on MTC Stop")
-                        .font(Typography.body)
-                    Spacer()
-                    Toggle("", isOn: $settings.autoPauseOnMTCStop)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                }
-
-                HStack {
-                    Text("Respond to MMC")
-                        .font(Typography.body)
-                    Spacer()
-                    Toggle("", isOn: $settings.respondToMMC)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                }
-            }
-        }
-        .frame(width: SettingsLayout.formSectionWidth)
-    }
-
-    // MARK: - Audio Section
-
-    private var audioSection: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
-            sectionHeader("Audio Output")
-
-            // Device picker row
-            HStack {
-                Text("Device")
-                    .font(Typography.body)
-                Spacer().frame(width: Spacing.sm)
-                Picker("", selection: Binding<String>(
-                    get: { audioManager.selectedDeviceUID ?? "" },
-                    set: { newValue in
-                        audioManager.selectedDeviceUID = newValue.isEmpty ? nil : newValue
-                    }
-                )) {
-                    Text("System Default").tag("")
-                    ForEach(audioManager.availableDevices, id: \.uid) { device in
-                        Text(device.name).tag(device.uid)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-            }
-
-            // Channel grid (only if device has channels)
-            if audioManager.selectedDeviceChannelCount > 0 {
-                ChannelGridView(
-                    totalChannels: audioManager.selectedDeviceChannelCount,
-                    outputs: settings.mappedOutputs(for: audioManager.selectedDeviceUID),
-                    onOutputsChanged: { newOutputs in
-                        settings.setMappedOutputs(newOutputs, for: audioManager.selectedDeviceUID)
-                    }
-                )
-            } else {
-                // 2.5: Device no-channels feedback
-                Text("Selected device has no configurable outputs")
-                    .font(Typography.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.top, Spacing.xs)
-            }
-        }
-    }
-
-    // MARK: - Helpers
-
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(Typography.labelSmall)
-            .foregroundColor(AppColors.textTertiary)
-            .padding(.bottom, Spacing.xs)
-    }
-}
 
 // MARK: - Channel Grid View
 
@@ -934,15 +739,5 @@ private struct OutputRowView: View {
 // MARK: - Preview
 
 #if DEBUG
-struct SettingsAccordionView_Previews: PreviewProvider {
-    static var previews: some View {
-        SettingsAccordionView(
-            audioManager: AudioOutputManager(),
-            isExpanded: .constant(true)
-        )
-        .frame(width: 550)
-        .padding()
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-}
+
 #endif
