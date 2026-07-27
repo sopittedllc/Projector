@@ -147,6 +147,57 @@ instrument it and read the numbers.**
 
 ---
 
+## Audio routing settings + the Settings design system (2026-07-26, later)
+
+Audio Settings was rebuilt: pick a device, then fill named output roles, and save
+the result as a recallable profile.
+
+- `MappedAudioOutput` gained `roleId`. Roles are **stored, not inferred from the
+  name** - matching on the name looked fine until a mapping made before the roles
+  existed ("DX" against a role called "DX/SFX") failed to match, so the chooser
+  stayed on screen *and* the output was listed again as an extra.
+  `OutputRole.matches(_:)` still falls back to legacy names so old mappings are
+  adopted rather than orphaned.
+- `AudioOutputProfile` is portable: names and channel numbers only, applying to
+  whatever device is selected. It records its origin device solely to warn
+  ("created for X, we recommend you check your outputs") and never blocks -
+  moving between a studio interface and a laptop is the point. Applying one mints
+  fresh output identities so the routing authority re-binds lanes by channel
+  range rather than matching stale ids.
+- Channel numbers are 1-based everywhere the user sees them. `channelStart` is a
+  0-based buffer offset; printing it raw labelled the first pair "Out 0-1" while
+  the chooser that set it offered "1-2".
+- The old channel-mapping grid, `AudioOutputMappingView` and `OutputChannelRow`
+  are gone, superseded by the guided flow.
+
+### SETTINGS DESIGN SYSTEM - read before touching any Settings view
+
+`SettingsDesign` in SettingsView.swift holds every size and text style; build rows
+from its components and never pick a font, width or button style at the call site.
+Seven rules are written above it. This exists because the alternative was tried
+and failed inside one session: two dropdown widths, three clear buttons, a
+prominent button beside a bordered one, and a window where Audio used
+label-beside-control while Display used label-above-control.
+
+Hard-won specifics:
+
+- **`SettingsMenu`, not `Picker(.menu)`.** SwiftUI's menu picker renders an
+  NSPopUpButton whose bezel is sized by its widest item; it ignores a proposed
+  width, and widening the items does not reach the closed-state button either.
+  Two rounds were lost to this. The design system draws the control itself so the
+  column has one width and one chrome.
+- **`.frame(maxWidth: .infinity)` centres by default.** Every "control is
+  centred for no reason" report traced to this - it centred the control inside
+  its own frame before any outer alignment applied. `settingsControlWidth()`
+  carries `alignment: .leading` on *both* frames.
+- **Yellow pending / green set.** A chooser and a chosen value are the same
+  geometry in two colours, so a column reads as "still to do" and "done" without
+  reading the labels.
+- Sizing complaints are not always sizing: the video column and Media panel
+  measured identical rectangles (global maxY 633 each) while looking misaligned,
+  because a hard-clipped fill and a 1pt stroke do not resolve to the same pixels
+  at a rounded corner. Measure before adjusting constants.
+
 ## Open work
 
 **Task #24 — defer batch lane creation until the sheet is confirmed.**

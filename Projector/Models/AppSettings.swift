@@ -69,6 +69,39 @@ final class AppSettings: ObservableObject {
 
     private init() {}
 
+    /// Saved output profiles, JSON-encoded.
+    @AppStorage("audioOutputProfiles") private var audioOutputProfilesJSON: String = ""
+
+    // MARK: - Audio Output Profiles
+
+    /// Every saved profile, newest last.
+    var audioOutputProfiles: [AudioOutputProfile] {
+        guard !audioOutputProfilesJSON.isEmpty,
+              let data = audioOutputProfilesJSON.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([AudioOutputProfile].self, from: data)) ?? []
+    }
+
+    /// Insert or replace a profile, matched on id.
+    func saveAudioOutputProfile(_ profile: AudioOutputProfile) {
+        var profiles = audioOutputProfiles
+        if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
+            profiles[index] = profile
+        } else {
+            profiles.append(profile)
+        }
+        writeAudioOutputProfiles(profiles)
+    }
+
+    func deleteAudioOutputProfile(id: UUID) {
+        writeAudioOutputProfiles(audioOutputProfiles.filter { $0.id != id })
+    }
+
+    private func writeAudioOutputProfiles(_ profiles: [AudioOutputProfile]) {
+        guard let data = try? JSONEncoder().encode(profiles),
+              let json = String(data: data, encoding: .utf8) else { return }
+        audioOutputProfilesJSON = json
+    }
+
     // MARK: - Audio Output Mappings
 
     func mappedOutputs(for deviceUID: String?) -> [MappedAudioOutput] {
@@ -118,6 +151,7 @@ final class AppSettings: ObservableObject {
         selectedMIDIInput = ""
         selectedAudioOutput = ""
         audioOutputMappingsJSON = ""
+        audioOutputProfilesJSON = ""
         showTimecodeOverlay = true
         timecodeOverlayOpacity = 0.8
         timecodeOverlayPosition = .bottomCenter
@@ -132,11 +166,68 @@ struct MappedAudioOutput: Identifiable, Codable, Hashable {
     var channelStart: Int
     var channelCount: Int
 
-    init(id: UUID = UUID(), name: String, channelStart: Int, channelCount: Int) {
+    /// Which named role this fills, if any (`OutputRole.id`).
+    ///
+    /// Stored rather than inferred from `name`. Matching on the name looked
+    /// fine until a mapping made before the roles existed - "DX" against a role
+    /// called "DX/SFX" - failed to match, so the chooser stayed on screen *and*
+    /// the output was listed again as an extra. Optional so older saved
+    /// mappings still decode; `OutputRole.matches(_:)` falls back to the name
+    /// for those.
+    var roleId: String?
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        channelStart: Int,
+        channelCount: Int,
+        roleId: String? = nil
+    ) {
         self.id = id
         self.name = name
         self.channelStart = channelStart
         self.channelCount = channelCount
+        self.roleId = roleId
+    }
+}
+
+// MARK: - Audio Output Profile
+
+/// A named set of outputs the user can recall.
+///
+/// Portable by design: it stores only names and channel numbers, so it applies
+/// to whatever device is selected. The originating device is recorded purely so
+/// the UI can warn that the channel layout was designed elsewhere - it never
+/// prevents a profile being used, because moving a session between a studio
+/// interface and a laptop is exactly what profiles are for.
+struct AudioOutputProfile: Identifiable, Codable, Hashable {
+    let id: UUID
+    var name: String
+    var outputs: [MappedAudioOutput]
+
+    /// Device this profile was saved from, for the mismatch warning. Optional so
+    /// profiles saved before this existed still decode.
+    var createdForDeviceUID: String?
+    var createdForDeviceName: String?
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        outputs: [MappedAudioOutput],
+        createdForDeviceUID: String? = nil,
+        createdForDeviceName: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.outputs = outputs
+        self.createdForDeviceUID = createdForDeviceUID
+        self.createdForDeviceName = createdForDeviceName
+    }
+
+    /// Highest channel the profile addresses - used to tell whether a device has
+    /// enough outputs to satisfy it.
+    var highestChannel: Int {
+        outputs.map { $0.channelStart + $0.channelCount }.max() ?? 0
     }
 }
 

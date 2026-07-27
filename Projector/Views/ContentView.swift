@@ -556,6 +556,19 @@ struct ContentView: View {
             video.controlsSection
         }
         .frame(height: MainWindowLayout.topRowHeight)
+        // One surface for picture and controls, so the column has a visible
+        // bottom edge level with the Media panel beside it. Both columns have
+        // always measured the same rectangle (global maxY 633 for each); what
+        // differed was how the edge was drawn - a hard-clipped fill against a
+        // 1pt stroke reads as a point out at the rounded corner. Stroking this
+        // the same way the panels do makes the two edges render identically.
+        .background(Color.black)
+        .clipShape(RoundedRectangle(cornerRadius: PanelLayout.cornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: PanelLayout.cornerRadius)
+                .stroke(Color.white.opacity(PanelLayout.borderOpacity),
+                        lineWidth: PanelLayout.borderWidth)
+        )
         .background(
             GeometryReader { proxy in
                 Color.clear

@@ -502,8 +502,6 @@ struct InlineVideoArea: View {
         picture
         .frame(width: MainWindowLayout.videoColumnWidth,
                height: MainWindowLayout.inlineVideoHeight)
-        .background(Color.black)
-        .clipShape(RoundedRectangle(cornerRadius: PanelLayout.cornerRadius))
         .onDrop(of: [UTType.fileURL, UTType.url, UTType.projectorMediaItem], isTargeted: $isDropTargeted) { providers in
             // Same contract as the player window: internal drags carry their
             // URLs in DragContext, Finder drags go through the import path.

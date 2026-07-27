@@ -417,3 +417,102 @@ final class AudioOutputManager: ObservableObject {
         )
     }
 }
+
+// MARK: - Output Editing
+
+extension AudioOutputManager {
+    /// Channels the selected device offers, 1-based for display.
+    var availableChannelNumbers: [Int] {
+        guard selectedDeviceChannelCount > 0 else { return [] }
+        return Array(1...selectedDeviceChannelCount)
+    }
+
+    /// Whether a channel is already claimed by an existing output.
+    ///
+    /// - Parameter excluding: An output being edited, so it does not collide
+    ///   with itself.
+    func channelIsAssigned(_ channelNumber: Int, excluding outputId: UUID? = nil) -> Bool {
+        let zeroBased = channelNumber - 1
+        return mappedOutputs.contains { output in
+            guard output.id != outputId else { return false }
+            return zeroBased >= output.channelStart
+                && zeroBased < output.channelStart + output.channelCount
+        }
+    }
+
+    /// Add an output, or replace one of the same name.
+    ///
+    /// Replacing by name is what makes the DX/SFX and MX buttons idempotent -
+    /// choosing DX/SFX twice re-points it rather than leaving two.
+    func addOrReplaceOutput(
+        name: String,
+        firstChannelNumber: Int,
+        isStereo: Bool,
+        roleId: String? = nil
+    ) {
+        var outputs = mappedOutputs
+        // Replace on role where there is one, otherwise on name. A role can be
+        // re-pointed even if its previous mapping was named differently.
+        let existingIndex = outputs.firstIndex {
+            if let roleId { return $0.roleId == roleId || $0.name == name }
+            return $0.name == name
+        }
+        let replacement = MappedAudioOutput(
+            id: existingIndex.map { outputs[$0].id } ?? UUID(),
+            name: name,
+            channelStart: max(0, firstChannelNumber - 1),
+            channelCount: isStereo ? 2 : 1,
+            roleId: roleId
+        )
+        if let index = existingIndex {
+            outputs[index] = replacement
+        } else {
+            outputs.append(replacement)
+        }
+        outputs.sort { $0.channelStart < $1.channelStart }
+        saveMappedOutputs(outputs, for: selectedDeviceUID)
+    }
+
+    func removeOutput(id: UUID) {
+        saveMappedOutputs(mappedOutputs.filter { $0.id != id }, for: selectedDeviceUID)
+    }
+
+    /// Replace the current outputs with a profile's.
+    ///
+    /// New identities are minted so the routing authority re-binds lanes by
+    /// channel range rather than matching stale ids - see
+    /// `TimelineManager.reconcileOutputMappings(with:)`.
+    func applyProfile(_ profile: AudioOutputProfile) {
+        let outputs = profile.outputs.map {
+            MappedAudioOutput(
+                name: $0.name,
+                channelStart: $0.channelStart,
+                channelCount: $0.channelCount,
+                roleId: $0.roleId
+            )
+        }
+        saveMappedOutputs(outputs, for: selectedDeviceUID)
+    }
+
+    /// Whether a profile was built for a different device than the one selected.
+    func profileWasBuiltElsewhere(_ profile: AudioOutputProfile) -> Bool {
+        guard let origin = profile.createdForDeviceUID, !origin.isEmpty else { return false }
+        return origin != (selectedDeviceUID ?? "")
+    }
+
+    /// Whether the selected device has enough channels for a profile.
+    func deviceSatisfies(_ profile: AudioOutputProfile) -> Bool {
+        profile.highestChannel <= selectedDeviceChannelCount
+    }
+
+    /// Capture the current outputs as a profile.
+    func makeProfile(named name: String, id: UUID = UUID()) -> AudioOutputProfile {
+        AudioOutputProfile(
+            id: id,
+            name: name,
+            outputs: mappedOutputs,
+            createdForDeviceUID: selectedDeviceUID,
+            createdForDeviceName: selectedDevice?.name
+        )
+    }
+}

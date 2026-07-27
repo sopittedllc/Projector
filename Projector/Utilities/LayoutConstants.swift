@@ -334,6 +334,13 @@ enum SettingsLayout {
     /// Settings window size as CGSize
     static let size = CGSize(width: width, height: height)
 
+    /// One width for every dropdown in Settings.
+    ///
+    /// The pickers sized themselves to their content, so the device menu was
+    /// wide and the profile menu narrow - they read as unrelated controls
+    /// rather than a column of settings.
+    static let controlWidth: CGFloat = 240
+
     /// Fixed width for setting row labels (for alignment)
     static let labelWidth: CGFloat = 100
 
