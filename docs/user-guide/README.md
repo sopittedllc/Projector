@@ -61,7 +61,3 @@ Projector is a macOS application for frame-accurate multi-reel video playback wi
 - **Issues**: Report bugs at [GitHub Issues](https://github.com/musiquela/Projector/issues)
 - **Documentation**: This user guide
 - **Updates**: Check for updates in Projector → About Projector
-
----
-
-*Built with [Claude Code](https://claude.com/claude-code)*

@@ -19,7 +19,7 @@ struct AudioLaneView: View {
     let clipInteractionsEnabled: Bool
     let availableAudioOutputs: [MappedAudioOutput]
     let linkedDragPreview: LinkedDragPreview?
-    let timelineStartFrames: Int  // Sprint 5: For timecode display
+    let timelineStartFrames: Int
     @ObservedObject var mediaLibrary: ProjectMediaLibrary
     let onMuteToggle: () -> Void
     let onSoloToggle: () -> Void
@@ -178,7 +178,8 @@ struct AudioLaneView: View {
                         .frame(maxWidth: TimelineLayout.headerWidth - Spacing.md - Spacing.sm - 12)
                         .help("Return to rename, Escape to cancel")
                 } else {
-                    // Use Button instead of onTapGesture to avoid ScrollView latency (GP-003)
+                    // Button rather than onTapGesture: a tap gesture inside scrollable
+                    // content delays trackpad scrolling.
                     Button(action: {}) {
                         Text(lane.name)
                             .font(.system(size: 10, weight: .medium))

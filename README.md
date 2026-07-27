@@ -14,7 +14,7 @@ Projector is a native macOS app built with SwiftUI and AVFoundation, designed fo
 - **Flexible Audio Routing** - Route audio lanes to specific output channels via Core Audio
 - **Waveform Visualization** - High-performance waveform rendering with DSWaveformImage
 - **Media Optimization** - Automatic detection and transcoding for optimal playback performance
-- **Embedded Timecode Detection** - OCR-based timecode extraction from video content
+- **Embedded Timecode Detection** - reads timecode from QuickTime tracks, BWF/broadcast WAV, and XMP metadata, and places media at it on import
 
 ## Architecture
 

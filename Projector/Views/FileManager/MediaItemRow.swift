@@ -41,8 +41,6 @@ extension UTType {
     static let projectorMediaItem = UTType(exportedAs: "com.projector.media-item")
 }
 
-// NOTE: The `MediaItemRow` view was removed from this file. It was referenced
-// only by its own #Preview - the media panel renders `MediaGridCell`
-// (FileManagerView.swift) instead. It began drags with the single-item
-// `dragContext.begin(item)`, so wiring it back up as-written would have
-// reintroduced the bug where a multi-selection drops as one clip.
+// The media panel renders `MediaGridCell` (FileManagerView.swift). Any row view
+// added here must begin drags through the multi-item path, or a multi-selection
+// drops as a single clip.

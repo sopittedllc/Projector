@@ -51,3 +51,7 @@ release-build/
 
 # Local screenshots
 screenshots/
+
+# Scratch
+.tmp_*
+.swift-cache/

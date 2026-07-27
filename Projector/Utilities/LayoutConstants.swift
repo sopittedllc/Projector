@@ -378,9 +378,9 @@ enum SettingsLayout {
 
 /// Layout constants for the horizontal split layout (video left, panels right)
 enum HorizontalLayoutConstants {
-    // NOTE: minPanelWidth was removed (2026-07-26). The Media panel's minimum is
-    // `SectionLayout.minimumMediaWidth`, derived from the width its full header
-    // controls need - a second, smaller figure only meant the two could disagree.
+    // The Media panel's minimum is `SectionLayout.minimumMediaWidth`, derived
+    // from the width its header controls need. There is deliberately no second
+    // figure here for the two to disagree about.
 
     /// Minimum width of the main window's content view.
     ///
@@ -397,9 +397,6 @@ enum HorizontalLayoutConstants {
 
     /// Minimum height of the main window's content view.
     static var mainWindowMinHeight: CGFloat { SectionLayout.minimumViewSize.height }
-
-    // NOTE: minVideoWidth / defaultVideoWidth / defaultPanelWidth were removed
-    // with the embedded video pane (2026-07-24). All had zero call sites.
 }
 
 /// Layout constants for the main app window's grow-on-import behavior.
@@ -414,13 +411,10 @@ enum MainWindowLayout {
     /// Timeline, and Media with comfortable margins.
     static let defaultWidth: CGFloat = 1440
 
-    // NOTE: videoColumnWidth and inlineVideoHeight were removed (2026-07-26).
-    // Both named a fixed size for the video column; `SectionLayout` derives it
-    // from the top row's height instead, so the column is exactly 16:9 at any
-    // window size. At the reference `topRowHeight` that works out to the same
-    // 480x270 those constants held. The video pillarboxes within the column
-    // (`videoGravity` is `.resizeAspect`) - the 16:9 is the column's shape, not
-    // a claim about the media's.
+    // The video column has no fixed size here: `SectionLayout` derives its
+    // width from the top row's height, so the column is exactly 16:9 at any
+    // window size. The video pillarboxes within it (`videoGravity` is
+    // `.resizeAspect`) - the 16:9 is the column's shape, not the media's.
 
     /// Height of the control strip beneath the inline picture. No padding
     /// around it - every point spent here is a point off the picture.
@@ -813,18 +807,6 @@ enum PanelLayout {
     static let borderOpacity: CGFloat = 0.2
 }
 
-/// Zoom control constants
-enum ZoomConstants {
-    /// Minimum zoom level
-    static let minZoom: CGFloat = 1.0
-
-    /// Maximum zoom level
-    static let maxZoom: CGFloat = 10.0
-
-    /// Default zoom level
-    static let defaultZoom: CGFloat = 1.0
-}
-
 /// File manager panel constants
 enum FileManagerLayout {
     /// Height when collapsed (header only)
@@ -921,9 +903,8 @@ enum TimelineSectionLayout {
     }
 }
 
-// NOTE: MediaPanelLayout was removed (2026-07-26). Its one constant, a 200pt
-// default height, had no call sites - the Media panel takes the top row's
-// height, which `SectionLayout` resolves.
+// The Media panel has no height constants: it takes the top row's height,
+// which `SectionLayout` resolves.
 
 /// Transport bar constants
 /// One type scale for the transport bar.

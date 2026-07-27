@@ -2,7 +2,7 @@
 //  OnboardingView.swift
 //  Projector
 //
-//  Sprint 3: Onboarding - Interactive setup wizard for composers.
+//  Interactive first-run setup wizard for composers.
 //  Walks through MTC configuration step-by-step.
 //
 //  Layer: Views

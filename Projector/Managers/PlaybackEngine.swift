@@ -1628,9 +1628,9 @@ final class PlaybackEngine: ObservableObject {
     ///
     /// - Parameter deviceID: The CoreAudio device ID to monitor
     ///
-    /// ## GP-022 Compliance
+    /// ## Sample Rate Handling
     ///
-    /// Per GP-022 (Sample Rate and Frame Rate Handling), sample rate changes must be
+    /// Sample rate changes must be
     /// detected and handled to prevent:
     /// - Audio playback at wrong speed
     /// - Buffer underruns from mismatched rates

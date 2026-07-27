@@ -84,44 +84,6 @@ struct GlassControlModifier: ViewModifier {
 
 // MARK: - Glass Button Style
 
-/// A button style that applies Liquid Glass effects
-struct GlassButtonStyle: ButtonStyle {
-    var tint: Color?
-    var cornerRadius: CGFloat = 6
-
-    func makeBody(configuration: Configuration) -> some View {
-        if #available(macOS 26, *) {
-            configuration.label
-                .padding(.horizontal, Spacing.md)
-                .padding(.vertical, Spacing.sm)
-                .background {
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .fill(.clear)
-                        .glassEffect(
-                            tint != nil ? .regular.tint(tint!) : .regular,
-                            in: RoundedRectangle(cornerRadius: cornerRadius)
-                        )
-                }
-                .opacity(configuration.isPressed ? 0.7 : 1.0)
-                .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-                .animation(AppAnimations.quick, value: configuration.isPressed)
-        } else {
-            configuration.label
-                .padding(.horizontal, Spacing.md)
-                .padding(.vertical, Spacing.sm)
-                .background(
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .fill(tint?.opacity(0.2) ?? Color(nsColor: .controlBackgroundColor))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
-                )
-                .opacity(configuration.isPressed ? 0.7 : 1.0)
-        }
-    }
-}
-
 // MARK: - Glass Transport Button Style
 
 /// A button style for transport controls (play, stop, etc.)

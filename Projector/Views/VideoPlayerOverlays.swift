@@ -58,10 +58,8 @@ struct LoadingOverlay: View {
     }
 }
 
-// NOTE: PlaybackResizeHandle was removed (2026-07-26). It dragged the embedded
-// player's height, and had had no call sites since the player moved into its own
-// window. The main window's one draggable boundary is now ContentView's section
-// splitter, which stores a share rather than a height.
+// The main window's one draggable boundary is ContentView's section splitter,
+// which stores a share of the window rather than a fixed height.
 
 // MARK: - Full Screen Toggle Button
 

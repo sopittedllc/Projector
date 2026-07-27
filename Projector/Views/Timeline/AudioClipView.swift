@@ -14,7 +14,7 @@ struct AudioClipView: View {
     let showWaveform: Bool
     let interactionsEnabled: Bool
     let isOptimized: Bool
-    let timelineStartTimecode: String?  // Sprint 5: Timeline start TC for clip
+    let timelineStartTimecode: String?
     let onSelect: (SelectionModifiers) -> Void
     let onDoubleClick: () -> Void
     let onSetTimelineStart: () -> Void
@@ -55,7 +55,7 @@ struct AudioClipView: View {
                             .foregroundColor(.green)
                     }
 
-                    // Sprint 5: Timeline start timecode
+                    // Timeline start timecode
                     if let tc = timelineStartTimecode, clipWidth > 120 {
                         Text(tc)
                             .font(Typography.monoTiny)

@@ -144,6 +144,15 @@ extension ContentView {
         }
     }
 
+    /// Whether the app was launched by the UI test runner.
+    ///
+    /// Outside DEBUG this only suppresses first-run onboarding; the test
+    /// harness itself is not compiled into release builds.
+    var isUITesting: Bool {
+        ProcessInfo.processInfo.arguments.contains("-ui-testing")
+    }
+
+    #if DEBUG
     /// Import files through the same handler a drop uses, from the command line.
     ///
     /// `handleUITestImportIfNeeded` places a clip directly, which is what makes it
@@ -220,9 +229,6 @@ extension ContentView {
         }
     }
 
-    var isUITesting: Bool {
-        ProcessInfo.processInfo.arguments.contains("-ui-testing")
-    }
 
     var uiTestClipCount: Int {
         timelineManager.timeline.audioLanes.reduce(0) { $0 + $1.clips.count }
@@ -277,6 +283,7 @@ extension ContentView {
             return nil
         }
     }
+    #endif
 
     /// Sync timeline manager's timeline to project document
     func syncTimelineToDocument() {

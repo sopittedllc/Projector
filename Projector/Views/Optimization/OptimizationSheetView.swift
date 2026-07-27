@@ -682,78 +682,6 @@ private struct FileAnalysisRow: View {
     }
 }
 
-/// Row showing verification result for an optimized item
-private struct VerificationItemRow: View {
-    let item: OptimizedItemResult
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack {
-                Image(systemName: item.isVideo ? "film" : "waveform")
-                    .foregroundColor(item.isVideo ? .blue : .green)
-                Text(item.displayName)
-                    .fontWeight(.medium)
-            }
-
-            HStack(spacing: Spacing.lg) {
-                if let fps = item.frameRate {
-                    Label {
-                        Text(String(format: "%.3f fps", fps))
-                    } icon: {
-                        Image(systemName: "checkmark")
-                            .foregroundColor(.green)
-                    }
-                    .font(.caption)
-                }
-
-                if let sr = item.sampleRate {
-                    Label {
-                        Text("\(Int(sr)) Hz")
-                    } icon: {
-                        Image(systemName: "checkmark")
-                            .foregroundColor(.green)
-                    }
-                    .font(.caption)
-                }
-
-                Spacer()
-
-                Text("\(formatBytes(item.originalSize)) → \(formatBytes(item.optimizedSize))")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(.vertical, Spacing.sm)
-        .padding(.horizontal, Spacing.md)
-        .background(Color.primary.opacity(0.03))
-        .cornerRadius(6)
-    }
-
-    private func formatBytes(_ bytes: UInt64) -> String {
-        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
-    }
-}
-
-/// Row showing a failed optimization item
-private struct FailedItemRow: View {
-    let item: OptimizedItemResult
-
-    var body: some View {
-        HStack {
-            Image(systemName: "xmark.circle")
-                .foregroundColor(.red)
-            Text(item.displayName)
-            Spacer()
-            if let error = item.errorMessage {
-                Text(error)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(.vertical, Spacing.xs)
-    }
-}
-
 /// Radio button option for cleanup actions
 private struct CleanupOptionButton: View {
     let title: String
@@ -919,6 +847,21 @@ private struct CleanupOriginalFilesDialog: View {
         } catch {
             errorMessage = "Cleanup failed: \(error.localizedDescription)"
             isProcessing = false
+        }
+    }
+}
+
+// MARK: - Cursor Helper
+
+extension View {
+    /// Sets the cursor shown while the pointer is over this view.
+    func cursor(_ cursor: NSCursor) -> some View {
+        onHover { isHovered in
+            if isHovered {
+                cursor.push()
+            } else {
+                NSCursor.pop()
+            }
         }
     }
 }

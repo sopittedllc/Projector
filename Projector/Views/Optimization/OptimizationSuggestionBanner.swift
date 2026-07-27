@@ -2,7 +2,7 @@
 //  OptimizationSuggestionBanner.swift
 //  Projector
 //
-//  Sprint 4: Optimization Discoverability - Smart contextual prompts
+//  Contextual prompt offering optimization when heavy media is detected.
 //  that suggest optimization when it would help performance.
 //
 //  Layer: Views

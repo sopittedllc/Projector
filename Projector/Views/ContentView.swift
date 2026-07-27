@@ -6,11 +6,6 @@ import AppKit
 import Combine
 
 
-// NOTE: PanelScrollCapture was removed (2026-07-26) with the panel stack's
-// scroll view. Under the section authority the content is sized from the window
-// and the window has a minimum big enough for every section's minimum, so the
-// stack always fits and there is no offset left to normalize.
-
 /// Main application content view
 struct ContentView: View {
     // MARK: - Managers
@@ -118,9 +113,11 @@ struct ContentView: View {
     @State var midiCancellables = Set<AnyCancellable>()
     @StateObject var thumbnailCache = ThumbnailCache()
     @State var showFileManager = true
+    #if DEBUG
     @State var didHandleUITestImport = false
     @State var didHandleUITestDrop = false
     @State var uiTestImportState: String? = "boot"
+    #endif
 
     /// Fraction of the window's flexible height given to the top row.
     ///
@@ -146,11 +143,8 @@ struct ContentView: View {
     /// on applying the default size.
     static let windowLookupAttempts = 20
 
-    // NOTE: mediaHeight, playbackHeight/playbackMeasuredHeight/isResizingPlayback,
-    // normalViewHeight, panelsContentHeight, panelsScrollView, panelsCanScroll and
-    // videoAreaHeight were removed (2026-07-26). Every one of them existed to
-    // measure content and feed it back to the window sizer; the section authority
-    // runs the other way, so there is nothing left to measure.
+    // No measured content sizes are kept here: the section authority sizes
+    // content from the window, not the window from its content.
 
     // Settings panel state (collapsed by default).
     // Internal, not private: ContentView+Helpers restores it from the project.
@@ -242,8 +236,10 @@ struct ContentView: View {
             Task { await transportActor.start() }
 
             restoreSettings()
+            #if DEBUG
             handleUITestImportIfNeeded()
             handleUITestDropIfNeeded()
+            #endif
             setupPersistenceServiceCallbacks()
             setupMediaImportCoordinatorCallbacks()
 
@@ -292,6 +288,7 @@ struct ContentView: View {
         Group {
             normalView
         }
+        #if DEBUG
         .overlay(alignment: .topLeading) {
             if isUITesting {
                 VStack(alignment: .leading, spacing: 2) {
@@ -310,6 +307,7 @@ struct ContentView: View {
                 .allowsHitTesting(false)
             }
         }
+        #endif
     }
 
     // MARK: - View Modes

@@ -361,9 +361,6 @@ struct ConsolidationSheetView: View {
 
 // MARK: - Prepare Media
 
-// NOTE: PrepareMediaSheetView was removed 2026-07-26.
-//
-// It offered Collect and Reduce as checkable steps behind one "Prepare Media"
-// button. That merge was undone - they are separate "Consolidate Media" and
-// "Optimize Media" buttons again, each with its own sheet - which left it
-// unreferenced. ConsolidationSheetView above is still live.
+// Consolidate and Optimize are separate actions, each with its own button and
+// sheet. They were briefly merged behind one "Prepare Media" step; keeping them
+// apart is deliberate.

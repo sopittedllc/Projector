@@ -790,7 +790,8 @@ struct MultiTrackTimelineView: View {
             Slider(value: $zoomLevel, in: minZoom...maxZoom)
                 .frame(width: 80)
                 .controlSize(.mini)
-                // Use simultaneousGesture instead of onTapGesture for consistency (GP-003)
+                // simultaneousGesture rather than onTapGesture: a tap gesture inside
+                // scrollable content delays trackpad scrolling.
                 .simultaneousGesture(
                     TapGesture(count: 2)
                         .onEnded { _ in resetZoom() }
@@ -1357,14 +1358,9 @@ struct MultiTrackTimelineView: View {
                 playhead(pixelsPerFrame: ppf, totalHeight: geometry.size.height)
                     .allowsHitTesting(false)
             }
-            // NOTE: the whole-timeline drop highlight was removed here.
-            //
-            // It lit the entire track area when files were dragged over it,
-            // which promised a drop the timeline never accepted - drops are
-            // handled per lane, and the parent drag capture deliberately never
-            // claims them. Highlighting the target the user cannot use, while
-            // the lane they *can* use highlights too, read as the timeline
-            // rejecting a legitimate drop.
+            // No whole-timeline drop highlight: drops are handled per lane, and
+            // the parent drag capture deliberately never claims them. Lighting
+            // the whole track area would promise a drop the timeline refuses.
             // DragTracker: tracks external drag item count for multi-file overlay visibility.
             // NEVER claims drags - always returns [] so child views handle all drops.
             // Uses .background so it's BEHIND children in z-order.
@@ -1534,11 +1530,9 @@ struct MultiTrackTimelineView: View {
         }
     }
 
-    // NOTE: `handleMultiFileDropNative` was removed here. It had no call sites -
-    // the parent DragCaptureView deliberately never claims drops (see its
-    // onPerform above), so multi-file drops are routed by the per-lane handlers
-    // instead. It also hardcoded a drop frame of 0, so wiring it up as-written
-    // would have silently ignored the cursor position on every batch drop.
+    // Multi-file drops are routed by the per-lane handlers; the parent
+    // DragCaptureView never claims a drop (see its onPerform above). A handler
+    // here would have to honour the cursor position, not assume frame 0.
 
     /// The playhead, positioned in the scrolled content's coordinate space.
     ///
@@ -2856,40 +2850,6 @@ struct MultiTrackTimelineView: View {
     private func findNearestAudioClip(at frame: Int, inLaneIndex laneIndex: Int, audioClips: [(lane: AudioLane, clip: AudioClip, laneIndex: Int)]) -> (lane: AudioLane, clip: AudioClip, laneIndex: Int)? {
         let laneClips = audioClips.filter { $0.laneIndex == laneIndex }
         return laneClips.min { abs($0.clip.timelineStartFrame - frame) < abs($1.clip.timelineStartFrame - frame) }
-    }
-}
-
-private struct EmptyAudioLaneDropDelegate: DropDelegate {
-    @Binding var isDropAllowed: Bool
-    let enterHandler: ([NSItemProvider], CGPoint) -> Void
-    let exitHandler: () -> Void
-    let dropHandler: ([NSItemProvider], CGPoint) -> Bool
-    let updateHandler: (CGPoint) -> Void
-    private let supportedTypes: [UTType] = [.item]
-    let isLoading: () -> Bool
-
-    func validateDrop(info: DropInfo) -> Bool {
-        !info.itemProviders(for: supportedTypes).isEmpty
-    }
-
-    func dropEntered(info: DropInfo) {
-        let providers = info.itemProviders(for: supportedTypes)
-        enterHandler(providers, info.location)
-    }
-
-    func dropExited(info: DropInfo) {
-        exitHandler()
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        updateHandler(info.location)
-        return DropProposal(operation: .copy)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        exitHandler()
-        let providers = info.itemProviders(for: supportedTypes)
-        return dropHandler(providers, info.location)
     }
 }
 

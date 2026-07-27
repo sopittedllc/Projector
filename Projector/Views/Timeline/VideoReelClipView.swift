@@ -27,7 +27,7 @@ struct VideoReelClipView: View {
     let isSelected: Bool
     let interactionsEnabled: Bool
     let isOptimized: Bool
-    let timelineStartTimecode: String?  // Sprint 5: Timeline start TC for clip
+    let timelineStartTimecode: String?
     let onSelect: (SelectionModifiers) -> Void
     let onDoubleClick: () -> Void
     let onSetTimelineStart: () -> Void
@@ -103,7 +103,7 @@ struct VideoReelClipView: View {
 
                 Spacer(minLength: 0)
 
-                // Sprint 5: Timeline start timecode at bottom
+                // Timeline start timecode, along the bottom edge
                 if let tc = timelineStartTimecode, reelWidth > 80 {
                     HStack {
                         Text(tc)

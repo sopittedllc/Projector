@@ -121,10 +121,8 @@ final class TimelineViewModel: ObservableObject {
     /// Zoom step for UI controls
     private let zoomStep: CGFloat = 0.1
 
-    // NOTE: collapsedHeight / minExpandedHeight / maxExpandedHeight were removed
-    // (2026-07-26) along with the panel's own height state. The timeline's height
-    // is now resolved by `SectionLayout` from the window's size and passed in,
-    // so the view model has no size to hold, clamp, or defend against the screen.
+    // The timeline's height is resolved by `SectionLayout` from the window's
+    // size and passed in, so this view model holds no height of its own.
 
     // MARK: - Private
 
@@ -326,15 +324,7 @@ final class TimelineViewModel: ObservableObject {
         }
     }
 
-    // NOTE: resizeToFitLanes was removed 2026-07-26.
-    //
-    // It grew and shrank the panel to fit the lane count, which fought the
-    // "set height" model: with fewer than three lanes it shrank *below* the
-    // default, so adding lanes made the timeline briefly shorter and the window
-    // followed it down before growing back. Measured: 0 lanes -> 409pt,
-    // 2 lanes -> 328pt, 4 lanes -> 409pt.
-    //
-    // The panel is now a constant `defaultHeight` - the Video File track plus
-    // three audio lanes - and anything beyond that scrolls inside it. The only
-    // thing that changes the height is the user dragging the resize handle.
+    // The panel's height is a constant `defaultHeight` - the Video File track
+    // plus three audio lanes - and anything beyond that scrolls inside it. Lane
+    // count does not affect it; only the user dragging the resize handle does.
 }

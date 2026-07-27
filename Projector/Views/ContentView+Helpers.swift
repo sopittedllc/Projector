@@ -18,12 +18,9 @@ extension ContentView {
         NSApp.keyWindow?.makeFirstResponder(nil)
     }
 
-    // NOTE: enterFullScreen/exitFullScreen were removed here along with the
-    // main window's video-fullscreen mode. The player is its own window now and
-    // uses native fullscreen (green traffic light, or the button in its hover
-    // overlay). The old observers listened for fullscreen notifications from
-    // ANY window, so the player going fullscreen would have flipped the main
-    // window into video mode.
+    // Fullscreen belongs to the player window, which uses the native control
+    // (green traffic light, or the button in its hover overlay). The main window
+    // has no video-fullscreen mode of its own.
 
     // MARK: - Window Sizing Authority
     //
