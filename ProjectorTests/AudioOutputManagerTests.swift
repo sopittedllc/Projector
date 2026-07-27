@@ -73,10 +73,27 @@ final class AudioOutputManagerTests: XCTestCase {
 
     // MARK: - Lane Routing Tests
 
+    /// Selecting a device does not invent outputs.
+    ///
+    /// An output is a routing decision about a session, not a fact about the
+    /// hardware. Selection once fabricated a stereo pair per channel, which
+    /// filled Settings with entries the user never made - and because those were
+    /// minted with a fresh id each launch and never saved, a lane auto-assigned
+    /// to one stored an id that referred to nothing the next time the app opened.
+    func testSelectingADeviceDoesNotCreateOutputs() {
+        let original = manager.selectedDeviceUID
+        defer { manager.selectedDeviceUID = original }
+
+        manager.selectedDeviceUID = "device-with-no-saved-outputs-\(UUID().uuidString)"
+
+        XCTAssertTrue(
+            manager.mappedOutputs.isEmpty,
+            "A device the user has never configured should have no outputs"
+        )
+    }
+
+    /// Whatever outputs exist address real channels.
     func testMappedOutputsAreValidForCurrentDevice() {
-        // Saved mappings are user preferences and may legitimately be present.
-        // When no mapping is saved, the manager creates valid stereo/mono defaults.
-        XCTAssertFalse(manager.mappedOutputs.isEmpty)
         XCTAssertTrue(manager.mappedOutputs.allSatisfy {
             $0.channelStart >= 0 && $0.channelCount > 0
         })

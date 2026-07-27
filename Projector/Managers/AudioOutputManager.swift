@@ -288,35 +288,21 @@ final class AudioOutputManager: ObservableObject {
         return buffers.reduce(0) { $0 + Int($1.mNumberChannels) }
     }
 
+    /// Load the outputs the user has defined for the selected device.
+    ///
+    /// A device with no saved outputs has **none** - selecting an interface does
+    /// not create any. Outputs are made deliberately, through the guided DX/SFX,
+    /// MX and "add additional" flow in Settings, because an output is a routing
+    /// decision about a session, not a fact about the hardware.
+    ///
+    /// This used to fabricate a stereo pair per channel ("Output 1-2", "Output
+    /// 3-4", ...) on selection, which was wrong twice over: it filled the
+    /// Settings list with entries the user never asked for, and because those
+    /// entries were minted in memory with a fresh `UUID` each launch and never
+    /// saved, lanes auto-assigned to them stored an id that referred to nothing
+    /// the next time the app opened.
     private func loadMappedOutputs() {
-        let saved = settings.mappedOutputs(for: selectedDeviceUID)
-        if !saved.isEmpty {
-            mappedOutputs = saved
-            return
-        }
-
-        // Auto-generate default stereo outputs based on device channel count
-        let channelCount = selectedDevice?.outputChannelCount ?? 2
-        var defaults: [MappedAudioOutput] = []
-
-        // Create stereo pairs (or mono if odd number at end)
-        var channel = 0
-        var outputIndex = 1
-        while channel < channelCount {
-            let remaining = channelCount - channel
-            let count = min(2, remaining)  // Stereo pair or remaining mono
-            let name = count == 2 ? "Output \(outputIndex)-\(outputIndex + 1)" : "Output \(outputIndex)"
-            defaults.append(MappedAudioOutput(
-                id: UUID(),
-                name: name,
-                channelStart: channel,
-                channelCount: count
-            ))
-            channel += count
-            outputIndex += count
-        }
-
-        mappedOutputs = defaults
+        mappedOutputs = settings.mappedOutputs(for: selectedDeviceUID)
     }
 
     private func updateSelectedDeviceChannelCount() {

@@ -549,7 +549,6 @@ final class PlaybackEngine: ObservableObject {
     /// When synced, the playback engine follows external MTC position.
     /// Timeline position is updated via `syncToMTC()` calls from MTC timecode observer.
     func setMTCSynced(_ synced: Bool, controlPlayback: Bool = true) {
-        let wasSync = isMTCSynced
         isMTCSynced = synced
 
         if synced {
@@ -563,8 +562,24 @@ final class PlaybackEngine: ObservableObject {
             transportOverride = false
             isPlaying = true
 
-            // Start video if we have one at current position
-            if !wasSync, let reel = timeline.videoReel(at: currentFrame) {
+            // Start the picture at the current position.
+            //
+            // This is deliberately not guarded on "did we just become synced".
+            // MTC always arrives as freewheeling -> pre-sync -> sync, and the
+            // first two call this with `controlPlayback: false`, which sets
+            // `isMTCSynced` and returns early. By the time the locked `.sync`
+            // arrives the transition has already happened, so a
+            // was-not-synced-before check never fired: the audio started (it has
+            // no such guard) and the picture never did.
+            //
+            // It also has to run for `activeReel`, which `handleTimeUpdate`
+            // requires before it will advance the timeline at all. `syncToMTC`
+            // only assigns it when the reel *changes*, so a reel already loaded
+            // from import left it nil and the clock never moved.
+            //
+            // Written to be idempotent, so repeating it on a later sync event
+            // costs nothing.
+            if let reel = timeline.videoReel(at: currentFrame) {
                 isInGap = false
                 activeReel = reel
 
@@ -573,11 +588,11 @@ final class PlaybackEngine: ObservableObject {
                         do {
                             try await loadReel(reel)
                         } catch {
-                            debugPrint("PlaybackEngine.resume: Failed to load reel '\(reel.sourceURL.lastPathComponent)': \(error)")
+                            debugPrint("PlaybackEngine.setMTCSynced: Failed to load reel '\(reel.sourceURL.lastPathComponent)': \(error)")
                         }
                         seekWithinReel(reel, timelineFrame: currentFrame, resumeAfterSeek: true) {}
                     }
-                } else {
+                } else if currentPlayer?.rate == 0 {
                     currentPlayer?.play()
                 }
             }
@@ -715,6 +730,13 @@ final class PlaybackEngine: ObservableObject {
         }
 
         // Same reel - only seek if MTC jumped discontinuously (user clicked timeline)
+        //
+        // `activeReel` is refreshed here as well as on a reel change: timecode
+        // arrives while the receiver is still freewheeling, before the locked
+        // sync that would otherwise set it, and `handleTimeUpdate` will not
+        // advance the timeline without it.
+        isInGap = false
+        activeReel = targetReel
         currentFrame = targetFrame
         updateCurrentTimecode()
 

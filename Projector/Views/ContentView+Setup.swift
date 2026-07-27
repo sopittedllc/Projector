@@ -59,8 +59,18 @@ extension ContentView {
         // 2. MTC Full Frame messages (locate commands) - seek even when not in sync mode
         // Note: Low throttle (50ms) for responsive locates; syncToMTC uses jump detection
         // to prevent over-seeking during continuous playback
+        //
+        // `removeDuplicates` is load-bearing, not tidiness. The view model
+        // reassigns `mtcTimecode` on every `MIDISyncState` emission, and the
+        // actor keeps emitting long after the DAW stops - signal decay, sync
+        // metrics - so the last timecode is republished indefinitely. Without
+        // this, each republish read as a fresh locate and seeked the player back
+        // to the frame MTC stopped on, roughly twice a second: local playback
+        // could not advance, and the audio was restarted before it could produce
+        // a render time. A locate is a *new* position; a repeat of one is not.
         midiSyncViewModel.$mtcTimecode
             .compactMap { $0 }
+            .removeDuplicates()
             .throttle(for: .milliseconds(50), scheduler: DispatchQueue.main, latest: true)
             .sink { [weak playbackEngine] timecode in
                 guard let engine = playbackEngine else { return }
