@@ -546,6 +546,64 @@ enum OutputRole: Identifiable, Hashable {
     }
 }
 
+// MARK: - Naming a Role in a Filename
+
+extension OutputRole {
+    /// Words in a stem's filename that name this role.
+    ///
+    /// Deliberately abbreviations rather than substrings: matching "dx" anywhere
+    /// in the name would claim `Dxxx_alt.wav` and every `MIXDOWN`, so a word has
+    /// to stand on its own between separators to count.
+    private static let namingWords: [(role: OutputRole, words: Set<String>)] = [
+        (.dialogueEffects, ["dx", "dia", "dial", "dialog", "dialogue", "sfx", "fx", "efx"]),
+        (.music, ["mx", "mus", "music"])
+    ]
+
+    /// The role a filename names, or `nil` if it names none or more than one.
+    ///
+    /// A name that says both - `R1_DX_and_MX.wav` - returns `nil` rather than
+    /// picking the first: guessing wrong routes a stem to the wrong bus, which is
+    /// worse than leaving it for the user to answer.
+    ///
+    /// - Parameter filename: The file's last path component, with or without an
+    ///   extension. The extension is stripped, so `.mx` files do not read as music.
+    /// - Returns: The single role named, or `nil`.
+    static func named(in filename: String) -> OutputRole? {
+        let words = words(in: (filename as NSString).deletingPathExtension)
+        let matched = namingWords.filter { !$0.words.isDisjoint(with: words) }
+        guard matched.count == 1 else { return nil }
+        return matched.first?.role
+    }
+
+    /// Split a filename into the words a person would read in it.
+    ///
+    /// Separators break words, and so does a capital following a lowercase or a
+    /// digit, so `Reel1MX` and `R1_MX` both yield "mx".
+    private static func words(in name: String) -> Set<String> {
+        var words: Set<String> = []
+        var current = ""
+        var previous: Character?
+
+        for character in name {
+            guard character.isLetter || character.isNumber else {
+                if !current.isEmpty { words.insert(current.lowercased()) }
+                current = ""
+                previous = nil
+                continue
+            }
+            if let previous, previous.isLowercase || previous.isNumber, character.isUppercase {
+                if !current.isEmpty { words.insert(current.lowercased()) }
+                current = ""
+            }
+            current.append(character)
+            previous = character
+        }
+        if !current.isEmpty { words.insert(current.lowercased()) }
+
+        return words
+    }
+}
+
 // MARK: - Choose Output Sheet
 
 struct ChooseOutputSheet: View {

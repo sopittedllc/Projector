@@ -17,6 +17,7 @@ struct AudioClipView: View {
     let timelineStartTimecode: String?  // Sprint 5: Timeline start TC for clip
     let onSelect: (SelectionModifiers) -> Void
     let onDoubleClick: () -> Void
+    let onSetTimelineStart: () -> Void
 
     /// Track height for audio clips
     private let trackHeight: CGFloat = TimelineLayout.audioClipHeight
@@ -126,6 +127,12 @@ struct AudioClipView: View {
             Button("Set Timecode Position...") {
                 onDoubleClick()
             }
+
+            Button("Set Timeline Start to Region") {
+                onSetTimelineStart()
+            }
+            // Already the start; the command would do nothing.
+            .disabled(clip.timelineStartFrame == 0)
         }
         // Keep the clip addressable as one timeline item while exposing useful
         // descendants (notably waveform/loading state) to VoiceOver and UI tests.
@@ -317,7 +324,8 @@ private struct WaveformBarsView: Shape {
             isOptimized: true,
             timelineStartTimecode: "01:00:00:00",
             onSelect: { _ in },
-            onDoubleClick: {}
+            onDoubleClick: {},
+            onSetTimelineStart: {}
         )
 
         AudioClipView(
@@ -342,7 +350,8 @@ private struct WaveformBarsView: Shape {
             isOptimized: false,
             timelineStartTimecode: "01:01:40:00",
             onSelect: { _ in },
-            onDoubleClick: {}
+            onDoubleClick: {},
+            onSetTimelineStart: {}
         )
     }
     .padding()

@@ -1211,6 +1211,7 @@ struct MultiTrackTimelineView: View {
                                 onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
                                 onVolumeChange: { volume in timelineManager.setLaneVolume(at: index, volume: volume) },
                                 onOutputMappingChange: { output in timelineManager.setLaneOutputMapping(id: lane.id, mapping: output) },
+                                onOutputNone: { timelineManager.disableLaneOutput(id: lane.id) },
                                 onDropMedia: { urls, frame, isInternal in onDropAudioMedia(index, urls, frame, isInternal) },
                                 onDropMixedMedia: onDropMixedMedia,
                                 onClipSelected: { clipId, modifiers in
@@ -1222,6 +1223,9 @@ struct MultiTrackTimelineView: View {
                                     let tc = Timecode(.frames(clip.timelineStartFrame + timeline.config.startTimecode.frameCount.wholeFrames), at: timeline.config.frameRate, by: .clamping)
                                     timecodeEntryText = tc.stringValue()
                                     showTimecodeEntryDialog = true
+                                },
+                                onClipSetTimelineStart: { clip in
+                                    timelineManager.setTimelineStart(toFrame: clip.timelineStartFrame)
                                 },
                                 onClipMove: { clipId, newFrame in
                                     guard let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == lane.id }),
@@ -1609,6 +1613,7 @@ struct MultiTrackTimelineView: View {
             onOutputMappingChange: { output in
                 timelineManager.setLaneOutputMapping(id: lane.id, mapping: output)
             },
+            onOutputNone: { timelineManager.disableLaneOutput(id: lane.id) },
             // Nothing may be dropped here: this lane is the video file's own
             // audio, one clip per reel, and anything else landing on it would
             // stop it being that.
@@ -1618,6 +1623,9 @@ struct MultiTrackTimelineView: View {
                 handleClipSelection(clipId: clipId, laneId: lane.id, modifiers: modifiers)
             },
             onClipDoubleClick: { _ in },
+            onClipSetTimelineStart: { clip in
+                timelineManager.setTimelineStart(toFrame: clip.timelineStartFrame)
+            },
             onClipMove: { _, _ in },
             onClipDragPreview: { _, _ in },
             onLaneRename: { _ in },

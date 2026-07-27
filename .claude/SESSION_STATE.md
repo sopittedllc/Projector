@@ -1,8 +1,84 @@
 # Session State
 
-> **Last Updated**: 2026-07-26
-> **Status**: IDLE — proportional section sizing landed; builds and tests green
+> **Last Updated**: 2026-07-27
+> **Status**: IDLE — import is now silent; user tested and confirmed; dead sheet code removed
 > **Branch**: codex/repair-sync-core
+
+---
+
+## Current Task
+
+**Task**: Three things, all uncommitted and all built + tested green:
+
+1. **Output matching from file names.** DX/SFX/MX in a filename routes the lane, applied at
+   placement rather than offered in a dialog — the asking step was removed at the user's call as
+   "an unnecessary step". Two choke points (`addAudioToTimeline`, `addVideoToTimeline`) so routing
+   no longer depends on which import path ran or whether a sheet appeared. The three import sheets
+   are back to their original code (zero diff).
+2. **Set Timeline Start to Region** on the region right-click menu.
+3. **None** in the lane output menu — a routing-level silence, distinct from the M button.
+
+**Files modified**:
+- `Views/SettingsView.swift` — `OutputRole.named(in:)` + word splitting
+- `Views/ContentView+Timeline.swift` — `outputNamedByFile`, `applyNamedOutput*`, lane-leak fix
+- `Views/ContentView+Setup.swift` — `-test-drop-urls` hook (see below)
+- `Managers/TimelineManager.swift` — routing off-by-one, `setTimelineStart(toFrame:)`,
+  `disableLaneOutput(id:)`, authority Rule 5
+- `Models/Timeline/AudioLane.swift` — `isOutputDisabled` (+ Codable)
+- `Models/Timeline/Timeline.swift` — `activeAudioClips` skips silenced lanes
+- `Views/Timeline/{AudioClipView,VideoReelClipView,AudioLaneView,VideoTrackView,MultiTrackTimelineView}.swift`
+- `ProjectorTests/TimelineManagerTests.swift` — 15 new tests
+- `FEATURES.md` — three entries
+
+**Runtime evidence** (real drop of a PREV1 reel, 2026-07-27): `_Dx`/`_Fx` → DX/SFX, `_Mx` → MX,
+and the video's own audio lane routed. User then tested the silent-import build end to end and
+confirmed all three features work.
+
+**Then removed as dead**: the three import placement sheets and everything that fed them — see
+"Import Placement Dialogs" under Removed Features in FEATURES.md for the full list, including what
+was deliberately kept (`detectTimecodeFromFilename`, `BatchTimecodeItem`, the video-insert and
+FPS-conflict dialogs).
+
+**Flake to watch**: one full-suite run failed once during the removal and did not reproduce in five
+subsequent runs (3 full + 2 UI-only). Suspected `ProjectorUITests.testWaveformRendersAndSurvivesZoom`,
+which launches the real app. Not diagnosed.
+
+## Test hook in production code
+
+`ContentView+Setup.swift` gained `handleUITestDropIfNeeded()` — `-ui-testing -test-drop-urls
+<paths>` drives the real `handleMixedBatchDrop`. Added because the existing `-ui-testing` harness
+calls `addAudioClipForTesting` directly and never opens the import dialogs, so they could not be
+reached without a mouse. **Caveat: a command-line path grants no security-scoped access**, so BWF
+timecode reads fail and placement behaves differently than a real drag. Use it for reaching UI,
+not for judging import behaviour.
+
+## Also fixed: empty lanes left behind by every drop
+
+`discardLanesCreatedForCancelledDrop()` was misnamed and unreachable on success — the confirm path
+cleared `batchCreatedLaneIds` one line *before* the cleanup that reads it, so it only ever worked
+on cancel. A batch pre-creates one lane per audio file and one per video, and several routinely go
+unused. Renamed `discardEmptyLanesCreatedForDrop()` and reached from all four teardown paths plus
+the no-timecode branch. Only empty lanes are removed.
+
+**Done**: builds clean; full test suite green; name matching verified against 21 cases
+(matches, near-misses, ambiguous).
+**Not done**: app has not been run yet. No commit.
+
+## Fixed alongside it: the routing off-by-one
+
+`TimelineManager.setLaneOutputMapping` set `outputChannelOffset = max(0, mapping.channelStart - 1)`,
+but `channelStart` is already a 0-based buffer offset (`addOrReplaceOutput` stores
+`firstChannelNumber - 1`, `SettingsView.outputChannelLabel` prints `channelStart + 1`) and
+`PlaybackEngine`'s `outputOffset` is 0-based too ("2 for outputs 3-4"). Every output that did not
+start on channel 1 played one channel low - MX on "Out 3-4" reached hardware 2-3. Out 1-2 looked
+right only because `max(0, -1)` clamps to 0. `reconcileOutputMappings` repeated the same `- 1`,
+so it was internally consistent and invisible in review.
+
+Both now pass `channelStart` through unchanged. **The convention: `channelStart`,
+`outputChannelOffset` and `outputOffset` are all 0-based; only the UI adds 1.**
+
+Pinned by four tests in `TimelineManagerTests` ("Audio Routing Tests"), two of which were
+confirmed to fail against the old arithmetic before the fix was restored.
 
 ---
 

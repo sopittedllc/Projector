@@ -144,11 +144,54 @@ extension ContentView {
         }
     }
 
+    /// Import files through the same handler a drop uses, from the command line.
+    ///
+    /// `handleUITestImportIfNeeded` places a clip directly, which is what makes it
+    /// reliable for waveform tests but also means it never opens the import
+    /// dialogs. This enters through `handleMixedBatchDrop`, so the timecode and
+    /// output-routing sheets appear exactly as they would for a user.
+    ///
+    /// It exists because a drag cannot be synthesised into a SwiftUI drop target,
+    /// and drop is the only way those sheets are reached - without this they can
+    /// only ever be tested by hand.
+    ///
+    /// Usage: `-ui-testing -test-drop-urls <path> [<path>...]`
+    func handleUITestDropIfNeeded() {
+        guard !didHandleUITestDrop else { return }
+
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("-ui-testing"),
+              let flagIndex = arguments.firstIndex(of: "-test-drop-urls") else { return }
+
+        // Every path until the next flag, so one argument can carry a whole drop.
+        let paths = arguments[arguments.index(after: flagIndex)...].prefix { !$0.hasPrefix("-") }
+        let urls = paths.map { URL(fileURLWithPath: $0) }
+        guard !urls.isEmpty else { return }
+
+        didHandleUITestDrop = true
+
+        var videoURLs: [URL] = []
+        var audioURLs: [URL] = []
+        for url in urls {
+            switch ProjectMediaLibrary.mediaType(for: url) {
+            case .video: videoURLs.append(url)
+            case .audio: audioURLs.append(url)
+            case nil: debugPrint("handleUITestDropIfNeeded: unsupported file \(url.lastPathComponent)")
+            }
+        }
+
+        debugPrint("handleUITestDropIfNeeded: dropping \(videoURLs.count) video, \(audioURLs.count) audio")
+        handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: 0)
+    }
+
     func handleUITestImportIfNeeded() {
         guard !didHandleUITestImport else { return }
 
         let arguments = ProcessInfo.processInfo.arguments
         guard arguments.contains("-ui-testing") else { return }
+        // A scripted drop is doing the importing; the synthetic clip would only
+        // add a lane the drop then has to work around.
+        guard !arguments.contains("-test-drop-urls") else { return }
         guard let url = uiTestAudioURL(from: arguments) else { return }
 
         didHandleUITestImport = true

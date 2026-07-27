@@ -52,36 +52,11 @@ final class AlertCoordinator: ObservableObject {
         case fpsConflict(message: String, onChangeProjectFPS: () -> Void, onCancel: () -> Void)
 
         // MARK: Sheets
-        case embeddedTimecode(
-            result: EmbeddedTimecodeResult,
-            showSetTimelineStart: Bool,
-            onPlaceAtTimecode: (Bool) -> Void,
-            onPlaceAtDropLocation: () -> Void,
-            onCancel: () -> Void
-        )
         case videoInsert(
             url: Binding<URL?>,
             frameRate: TimecodeFrameRate,
             startTimecode: Timecode,
             onConfirm: (URL, Int) -> Void
-        )
-        case batchTimecode(
-            batch: Binding<PendingBatchTimecode?>,
-            showSetTimelineStart: Bool,
-            onConfirm: (Bool) -> Void,
-            onCancel: () -> Void
-        )
-        case spotMedia(
-            url: URL,
-            filenameTimecode: String?,
-            metadataTimecode: EmbeddedTimecodeResult?,
-            playheadTimecode: String,
-            playheadFrame: Int,
-            frameRate: TimecodeFrameRate,
-            startTimecode: Timecode,
-            showSetTimelineStart: Bool,
-            onSpot: (SpotResult) -> Void,
-            onCancel: () -> Void
         )
         case saveProject(content: AnyView)
         case settings(content: AnyView)
@@ -94,10 +69,7 @@ final class AlertCoordinator: ObservableObject {
             case .duplicateMedia: return "duplicateMedia"
             case .missingFile: return "missingFile"
             case .fpsConflict: return "fpsConflict"
-            case .embeddedTimecode: return "embeddedTimecode"
             case .videoInsert: return "videoInsert"
-            case .batchTimecode: return "batchTimecode"
-            case .spotMedia: return "spotMedia"
             case .saveProject: return "saveProject"
             case .settings: return "settings"
             }
@@ -157,8 +129,7 @@ private struct AlertCoordinatorModifier: ViewModifier {
                     case .error, .videoAlreadyInTimeline, .audioAlreadyInTimeline,
                          .duplicateMedia, .missingFile, .fpsConflict:
                         return alert  // These are alerts
-                    case .embeddedTimecode, .videoInsert, .batchTimecode,
-                         .spotMedia, .saveProject, .settings:
+                    case .videoInsert, .saveProject, .settings:
                         return nil    // These are sheets, don't show as alerts
                     }
                 },
@@ -221,7 +192,7 @@ private struct AlertCoordinatorModifier: ViewModifier {
                     // Only return sheet-type alerts (excluding settings, which is handled by ContentView)
                     guard let alert = coordinator.activeAlert else { return nil }
                     switch alert {
-                    case .embeddedTimecode, .videoInsert, .batchTimecode, .spotMedia, .saveProject:
+                    case .videoInsert, .saveProject:
                         return alert
                     case .settings:
                         // Settings sheet is handled separately by ContentView
@@ -239,44 +210,12 @@ private struct AlertCoordinatorModifier: ViewModifier {
     @ViewBuilder
     private func sheetContent(for alert: AlertCoordinator.AlertType) -> some View {
         switch alert {
-        case .embeddedTimecode(let result, let showSetTimelineStart, let onPlaceAtTimecode, let onPlaceAtDropLocation, let onCancel):
-            EmbeddedTimecodeSheetView(
-                formattedTimecode: result.formattedTimecode,
-                sourceDescription: result.source.rawValue,
-                showSetTimelineStartOption: showSetTimelineStart,
-                onPlaceAtTimecode: onPlaceAtTimecode,
-                onPlaceAtDropLocation: onPlaceAtDropLocation,
-                onCancel: onCancel
-            )
-
         case .videoInsert(let url, let frameRate, let startTimecode, let onConfirm):
             VideoInsertSheetView(
                 url: url,
                 frameRate: frameRate,
                 startTimecode: startTimecode,
                 onConfirm: onConfirm
-            )
-
-        case .batchTimecode(let batch, let showSetTimelineStart, let onConfirm, let onCancel):
-            BatchTimecodeSheetView(
-                batch: batch,
-                showSetTimelineStartOption: showSetTimelineStart,
-                onConfirm: onConfirm,
-                onCancel: onCancel
-            )
-
-        case .spotMedia(let url, let filenameTimecode, let metadataTimecode, let playheadTimecode, let playheadFrame, let frameRate, let startTimecode, let showSetTimelineStart, let onSpot, let onCancel):
-            SpotMediaSheet(
-                url: url,
-                filenameTimecode: filenameTimecode,
-                metadataTimecode: metadataTimecode,
-                playheadTimecode: playheadTimecode,
-                playheadFrame: playheadFrame,
-                frameRate: frameRate,
-                startTimecode: startTimecode,
-                showSetTimelineStartOption: showSetTimelineStart,
-                onSpot: onSpot,
-                onCancel: onCancel
             )
 
         case .saveProject(let content):

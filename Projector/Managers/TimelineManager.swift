@@ -173,6 +173,37 @@ final class TimelineManager: ObservableObject {
         }
     }
 
+    /// Move the timeline's start to a frame currently on the timeline.
+    ///
+    /// Used by "Set Timeline Start to Region": the region's own timecode becomes
+    /// the timeline's start, which is how a reel delivered at 01:00:00:00 is made
+    /// to begin where the picture does.
+    ///
+    /// Content keeps its absolute timecode, so everything shifts back by the same
+    /// amount and the region lands on frame 0 - `updateConfig` performs that
+    /// shift. The end timecode moves with the start, so the timeline's duration
+    /// is unchanged rather than being silently shortened by the difference.
+    ///
+    /// - Parameter frame: A frame relative to the current start. Frame 0 is a
+    ///   no-op, since the timeline already starts there.
+    func setTimelineStart(toFrame frame: Int) {
+        guard frame != 0 else { return }
+
+        var config = timeline.config
+        // Read before mutating: `durationFrames` is derived from both ends, so
+        // reading it after moving the start would give the wrong span.
+        let durationFrames = config.durationFrames
+        let newStartFrames = config.startTimecode.frameCount.wholeFrames + frame
+
+        config.startTimecode = Timecode(.frames(newStartFrames), at: config.frameRate, by: .clamping)
+        config.endTimecode = Timecode(
+            .frames(newStartFrames + durationFrames),
+            at: config.frameRate,
+            by: .clamping
+        )
+        updateConfig(config)
+    }
+
     /// Set the frame rate for the timeline
     func setFrameRate(_ frameRate: TimecodeFrameRate) {
         var config = timeline.config
@@ -461,16 +492,40 @@ final class TimelineManager: ObservableObject {
     }
 
     /// Set lane output mapping (nil = default)
+    ///
+    /// `MappedAudioOutput.channelStart`, `AudioLane.outputChannelOffset` and the
+    /// engine's `outputOffset` are all 0-based indices into the device's output
+    /// buffer, so the mapping's channel carries across unchanged. Only the UI
+    /// converts, printing `channelStart + 1` for the 1-based numbers on the
+    /// hardware. Subtracting here sent every output that does not start on
+    /// channel 1 a channel low - MX on "Out 3-4" reached hardware 2-3.
     func setLaneOutputMapping(id: UUID, mapping: MappedAudioOutput?) {
         if var lane = timeline.audioLanes.first(where: { $0.id == id }) {
             lane.outputMappingId = mapping?.id
+            // Choosing a destination undoes None.
+            lane.isOutputDisabled = false
             if let mapping = mapping {
-                lane.outputChannelOffset = max(0, mapping.channelStart - 1)
+                lane.outputChannelOffset = max(0, mapping.channelStart)
                 lane.outputChannelCount = max(1, mapping.channelCount)
             } else {
                 lane.outputChannelOffset = 0
                 lane.outputChannelCount = 2
             }
+            timeline.updateAudioLane(lane)
+        }
+    }
+
+    /// Route a lane to nothing, silencing it.
+    ///
+    /// The lane keeps its clips, its volume and its mute state - only its
+    /// destination is removed. Choosing any output through
+    /// ``setLaneOutputMapping(id:mapping:)`` restores it.
+    ///
+    /// - Parameter id: The lane to silence.
+    func disableLaneOutput(id: UUID) {
+        if var lane = timeline.audioLanes.first(where: { $0.id == id }) {
+            lane.isOutputDisabled = true
+            lane.outputMappingId = nil
             timeline.updateAudioLane(lane)
         }
     }
@@ -856,6 +911,10 @@ final class TimelineManager: ObservableObject {
 //
 //  4. OTHERWISE CLEAR IT. An unresolvable mapping shows as "Output" rather than
 //     silently routing audio somewhere the user did not choose.
+//
+//  5. NONE IS LEFT ALONE. A lane the user routed to None is not an unassigned
+//     lane waiting to be filled in - it is silent on purpose, and no rule above
+//     applies to it.
 
 extension TimelineManager {
     /// Re-bind lanes after the set of configured outputs changes.
@@ -866,12 +925,19 @@ extension TimelineManager {
         let byId = Dictionary(uniqueKeysWithValues: outputs.map { ($0.id, $0) })
 
         for lane in timeline.audioLanes {
+            // Rule 5: None is a choice, not an absence. Re-binding by channel
+            // would otherwise adopt whichever output sits on the channels the
+            // lane happened to keep, quietly un-silencing it.
+            if lane.isOutputDisabled { continue }
+
             // Rule 2.
             if let id = lane.outputMappingId, byId[id] != nil { continue }
 
-            // Rule 3: same channels, new identity.
+            // Rule 3: same channels, new identity. Compared the same way
+            // `setLaneOutputMapping` assigns, so a lane re-binds to the output it
+            // is actually playing out of.
             let match = outputs.first {
-                max(0, $0.channelStart - 1) == lane.outputChannelOffset
+                max(0, $0.channelStart) == lane.outputChannelOffset
                     && max(1, $0.channelCount) == lane.outputChannelCount
             }
 

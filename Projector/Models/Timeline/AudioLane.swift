@@ -32,6 +32,15 @@ public struct AudioLane: Identifiable, Codable, Equatable, Sendable {
     /// Mapped output selection ID
     public var outputMappingId: UUID?
 
+    /// Whether the lane is routed to no output at all.
+    ///
+    /// Distinct from `outputMappingId == nil`, which means "not yet assigned" and
+    /// falls back to the first pair - this means the user chose **None**, and the
+    /// lane is silent until they choose otherwise. Kept apart from `isMuted` so
+    /// the two controls do not fight: mute is a transport state the M button
+    /// toggles, this is where the lane's audio goes.
+    public var isOutputDisabled: Bool
+
     /// Color index for visual distinction
     public var colorIndex: Int
 
@@ -46,6 +55,7 @@ public struct AudioLane: Identifiable, Codable, Equatable, Sendable {
         outputChannelCount: Int = 2,
         outputDeviceUID: String? = nil,
         outputMappingId: UUID? = nil,
+        isOutputDisabled: Bool = false,
         colorIndex: Int = 0
     ) {
         self.id = id
@@ -58,6 +68,7 @@ public struct AudioLane: Identifiable, Codable, Equatable, Sendable {
         self.outputChannelCount = outputChannelCount
         self.outputDeviceUID = outputDeviceUID
         self.outputMappingId = outputMappingId
+        self.isOutputDisabled = isOutputDisabled
         self.colorIndex = colorIndex
     }
 
@@ -123,6 +134,7 @@ extension AudioLane {
         case outputChannelCount
         case outputDeviceUID
         case outputMappingId
+        case isOutputDisabled
         case colorIndex
     }
 
@@ -138,6 +150,8 @@ extension AudioLane {
         outputChannelCount = try container.decodeIfPresent(Int.self, forKey: .outputChannelCount) ?? 2
         outputDeviceUID = try container.decodeIfPresent(String.self, forKey: .outputDeviceUID)
         outputMappingId = try container.decodeIfPresent(UUID.self, forKey: .outputMappingId)
+        // Absent in projects saved before None existed, which routed everywhere.
+        isOutputDisabled = try container.decodeIfPresent(Bool.self, forKey: .isOutputDisabled) ?? false
         colorIndex = try container.decode(Int.self, forKey: .colorIndex)
     }
 
@@ -153,6 +167,7 @@ extension AudioLane {
         try container.encode(outputChannelCount, forKey: .outputChannelCount)
         try container.encodeIfPresent(outputDeviceUID, forKey: .outputDeviceUID)
         try container.encodeIfPresent(outputMappingId, forKey: .outputMappingId)
+        try container.encode(isOutputDisabled, forKey: .isOutputDisabled)
         try container.encode(colorIndex, forKey: .colorIndex)
     }
 }

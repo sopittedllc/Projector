@@ -68,8 +68,6 @@
 		B19B58BF2F088BFF00FA33EC /* TimelineViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */; };
 		B19B58C12F088CFF00FA33EC /* VitalControlsBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58C02F088CFF00FA33EC /* VitalControlsBar.swift */; };
 		BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */; };
-		BTCS0001BATCHSHEET01 /* BatchTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */; };
-		SPOT0001SPOTMEDIA01 /* SpotMediaSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPOT0002SPOTMEDIA02 /* SpotMediaSheet.swift */; };
 		ONBOARD01ONBOARD01 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ONBOARD02ONBOARD02 /* OnboardingView.swift */; };
 		C1CONSOLID0001 /* ConsolidateMediaButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1CONSOLID0002 /* ConsolidateMediaButton.swift */; };
 		C1CONSOLID0003 /* ConsolidationSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1CONSOLID0004 /* ConsolidationSheetView.swift */; };
@@ -99,7 +97,6 @@
 		C1WAVEFORM000005 /* DSWaveformImage in Frameworks */ = {isa = PBXBuildFile; productRef = C1WAVEFORM000004 /* DSWaveformImage */; };
 		CBA9B198D87A4901A984348F /* OptimizationSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF52682FA9954FFD8CCAD64E /* OptimizationSheetView.swift */; };
 		OPTSUGG01SUGGESTION01 /* OptimizationSuggestionBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = OPTSUGG02SUGGESTION02 /* OptimizationSuggestionBanner.swift */; };
-		ETCS0001EMBEDDEDSHEET01 /* EmbeddedTimecodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */; };
 		F587047D294B4B08BD7B94B1 /* OptimizationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE90E852077C43F9AE6F40DF /* OptimizationViewModel.swift */; };
 		FILEHANDL002CONTENTVIEW /* ContentView+FileHandling.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEHANDL001CONTENTVIEW /* ContentView+FileHandling.swift */; };
 		FSVV0001FULLSCREENVIDEO01 /* FullScreenVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */; };
@@ -216,8 +213,6 @@
 		B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncActor.swift; sourceTree = "<group>"; };
 		B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineViewModel.swift; sourceTree = "<group>"; };
 		B19B58C02F088CFF00FA33EC /* VitalControlsBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalControlsBar.swift; sourceTree = "<group>"; };
-		BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTimecodeSheetView.swift; sourceTree = "<group>"; };
-		SPOT0002SPOTMEDIA02 /* SpotMediaSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotMediaSheet.swift; sourceTree = "<group>"; };
 		ONBOARD02ONBOARD02 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		C1CONSOLID0002 /* ConsolidateMediaButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidateMediaButton.swift; sourceTree = "<group>"; };
 		C1CONSOLID0004 /* ConsolidationSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidationSheetView.swift; sourceTree = "<group>"; };
@@ -248,7 +243,6 @@
 		OPTSUGG02SUGGESTION02 /* OptimizationSuggestionBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizationSuggestionBanner.swift; sourceTree = "<group>"; };
 		D2403C06D2294027B9140EB4 /* MediaOptimizationServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaOptimizationServiceProtocol.swift; sourceTree = "<group>"; };
 		DE90E852077C43F9AE6F40DF /* OptimizationViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizationViewModel.swift; sourceTree = "<group>"; };
-		ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeSheetView.swift; sourceTree = "<group>"; };
 		F1CB65275AFE49C6AFD24B05 /* MediaOptimizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaOptimizationService.swift; sourceTree = "<group>"; };
 		F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeServiceProtocol.swift; sourceTree = "<group>"; };
 		FD5C2B42215FEBC92028DAE5 /* WaveformCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformCacheTests.swift; sourceTree = "<group>"; };
@@ -448,9 +442,6 @@
 				56A60EE069664A32A9209AF1 /* AccordionResizeHandle.swift */,
 				SAVE0002PROJECTSHEET02 /* SaveProjectSheet.swift */,
 				VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */,
-				ETCS0002EMBEDDEDSHEET02 /* EmbeddedTimecodeSheetView.swift */,
-				BTCS0002BATCHSHEET02 /* BatchTimecodeSheetView.swift */,
-				SPOT0002SPOTMEDIA02 /* SpotMediaSheet.swift */,
 				ONBOARD02ONBOARD02 /* OnboardingView.swift */,
 				VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */,
 				FSVV0002FULLSCREENVIDEO02 /* FullScreenVideoView.swift */,
@@ -851,9 +842,6 @@
 				33E7262DBE394E3DA53FDE54 /* AccordionResizeHandle.swift in Sources */,
 				SAVE0001PROJECTSHEET01 /* SaveProjectSheet.swift in Sources */,
 				VINS0001VIDEOINSERT01 /* VideoInsertSheetView.swift in Sources */,
-				ETCS0001EMBEDDEDSHEET01 /* EmbeddedTimecodeSheetView.swift in Sources */,
-				BTCS0001BATCHSHEET01 /* BatchTimecodeSheetView.swift in Sources */,
-				SPOT0001SPOTMEDIA01 /* SpotMediaSheet.swift in Sources */,
 				ONBOARD01ONBOARD01 /* OnboardingView.swift in Sources */,
 				VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */,
 				FSVV0001FULLSCREENVIDEO01 /* FullScreenVideoView.swift in Sources */,

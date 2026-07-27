@@ -30,6 +30,7 @@ struct VideoReelClipView: View {
     let timelineStartTimecode: String?  // Sprint 5: Timeline start TC for clip
     let onSelect: (SelectionModifiers) -> Void
     let onDoubleClick: () -> Void
+    let onSetTimelineStart: () -> Void
 
     /// Clip height (fits within 50px track with padding)
     private let clipHeight: CGFloat = TimelineLayout.videoClipHeight
@@ -150,6 +151,12 @@ struct VideoReelClipView: View {
             Button("Set Timecode Position...") {
                 onDoubleClick()
             }
+
+            Button("Set Timeline Start to Region") {
+                onSetTimelineStart()
+            }
+            // Already the start; the command would do nothing.
+            .disabled(reel.timelineStartFrame == 0)
         }
     }
 
@@ -245,7 +252,8 @@ struct VideoReelClipView: View {
             isOptimized: true,
             timelineStartTimecode: "01:00:00:00",
             onSelect: { _ in },
-            onDoubleClick: {}
+            onDoubleClick: {},
+            onSetTimelineStart: {}
         )
 
         VideoReelClipView(
@@ -265,7 +273,8 @@ struct VideoReelClipView: View {
             isOptimized: false,
             timelineStartTimecode: "01:02:00:00",
             onSelect: { _ in },
-            onDoubleClick: {}
+            onDoubleClick: {},
+            onSetTimelineStart: {}
         )
     }
     .padding()

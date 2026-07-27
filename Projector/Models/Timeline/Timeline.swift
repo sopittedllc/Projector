@@ -96,6 +96,10 @@ struct Timeline: Codable, Equatable, Sendable {
 
         for lane in lanesToCheck {
             if lane.isMuted { continue }
+            // Routed to None: there is nowhere for this lane's audio to go, so
+            // it is silent. Enforced here rather than in the engine because this
+            // is the one place that decides what sounds.
+            if lane.isOutputDisabled { continue }
 
             for clip in lane.activeClips(at: frame) {
                 if !clip.isMuted {

@@ -119,6 +119,7 @@ struct ContentView: View {
     @StateObject var thumbnailCache = ThumbnailCache()
     @State var showFileManager = true
     @State var didHandleUITestImport = false
+    @State var didHandleUITestDrop = false
     @State var uiTestImportState: String? = "boot"
 
     /// Fraction of the window's flexible height given to the top row.
@@ -162,16 +163,6 @@ struct ContentView: View {
     @State var videoAlreadyInTimelineName: String = ""
     @State var audioAlreadyInTimelineName: String = ""
 
-    // Embedded timecode detection state (internal for ContentView+Timeline.swift extension)
-    @State var pendingTimecodeResult: EmbeddedTimecodeResult?
-    @State var pendingTimecodeURL: URL?
-    @State var pendingTimecodeDropFrame: Int?
-    @State var pendingTimecodeIsVideo = true
-    @State var pendingTimecodeLaneId: UUID?
-
-    // Batch timecode detection state (for multiple file drops)
-    @State var pendingBatchTimecode: PendingBatchTimecode?
-
     /// Audio lanes reserved for files in an in-flight batch drop.
     ///
     /// Empty lanes look available to anything scanning for a free lane, so a
@@ -179,35 +170,20 @@ struct ContentView: View {
     /// one of the batch's audio files. Cleared once the batch is placed.
     @State var reservedAudioLaneIds: Set<UUID> = []
 
-    /// Lanes created by an in-flight batch drop, so they can be removed again if
-    /// the user cancels the confirmation sheet.
+    /// Lanes created by an in-flight drop, so the ones nothing landed on can be
+    /// removed again once it finishes.
     @State var batchCreatedLaneIds: Set<UUID> = []
-
-    // Spot media sheet state (for single file drops with enhanced placement options)
-    @State var pendingSpotURL: URL?
-    @State var pendingSpotFilenameTC: String?
-    @State var pendingSpotMetadataTC: EmbeddedTimecodeResult?
-    @State var pendingSpotDropFrame: Int = 0
-    @State var pendingSpotIsVideo: Bool = true
-    @State var pendingSpotLaneId: UUID?
-
-    /// User's remembered spot placement choice for the session (nil = ask each time)
-    @State var rememberedSpotChoice: SpotPlacementOption?
 
     /// Flag to prevent concurrent timecode detection from multiple drop events
     @State var isProcessingTimecodeDetection = false
 
-    /// Whether timecode detection is actively scanning files, as opposed to
-    /// waiting on the user in one of the placement sheets.
+    /// Whether an import is scanning files, for the loading overlay.
     ///
-    /// `isProcessingTimecodeDetection` stays true for the whole drop flow -
-    /// including while a sheet is up - so it can't drive the loading overlay on
-    /// its own without dimming the sheet the user is trying to read.
+    /// Once the same thing as `isProcessingTimecodeDetection` minus the time a
+    /// placement sheet was up. Import asks nothing now, so there is no waiting to
+    /// subtract and the two are the same value.
     var isDetectingTimecode: Bool {
         isProcessingTimecodeDetection
-            && !isShowingBatchTimecodeSheet
-            && !isShowingEmbeddedTimecodeAlert
-            && !isShowingSpotMediaSheet
     }
 
     /// Service for detecting embedded timecode from media files
@@ -267,6 +243,7 @@ struct ContentView: View {
 
             restoreSettings()
             handleUITestImportIfNeeded()
+            handleUITestDropIfNeeded()
             setupPersistenceServiceCallbacks()
             setupMediaImportCoordinatorCallbacks()
 
@@ -456,7 +433,8 @@ struct ContentView: View {
             guard !outputs.isEmpty else { return }
             let lanes = timelineManager.timeline.audioLanes
             var didAssign = false
-            for (index, lane) in lanes.enumerated() where lane.outputMappingId == nil {
+            for (index, lane) in lanes.enumerated()
+            where lane.outputMappingId == nil && !lane.isOutputDisabled {
                 let output = outputs[min(index, outputs.count - 1)]
                 timelineManager.setLaneOutputMapping(id: lane.id, mapping: output)
                 didAssign = true

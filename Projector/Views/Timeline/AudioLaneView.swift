@@ -25,6 +25,9 @@ struct AudioLaneView: View {
     let onSoloToggle: () -> Void
     let onVolumeChange: (Float) -> Void
     let onOutputMappingChange: (MappedAudioOutput?) -> Void
+
+    /// Route the lane to nothing, silencing it.
+    let onOutputNone: () -> Void
     let onDropMedia: ([URL], Int, Bool) -> Void
     /// Called when a drop contains BOTH video and audio files.
     ///
@@ -35,6 +38,7 @@ struct AudioLaneView: View {
     var onDropMixedMedia: (([URL], [URL], Int) -> Void)?
     let onClipSelected: (UUID?, SelectionModifiers) -> Void
     let onClipDoubleClick: (AudioClip) -> Void
+    let onClipSetTimelineStart: (AudioClip) -> Void
     let onClipMove: (UUID, Int) -> Void
     let onClipDragPreview: (AudioClip, Int?) -> Void
     let onLaneRename: (String) -> Void
@@ -201,7 +205,8 @@ struct AudioLaneView: View {
                     availableAudioOutputs: availableAudioOutputs,
                     onMuteToggle: onMuteToggle,
                     onSoloToggle: onSoloToggle,
-                    onOutputMappingChange: onOutputMappingChange
+                    onOutputMappingChange: onOutputMappingChange,
+                    onOutputNone: onOutputNone
                 )
             }
             .frame(maxWidth: .infinity)
@@ -257,7 +262,9 @@ struct AudioLaneView: View {
     /// Get display name for current output device
 
     private func applyDefaultMappingIfNeeded() {
-        guard lane.outputMappingId == nil,
+        // A lane routed to None has an answer already - it is just not an output.
+        guard !lane.isOutputDisabled,
+              lane.outputMappingId == nil,
               !availableAudioOutputs.isEmpty else { return }
         let index = min(laneIndex, max(0, availableAudioOutputs.count - 1))
         onOutputMappingChange(availableAudioOutputs[index])
@@ -389,6 +396,9 @@ struct AudioLaneView: View {
                 },
                 onDoubleClick: {
                     onClipDoubleClick(clip)
+                },
+                onSetTimelineStart: {
+                    onClipSetTimelineStart(clip)
                 }
             )
             .offset(x: clipOffset(for: clip))
@@ -1103,9 +1113,11 @@ private final class AudioLaneDragCaptureNSView: NSView {
                 onSoloToggle: {},
                 onVolumeChange: { _ in },
                 onOutputMappingChange: { _ in },
+                onOutputNone: {},
                 onDropMedia: { _, _, _ in },
                 onClipSelected: { _, _ in },
                 onClipDoubleClick: { _ in },
+                onClipSetTimelineStart: { _ in },
                 onClipMove: { _, _ in },
                 onClipDragPreview: { _, _ in },
                 onLaneRename: { _ in },
@@ -1136,6 +1148,9 @@ struct AudioLaneControls: View {
     let onMuteToggle: () -> Void
     let onSoloToggle: () -> Void
     let onOutputMappingChange: (MappedAudioOutput?) -> Void
+
+    /// Route the lane to nothing, silencing it.
+    let onOutputNone: () -> Void
 
     var body: some View {
         VStack(spacing: Spacing.xs) {
@@ -1205,13 +1220,28 @@ struct AudioLaneControls: View {
 
     private var outputPicker: some View {
         Menu {
+            // Silences the lane without touching its clips, volume or M state.
+            Button {
+                onOutputNone()
+            } label: {
+                HStack {
+                    Text("None")
+                    if lane.isOutputDisabled {
+                        Spacer()
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+
+            Divider()
+
             ForEach(availableAudioOutputs) { output in
                 Button {
                     onOutputMappingChange(output)
                 } label: {
                     HStack {
                         Text(output.name)
-                        if lane.outputMappingId == output.id {
+                        if !lane.isOutputDisabled && lane.outputMappingId == output.id {
                             Spacer()
                             Image(systemName: "checkmark")
                         }
@@ -1220,7 +1250,7 @@ struct AudioLaneControls: View {
             }
         } label: {
             HStack(spacing: Spacing.xs) {
-                Text(availableAudioOutputs.first { $0.id == lane.outputMappingId }?.name ?? "Output")
+                Text(outputPickerLabel)
                     .font(Typography.captionSmall)
                     .lineLimit(1)
                 Image(systemName: "chevron.up.chevron.down")
@@ -1231,11 +1261,18 @@ struct AudioLaneControls: View {
             .padding(.vertical, Spacing.xs)
             .background(
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.accentColor.opacity(0.8))
+                    // Unfilled when routed nowhere, so a silent lane reads as
+                    // silent across the stack rather than looking like the rest.
+                    .fill(lane.isOutputDisabled ? AppColors.surfaceMedium : Color.accentColor.opacity(0.8))
             )
         }
         .buttonStyle(.plain)
-        .disabled(availableAudioOutputs.isEmpty)
-        .help("Audio output routing")
+        .help(lane.isOutputDisabled ? "Routed to no output - this lane is silent" : "Audio output routing")
+    }
+
+    /// What the button reads: the chosen output, "None", or the unassigned state.
+    private var outputPickerLabel: String {
+        if lane.isOutputDisabled { return "None" }
+        return availableAudioOutputs.first { $0.id == lane.outputMappingId }?.name ?? "Output"
     }
 }

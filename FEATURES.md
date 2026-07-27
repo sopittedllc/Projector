@@ -223,7 +223,136 @@ Per-lane audio output routing with multi-channel support (up to 6 channels). Use
 
 #### Dependencies
 - Depends on: AVFoundation, AudioToolbox
-- Depended by: Multi-Track Timeline
+- Depended by: Multi-Track Timeline, Output Matching from File Names
+
+---
+
+### Output Matching from File Names
+
+**Status**: Active
+**Added**: 2026-07-27
+
+#### Description
+On import, a file whose name says DX, SFX or MX is routed to the mapped output
+filling that role. Applied at placement, not offered in a dialog: the name already
+says where the stem goes, so asking permission was a question with one sensible
+answer - and routing that depended on a sheet appearing meant a drop with no
+timecode was never routed at all. The lane's own output menu is the override.
+
+Matching is word-based, not substring: a word must stand alone between separators
+(or at a capital following a lowercase/digit) to count, so `MIXDOWN` and
+`Dxxx_alt` do not match. A name saying both roles matches neither.
+
+Video is included - a video carries its own audio track onto a lane, and that lane
+is routed the same way, found by the extracted clip (which keeps the video's URL
+as its source) rather than `Timeline.videoAudioLane`, which returns only the first
+such lane and cannot tell two videos apart in one batch.
+
+Only the first clip on a lane sets its routing; a later drop onto an established
+lane leaves that lane's output alone.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| View | `Views/SettingsView.swift` | `OutputRole.named(in:)` - name to role matching |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `ContentView+Timeline.swift` | `placementFrame(...)` | The one placement rule, all paths |
+| `ContentView+Timeline.swift` | `outputNamedByFile(_:)` | Name to mapped-output lookup |
+| `ContentView+Timeline.swift` | `applyNamedOutput(for:laneId:)` | Applied inside `addAudioToTimeline` |
+| `ContentView+Timeline.swift` | `applyNamedOutputToVideoAudio(for:)` | Applied inside `addVideoToTimeline` |
+
+#### Dependencies
+- Depends on: Audio Routing (`MappedAudioOutput`, `OutputRole`)
+- Depended by: none
+
+#### Removal Checklist
+- [ ] Remove `OutputRole` "Naming a Role in a Filename" extension from `SettingsView.swift`
+- [ ] Remove the three helpers and their two call sites in `ContentView+Timeline.swift`
+
+---
+
+### Set Timeline Start to Region
+
+**Status**: Active
+**Added**: 2026-07-27
+
+#### Description
+Right-clicking any region - audio clip, video reel, or the video's linked audio -
+offers "Set Timeline Start to Region", making that region's timecode the
+timeline's start. Content keeps its absolute timecode, so everything shifts back
+together and the region lands on frame 0. The end moves with the start, so the
+timeline's duration is unchanged. Disabled for a region already at the start.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Manager | `Managers/TimelineManager.swift` | `setTimelineStart(toFrame:)` |
+| View | `Views/Timeline/AudioClipView.swift` | Menu item, `onSetTimelineStart` |
+| View | `Views/Timeline/VideoReelClipView.swift` | Menu item, `onSetTimelineStart` |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `AudioLaneView.swift` | `onClipSetTimelineStart` | Threads the callback to clips |
+| `MultiTrackTimelineView.swift` | Lane list + `linkedAudioStrip` | Calls the manager |
+| `VideoTrackView.swift` | Reel clip | Calls the manager directly |
+
+#### Dependencies
+- Depends on: Multi-Track Timeline
+- Depended by: none
+
+---
+
+### No Output ("None") on a Lane
+
+**Status**: Active
+**Added**: 2026-07-27
+
+#### Description
+The lane output menu offers **None**, which routes the lane nowhere and silences
+it - a binary mute that lives with the routing rather than the transport. Kept
+distinct from `isMuted` so the two controls do not fight: M is a transport state,
+None is where the lane's audio goes. The picker draws unfilled when set to None.
+
+Enforced in `Timeline.activeAudioClips(at:)`, the one place that decides what
+sounds, so no engine path can bypass it. Rule 5 of the routing authority keeps the
+three auto-assigners from quietly undoing it.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Model | `Models/Timeline/AudioLane.swift` | `isOutputDisabled` (+ Codable, defaults false) |
+| Model | `Models/Timeline/Timeline.swift` | `activeAudioClips(at:)` skips silenced lanes |
+| Manager | `Managers/TimelineManager.swift` | `disableLaneOutput(id:)`, routing authority Rule 5 |
+| View | `Views/Timeline/AudioLaneView.swift` | None entry, `outputPickerLabel`, `onOutputNone` |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `TimelineManager.swift` | `setLaneOutputMapping` | Choosing an output clears the flag |
+| `TimelineManager.swift` | `reconcileOutputMappings` | Skips silenced lanes (Rule 5) |
+| `AudioLaneView.swift` | `applyDefaultMappingIfNeeded` | Skips silenced lanes |
+| `ContentView.swift` | `onChange(of: mappedOutputs)` | Skips silenced lanes |
+| `VideoTrackView.swift` | `AudioLaneControls` | None for the video's audio lane |
+
+#### Dependencies
+- Depends on: Audio Routing, Multi-Track Timeline
+- Depended by: none
+
+#### Removal Checklist
+- [ ] Remove `isOutputDisabled` from `AudioLane` (property, init, CodingKeys, coder)
+- [ ] Remove the skip in `Timeline.activeAudioClips(at:)`
+- [ ] Remove `disableLaneOutput(id:)` and Rule 5; revert the three auto-assigner guards
+- [ ] Remove the None entry and `onOutputNone` from the lane picker and its call sites
 
 ---
 
@@ -450,6 +579,48 @@ fullscreen DAW.
 ---
 
 ## Removed Features
+
+### Import Placement Dialogs
+
+**Status**: Removed
+**Added**: various (Spot Media 2026-03, batch/embedded timecode earlier)
+**Removed**: 2026-07-27
+
+#### Description
+Three sheets used to ask where a dropped file should go: `SpotMediaSheet` (single
+video: filename / metadata / manual / playhead), `EmbeddedTimecodeSheetView`
+(single audio with timecode) and `BatchTimecodeSheetView` (multi-file, with a
+per-file "Use TC" column).
+
+Removed because import can answer the question itself: a file goes to its own
+timecode, and both the position and the routing are changeable afterwards from
+the region's right-click menu and the lane's output dropdown. Asking first was a
+step with one sensible answer.
+
+#### What was removed
+- `Views/SpotMediaSheet.swift`, `Views/BatchTimecodeSheetView.swift`,
+  `Views/EmbeddedTimecodeSheetView.swift` (+ their pbxproj entries)
+- `AlertCoordinator` cases `.embeddedTimecode`, `.batchTimecode`, `.spotMedia`
+- `ContentView` state: `pendingTimecode*`, `pendingBatchTimecode`, `pendingSpot*`,
+  `rememberedSpotChoice`
+- `ContentView+Timeline`: the three `show*ViaCoordinator`, `handleTimecodeChoice`,
+  `handleBatchTimecodeConfirm`, `handleSpotResult`, `handleRememberedSpotChoice`,
+  the three `clearPending*`, `addAudioFilesSequentially`, and the `isShowing*`
+  helpers for those sheets
+- `PendingBatchTimecode`, and `BatchTimecodeItem.useEmbeddedTimecode`
+
+#### What was kept
+- `detectTimecodeFromFilename` - moved from `SpotMediaSheet.swift` to
+  `ContentView+Timeline.swift`, still used for filename timecode
+- `BatchTimecodeItem` and `detectTimecodeForBatch`, now carrying detection results
+  only, with no user choice attached
+- The video insert and FPS conflict dialogs, which are not import placement
+
+#### Replaced by
+`placementFrame(metadata:filenameTimecode:dropFrame:)` in `ContentView+Timeline`,
+the single rule every import path uses.
+
+---
 
 ### Floating Video Panel (pop-out / pop-back)
 

@@ -99,7 +99,8 @@ struct VideoTrackView: View {
                             onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
                             onOutputMappingChange: { output in
                                 timelineManager.setLaneOutputMapping(id: linked.id, mapping: output)
-                            }
+                            },
+                            onOutputNone: { timelineManager.disableLaneOutput(id: linked.id) }
                         )
                     }
                 } else {
@@ -331,6 +332,9 @@ struct VideoTrackView: View {
                 },
                 onDoubleClick: {
                     onReelDoubleClick(reel)
+                },
+                onSetTimelineStart: {
+                    timelineManager.setTimelineStart(toFrame: reel.timelineStartFrame)
                 }
             )
             .offset(x: reelOffset(for: reel))

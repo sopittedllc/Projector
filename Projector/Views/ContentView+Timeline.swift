@@ -4,56 +4,24 @@ import SwiftTimecodeCore
 
 // MARK: - Timeline Operations
 extension ContentView {
-    // MARK: - Alert State Helpers
-
-    /// Whether the batch timecode sheet is currently showing
-    var isShowingBatchTimecodeSheet: Bool {
-        alerts.activeAlert?.id == "batchTimecode"
-    }
-
-    /// Whether the embedded timecode alert is currently showing
-    var isShowingEmbeddedTimecodeAlert: Bool {
-        alerts.activeAlert?.id == "embeddedTimecode"
-    }
-
-    /// Whether the FPS conflict alert is currently showing
-    var isShowingFPSConflictAlert: Bool {
-        alerts.activeAlert?.id == "fpsConflict"
-    }
-
-    /// Whether the video insert sheet is currently showing
-    var isShowingVideoInsertSheet: Bool {
-        alerts.activeAlert?.id == "videoInsert"
-    }
-
-    /// Whether the spot media sheet is currently showing
-    var isShowingSpotMediaSheet: Bool {
-        alerts.activeAlert?.id == "spotMedia"
-    }
-
     // MARK: - Drop Handlers
 
     /// Handle video files dropped on the timeline video track
     func handleVideoDropOnTimeline(_ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
         debugPrint("handleVideoDropOnTimeline: ENTRY with \(urls.count) URLs: \(urls.map { $0.lastPathComponent })")
 
-        // Guard: Don't process new drops while timecode detection is in progress or a sheet is visible
-        guard !isProcessingTimecodeDetection, !isShowingBatchTimecodeSheet, !isShowingEmbeddedTimecodeAlert, !isShowingSpotMediaSheet else {
-            debugPrint("handleVideoDropOnTimeline: BLOCKED - isProcessing=\(isProcessingTimecodeDetection), showBatch=\(isShowingBatchTimecodeSheet), showSingle=\(isShowingEmbeddedTimecodeAlert), showSpot=\(isShowingSpotMediaSheet)")
+        // One import at a time: a second drop landing mid-import would place
+        // against a timeline the first has not finished changing.
+        guard !isProcessingTimecodeDetection else {
+            debugPrint("handleVideoDropOnTimeline: BLOCKED - an import is already running")
             return
         }
 
         // Set flag synchronously before starting async work
         isProcessingTimecodeDetection = true
-        debugPrint("handleVideoDropOnTimeline: Set isProcessingTimecodeDetection=true")
 
         Task { @MainActor in
-            defer {
-                // Clear processing flag when Task completes (unless a sheet is being shown)
-                if !isShowingBatchTimecodeSheet, !isShowingEmbeddedTimecodeAlert, !isShowingSpotMediaSheet {
-                    isProcessingTimecodeDetection = false
-                }
-            }
+            defer { isProcessingTimecodeDetection = false }
 
             // Filter out duplicates first
             let newURLs = urls.filter { url in
@@ -79,37 +47,16 @@ extension ContentView {
                 return
             }
 
-            // For multiple files, detect timecode for all files in parallel
-            debugPrint("handleVideoDropOnTimeline: BATCH PATH - detecting timecode for \(newURLs.count) files")
-            let items = await detectTimecodeForBatch(urls: newURLs)
-
-            // If any file has embedded timecode, show batch sheet
-            if items.contains(where: { $0.hasTimecode }) {
-                await MainActor.run {
-                    pendingBatchTimecode = PendingBatchTimecode(
-                        items: items,
-                        dropFrame: atFrame,
-                        isVideo: true,
-                        laneId: nil
-                    )
-                    showBatchTimecodeSheetViaCoordinator()
-                }
-            } else {
-                // No timecodes found, add all files directly at sequential positions
-                await addVideoFilesSequentially(urls: newURLs, startFrame: atFrame)
-            }
+            // Files carrying timecode go to it; the rest are laid end to end
+            // from the drop. `addVideoToTimeline` resolves each file's own
+            // timecode, so this only needs to handle the ones without.
+            debugPrint("handleVideoDropOnTimeline: BATCH PATH - \(newURLs.count) files")
+            await addVideoFilesSequentially(urls: newURLs, startFrame: atFrame)
         }
     }
 
     /// Handle audio files dropped on a specific audio lane
     func handleAudioDropOnTimeline(_ laneIndex: Int, _ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
-        // Guard: Only block if a sheet is actively visible (don't block on video processing flag)
-        // Audio processing is independent of video timecode detection
-        guard !isShowingBatchTimecodeSheet else {
-            debugPrint("handleAudioDropOnTimeline: Batch sheet visible, ignoring drop")
-            return
-        }
-
         debugPrint("handleAudioDropOnTimeline: ENTRY - laneIndex=\(laneIndex), urls=\(urls.map { $0.lastPathComponent }), atFrame=\(atFrame)")
 
         // Defer state changes to avoid "Publishing changes from within view updates"
@@ -118,10 +65,7 @@ extension ContentView {
                 // Ensure the lane exists - create lanes until we have enough
                 while self.timelineManager.timeline.audioLanes.count <= laneIndex {
                     debugPrint("handleAudioDropOnTimeline: Creating lane - current count: \(self.timelineManager.timeline.audioLanes.count), need index: \(laneIndex)")
-                    // Registered so cancelling the placement dialog takes it
-                    // away again. This is the path a plain audio drop takes -
-                    // it creates lanes up to the dropped index - and it was the
-                    // one creation site the rollback did not know about.
+                    // Registered so the drop's cleanup knows which lanes it made.
                     let created = self.timelineManager.addAudioLane()
                     self.batchCreatedLaneIds.insert(created.id)
                 }
@@ -145,29 +89,16 @@ extension ContentView {
                     return
                 }
 
-                // For multiple files, detect timecode for all files in parallel
-                let items = await self.detectTimecodeForBatch(urls: urls)
+                // Each file goes to its own timecode, or after the last one.
+                let items = await self.detectTimecodeForBatch(urls: urls, mediaType: .audio)
+                await self.addAudioFilesAtEmbeddedTimecode(items: items, laneId: lane.id, fallbackFrame: atFrame)
 
-                // If any file has embedded timecode, show batch sheet (if no other sheet is showing)
-                if items.contains(where: { $0.hasTimecode }) {
-                    // Check if another sheet is already showing
-                    if self.isShowingEmbeddedTimecodeAlert || self.isShowingBatchTimecodeSheet {
-                        // Another sheet is showing - auto-place audio at embedded timecode positions
-                        debugPrint("handleAudioDropOnTimeline: Auto-placing at embedded timecode (another sheet is showing)")
-                        await self.addAudioFilesAtEmbeddedTimecode(items: items, laneId: lane.id, fallbackFrame: atFrame)
-                    } else {
-                        self.pendingBatchTimecode = PendingBatchTimecode(
-                            items: items,
-                            dropFrame: atFrame,
-                            isVideo: false,
-                            laneId: lane.id
-                        )
-                        self.showBatchTimecodeSheetViaCoordinator()
-                    }
-                } else {
-                    // No timecodes found, add all files directly at sequential positions
-                    await self.addAudioFilesSequentially(urls: urls, laneId: lane.id, startFrame: atFrame)
-                }
+                // Cleared, not discarded. The lanes this path creates are the
+                // ones between the last existing lane and the one dropped on -
+                // the user aimed at that row, so an empty lane above it is
+                // wanted. Clearing stops a later drop's cleanup from adopting
+                // them as its own and removing them.
+                self.batchCreatedLaneIds.removeAll()
 
                 // Final verification
                 debugPrint("handleAudioDropOnTimeline: FINAL STATE - \(self.timelineManager.timeline.audioLanes.count) lanes total")
@@ -219,9 +150,10 @@ extension ContentView {
     ///   - atFrame: Target frame position for files not using embedded timecode
     func handleMixedBatchDrop(videoURLs: [URL], audioURLs: [URL], atFrame: Int) {
         debugPrint("handleMixedBatchDrop: ENTRY - \(videoURLs.count) video \(videoURLs.map { $0.lastPathComponent }), \(audioURLs.count) audio \(audioURLs.map { $0.lastPathComponent }), atFrame=\(atFrame)")
-        // Guard: Don't process new drops while timecode detection is in progress or a sheet is visible
-        guard !isProcessingTimecodeDetection, !isShowingBatchTimecodeSheet, !isShowingEmbeddedTimecodeAlert else {
-            debugPrint("handleMixedBatchDrop: BLOCKED - processing=\(isProcessingTimecodeDetection) batchSheet=\(isShowingBatchTimecodeSheet) tcAlert=\(isShowingEmbeddedTimecodeAlert)")
+        // One import at a time: a second drop landing mid-import would place
+        // against a timeline the first has not finished changing.
+        guard !isProcessingTimecodeDetection else {
+            debugPrint("handleMixedBatchDrop: BLOCKED - an import is already running")
             return
         }
 
@@ -229,12 +161,7 @@ extension ContentView {
         isProcessingTimecodeDetection = true
 
         Task { @MainActor in
-            defer {
-                // Clear processing flag when Task completes (unless a sheet is being shown)
-                if !isShowingBatchTimecodeSheet, !isShowingEmbeddedTimecodeAlert {
-                    isProcessingTimecodeDetection = false
-                }
-            }
+            defer { isProcessingTimecodeDetection = false }
 
             // Filter out duplicate videos
             let newVideoURLs = videoURLs.filter { url in
@@ -309,45 +236,36 @@ extension ContentView {
                 debugPrint("handleMixedBatchDrop: assigned '\(url.lastPathComponent)' -> lane '\(newLane.name)' (\(newLane.id.uuidString.prefix(8))), tc=\(result?.formattedTimecode ?? "none")")
             }
 
-            // If any file has embedded timecode, show batch sheet
-            if allItems.contains(where: { $0.hasTimecode }) {
-                await MainActor.run {
-                    pendingBatchTimecode = PendingBatchTimecode(
-                        items: allItems,
-                        dropFrame: atFrame
-                    )
-                    showBatchTimecodeSheetViaCoordinator()
-                }
-            } else {
-                // No timecodes found, add all files directly at sequential positions
-                await addVideoFilesSequentially(urls: newVideoURLs, startFrame: atFrame)
+            // Place everything, no questions asked. Each file goes to its own
+            // timecode where it has one, otherwise to the drop.
+            await addVideoFilesSequentially(urls: newVideoURLs, startFrame: atFrame)
 
-                // Add audio files to their assigned lanes. Uses the
-                // overlap-avoiding placement like the other batch paths: video
-                // import creates its own embedded-audio lanes as it goes, so a
-                // lane reserved here can already be occupied by the time we
-                // place into it.
-                debugPrint("handleMixedBatchDrop: placing \(allItems.filter { $0.mediaType == .audio }.count) audio item(s), no-timecode path")
-                for item in allItems where item.mediaType == .audio {
-                    guard let laneId = item.targetLaneId else {
-                        debugPrint("handleMixedBatchDrop: '\(item.url.lastPathComponent)' has no targetLaneId, SKIPPED")
-                        continue
-                    }
-                    let clip = await addAudioToTimelineAvoidingOverlap(
-                        url: item.url,
-                        preferredLaneId: laneId,
-                        atFrame: atFrame
-                    )
-                    debugPrint("handleMixedBatchDrop: placed '\(item.url.lastPathComponent)' -> \(clip == nil ? "FAILED" : "ok")")
+            // Audio to its assigned lane. Uses the overlap-avoiding placement:
+            // video import creates its own embedded-audio lanes as it goes, so a
+            // lane reserved here can already be occupied by the time we place.
+            debugPrint("handleMixedBatchDrop: placing \(allItems.filter { $0.mediaType == .audio }.count) audio item(s)")
+            for item in allItems where item.mediaType == .audio {
+                guard let laneId = item.targetLaneId else {
+                    debugPrint("handleMixedBatchDrop: '\(item.url.lastPathComponent)' has no targetLaneId, SKIPPED")
+                    continue
                 }
-                reservedAudioLaneIds.removeAll()
-                batchCreatedLaneIds.removeAll()
+                let target = placementFrame(metadata: item.detectedTimecode, dropFrame: atFrame)
+                let clip = await addAudioToTimelineAvoidingOverlap(
+                    url: item.url,
+                    preferredLaneId: laneId,
+                    atFrame: target
+                )
+                debugPrint("handleMixedBatchDrop: placed '\(item.url.lastPathComponent)' at \(target) -> \(clip == nil ? "FAILED" : "ok")")
+            }
+            reservedAudioLaneIds.removeAll()
+            // Placement spills to a fresh lane whenever the reserved one is
+            // taken, stranding the lane held for the file.
+            discardEmptyLanesCreatedForDrop()
 
-                // Add padding after all files
-                let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
-                if let lastReel = timelineManager.timeline.videoReels.last {
-                    timelineManager.extendTimeline(toEndFrame: lastReel.timelineEndFrame + paddingFrames)
-                }
+            // Add padding after all files
+            let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
+            if let lastReel = timelineManager.timeline.videoReels.last {
+                timelineManager.extendTimeline(toEndFrame: lastReel.timelineEndFrame + paddingFrames)
             }
         }
     }
@@ -395,36 +313,22 @@ extension ContentView {
     ///   - atFrame: Target frame position (nil = auto-place at end)
     ///   - checkTimecode: Whether to check for embedded timecode and prompt user
     func addVideoToTimeline(url: URL, atFrame: Int?, checkTimecode: Bool = true) async {
-        // Check for timecode if requested and not already handling a pending choice
-        if checkTimecode, !isShowingEmbeddedTimecodeAlert, !isShowingBatchTimecodeSheet, !isShowingSpotMediaSheet, pendingSpotURL == nil {
-            // If user has a remembered choice, use it directly
-            if let rememberedChoice = rememberedSpotChoice {
-                debugPrint("addVideoToTimeline: Using remembered spot choice: \(rememberedChoice)")
-                await handleRememberedSpotChoice(
-                    url: url,
-                    choice: rememberedChoice,
-                    atFrame: atFrame ?? 0
-                )
-                return
-            }
+        var atFrame = atFrame
 
-            // Detect both filename and metadata timecode
+        // Place at the video's own timecode when it has one. `checkTimecode:
+        // false` means a caller has already resolved the frame and is passing it
+        // in, so leave its answer alone.
+        if checkTimecode {
             let filenameTC = detectTimecodeFromFilename(url.lastPathComponent)
             let metadataTC = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil)
 
-            // If either timecode source is available, show spot dialog
             if filenameTC != nil || metadataTC != nil {
-                debugPrint("addVideoToTimeline: Found timecode - filename=\(filenameTC ?? "nil"), metadata=\(metadataTC?.formattedTimecode ?? "nil")")
-                await MainActor.run {
-                    pendingSpotURL = url
-                    pendingSpotFilenameTC = filenameTC
-                    pendingSpotMetadataTC = metadataTC
-                    pendingSpotDropFrame = atFrame ?? 0
-                    pendingSpotIsVideo = true
-                    pendingSpotLaneId = nil
-                    showSpotMediaSheetViaCoordinator()
-                }
-                return
+                atFrame = placementFrame(
+                    metadata: metadataTC,
+                    filenameTimecode: filenameTC,
+                    dropFrame: atFrame ?? 0
+                )
+                debugPrint("addVideoToTimeline: '\(url.lastPathComponent)' -> frame \(atFrame ?? 0) (filename=\(filenameTC ?? "nil"), metadata=\(metadataTC?.formattedTimecode ?? "nil"))")
             }
         }
 
@@ -539,6 +443,10 @@ extension ContentView {
             let audioResult = await prepareAudioLaneIfNeeded(for: reel)
             debugPrint("addVideoToTimeline: Audio lane + clip prepared [T+\(elapsed())]")
 
+            // The placeholder clip exists by now, so the lane the video's audio
+            // landed on can be identified and routed from the video's name.
+            applyNamedOutputToVideoAudio(for: url)
+
             isLoadingMedia = false
             debugPrint("addVideoToTimeline: READY FOR PLAYBACK [T+\(elapsed())]")
 
@@ -626,26 +534,14 @@ extension ContentView {
     ///   - checkTimecode: Whether to check for embedded timecode and prompt user
     /// - Returns: The created AudioClip, or nil if timecode alert shown or error occurred
     func addAudioToTimeline(url: URL, laneId: UUID, atFrame: Int?, checkTimecode: Bool = true) async -> AudioClip? {
+        var atFrame = atFrame
         debugPrint("addAudioToTimeline: ENTRY - \(url.lastPathComponent), laneId=\(laneId), atFrame=\(atFrame ?? -1), checkTimecode=\(checkTimecode)")
-        // Check for embedded timecode if requested and not already handling a pending choice
-        if checkTimecode, !isShowingEmbeddedTimecodeAlert, !isShowingBatchTimecodeSheet, pendingTimecodeURL == nil {
-            debugPrint("addAudioToTimeline: checking for embedded timecode...")
-            if let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
-                debugPrint("addAudioToTimeline: Found embedded timecode! \(result.formattedTimecode)")
-                // Found embedded timecode - store pending state and show alert
-                await MainActor.run {
-                    pendingTimecodeResult = result
-                    pendingTimecodeURL = url
-                    pendingTimecodeDropFrame = atFrame ?? 0
-                    pendingTimecodeIsVideo = false
-                    pendingTimecodeLaneId = laneId
-                    showEmbeddedTimecodeAlertViaCoordinator()
-                }
-                return nil
-            }
-            debugPrint("addAudioToTimeline: no embedded timecode found, proceeding with add")
-        } else {
-            debugPrint("addAudioToTimeline: skipping timecode check (checkTimecode=\(checkTimecode), showAlert=\(isShowingEmbeddedTimecodeAlert), pendingURL=\(pendingTimecodeURL?.lastPathComponent ?? "nil"))")
+
+        // Place at the file's own timecode when it has one - BWF stems carry it,
+        // and a stem's timestamp is the whole point of the delivery.
+        if checkTimecode, let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
+            atFrame = placementFrame(metadata: result, dropFrame: atFrame ?? 0)
+            debugPrint("addAudioToTimeline: '\(url.lastPathComponent)' timecode \(result.formattedTimecode) -> frame \(atFrame ?? 0)")
         }
 
         do {
@@ -664,6 +560,10 @@ extension ContentView {
                 return nil
             }
             debugPrint("addAudioToTimeline: clip created id=\(clip.id.uuidString)")
+
+            // Every audio import funnels through here, so routing from the file
+            // name lives here too - one place rather than one per drop handler.
+            applyNamedOutput(for: url, laneId: laneId)
 
             // Sync timeline to playback engine
             syncTimelineToPlaybackEngine()
@@ -895,113 +795,6 @@ extension ContentView {
         return tempURL
     }
 
-    // MARK: - Embedded Timecode Detection
-
-    /// Message for the embedded timecode detection alert
-    var embeddedTimecodeMessage: String {
-        guard let result = pendingTimecodeResult else {
-            return "This file contains embedded timecode. Where would you like to place it?"
-        }
-        return "This file contains embedded timecode (\(result.formattedTimecode)) from \(result.source.rawValue). Where would you like to place it?"
-    }
-
-    /// Button label showing the detected timecode
-    var embeddedTimecodeButtonLabel: String {
-        guard let result = pendingTimecodeResult else {
-            return "Place at Timecode"
-        }
-        return "Place at \(result.formattedTimecode)"
-    }
-
-    /// Handle user's choice for embedded timecode placement
-    /// - Parameters:
-    ///   - useEmbeddedTimecode: If true, place at the detected timecode position
-    ///   - setTimelineStart: If true, also set the timeline's start timecode to match
-    func handleTimecodeChoice(useEmbeddedTimecode: Bool, setTimelineStart: Bool) {
-        guard let url = pendingTimecodeURL else {
-            clearPendingTimecode()
-            return
-        }
-
-        // Capture pending state before clearing
-        let isVideo = pendingTimecodeIsVideo
-        let laneId = pendingTimecodeLaneId
-        let result = pendingTimecodeResult
-        let dropFrame = pendingTimecodeDropFrame
-
-        // Dismiss the sheet immediately so user doesn't see stale state
-        alerts.dismiss()
-
-        Task {
-            var targetFrame: Int
-            if useEmbeddedTimecode, let result = result {
-                // Convert source timecode frames to timeline frames
-                let timelineFPS = timelineManager.timeline.config.frameRate.fps
-                targetFrame = result.convertedFrames(to: timelineFPS)
-
-                // If user wants to set timeline start, update the config
-                if setTimelineStart {
-                    await MainActor.run {
-                        var config = timelineManager.timeline.config
-                        // Create a new start timecode matching the detected timecode
-                        let startTC = Timecode(.frames(result.timecodeFrames), at: config.frameRate, by: .clamping)
-                        config.startTimecode = startTC
-                        // Adjust end timecode to maintain duration
-                        let durationFrames = config.durationFrames
-                        config.endTimecode = Timecode(.frames(result.timecodeFrames + durationFrames), at: config.frameRate, by: .clamping)
-                        timelineManager.updateConfig(config)
-                        debugPrint("handleTimecodeChoice: Set timeline start timecode to \(startTC.stringValue())")
-                    }
-                    // Place clip at frame 0 (timeline start) since timeline now starts at embedded timecode
-                    targetFrame = 0
-                }
-            } else {
-                // Use original drop location
-                targetFrame = dropFrame ?? 0
-            }
-
-            if isVideo {
-                // Pass checkTimecode: false to skip re-checking after user choice
-                await addVideoToTimeline(url: url, atFrame: targetFrame, checkTimecode: false)
-
-                // Add padding after the clip so users can easily drop more files
-                // Add 20 minutes of padding at the timeline frame rate
-                let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
-                if let lastReel = timelineManager.timeline.videoReels.last {
-                    timelineManager.extendTimeline(toEndFrame: lastReel.timelineEndFrame + paddingFrames)
-                }
-            } else if let laneId = laneId {
-                // Pass checkTimecode: false to skip re-checking after user choice
-                _ = await addAudioToTimeline(url: url, laneId: laneId, atFrame: targetFrame, checkTimecode: false)
-
-                // Add padding after the clip
-                let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
-                if let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
-                   let lastClip = lane.clips.last {
-                    timelineManager.extendTimeline(toEndFrame: lastClip.timelineEndFrame + paddingFrames)
-                }
-            }
-
-            await MainActor.run {
-                clearPendingTimecode()
-            }
-        }
-    }
-
-    /// Clear all pending timecode detection state and dismiss the sheet
-    func clearPendingTimecode() {
-        if isShowingEmbeddedTimecodeAlert {
-            alerts.dismiss()
-        }
-        discardLanesCreatedForCancelledDrop()
-        pendingTimecodeResult = nil
-        pendingTimecodeURL = nil
-        pendingTimecodeDropFrame = nil
-        pendingTimecodeIsVideo = true
-        pendingTimecodeLaneId = nil
-        isProcessingTimecodeDetection = false
-    }
-
     // MARK: - Batch Timecode Detection
 
     /// Detect embedded timecode for multiple files in parallel
@@ -1042,7 +835,18 @@ extension ContentView {
                 continue
             }
 
-            await addVideoToTimeline(url: url, atFrame: currentFrame, checkTimecode: false)
+            // Its own timecode if it has one, otherwise after the last file.
+            // Resolved here rather than inside `addVideoToTimeline` so the
+            // running position is only used by the files that need it.
+            let filenameTC = detectTimecodeFromFilename(url.lastPathComponent)
+            let metadataTC = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil)
+            let target = placementFrame(
+                metadata: metadataTC,
+                filenameTimecode: filenameTC,
+                dropFrame: currentFrame
+            )
+
+            await addVideoToTimeline(url: url, atFrame: target, checkTimecode: false)
 
             // Get the reel that was just added to find its end frame
             if let lastReel = timelineManager.timeline.videoReels.last(where: { $0.sourceURL == url }) {
@@ -1062,23 +866,6 @@ extension ContentView {
     ///   - urls: Array of audio file URLs
     ///   - laneId: Target audio lane ID
     ///   - startFrame: Frame to start placing audio clips at
-    func addAudioFilesSequentially(urls: [URL], laneId: UUID, startFrame: Int) async {
-        var currentFrame = startFrame
-
-        for url in urls {
-            if let clip = await addAudioToTimeline(url: url, laneId: laneId, atFrame: currentFrame, checkTimecode: false) {
-                currentFrame = clip.timelineEndFrame
-            }
-        }
-
-        // Add padding after all files
-        let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
-        if let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
-           let lastClip = lane.clips.last {
-            timelineManager.extendTimeline(toEndFrame: lastClip.timelineEndFrame + paddingFrames)
-        }
-    }
-
     // MARK: - Lane Naming
 
     /// A lane name derived from the media that will occupy it.
@@ -1218,21 +1005,15 @@ extension ContentView {
     ///   - laneId: Target audio lane ID
     ///   - fallbackFrame: Frame to start placing clips without timecode
     func addAudioFilesAtEmbeddedTimecode(items: [BatchTimecodeItem], laneId: UUID, fallbackFrame: Int) async {
-        let timelineFPS = timelineManager.timeline.config.frameRate.fps
         var nextSequentialFrame = fallbackFrame
 
         for item in items {
-            let targetFrame: Int
-
-            if item.hasTimecode, let result = item.detectedTimecode {
-                // Place at embedded timecode position
-                targetFrame = result.convertedFrames(to: timelineFPS)
-                debugPrint("addAudioFilesAtEmbeddedTimecode: \(item.url.lastPathComponent) -> frame \(targetFrame) (from timecode)")
-            } else {
-                // Place at sequential position
-                targetFrame = nextSequentialFrame
-                debugPrint("addAudioFilesAtEmbeddedTimecode: \(item.url.lastPathComponent) -> frame \(targetFrame) (sequential)")
-            }
+            // Relative to the timeline's start, like every other placement.
+            let targetFrame = placementFrame(
+                metadata: item.detectedTimecode,
+                dropFrame: nextSequentialFrame
+            )
+            debugPrint("addAudioFilesAtEmbeddedTimecode: \(item.url.lastPathComponent) -> frame \(targetFrame) (\(item.hasTimecode ? "timecode" : "sequential"))")
 
             if let clip = await addAudioToTimelineAvoidingOverlap(url: item.url, preferredLaneId: laneId, atFrame: targetFrame) {
                 nextSequentialFrame = clip.timelineEndFrame
@@ -1249,157 +1030,7 @@ extension ContentView {
 
     /// Handle user confirmation of batch timecode placement choices
     /// - Parameter setTimelineStart: Whether to set timeline start to first file's timecode
-    func handleBatchTimecodeConfirm(setTimelineStart: Bool) {
-        guard let batch = pendingBatchTimecode else {
-            clearPendingBatchTimecode()
-            return
-        }
-
-        // Capture batch state before clearing
-        let items = batch.items
-        let dropFrame = batch.dropFrame
-        let videoItems = batch.videoItems
-        let audioItems = batch.audioItems
-
-        // Debug: verify audio items received with targetLaneId
-        debugPrint("handleBatchTimecodeConfirm: ENTRY - \(items.count) items, \(videoItems.count) video, \(audioItems.count) audio")
-        for item in audioItems {
-            debugPrint("  Audio item: \(item.url.lastPathComponent), targetLaneId=\(item.targetLaneId?.uuidString ?? "nil"), useTC=\(item.useEmbeddedTimecode)")
-        }
-
-        // Keep processing flag set and dismiss sheet
-        // Note: isProcessingTimecodeDetection should already be true from drop handler
-        alerts.dismiss()
-        pendingBatchTimecode = nil
-
-        Task {
-            let timelineFPS = timelineManager.timeline.config.frameRate.fps
-
-            // Handle setting timeline start if requested (only for first video file with timecode that's using it)
-            var didSetTimelineStart = false
-            if setTimelineStart, !videoItems.isEmpty {
-                if let firstWithTC = videoItems.first(where: { $0.hasTimecode && $0.useEmbeddedTimecode }),
-                   let result = firstWithTC.detectedTimecode {
-                    await MainActor.run {
-                        var config = timelineManager.timeline.config
-                        let startTC = Timecode(.frames(result.timecodeFrames), at: config.frameRate, by: .clamping)
-                        config.startTimecode = startTC
-                        let durationFrames = config.durationFrames
-                        config.endTimecode = Timecode(.frames(result.timecodeFrames + durationFrames), at: config.frameRate, by: .clamping)
-                        timelineManager.updateConfig(config)
-                        debugPrint("handleBatchTimecodeConfirm: Set timeline start to \(startTC.stringValue())")
-                    }
-                    didSetTimelineStart = true
-                }
-            }
-
-            // Calculate first video timecode frames for relative positioning when timeline start is set
-            var firstVideoTimecodeFrames: Int?
-            if didSetTimelineStart,
-               let firstWithTC = videoItems.first(where: { $0.hasTimecode && $0.useEmbeddedTimecode }),
-               let firstResult = firstWithTC.detectedTimecode {
-                firstVideoTimecodeFrames = firstResult.convertedFrames(to: timelineFPS)
-            }
-
-            // Process video items
-            var nextVideoFrame = dropFrame
-            for item in videoItems {
-                let targetFrame: Int
-
-                if item.useEmbeddedTimecode, let result = item.detectedTimecode {
-                    let thisFrames = result.convertedFrames(to: timelineFPS)
-                    if let firstFrames = firstVideoTimecodeFrames {
-                        // Place relative to timeline start (frame 0)
-                        targetFrame = thisFrames - firstFrames
-                    } else {
-                        targetFrame = thisFrames
-                    }
-                } else {
-                    targetFrame = nextVideoFrame
-                }
-
-                // Skip duplicates
-                if !timelineManager.timeline.videoReels.contains(where: { $0.sourceURL == item.url }) {
-                    await addVideoToTimeline(url: item.url, atFrame: targetFrame, checkTimecode: false)
-
-                    // Update sequential frame for next file
-                    if let lastReel = timelineManager.timeline.videoReels.last(where: { $0.sourceURL == item.url }) {
-                        nextVideoFrame = lastReel.timelineEndFrame
-                    }
-                }
-            }
-
-            // Process audio items - each goes to its own assigned lane
-            for item in audioItems {
-                guard let laneId = item.targetLaneId else {
-                    debugPrint("handleBatchTimecodeConfirm: Audio item \(item.url.lastPathComponent) has no targetLaneId, skipping")
-                    continue
-                }
-
-                let targetFrame: Int
-                if item.useEmbeddedTimecode, let result = item.detectedTimecode {
-                    let thisFrames = result.convertedFrames(to: timelineFPS)
-                    if let firstFrames = firstVideoTimecodeFrames {
-                        // Place relative to timeline start (frame 0) when video set the timeline start
-                        targetFrame = thisFrames - firstFrames
-                    } else {
-                        targetFrame = thisFrames
-                    }
-                } else {
-                    targetFrame = dropFrame
-                }
-
-                _ = await addAudioToTimelineAvoidingOverlap(url: item.url, preferredLaneId: laneId, atFrame: targetFrame)
-            }
-
-            // Add padding after all files
-            let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineFPS)
-            var maxEndFrame = 0
-
-            if let lastReel = timelineManager.timeline.videoReels.last {
-                maxEndFrame = max(maxEndFrame, lastReel.timelineEndFrame)
-            }
-            for lane in timelineManager.timeline.audioLanes {
-                if let lastClip = lane.clips.last {
-                    maxEndFrame = max(maxEndFrame, lastClip.timelineEndFrame)
-                }
-            }
-
-            if maxEndFrame > 0 {
-                await MainActor.run {
-                    timelineManager.extendTimeline(toEndFrame: maxEndFrame + paddingFrames)
-                }
-            }
-
-            await MainActor.run {
-                reservedAudioLaneIds.removeAll()
-                batchCreatedLaneIds.removeAll()
-                clearPendingBatchTimecode()
-            }
-        }
-    }
-
-    /// Clear all pending batch timecode state and dismiss the sheet
-    func clearPendingBatchTimecode() {
-        if isShowingBatchTimecodeSheet {
-            alerts.dismiss()
-        }
-        discardLanesCreatedForCancelledDrop()
-        reservedAudioLaneIds.removeAll()
-        pendingBatchTimecode = nil
-        isProcessingTimecodeDetection = false
-    }
-
-    /// Undo the lanes a drop created when the user cancels its dialog.
-    ///
-    /// Lanes have to exist before the dialog opens - placement needs a lane to
-    /// target, and a batch needs lane identities to work out its ordering - but
-    /// they are only *wanted* if the user confirms. Cancelling used to leave one
-    /// empty lane per dropped file behind.
-    ///
-    /// Only empty lanes are removed, so a lane that has already received a clip
-    /// is never destroyed by a later cancel.
-    func discardLanesCreatedForCancelledDrop() {
+    func discardEmptyLanesCreatedForDrop() {
         for laneId in batchCreatedLaneIds {
             guard let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
                   lane.clips.isEmpty else { continue }
@@ -1408,55 +1039,104 @@ extension ContentView {
         batchCreatedLaneIds.removeAll()
     }
 
-    // MARK: - AlertCoordinator Helper Methods
+    // MARK: - Automatic Placement
 
-    /// Show the embedded timecode alert via AlertCoordinator
-    func showEmbeddedTimecodeAlertViaCoordinator() {
-        guard let result = pendingTimecodeResult else { return }
-
-        // Determine if we should show "Set as Timeline Start" option
-        // Only show if timeline is empty OR the timeline's start timecode is still at 00:00:00:00
+    /// Where a dropped file lands.
+    ///
+    /// Import asks nothing: a file that carries its own timecode goes to that
+    /// timecode, and anything else goes where it was dropped. Both answers are
+    /// changeable afterwards - "Set Timecode Position" and "Set Timeline Start to
+    /// Region" on the region's menu - which is why the dialog that used to ask up
+    /// front was removed.
+    ///
+    /// Timecode is resolved **relative to the timeline's start**, so a reel
+    /// delivered at 01:00:00:00 lands at frame 0 on a timeline that starts there
+    /// rather than an hour along it.
+    ///
+    /// - Parameters:
+    ///   - metadata: Embedded timecode, if the file has any. Preferred: it is the
+    ///     recorder's own answer.
+    ///   - filenameTimecode: Timecode parsed out of the name, as a fallback.
+    ///   - dropFrame: Where the user let go, used when the file says nothing.
+    /// - Returns: A frame relative to the timeline start, never negative.
+    func placementFrame(
+        metadata: EmbeddedTimecodeResult?,
+        filenameTimecode: String? = nil,
+        dropFrame: Int
+    ) -> Int {
         let config = timelineManager.timeline.config
-        let isTimelineEmpty = timelineManager.timeline.videoReels.isEmpty && timelineManager.timeline.audioLanes.allSatisfy { $0.clips.isEmpty }
-        let isDefaultStart = config.startTimecode.frameCount.wholeFrames == 0
-        let showSetTimelineStart = isTimelineEmpty || isDefaultStart
+        let startFrames = config.startTimecode.frameCount.wholeFrames
 
-        alerts.show(.embeddedTimecode(
-            result: result,
-            showSetTimelineStart: showSetTimelineStart,
-            onPlaceAtTimecode: { setTimelineStart in
-                self.handleTimecodeChoice(useEmbeddedTimecode: true, setTimelineStart: setTimelineStart)
-            },
-            onPlaceAtDropLocation: {
-                self.handleTimecodeChoice(useEmbeddedTimecode: false, setTimelineStart: false)
-            },
-            onCancel: {
-                self.clearPendingTimecode()
-            }
-        ))
+        if let metadata {
+            return max(0, metadata.convertedFrames(to: config.frameRate.fps) - startFrames)
+        }
+        if let filenameTimecode,
+           let parsed = try? Timecode(.string(filenameTimecode), at: config.frameRate, by: .clamping) {
+            return max(0, parsed.frameCount.wholeFrames - startFrames)
+        }
+        return dropFrame
+    }
+
+    // MARK: - Output Routing from File Names
+
+    /// The mapped output a file's name asks for, if any.
+    ///
+    /// A name only counts when the role it names has actually been mapped in
+    /// Settings - suggesting a DX/SFX output that does not exist would put a
+    /// question in the dialog with no answer behind it.
+    ///
+    /// - Parameter url: The file being imported.
+    /// - Returns: The output to suggest, or `nil` for no suggestion.
+    func outputNamedByFile(_ url: URL) -> MappedAudioOutput? {
+        guard let role = OutputRole.named(in: url.lastPathComponent) else { return nil }
+        return audioManager.mappedOutputs.first { role.matches($0) }
+    }
+
+    /// Route a lane from the name of the file that established it.
+    ///
+    /// Applied at placement rather than offered in the import dialog. The name
+    /// already says where the stem goes, so a dialog asking permission to honour
+    /// it was a question with one sensible answer - and routing that depended on
+    /// a sheet appearing meant a drop with no timecode was never routed at all.
+    /// The lane's own output menu is the override.
+    ///
+    /// Only when the clip is the first on its lane: a lane already holding audio
+    /// has a routing that belongs to the lane, and a later drop should not
+    /// re-point it.
+    ///
+    /// - Parameters:
+    ///   - url: The file that was placed.
+    ///   - laneId: The lane it landed on.
+    func applyNamedOutput(for url: URL, laneId: UUID) {
+        guard let output = outputNamedByFile(url),
+              let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId }),
+              lane.clips.count == 1 else { return }
+
+        timelineManager.setLaneOutputMapping(id: lane.id, mapping: output)
+        debugPrint("applyNamedOutput: '\(url.lastPathComponent)' lane '\(lane.name)' -> output '\(output.name)'")
+    }
+
+    /// Route the lane holding a video's own audio track, from the video's name.
+    ///
+    /// Found by the clip rather than `Timeline.videoAudioLane`, which returns the
+    /// *first* such lane and so cannot tell two videos' audio apart in a batch.
+    /// The extracted clip keeps the video's URL as its source, which identifies
+    /// the lane exactly.
+    ///
+    /// - Parameter url: The video file whose audio lane should be routed.
+    func applyNamedOutputToVideoAudio(for url: URL) {
+        guard let output = outputNamedByFile(url) else { return }
+        guard let lane = timelineManager.timeline.audioLanes.first(where: { lane in
+            lane.clips.contains { $0.sourceURL == url && $0.sourceType == .videoTrack }
+        }) else {
+            debugPrint("applyNamedOutputToVideoAudio: no lane holds audio from '\(url.lastPathComponent)'")
+            return
+        }
+        timelineManager.setLaneOutputMapping(id: lane.id, mapping: output)
+        debugPrint("applyNamedOutputToVideoAudio: '\(url.lastPathComponent)' lane '\(lane.name)' -> output '\(output.name)'")
     }
 
     /// Show the batch timecode sheet via AlertCoordinator
-    func showBatchTimecodeSheetViaCoordinator() {
-        // Determine if we should show "Set as Timeline Start" option
-        let config = timelineManager.timeline.config
-        let isTimelineEmpty = timelineManager.timeline.videoReels.isEmpty && timelineManager.timeline.audioLanes.allSatisfy { $0.clips.isEmpty }
-        let isDefaultStart = config.startTimecode.frameCount.wholeFrames == 0
-        let showSetTimelineStart = isTimelineEmpty || isDefaultStart
-
-        alerts.show(.batchTimecode(
-            batch: $pendingBatchTimecode,
-            showSetTimelineStart: showSetTimelineStart,
-            onConfirm: { setTimelineStart in
-                self.handleBatchTimecodeConfirm(setTimelineStart: setTimelineStart)
-            },
-            onCancel: {
-                self.clearPendingBatchTimecode()
-            }
-        ))
-    }
-
-    /// Show the FPS conflict alert via AlertCoordinator
     func showFPSConflictAlertViaCoordinator(videoFPS: TimecodeFrameRate, projectFPS: TimecodeFrameRate) {
         let message = "This video is \(videoFPS.stringValueVerbose) but your project is \(projectFPS.stringValueVerbose). Would you like to change the project frame rate? This will remove existing videos."
 
@@ -1491,118 +1171,72 @@ extension ContentView {
         ))
     }
 
-    // MARK: - Spot Media Sheet
+}
 
-    /// Show the spot media sheet via AlertCoordinator
-    func showSpotMediaSheetViaCoordinator() {
-        guard let url = pendingSpotURL else { return }
+// MARK: - Filename Timecode Detection
 
-        // Determine if we should show "Set as Timeline Start" option
-        let config = timelineManager.timeline.config
-        let isTimelineEmpty = timelineManager.timeline.videoReels.isEmpty && timelineManager.timeline.audioLanes.allSatisfy { $0.clips.isEmpty }
-        let isDefaultStart = config.startTimecode.frameCount.wholeFrames == 0
-        let showSetTimelineStart = isTimelineEmpty || isDefaultStart
+/// Detects timecode from filename patterns commonly used by composers.
+///
+/// Supported patterns:
+/// - `R1_01_00_00_00` (underscore-separated HH_MM_SS_FF)
+/// - `R1_01-00-00-00` (dash-separated HH-MM-SS-FF)
+/// - `R1_010000_00` (compact HHMMSS_FF)
+/// - `01:00:00:00` (colon-separated in filename)
+///
+/// - Parameter filename: The filename (without path) to parse
+/// - Returns: Detected timecode string, or nil if not found
+func detectTimecodeFromFilename(_ filename: String) -> String? {
+    // Remove extension
+    let name = (filename as NSString).deletingPathExtension
 
-        // Get current playhead timecode
-        let playheadFrame = playbackEngine.currentFrame
-        let playheadTimecode = playbackEngine.currentTimecode.stringValue()
-
-        alerts.show(.spotMedia(
-            url: url,
-            filenameTimecode: pendingSpotFilenameTC,
-            metadataTimecode: pendingSpotMetadataTC,
-            playheadTimecode: playheadTimecode,
-            playheadFrame: playheadFrame,
-            frameRate: config.frameRate,
-            startTimecode: config.startTimecode,
-            showSetTimelineStart: showSetTimelineStart,
-            onSpot: { result in
-                self.handleSpotResult(result)
-            },
-            onCancel: {
-                self.clearPendingSpotMedia()
-            }
-        ))
-    }
-
-    /// Handle the result from the SpotMediaSheet
-    func handleSpotResult(_ result: SpotResult) {
-        Task { @MainActor in
-            // Remember choice if requested
-            if result.rememberChoice {
-                rememberedSpotChoice = result.option
-            }
-
-            // Handle set timeline start if requested
-            if result.setTimelineStart && pendingSpotIsVideo {
-                // Calculate what the new timeline start should be
-                let config = timelineManager.timeline.config
-                let newStartTC = Timecode(.frames(result.targetFrame), at: config.frameRate, by: .clamping)
-                var updatedConfig = config
-                updatedConfig.startTimecode = newStartTC
-                timelineManager.updateConfig(updatedConfig)
-            }
-
-            // Add the media
-            if pendingSpotIsVideo {
-                await addVideoToTimeline(url: result.url, atFrame: result.targetFrame, checkTimecode: false)
-            } else if let laneId = pendingSpotLaneId {
-                _ = await addAudioToTimeline(url: result.url, laneId: laneId, atFrame: result.targetFrame)
-            }
-
-            clearPendingSpotMedia()
+    // Pattern 1: Underscore separated (R1_01_00_00_00)
+    // Matches: two digits separated by underscores at end of filename
+    let underscorePattern = #"(\d{2})[_](\d{2})[_](\d{2})[_](\d{2})\s*$"#
+    if let match = name.range(of: underscorePattern, options: .regularExpression) {
+        let component = String(name[match])
+        let digits = component.filter { $0.isNumber }
+        if digits.count == 8 {
+            let h = digits.prefix(2)
+            let m = digits.dropFirst(2).prefix(2)
+            let s = digits.dropFirst(4).prefix(2)
+            let f = digits.dropFirst(6).prefix(2)
+            return "\(h):\(m):\(s):\(f)"
         }
     }
 
-    /// Handle a remembered spot choice without showing the dialog
-    func handleRememberedSpotChoice(url: URL, choice: SpotPlacementOption, atFrame: Int) async {
-        let config = timelineManager.timeline.config
-
-        let targetFrame: Int
-        switch choice {
-        case .filename:
-            if let tc = detectTimecodeFromFilename(url.lastPathComponent),
-               let parsed = try? Timecode(.string(tc), at: config.frameRate, by: .clamping) {
-                let startFrames = config.startTimecode.frameCount.wholeFrames
-                targetFrame = max(0, parsed.frameCount.wholeFrames - startFrames)
-            } else {
-                // Fall back to drop frame if filename parsing fails
-                targetFrame = atFrame
-            }
-
-        case .metadata:
-            if let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
-                let startFrames = config.startTimecode.frameCount.wholeFrames
-                let convertedFrames = result.convertedFrames(to: config.frameRate.fps)
-                targetFrame = max(0, convertedFrames - startFrames)
-            } else {
-                // Fall back to drop frame if no metadata
-                targetFrame = atFrame
-            }
-
-        case .manual:
-            // Manual entry can't be "remembered" - fall back to playhead
-            targetFrame = playbackEngine.currentFrame
-
-        case .playhead:
-            targetFrame = playbackEngine.currentFrame
+    // Pattern 2: Dash separated (R1_01-00-00-00)
+    let dashPattern = #"(\d{2})[-](\d{2})[-](\d{2})[-](\d{2})\s*$"#
+    if let match = name.range(of: dashPattern, options: .regularExpression) {
+        let component = String(name[match])
+        let digits = component.filter { $0.isNumber }
+        if digits.count == 8 {
+            let h = digits.prefix(2)
+            let m = digits.dropFirst(2).prefix(2)
+            let s = digits.dropFirst(4).prefix(2)
+            let f = digits.dropFirst(6).prefix(2)
+            return "\(h):\(m):\(s):\(f)"
         }
-
-        await addVideoToTimeline(url: url, atFrame: targetFrame, checkTimecode: false)
     }
 
-    /// Clear pending spot media state
-    func clearPendingSpotMedia() {
-        if isShowingSpotMediaSheet {
-            alerts.dismiss()
-        }
-        discardLanesCreatedForCancelledDrop()
-        pendingSpotURL = nil
-        pendingSpotFilenameTC = nil
-        pendingSpotMetadataTC = nil
-        pendingSpotDropFrame = 0
-        pendingSpotIsVideo = true
-        pendingSpotLaneId = nil
-        isProcessingTimecodeDetection = false
+    // Pattern 3: Colon separated in filename (rare but possible)
+    let colonPattern = #"(\d{2}):(\d{2}):(\d{2}):(\d{2})"#
+    if let match = name.range(of: colonPattern, options: .regularExpression) {
+        return String(name[match])
     }
+
+    // Pattern 4: Compact with frame separator (010000_00 or 010000-00)
+    let compactPattern = #"(\d{6})[_-](\d{2})\s*$"#
+    if let match = name.range(of: compactPattern, options: .regularExpression) {
+        let component = String(name[match])
+        let digits = component.filter { $0.isNumber }
+        if digits.count == 8 {
+            let h = digits.prefix(2)
+            let m = digits.dropFirst(2).prefix(2)
+            let s = digits.dropFirst(4).prefix(2)
+            let f = digits.dropFirst(6).prefix(2)
+            return "\(h):\(m):\(s):\(f)"
+        }
+    }
+
+    return nil
 }
