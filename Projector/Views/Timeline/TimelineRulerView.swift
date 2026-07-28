@@ -6,6 +6,8 @@ struct TimelineRulerView: View {
     let duration: Double
     let frameRate: TimecodeFrameRate
     let currentTime: Double
+    /// Start timecode for displaying absolute timecodes on the ruler
+    var startTimecode: Timecode?
 
     /// Height of the ruler
     private let rulerHeight: CGFloat = TimelineLayout.rulerHeight
@@ -96,17 +98,23 @@ struct TimelineRulerView: View {
         return niceIntervals.last!
     }
 
+    /// Formats time as proper timecode (HH:MM:SS:FF)
+    ///
+    /// If a start timecode is provided, the displayed timecode is offset
+    /// to show absolute timeline positions.
     private func formatTime(_ seconds: Double) -> String {
-        let totalSeconds = Int(seconds.rounded())
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let secs = totalSeconds % 60
+        let relativeFrames = Int((seconds * frameRate.fps).rounded())
+        let startFrames = startTimecode?.frameCount.wholeFrames ?? 0
+        let absoluteFrames = startFrames + relativeFrames
 
-        if hours > 0 || duration >= 3600 {
-            return String(format: "%d:%02d:%02d", hours, minutes, secs)
-        } else {
-            return String(format: "%d:%02d", minutes, secs)
-        }
+        let framesPerSecond = Int(frameRate.fps.rounded())
+        let frames = absoluteFrames % framesPerSecond
+        let totalSeconds = absoluteFrames / framesPerSecond
+        let secs = totalSeconds % 60
+        let minutes = (totalSeconds / 60) % 60
+        let hours = totalSeconds / 3600
+
+        return String(format: "%02d:%02d:%02d:%02d", hours, minutes, secs, frames)
     }
 }
 

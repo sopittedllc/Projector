@@ -177,6 +177,13 @@ struct TimelineAccordionView: View {
                     midiSyncViewModel: midiSyncViewModel
                 )
 
+                // Current playhead position (editable)
+                TimelinePositionControl(
+                    timelineManager: timelineManager,
+                    timelineViewModel: timelineViewModel,
+                    playbackEngine: playbackEngine
+                )
+
                 TimelineTimecodeControls(timelineManager: timelineManager)
 
                 Divider()
@@ -251,6 +258,193 @@ struct TimelineAccordionView: View {
     }
 }
 
+// MARK: - Timeline Position Control
+
+/// Editable playhead position field for the timeline header.
+///
+/// Uses TransparentTextField (NSViewRepresentable) instead of SwiftUI TextField
+/// because SwiftUI TextField has known focus issues in toolbar/header contexts
+/// on macOS. See: https://developer.apple.com/forums/thread/765147
+struct TimelinePositionControl: View {
+    @ObservedObject var timelineManager: TimelineManager
+    @ObservedObject var timelineViewModel: TimelineViewModel
+    @ObservedObject var playbackEngine: PlaybackEngine
+
+    @State private var editingPositionText = ""
+    @State private var isHoveringPosition = false
+    @State private var isPositionFocused = false
+    @State private var showExtendConfirmation = false
+    @State private var pendingSeekFrame: Int?
+    /// Prevents double-apply when Return is pressed (fires both onSubmit and focus change)
+    @State private var didApplyOnSubmit = false
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            Text("Position:")
+                .font(TransportTypography.label)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize()
+
+            TransparentTextField(
+                text: $editingPositionText,
+                placeholder: "00:00:00:00",
+                font: NSFont.monospacedSystemFont(ofSize: 11, weight: .medium),
+                onSubmit: {
+                    didApplyOnSubmit = true
+                    applyPosition()
+                },
+                onEscape: {
+                    editingPositionText = timelineManager.currentTimecode.stringValue()
+                },
+                isFocused: $isPositionFocused
+            )
+            .frame(width: 78)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
+            .background(
+                Group {
+                    if isPositionFocused {
+                        // Editing state: dark inset background
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.black.opacity(0.4))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
+                            )
+                    } else {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(isHoveringPosition ? AppColors.surfaceLight : Color.clear)
+                    }
+                }
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(isPositionFocused ? Color.accentColor : (isHoveringPosition ? AppColors.borderMedium : AppColors.borderSubtle), lineWidth: isPositionFocused ? 2 : PanelLayout.borderWidth)
+            )
+            .accessibilityLabel("Playhead position")
+        }
+        .fixedSize()
+        .onHover { hovering in
+            withAnimation(AppAnimations.quick) {
+                isHoveringPosition = hovering
+            }
+        }
+        .help("Click to edit playhead position")
+        .onChange(of: editingPositionText) { _, newValue in
+            let formatted = formatTimecodeInput(newValue)
+            if formatted != newValue {
+                editingPositionText = formatted
+            }
+        }
+        .onChange(of: isPositionFocused) { wasFocused, isFocused in
+            if !isFocused && wasFocused {
+                // Don't apply again if we already applied via onSubmit (Return key)
+                if !didApplyOnSubmit {
+                    applyPosition()
+                }
+                didApplyOnSubmit = false
+            }
+        }
+        .onChange(of: timelineManager.currentFrame) { _, _ in
+            if !isPositionFocused {
+                editingPositionText = timelineManager.currentTimecode.stringValue()
+            }
+        }
+        .onAppear {
+            editingPositionText = timelineManager.currentTimecode.stringValue()
+        }
+        .alert("Extend Timeline?", isPresented: $showExtendConfirmation) {
+            Button("Cancel", role: .cancel) {
+                pendingSeekFrame = nil
+                editingPositionText = timelineManager.currentTimecode.stringValue()
+            }
+            Button("Extend") {
+                confirmExtendAndSeek()
+            }
+        } message: {
+            Text("The position you entered is beyond the current timeline duration. Would you like to extend the timeline to include this position?")
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func formatTimecodeInput(_ input: String) -> String {
+        let digits = input.filter { $0.isNumber }
+        let limited = String(digits.prefix(8))
+        var result = ""
+        for (index, char) in limited.enumerated() {
+            if index > 0 && index % 2 == 0 {
+                result += ":"
+            }
+            result.append(char)
+        }
+        return result
+    }
+
+    private func applyPosition() {
+        guard let newTC = parseTimecode(editingPositionText) else {
+            editingPositionText = timelineManager.currentTimecode.stringValue()
+            isPositionFocused = false
+            return
+        }
+
+        let config = timelineManager.timeline.config
+        let startFrames = config.startTimecode.frameCount.wholeFrames
+        let targetFrames = newTC.frameCount.wholeFrames
+        let targetFrame = targetFrames - startFrames
+
+        if targetFrame >= config.durationFrames {
+            pendingSeekFrame = targetFrame
+            showExtendConfirmation = true
+        } else if targetFrame < 0 {
+            editingPositionText = timelineManager.currentTimecode.stringValue()
+        } else {
+            // Use playbackEngine.seekToFrame which updates both playback and UI
+            playbackEngine.seekToFrame(targetFrame)
+            editingPositionText = newTC.stringValue()
+        }
+    }
+
+    private func confirmExtendAndSeek() {
+        guard let targetFrame = pendingSeekFrame else { return }
+
+        let paddingFrames = Int(TimelineManager.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
+        timelineManager.extendTimeline(toEndFrame: targetFrame + paddingFrames)
+
+        // Sync playbackEngine's timeline copy (Timeline is a struct, not a class)
+        playbackEngine.timeline = timelineManager.timeline
+
+        timelineViewModel.zoomLevel = timelineViewModel.minZoom
+
+        playbackEngine.seekToFrame(targetFrame)
+
+        // Compute the timecode from targetFrame (don't read timelineManager.currentTimecode
+        // which is based on timelineManager.currentFrame, not playbackEngine.currentFrame)
+        let targetTimecode = timelineManager.timeline.config.timecode(at: targetFrame)
+        editingPositionText = targetTimecode.stringValue()
+        pendingSeekFrame = nil
+    }
+
+    private func parseTimecode(_ string: String) -> Timecode? {
+        let digits = string.filter { $0.isNumber }
+        let padded = String(repeating: "0", count: max(0, 8 - digits.count)) + digits
+        let trimmed = String(padded.suffix(8))
+        guard trimmed.count == 8 else { return nil }
+
+        let h = Int(trimmed.prefix(2)) ?? 0
+        let m = Int(trimmed.dropFirst(2).prefix(2)) ?? 0
+        let s = Int(trimmed.dropFirst(4).prefix(2)) ?? 0
+        let f = Int(trimmed.dropFirst(6).prefix(2)) ?? 0
+
+        return Timecode(
+            .components(h: h, m: m, s: s, f: f),
+            at: timelineManager.timeline.config.frameRate,
+            by: .clamping
+        )
+    }
+}
+
 // MARK: - Timeline Timecode Controls
 
 /// Start-timecode and duration fields for the timeline header.
@@ -268,18 +462,16 @@ struct TimelineTimecodeControls: View {
     @ObservedObject var timelineManager: TimelineManager
 
     @State private var editingStartTCText = ""
-    @State private var editingDurationText = ""
     @State private var isHoveringStartTC = false
-    @State private var isHoveringDuration = false
+    @State private var isStartTCFocused = false
     @State private var showStartTimecodeAlert = false
     @State private var startTimecodeAlertMessage = ""
-    @FocusState private var isStartTCFocused: Bool
-    @FocusState private var isDurationFocused: Bool
+    /// Prevents double-apply when Return is pressed
+    @State private var didApplyOnSubmit = false
 
     var body: some View {
         HStack(spacing: Spacing.sm) {
             startTCControl
-            durationControl
         }
         .fixedSize()
         .alert("Invalid Start Timecode", isPresented: $showStartTimecodeAlert) {
@@ -299,37 +491,43 @@ struct TimelineTimecodeControls: View {
                 .lineLimit(1)
                 .fixedSize()
 
-            TextField("00:00:00:00", text: $editingStartTCText)
-                .textFieldStyle(.plain)
-                .font(TransportTypography.value)
-                .foregroundColor(isHoveringStartTC || isStartTCFocused ? .primary : .secondary)
-                .frame(width: 78)
-                .padding(.horizontal, Spacing.sm)
-                .padding(.vertical, Spacing.xs)
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(isStartTCFocused ? AppColors.surfaceMedium : (isHoveringStartTC ? AppColors.surfaceLight : Color.clear))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(isStartTCFocused ? Color.accentColor : (isHoveringStartTC ? AppColors.borderMedium : AppColors.borderSubtle), lineWidth: PanelLayout.borderWidth)
-                )
-                .focused($isStartTCFocused)
-                .accessibilityLabel("Start timecode")
-                .onChange(of: editingStartTCText) { _, newValue in
-                    let formatted = formatTimecodeInput(newValue)
-                    if formatted != newValue {
-                        editingStartTCText = formatted
+            TransparentTextField(
+                text: $editingStartTCText,
+                placeholder: "00:00:00:00",
+                font: NSFont.monospacedSystemFont(ofSize: 11, weight: .medium),
+                onSubmit: {
+                    didApplyOnSubmit = true
+                    applyStartTimecode()
+                },
+                onEscape: {
+                    editingStartTCText = timelineManager.timeline.config.startTimecode.stringValue()
+                },
+                isFocused: $isStartTCFocused
+            )
+            .frame(width: 78)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
+            .background(
+                Group {
+                    if isStartTCFocused {
+                        // Editing state: dark inset background
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.black.opacity(0.4))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
+                            )
+                    } else {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(isHoveringStartTC ? AppColors.surfaceLight : Color.clear)
                     }
                 }
-                .onSubmit {
-                    applyStartTimecode()
-                    isStartTCFocused = false
-                }
-                .onExitCommand {
-                    editingStartTCText = timelineManager.timeline.config.startTimecode.stringValue()
-                    isStartTCFocused = false
-                }
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(isStartTCFocused ? Color.accentColor : (isHoveringStartTC ? AppColors.borderMedium : AppColors.borderSubtle), lineWidth: isStartTCFocused ? 2 : PanelLayout.borderWidth)
+            )
+            .accessibilityLabel("Start timecode")
         }
         .fixedSize()
         .onHover { hovering in
@@ -338,9 +536,19 @@ struct TimelineTimecodeControls: View {
             }
         }
         .help("Click to edit start timecode")
+        .onChange(of: editingStartTCText) { _, newValue in
+            let formatted = formatTimecodeInput(newValue)
+            if formatted != newValue {
+                editingStartTCText = formatted
+            }
+        }
         .onChange(of: isStartTCFocused) { wasFocused, isFocused in
             if !isFocused && wasFocused {
-                applyStartTimecode()   // save on blur
+                // Don't apply again if we already applied via onSubmit (Return key)
+                if !didApplyOnSubmit {
+                    applyStartTimecode()
+                }
+                didApplyOnSubmit = false
             }
         }
         .onChange(of: timelineManager.timeline.config.startTimecode) { _, newValue in
@@ -350,84 +558,10 @@ struct TimelineTimecodeControls: View {
         }
         .onAppear {
             editingStartTCText = timelineManager.timeline.config.startTimecode.stringValue()
-            DispatchQueue.main.async {
-                isStartTCFocused = false
-            }
-        }
-    }
-
-    // MARK: - Duration
-
-    private var durationControl: some View {
-        HStack(spacing: Spacing.xs) {
-            Text("Duration:")
-                .font(TransportTypography.label)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .fixedSize()
-
-            TextField("00:00:00:00", text: $editingDurationText)
-                .textFieldStyle(.plain)
-                .font(TransportTypography.value)
-                .foregroundColor(isHoveringDuration || isDurationFocused ? .primary : .secondary)
-                .frame(width: 78)
-                .padding(.horizontal, Spacing.sm)
-                .padding(.vertical, Spacing.xs)
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(isDurationFocused ? AppColors.surfaceMedium : (isHoveringDuration ? AppColors.surfaceLight : Color.clear))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(isDurationFocused ? Color.accentColor : (isHoveringDuration ? AppColors.borderMedium : AppColors.borderSubtle), lineWidth: PanelLayout.borderWidth)
-                )
-                .focused($isDurationFocused)
-                .accessibilityLabel("Duration")
-                .onChange(of: editingDurationText) { _, newValue in
-                    let formatted = formatTimecodeInput(newValue)
-                    if formatted != newValue {
-                        editingDurationText = formatted
-                    }
-                }
-                .onSubmit {
-                    applyDuration()
-                    isDurationFocused = false
-                }
-                .onExitCommand {
-                    editingDurationText = durationTimecodeString
-                    isDurationFocused = false
-                }
-        }
-        .fixedSize()
-        .onHover { hovering in
-            withAnimation(AppAnimations.quick) {
-                isHoveringDuration = hovering
-            }
-        }
-        .help("Click to edit timeline duration")
-        .onChange(of: isDurationFocused) { wasFocused, isFocused in
-            if !isFocused && wasFocused {
-                applyDuration()   // save on blur
-            }
-        }
-        // Media dropped past the end extends the timeline, so the field has to
-        // follow the config rather than only what was last typed.
-        .onChange(of: timelineManager.timeline.config.durationFrames) { _, _ in
-            if !isDurationFocused {
-                editingDurationText = durationTimecodeString
-            }
-        }
-        .onAppear {
-            editingDurationText = durationTimecodeString
         }
     }
 
     // MARK: - Helpers
-
-    private var durationTimecodeString: String {
-        let config = timelineManager.timeline.config
-        return Timecode(.frames(config.durationFrames), at: config.frameRate, by: .clamping).stringValue()
-    }
 
     private func formatTimecodeInput(_ input: String) -> String {
         let digits = input.filter { $0.isNumber }
@@ -488,17 +622,6 @@ struct TimelineTimecodeControls: View {
             }
         }
         return earliest
-    }
-
-    private func applyDuration() {
-        if let durationTC = parseTimecode(editingDurationText) {
-            let config = timelineManager.timeline.config
-            let newEndFrames = config.startTimecode.frameCount.wholeFrames + durationTC.frameCount.wholeFrames
-            let newEnd = Timecode(.frames(newEndFrames), at: config.frameRate, by: .clamping)
-            timelineManager.setTimelineBounds(start: config.startTimecode, end: newEnd)
-        }
-        editingDurationText = durationTimecodeString
-        isDurationFocused = false
     }
 
     private func parseTimecode(_ string: String) -> Timecode? {
@@ -702,5 +825,181 @@ struct TimelineHeaderReadouts: View {
         case .none:
             return "No MIDI arriving on \(midiSyncViewModel.selectedInputName ?? "the selected input")"
         }
+    }
+}
+
+// MARK: - Transparent TextField
+
+/// A TextField that removes all macOS system styling (focus ring, background)
+/// so parent views can apply custom styling without interference.
+///
+/// Uses NSViewRepresentable wrapping NSTextField directly, bypassing SwiftUI
+/// TextField's known focus issues in toolbar/header contexts on macOS.
+struct TransparentTextField: NSViewRepresentable {
+    @Binding var text: String
+    var placeholder: String = ""
+    var font: NSFont = .monospacedSystemFont(ofSize: 12, weight: .medium)
+    var alignment: NSTextAlignment = .left
+    var onSubmit: (() -> Void)?
+    var onEscape: (() -> Void)?
+
+    @Binding var isFocused: Bool
+
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = FocusableTextField()
+        textField.delegate = context.coordinator
+        textField.isBordered = false
+        textField.drawsBackground = false
+        textField.backgroundColor = .clear
+        textField.focusRingType = .none
+        textField.font = font
+        textField.alignment = alignment
+        textField.placeholderString = placeholder
+        textField.cell?.sendsActionOnEndEditing = false
+
+        // Set up action for Return key
+        textField.target = context.coordinator
+        textField.action = #selector(Coordinator.textFieldAction(_:))
+
+        // Wire up callbacks
+        textField.onFocusGained = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.isFocused = true
+        }
+        textField.onFocusLost = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.isFocused = false
+        }
+        textField.onReturn = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onSubmit?()
+        }
+        textField.onEscape = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onEscape?()
+        }
+
+        return textField
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+        nsView.font = font
+        nsView.alignment = alignment
+        nsView.placeholderString = placeholder
+
+        // Handle focus changes from SwiftUI
+        DispatchQueue.main.async {
+            if isFocused && nsView.window?.firstResponder != nsView.currentEditor() {
+                nsView.window?.makeFirstResponder(nsView)
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: TransparentTextField
+
+        init(_ parent: TransparentTextField) {
+            self.parent = parent
+        }
+
+        /// Called when Return key is pressed (via target/action)
+        @objc func textFieldAction(_ sender: NSTextField) {
+            parent.onSubmit?()
+            sender.window?.makeFirstResponder(nil)
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let textField = obj.object as? NSTextField else { return }
+            parent.text = textField.stringValue
+        }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            DispatchQueue.main.async {
+                self.parent.isFocused = true
+            }
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            DispatchQueue.main.async {
+                self.parent.isFocused = false
+            }
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                parent.onEscape?()
+                control.window?.makeFirstResponder(nil)
+                return true
+            }
+            return false
+        }
+    }
+}
+
+// MARK: - Focusable TextField
+
+/// Custom NSTextField subclass that properly handles first responder status.
+///
+/// Standard NSTextField can have issues with focus in SwiftUI contexts,
+/// particularly in toolbars and headers. Overriding mouse events ensures
+/// the field properly captures and retains focus.
+private class FocusableTextField: NSTextField {
+    /// Called when the field gains focus (becomes first responder)
+    var onFocusGained: (() -> Void)?
+    /// Called when the field loses focus (resigns first responder)
+    var onFocusLost: (() -> Void)?
+    /// Called when Return key is pressed
+    var onReturn: (() -> Void)?
+    /// Called when Escape key is pressed
+    var onEscape: (() -> Void)?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event)
+        // Ensure we become first responder on mouse down
+        if window?.firstResponder != self.currentEditor() {
+            window?.makeFirstResponder(self)
+        }
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        if result {
+            // Ensure the field editor is properly set up and select all text
+            if let fieldEditor = window?.fieldEditor(true, for: self) as? NSTextView {
+                fieldEditor.selectedRange = NSRange(location: 0, length: stringValue.count)
+            }
+            // Notify that we gained focus
+            DispatchQueue.main.async { [weak self] in
+                self?.onFocusGained?()
+            }
+        }
+        return result
+    }
+
+    override func textDidEndEditing(_ notification: Notification) {
+        super.textDidEndEditing(notification)
+
+        // Check if ended due to Return key
+        if let movement = notification.userInfo?["NSTextMovement"] as? Int,
+           movement == NSTextMovement.return.rawValue {
+            DispatchQueue.main.async { [weak self] in
+                self?.onReturn?()
+            }
+        }
+
+        // Notify that we lost focus
+        DispatchQueue.main.async { [weak self] in
+            self?.onFocusLost?()
+        }
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        onEscape?()
+        window?.makeFirstResponder(nil)
     }
 }

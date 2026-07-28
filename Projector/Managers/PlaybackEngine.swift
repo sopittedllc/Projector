@@ -625,7 +625,9 @@ final class PlaybackEngine: ObservableObject {
     ///
     /// - Parameter frame: Target frame number (0-based).
     func seekToFrame(_ frame: Int) {
-        let clampedFrame = max(0, min(frame, durationFrames - 1))
+        // Use timeline.config.durationFrames directly (not cached durationFrames)
+        // so we always have the current duration, even after timeline extension
+        let clampedFrame = max(0, min(frame, timeline.config.durationFrames - 1))
         currentFrame = clampedFrame
         updateCurrentTimecode()
 
