@@ -51,6 +51,36 @@ final class AppSettings: ObservableObject {
     /// Higher values reduce stuttering, lower values improve sync accuracy
     @AppStorage("syncDriftThreshold") var syncDriftThreshold: Int = 5
 
+    // MARK: - Project Settings
+
+    /// Last directory used to save a project (bookmark data for sandboxed access).
+    ///
+    /// Used by SaveProjectSheet to default to the user's preferred location
+    /// instead of always falling back to Documents.
+    @AppStorage("lastProjectSaveLocationBookmark") private var lastProjectSaveLocationBookmark: Data = Data()
+
+    /// The last directory used to save a project, resolved from a security-scoped bookmark.
+    var lastProjectSaveLocation: URL? {
+        get {
+            guard !lastProjectSaveLocationBookmark.isEmpty else { return nil }
+            var isStale = false
+            return try? URL(
+                resolvingBookmarkData: lastProjectSaveLocationBookmark,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            )
+        }
+        set {
+            if let url = newValue,
+               let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
+                lastProjectSaveLocationBookmark = bookmark
+            } else {
+                lastProjectSaveLocationBookmark = Data()
+            }
+        }
+    }
+
     // MARK: - Frame Rate Settings
 
     /// Default frame rate for videos without detected frame rate
@@ -295,6 +325,48 @@ extension TimecodeFrameRate {
         case .fps120: return 120.0
         case .fps120d: return 120.0  // 120 drop frame
         @unknown default: return 24.0
+        }
+    }
+
+    /// Numerator for rational frame rate representation.
+    ///
+    /// For NTSC rates like 23.976fps, the true rate is 24000/1001.
+    /// Using rational arithmetic avoids floating-point drift over time.
+    var rationalNumerator: Int32 {
+        switch self {
+        case .fps23_976: return 24000
+        case .fps24: return 24
+        case .fps24_98: return 25000
+        case .fps25: return 25
+        case .fps29_97, .fps29_97d: return 30000
+        case .fps30, .fps30d: return 30
+        case .fps47_952: return 48000
+        case .fps48: return 48
+        case .fps50: return 50
+        case .fps59_94, .fps59_94d: return 60000
+        case .fps60, .fps60d: return 60
+        case .fps90: return 90
+        case .fps95_904: return 96000
+        case .fps96: return 96
+        case .fps100: return 100
+        case .fps119_88, .fps119_88d: return 120000
+        case .fps120, .fps120d: return 120
+        @unknown default: return 24
+        }
+    }
+
+    /// Denominator for rational frame rate representation.
+    ///
+    /// NTSC rates use 1001 (e.g., 24000/1001 = 23.976fps).
+    /// Integer rates use 1.
+    var rationalDenominator: Int32 {
+        switch self {
+        case .fps23_976, .fps24_98, .fps29_97, .fps29_97d,
+             .fps47_952, .fps59_94, .fps59_94d, .fps95_904,
+             .fps119_88, .fps119_88d:
+            return 1001
+        default:
+            return 1
         }
     }
 

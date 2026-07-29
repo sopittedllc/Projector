@@ -2003,8 +2003,13 @@ final class PlaybackEngine: ObservableObject {
         // the user-configured frame threshold. Corrections are rate-limited to
         // avoid repeated seeks while a decoder is settling.
         if isMTCSynced {
-            let playerTime = CMTimeGetSeconds(player.currentTime())
-            let sourceFrame = Int(playerTime * reel.sourceFrameRate.fps)
+            // Use integer arithmetic to avoid floating-point drift over time.
+            // Frame = time * fps = (value/timescale) * (num/denom) = (value * num) / (timescale * denom)
+            let playerTime = player.currentTime()
+            let sourceFrame = Int(
+                Int64(playerTime.value) * Int64(reel.sourceFrameRate.rationalNumerator) /
+                (Int64(playerTime.timescale) * Int64(reel.sourceFrameRate.rationalDenominator))
+            )
             let videoFrame = (sourceFrame - reel.sourceStartFrame) + reel.timelineStartFrame
 
             let absDrift = abs(videoFrame - mtcTargetFrame)
@@ -2020,8 +2025,12 @@ final class PlaybackEngine: ObservableObject {
         }
 
         // Not in MTC mode - video position drives timeline position
-        let playerTime = CMTimeGetSeconds(player.currentTime())
-        let sourceFrame = Int(playerTime * reel.sourceFrameRate.fps)
+        // Use integer arithmetic to avoid floating-point drift over time.
+        let playerTime = player.currentTime()
+        let sourceFrame = Int(
+            Int64(playerTime.value) * Int64(reel.sourceFrameRate.rationalNumerator) /
+            (Int64(playerTime.timescale) * Int64(reel.sourceFrameRate.rationalDenominator))
+        )
         let videoFrame = (sourceFrame - reel.sourceStartFrame) + reel.timelineStartFrame
 
         if videoFrame != currentFrame {
