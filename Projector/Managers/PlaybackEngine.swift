@@ -526,20 +526,24 @@ final class PlaybackEngine: ObservableObject {
         let normalizedRight = min(1.0, rightRMS * 1.414)
 
         // Update on main thread with decay for smooth falloff
+        // Only publish changes above threshold to reduce SwiftUI re-renders
         Task { @MainActor [weak self] in
             guard let self, self.isMeteringEnabled else { return }
 
-            // Apply decay: only update if new value is higher, otherwise decay
-            if normalizedLeft > self.meterLevelLeft {
-                self.meterLevelLeft = normalizedLeft
-            } else {
-                self.meterLevelLeft = max(0, self.meterLevelLeft * self.meterDecay)
-            }
+            let meterThreshold: Float = 0.01  // Only publish if change > 1%
+            let oldLeft = self.meterLevelLeft
+            let oldRight = self.meterLevelRight
 
-            if normalizedRight > self.meterLevelRight {
-                self.meterLevelRight = normalizedRight
-            } else {
-                self.meterLevelRight = max(0, self.meterLevelRight * self.meterDecay)
+            // Apply decay: only update if new value is higher, otherwise decay
+            let newLeft: Float = normalizedLeft > oldLeft ? normalizedLeft : max(0, oldLeft * self.meterDecay)
+            let newRight: Float = normalizedRight > oldRight ? normalizedRight : max(0, oldRight * self.meterDecay)
+
+            // Only publish if change is significant (reduces SwiftUI re-renders)
+            if abs(newLeft - oldLeft) > meterThreshold {
+                self.meterLevelLeft = newLeft
+            }
+            if abs(newRight - oldRight) > meterThreshold {
+                self.meterLevelRight = newRight
             }
         }
     }

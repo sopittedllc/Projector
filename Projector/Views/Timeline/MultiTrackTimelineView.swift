@@ -73,7 +73,9 @@ private struct ScrollViewCaptureHelper: NSViewRepresentable {
 /// Multi-track timeline view with video reels and audio lanes
 struct MultiTrackTimelineView: View {
     @ObservedObject var timelineManager: TimelineManager
-    @ObservedObject var playbackEngine: PlaybackEngine
+    // PlaybackEngine is NOT observed at view level to prevent constant re-renders.
+    // Sub-views that need playback state (PlayheadView, transport controls) observe it directly.
+    let playbackEngine: PlaybackEngine
     @ObservedObject var waveformCache: WaveformCache
     @ObservedObject var audioOutputManager: AudioOutputManager
     @ObservedObject var thumbnailCache: ThumbnailCache
@@ -765,54 +767,18 @@ struct MultiTrackTimelineView: View {
     }
 
     private var transportControls: some View {
-        HStack(spacing: Spacing.sm) {
-            Button(action: { playbackEngine.stepBackward() }) {
-                Image(systemName: "backward.fill")
-                    .frame(width: 14, height: 14)
-            }
-            .buttonStyle(.plain)
-            .disabled(!playbackEngine.hasContent)
-            .help("Step back one frame")
-            .accessibilityLabel("Step back one frame")
-
-            Button(action: { playbackEngine.togglePlayback() }) {
-                Image(systemName: playbackEngine.isPlaying ? "pause.fill" : "play.fill")
-                    .frame(width: 16, height: 16)
-            }
-            .buttonStyle(.plain)
-            .disabled(!playbackEngine.hasContent)
-            .keyboardShortcut(.space, modifiers: [])
-            .help(playbackEngine.isPlaying ? "Pause (Space)" : "Play (Space)")
-            .accessibilityLabel(playbackEngine.isPlaying ? "Pause" : "Play")
-
-            Button(action: { playbackEngine.stepForward() }) {
-                Image(systemName: "forward.fill")
-                    .frame(width: 14, height: 14)
-            }
-            .buttonStyle(.plain)
-            .disabled(!playbackEngine.hasContent)
-            .help("Step forward one frame")
-            .accessibilityLabel("Step forward one frame")
-
-            Button(action: { playbackEngine.stop() }) {
-                Image(systemName: "stop.fill")
-                    .frame(width: 14, height: 14)
-            }
-            .buttonStyle(.plain)
-            .disabled(!playbackEngine.hasContent)
-            .help("Stop and return to start")
-            .accessibilityLabel("Stop and return to start")
-        }
-        .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
-        )
+        // Use separate view to isolate playback state observation
+        TransportControlsView(playbackEngine: playbackEngine)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
+            )
     }
 
     private var zoomControls: some View {
@@ -1555,24 +1521,13 @@ struct MultiTrackTimelineView: View {
     /// position and misreport where the transport actually is.
     @ViewBuilder
     private func playhead(pixelsPerFrame: CGFloat, totalHeight: CGFloat) -> some View {
-        let documentX = TimelineLayout.headerWidth + (CGFloat(playbackEngine.currentFrame) * pixelsPerFrame)
-        let xOffset = documentX - horizontalScrollOffset - 1 // -1 for half width
-
-        if xOffset >= TimelineLayout.headerWidth - TimelineLayout.playheadTriangleWidth {
-            VStack(spacing: 0) {
-                // Triangle at top
-                Triangle()
-                    .fill(Color.accentColor)
-                    .frame(width: TimelineLayout.playheadTriangleWidth, height: TimelineLayout.playheadTriangleHeight)
-                // Vertical line
-                Rectangle()
-                    .fill(Color.accentColor)
-                    .frame(width: 2)
-            }
-            .frame(height: totalHeight)
-            .offset(x: xOffset)
-            .allowsHitTesting(false)
-        }
+        // Use separate view to avoid re-rendering entire tracksSection on every frame
+        PlayheadView(
+            playbackEngine: playbackEngine,
+            pixelsPerFrame: pixelsPerFrame,
+            horizontalScrollOffset: horizontalScrollOffset,
+            totalHeight: totalHeight
+        )
     }
 
     /// Keep the moving playhead on screen.
@@ -3208,6 +3163,83 @@ private final class DragCaptureNSView: NSView {
 
     private func localLocation(for info: NSDraggingInfo) -> CGPoint {
         convert(info.draggingLocation, from: nil)
+    }
+}
+
+/// Separate view for playhead to avoid re-rendering entire timeline on every frame update.
+///
+/// By isolating the playback engine observation here, only this small view re-renders
+/// at display refresh rate, not the entire tracks section.
+private struct PlayheadView: View {
+    @ObservedObject var playbackEngine: PlaybackEngine
+    let pixelsPerFrame: CGFloat
+    let horizontalScrollOffset: CGFloat
+    let totalHeight: CGFloat
+
+    var body: some View {
+        let documentX = TimelineLayout.headerWidth + (CGFloat(playbackEngine.currentFrame) * pixelsPerFrame)
+        let xOffset = documentX - horizontalScrollOffset - 1
+
+        if xOffset >= TimelineLayout.headerWidth - TimelineLayout.playheadTriangleWidth {
+            VStack(spacing: 0) {
+                Triangle()
+                    .fill(Color.accentColor)
+                    .frame(width: TimelineLayout.playheadTriangleWidth, height: TimelineLayout.playheadTriangleHeight)
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(width: 2)
+            }
+            .frame(height: totalHeight)
+            .offset(x: xOffset)
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+/// Isolated transport controls that observe PlaybackEngine independently.
+/// This prevents the entire MultiTrackTimelineView from re-rendering on playback state changes.
+private struct TransportControlsView: View {
+    @ObservedObject var playbackEngine: PlaybackEngine
+
+    var body: some View {
+        HStack(spacing: Spacing.sm) {
+            Button(action: { playbackEngine.stepBackward() }) {
+                Image(systemName: "backward.fill")
+                    .frame(width: 14, height: 14)
+            }
+            .buttonStyle(.plain)
+            .disabled(!playbackEngine.hasContent)
+            .help("Step back one frame")
+            .accessibilityLabel("Step back one frame")
+
+            Button(action: { playbackEngine.togglePlayback() }) {
+                Image(systemName: playbackEngine.isPlaying ? "pause.fill" : "play.fill")
+                    .frame(width: 16, height: 16)
+            }
+            .buttonStyle(.plain)
+            .disabled(!playbackEngine.hasContent)
+            .keyboardShortcut(.space, modifiers: [])
+            .help(playbackEngine.isPlaying ? "Pause (Space)" : "Play (Space)")
+            .accessibilityLabel(playbackEngine.isPlaying ? "Pause" : "Play")
+
+            Button(action: { playbackEngine.stepForward() }) {
+                Image(systemName: "forward.fill")
+                    .frame(width: 14, height: 14)
+            }
+            .buttonStyle(.plain)
+            .disabled(!playbackEngine.hasContent)
+            .help("Step forward one frame")
+            .accessibilityLabel("Step forward one frame")
+
+            Button(action: { playbackEngine.stop() }) {
+                Image(systemName: "stop.fill")
+                    .frame(width: 14, height: 14)
+            }
+            .buttonStyle(.plain)
+            .disabled(!playbackEngine.hasContent)
+            .help("Stop and return to start")
+            .accessibilityLabel("Stop and return to start")
+        }
     }
 }
 
