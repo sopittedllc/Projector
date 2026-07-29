@@ -171,15 +171,21 @@ struct TimelineAccordionView: View {
 
             Spacer()
 
-            // Export Cue List button
-            Button(action: onExportCueList) {
-                Image(systemName: "list.bullet.rectangle")
-                    .font(Typography.icon)
+            // Export Cue List button - only visible when MX lanes have clips
+            if timelineManager.timeline.audioLanes.contains(where: { !$0.clips.isEmpty }) {
+                Button(action: onExportCueList) {
+                    HStack(spacing: Spacing.xs) {
+                        Image(systemName: "list.bullet.rectangle")
+                            .frame(width: 12, height: 12)
+                        Text("Export Cue List")
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+                .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentBlue, help: "Export Cue List from MX lane"))
+                .fixedSize(horizontal: true, vertical: false)
+                .accessibilityLabel("Export Cue List from MX lane")
             }
-            .buttonStyle(.plain)
-            .foregroundColor(.secondary)
-            .accessibilityLabel("Export Cue List from MX lane")
-            .help("Export Cue List from MX lane")
 
             do {
                 // Everything numeric about the timeline in one row: what is
