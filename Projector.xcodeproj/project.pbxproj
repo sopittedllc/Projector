@@ -98,6 +98,8 @@
 		TIMELINE002CONTENTVIEW /* ContentView+Timeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = TIMELINE001CONTENTVIEW /* ContentView+Timeline.swift */; };
 		VINS0001VIDEOINSERT01 /* VideoInsertSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */; };
 		VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */; };
+		CE4A186D19D74C2E987649DC /* CueListExportServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDE3B90C98784B309245A5C5 /* CueListExportServiceProtocol.swift */; };
+		CAD906E175B4492CB21E2857 /* CueListExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC464AD144D744A481F09CC4 /* CueListExportService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -234,6 +236,8 @@
 		TIMELINE001CONTENTVIEW /* ContentView+Timeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Timeline.swift"; sourceTree = "<group>"; };
 		VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoInsertSheetView.swift; sourceTree = "<group>"; };
 		VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerOverlays.swift; sourceTree = "<group>"; };
+		DDE3B90C98784B309245A5C5 /* CueListExportServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueListExportServiceProtocol.swift; sourceTree = "<group>"; };
+		DC464AD144D744A481F09CC4 /* CueListExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueListExportService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -383,6 +387,8 @@
 				C1TIMELINE0000000A /* WaveformCache.swift */,
 				C1TIMELINE0000003A /* ThumbnailCache.swift */,
 				C1TIMELINE0000000B /* PlaybackEngine.swift */,
+			
+				DC464AD144D744A481F09CC4 /* CueListExportService.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -473,6 +479,8 @@
 				B19B58B12F0889F200FA33EC /* MIDISyncServiceProtocol.swift */,
 				B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */,
 				F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */,
+			
+				DDE3B90C98784B309245A5C5 /* CueListExportServiceProtocol.swift */,
 			);
 			path = Contracts;
 			sourceTree = "<group>";
@@ -797,6 +805,8 @@
 				VINS0001VIDEOINSERT01 /* VideoInsertSheetView.swift in Sources */,
 				ONBOARD01ONBOARD01 /* OnboardingView.swift in Sources */,
 				VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */,
+				CE4A186D19D74C2E987649DC /* CueListExportServiceProtocol.swift in Sources */,
+				CAD906E175B4492CB21E2857 /* CueListExportService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

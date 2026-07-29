@@ -103,14 +103,22 @@ struct AudioLaneView: View {
                 laneHeader
             } else {
                 // Keep the clips aligned with every other lane even when the
-                // header column is not drawn.
-                Color.clear.frame(width: TimelineLayout.headerWidth)
+                // header column is not drawn. Transparent to blend with the
+                // video track header above.
+                Color.clear
+                    .frame(width: TimelineLayout.headerWidth)
             }
 
             clipsArea
         }
         .frame(height: laneHeight)
-        .background(laneBackground)
+        .background {
+            if showsHeader {
+                laneBackground
+            } else {
+                Color.clear
+            }
+        }
         // Covers the header and the empty track area. Clips carry their own
         // menu, which takes precedence where one is under the cursor - so
         // right-clicking a clip still offers clip actions, not lane actions.
@@ -400,7 +408,8 @@ struct AudioLaneView: View {
                 },
                 onSetTimelineStart: {
                     onClipSetTimelineStart(clip)
-                }
+                },
+                clipHeight: laneHeight
             )
             .offset(x: clipOffset(for: clip))
             .simultaneousGesture(

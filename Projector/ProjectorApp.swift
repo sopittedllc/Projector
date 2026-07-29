@@ -14,12 +14,17 @@ struct ProjectorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        WindowGroup {
+        // Single window app - only one project open at a time
+        Window("Projector", id: "main") {
             ContentView()
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
         .handlesExternalEvents(matching: ["projector", "file"])
+        .commands {
+            // Remove the New Window command from the system menu
+            CommandGroup(replacing: .newItem) { }
+        }
     }
 }
 
@@ -196,24 +201,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
         newFileMenu.addItem(NSMenuItem.separator())
 
-        // New Window
-        let newWindowItem = NSMenuItem(
-            title: "New Window",
-            action: #selector(NSApplication.newWindowForTab(_:)),
+        // New Project (clears current and starts fresh)
+        let newProjectItem = NSMenuItem(
+            title: "New Project",
+            action: #selector(newProject(_:)),
             keyEquivalent: "n"
         )
-        newFileMenu.addItem(newWindowItem)
+        newProjectItem.target = self
+        newProjectItem.isEnabled = true
+        newFileMenu.addItem(newProjectItem)
 
         newFileMenu.addItem(NSMenuItem.separator())
 
-        // Close All
-        let closeAllItem = NSMenuItem(
-            title: "Close All",
-            action: #selector(NSWindow.close),
+        // Close (single window app, so this just closes the window)
+        let closeItem = NSMenuItem(
+            title: "Close",
+            action: #selector(NSWindow.performClose(_:)),
             keyEquivalent: "w"
         )
-        closeAllItem.keyEquivalentModifierMask = [.command, .option]
-        newFileMenu.addItem(closeAllItem)
+        newFileMenu.addItem(closeItem)
 
         // Replace the submenu entirely
         fileMenuItem.submenu = newFileMenu
@@ -563,6 +569,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         NotificationCenter.default.post(name: .openProjectFromMenu, object: nil)
     }
 
+    @objc func newProject(_ sender: Any?) {
+        debugPrint("newProject called, posting notification")
+        NotificationCenter.default.post(name: .newProject, object: nil)
+    }
+
 
     // MARK: - Edit Actions
 
@@ -659,6 +670,7 @@ extension Notification.Name {
     static let openFile = Notification.Name("openFile")
     static let openProjectFile = Notification.Name("openProjectFile")
     static let openProjectFromMenu = Notification.Name("openProjectFromMenu")
+    static let newProject = Notification.Name("newProject")
     static let videoFileSelected = Notification.Name("videoFileSelected")
     static let saveProject = Notification.Name("saveProject")
     static let saveProjectAs = Notification.Name("saveProjectAs")
@@ -703,6 +715,13 @@ extension NSApplication {
                 if chars == "o" && !flags.contains(.shift) {
                     debugPrint("Swizzled sendEvent: CMD+O detected!")
                     NotificationCenter.default.post(name: .openProjectFromMenu, object: nil)
+                    return
+                }
+
+                // CMD+N - New Project (intercept to prevent new window)
+                if chars == "n" && !flags.contains(.shift) {
+                    debugPrint("Swizzled sendEvent: CMD+N detected!")
+                    NotificationCenter.default.post(name: .newProject, object: nil)
                     return
                 }
             }

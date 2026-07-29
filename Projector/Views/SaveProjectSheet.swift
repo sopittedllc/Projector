@@ -12,6 +12,7 @@ import AppKit
 /// Sheet for saving a project with a custom folder structure
 struct SaveProjectSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var appSettings = AppSettings.shared
 
     /// The project name entered by the user
     @State private var projectName: String = ""
@@ -32,9 +33,10 @@ struct SaveProjectSheet: View {
     /// Callback when save is confirmed
     let onSave: (URL) -> Void
 
-    /// Default save location (Documents folder)
+    /// Default save location (last used, or Documents folder)
     private var defaultLocation: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        appSettings.lastProjectSaveLocation
+            ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
     }
 
     /// Display name for the save location
@@ -230,6 +232,9 @@ struct SaveProjectSheet: View {
 
             // Create the project folder
             try FileManager.default.createDirectory(at: projectFolderURL, withIntermediateDirectories: true)
+
+            // Remember the parent directory for next time
+            appSettings.lastProjectSaveLocation = projectFolderURL.deletingLastPathComponent()
 
             // Call the save callback with the project file URL
             onSave(projectFileURL)

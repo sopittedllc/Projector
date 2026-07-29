@@ -18,7 +18,6 @@ enum DAWType: String, CaseIterable, Identifiable {
     case logicPro = "Logic Pro"
     case proTools = "Pro Tools"
     case cubase = "Cubase"
-    case ableton = "Ableton Live"
     case studioOne = "Studio One"
     case reaper = "REAPER"
     case other = "Other DAW"
@@ -31,7 +30,6 @@ enum DAWType: String, CaseIterable, Identifiable {
         case .logicPro: return "apple.logo"
         case .proTools: return "waveform.path.ecg"
         case .cubase: return "c.circle"
-        case .ableton: return "a.circle"
         case .studioOne: return "s.circle"
         case .reaper: return "r.circle"
         case .other: return "music.note"
@@ -44,7 +42,6 @@ enum DAWType: String, CaseIterable, Identifiable {
         case .logicPro: return "Apple's professional DAW"
         case .proTools: return "Industry standard for post"
         case .cubase: return "Steinberg's flagship DAW"
-        case .ableton: return "Live performance & production"
         case .studioOne: return "PreSonus DAW"
         case .reaper: return "Highly customizable DAW"
         case .other: return "Custom MIDI setup"
@@ -126,27 +123,6 @@ enum DAWType: String, CaseIterable, Identifiable {
                     step: 3,
                     title: "Set Frame Rate",
                     detail: "Match the project frame rate to your video",
-                    imageName: nil
-                )
-            ]
-        case .ableton:
-            return [
-                DAWSetupStep(
-                    step: 1,
-                    title: "Open Preferences",
-                    detail: "Go to Live → Preferences → Link/Tempo/MIDI",
-                    imageName: nil
-                ),
-                DAWSetupStep(
-                    step: 2,
-                    title: "Enable MIDI Sync",
-                    detail: "Enable \"Sync\" output for \"Projector MIDI IN\"",
-                    imageName: nil
-                ),
-                DAWSetupStep(
-                    step: 3,
-                    title: "Note: MTC via Max for Live",
-                    detail: "Ableton requires a Max for Live device for MTC output. Search \"MTC\" on maxforlive.com",
                     imageName: nil
                 )
             ]

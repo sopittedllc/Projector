@@ -187,10 +187,14 @@ struct FileManagerView: View {
         .glassPanel()
         .onAppear {
         }
-        .onChange(of: mediaLibrary.items.count) { _, newCount in
-            // Auto-expand when media is first imported
-            // Check for optimization opportunities
-            evaluateOptimizationSuggestion()
+        .onChange(of: mediaLibrary.items.count) { oldCount, newCount in
+            // If items were removed, re-check if suggestion is still valid
+            if newCount < oldCount {
+                reevaluateOptimizationSuggestion()
+            } else {
+                // Items added - check for optimization opportunities
+                evaluateOptimizationSuggestion()
+            }
         }
         .focusable()
         .focused($isMediaListFocused)
@@ -839,6 +843,47 @@ struct FileManagerView: View {
         } else if highBitrateCount > 0 && !dismissedSuggestionTypes.contains("highBitrate") {
             withAnimation {
                 activeSuggestion = .highBitrateImport(count: highBitrateCount)
+            }
+        }
+    }
+
+    /// Re-evaluates if current suggestion is still valid after items were removed
+    private func reevaluateOptimizationSuggestion() {
+        guard activeSuggestion != nil else { return }
+
+        // Count items that still need optimization
+        var highBitrateCount = 0
+        var proResCount = 0
+
+        for item in mediaLibrary.items {
+            if item.isOptimized { continue }
+
+            let proResExtensions = ["mov", "mxf"]
+            if proResExtensions.contains(item.fileExtension) {
+                if let bitrate = item.bitrate, bitrate > 50_000_000 {
+                    proResCount += 1
+                    continue
+                }
+            }
+
+            if let bitrate = item.bitrate, bitrate > 10_000_000 {
+                highBitrateCount += 1
+            }
+        }
+
+        // Clear suggestion if no items need optimization anymore
+        if proResCount == 0 && highBitrateCount == 0 {
+            withAnimation {
+                activeSuggestion = nil
+            }
+        } else {
+            // Update counts if suggestion type is still valid
+            withAnimation {
+                if proResCount > 0 {
+                    activeSuggestion = .proResDetected(count: proResCount)
+                } else if highBitrateCount > 0 {
+                    activeSuggestion = .highBitrateImport(count: highBitrateCount)
+                }
             }
         }
     }

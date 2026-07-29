@@ -92,11 +92,13 @@ struct MultiTrackTimelineView: View {
     // MARK: - State
 
     @State private var isHoveringStartTC = false
-    @State private var isHoveringDuration = false
     @State private var editingStartTCText = ""
-    @State private var editingDurationText = ""
     @State private var isStartTCFocused: Bool = false
-    @State private var isDurationFocused: Bool = false
+    @State private var isHoveringPosition = false
+    @State private var editingPositionText = ""
+    @State private var isPositionFocused: Bool = false
+    @State private var showExtendDurationConfirmation = false
+    @State private var pendingSeekFrame: Int?
     @State private var isEmptyAudioDropAllowed = false
     @State private var isEmptyAudioDropLoading = false
     @State private var emptyAudioDropPreviewFrame: Int?
@@ -160,6 +162,11 @@ struct MultiTrackTimelineView: View {
     /// when the embedded audio is not what you are working on.
     @State private var isVideoAudioExpanded = true
     @State private var scrollAreaFrame: CGRect = .zero
+
+    // Video track rename state
+    @State private var isEditingVideoName = false
+    @State private var editedVideoName = ""
+    @FocusState private var isVideoNameFieldFocused: Bool
 
     // MARK: - Constants
 
@@ -272,142 +279,174 @@ struct MultiTrackTimelineView: View {
     }
 
     // MARK: - Body
+    //
+    // The body is split into helper properties to avoid Swift's type-checker
+    // timing out on the deeply nested modifier chains.
 
     var body: some View {
+        bodyWithKeyboardHandlers
+    }
+
+    /// Core layout: header (optional) + tracks.
+    private var bodyCore: some View {
         VStack(spacing: 0) {
-            // Toolbar (TC display + zoom controls) - only if showHeader is true
             if showHeader {
                 headerSection
             }
-
-            // Timeline area (ruler + tracks with unified playhead)
             tracksSection
         }
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .windowBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .focusable()
-        .focusEffectDisabled()
-        .focused($isTimelineFocused)
-        .onDeleteCommand {
-            deleteSelectedItem()
-        }
-        .onKeyPress(.return) {
-            // Yield to an active text field: Return there means "commit".
-            guard !isEditingText else { return .ignored }
-            playbackEngine.stop()
-            return .handled
-        }
-        .sheet(isPresented: $showTimecodeEntryDialog) {
-            timecodeEntryDialogContent
-        }
-        .alert("Paste Failed", isPresented: $showPasteError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(pasteErrorMessage)
-        }
-        // Take focus when a clip is selected
-        .onChange(of: selectedVideoReelId) { _, newValue in
-            if newValue != nil {
-                isTimelineFocused = true
+    }
+
+    /// Visual styling applied to the core layout.
+    private var bodyWithVisuals: some View {
+        bodyCore
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(nsColor: .windowBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// Focus handling added on top of visuals.
+    private var bodyWithFocus: some View {
+        bodyWithVisuals
+            .focusable()
+            .focusEffectDisabled()
+            .focused($isTimelineFocused)
+            .onDeleteCommand {
+                deleteSelectedItem()
             }
-        }
-        .onChange(of: selectedAudioClipId) { _, newValue in
-            if newValue != nil {
-                isTimelineFocused = true
+            .onKeyPress(.return) {
+                guard !isEditingText else { return .ignored }
+                playbackEngine.stop()
+                return .handled
             }
-        }
-        // Update cached active clip IDs when frame changes (throttled)
-        .onChange(of: playbackEngine.currentFrame) { _, _ in
-            updateActiveAudioClipIds()
-            scrollPlayheadIntoViewIfNeeded()
-        }
-        // Track horizontal scroll so the ruler and playhead can be drawn in the
-        // same coordinate space as the scrolling track content. Without this
-        // they only agree at fit-to-view, where the scroll offset is always 0.
-        .onChange(of: cachedScrollView) { _, scrollView in
-            scrollView?.contentView.postsBoundsChangedNotifications = true
-            horizontalScrollOffset = scrollView?.contentView.bounds.origin.x ?? 0
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSView.boundsDidChangeNotification)) { note in
-            guard let clipView = note.object as? NSClipView,
-                  clipView === cachedScrollView?.contentView else { return }
-            horizontalScrollOffset = clipView.bounds.origin.x
-        }
-        .onAppear {
-            updateActiveAudioClipIds()
-        }
-        // Edit menu notification handlers
-        .onReceive(NotificationCenter.default.publisher(for: .editUndo)) { _ in
-            guard isTimelineFocused else { return }
-            undoManager?.undo()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .editRedo)) { _ in
-            guard isTimelineFocused else { return }
-            undoManager?.redo()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .editDelete)) { _ in
-            guard isTimelineFocused else { return }
-            deleteSelectedItem()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .editSelectAll)) { _ in
-            guard isTimelineFocused else { return }
-            selectAll()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .editDeselectAll)) { _ in
-            guard isTimelineFocused else { return }
-            deselectAll()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .editCut)) { _ in
-            guard isTimelineFocused else { return }
-            cutSelectedItems()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .editCopy)) { _ in
-            guard isTimelineFocused else { return }
-            copySelectedItems()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .editPaste)) { _ in
-            guard isTimelineFocused else { return }
-            pasteItems()
-        }
-        // Escape key to deselect all
-        .onKeyPress(.escape) {
-            // Yield: Escape in a text field means "cancel the edit".
-            guard !isEditingText else { return .ignored }
-            deselectAll()
-            return .handled
-        }
-        // Arrow keys for navigation
-        .onKeyPress(.leftArrow) {
-            // Yield: arrows move the insertion point while editing text.
-            guard !isEditingText else { return .ignored }
-            navigateSelection(direction: .left)
-            return .handled
-        }
-        .onKeyPress(.rightArrow) {
-            // Yield: arrows move the insertion point while editing text.
-            guard !isEditingText else { return .ignored }
-            navigateSelection(direction: .right)
-            return .handled
-        }
-        .onKeyPress(.upArrow) {
-            // Yield: arrows move the insertion point while editing text.
-            guard !isEditingText else { return .ignored }
-            navigateSelection(direction: .up)
-            return .handled
-        }
-        .onKeyPress(.downArrow) {
-            // Yield: arrows move the insertion point while editing text.
-            guard !isEditingText else { return .ignored }
-            navigateSelection(direction: .down)
-            return .handled
-        }
+    }
+
+    /// Sheets and alerts added.
+    private var bodyWithDialogs: some View {
+        bodyWithFocus
+            .sheet(isPresented: $showTimecodeEntryDialog) {
+                timecodeEntryDialogContent
+            }
+            .alert("Paste Failed", isPresented: $showPasteError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(pasteErrorMessage)
+            }
+            .alert("Extend Timeline?", isPresented: $showExtendDurationConfirmation) {
+                Button("Cancel", role: .cancel) {
+                    pendingSeekFrame = nil
+                    editingPositionText = timelineManager.currentTimecode.stringValue()
+                }
+                Button("Extend") {
+                    confirmExtendAndSeek()
+                }
+            } message: {
+                Text("The position you entered is beyond the current timeline duration. Would you like to extend the timeline to include this position?")
+            }
+    }
+
+    /// onChange handlers for selection and playback.
+    private var bodyWithOnChange: some View {
+        bodyWithDialogs
+            .onChange(of: selectedVideoReelId) { _, newValue in
+                if newValue != nil {
+                    isTimelineFocused = true
+                }
+            }
+            .onChange(of: selectedAudioClipId) { _, newValue in
+                if newValue != nil {
+                    isTimelineFocused = true
+                }
+            }
+            .onChange(of: playbackEngine.currentFrame) { _, _ in
+                updateActiveAudioClipIds()
+                scrollPlayheadIntoViewIfNeeded()
+            }
+            .onChange(of: cachedScrollView) { _, scrollView in
+                scrollView?.contentView.postsBoundsChangedNotifications = true
+                horizontalScrollOffset = scrollView?.contentView.bounds.origin.x ?? 0
+            }
+    }
+
+    /// Notification handlers for scroll and edit menu.
+    private var bodyWithNotifications: some View {
+        bodyWithOnChange
+            .onReceive(NotificationCenter.default.publisher(for: NSView.boundsDidChangeNotification)) { note in
+                guard let clipView = note.object as? NSClipView,
+                      clipView === cachedScrollView?.contentView else { return }
+                horizontalScrollOffset = clipView.bounds.origin.x
+            }
+            .onAppear {
+                updateActiveAudioClipIds()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .editUndo)) { _ in
+                guard isTimelineFocused else { return }
+                undoManager?.undo()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .editRedo)) { _ in
+                guard isTimelineFocused else { return }
+                undoManager?.redo()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .editDelete)) { _ in
+                guard isTimelineFocused else { return }
+                deleteSelectedItem()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .editSelectAll)) { _ in
+                guard isTimelineFocused else { return }
+                selectAll()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .editDeselectAll)) { _ in
+                guard isTimelineFocused else { return }
+                deselectAll()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .editCut)) { _ in
+                guard isTimelineFocused else { return }
+                cutSelectedItems()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .editCopy)) { _ in
+                guard isTimelineFocused else { return }
+                copySelectedItems()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .editPaste)) { _ in
+                guard isTimelineFocused else { return }
+                pasteItems()
+            }
+    }
+
+    /// Keyboard navigation handlers.
+    private var bodyWithKeyboardHandlers: some View {
+        bodyWithNotifications
+            .onKeyPress(.escape) {
+                guard !isEditingText else { return .ignored }
+                deselectAll()
+                return .handled
+            }
+            .onKeyPress(.leftArrow) {
+                guard !isEditingText else { return .ignored }
+                navigateSelection(direction: .left)
+                return .handled
+            }
+            .onKeyPress(.rightArrow) {
+                guard !isEditingText else { return .ignored }
+                navigateSelection(direction: .right)
+                return .handled
+            }
+            .onKeyPress(.upArrow) {
+                guard !isEditingText else { return .ignored }
+                navigateSelection(direction: .up)
+                return .handled
+            }
+            .onKeyPress(.downArrow) {
+                guard !isEditingText else { return .ignored }
+                navigateSelection(direction: .down)
+                return .handled
+            }
     }
 
     // MARK: - Text Editing Guard
@@ -637,13 +676,13 @@ struct MultiTrackTimelineView: View {
             return
         }
 
-        // Check if region would extend beyond timeline duration
+        // Auto-extend timeline if region would exceed current duration
         let regionEndFrame = newFrame + regionDuration
         if regionEndFrame > timeline.config.durationFrames {
-            let maxStartFrame = timeline.config.durationFrames - regionDuration
-            let maxStartTC = Timecode(.frames(maxStartFrame + timeline.config.startTimecode.frameCount.wholeFrames), at: timeline.config.frameRate, by: .clamping)
-            timecodeEntryError = "Region would extend beyond timeline.\nMax start: \(maxStartTC.stringValue())"
-            return
+            let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timeline.config.frameRate.fps)
+            timelineManager.extendTimeline(toEndFrame: regionEndFrame + paddingFrames)
+            // Zoom to fit so user sees the full timeline
+            zoomLevel = minZoom
         }
 
         // Apply the move
@@ -678,13 +717,13 @@ struct MultiTrackTimelineView: View {
 
     private var headerSection: some View {
         VStack(spacing: 0) {
-            // Toolbar: Start TC | Duration | FPS | Transport | Zoom | Settings
+            // Toolbar: Start TC | Position | FPS | Transport | Zoom | Settings
             HStack(spacing: Spacing.md) {
                 // Start timecode (editable)
                 startTCBox
 
-                // Duration (editable)
-                durationBox
+                // Current position (editable - double-click or click to edit)
+                positionBox
 
                 // Frame rate (dropdown)
                 fpsBox
@@ -875,37 +914,36 @@ struct MultiTrackTimelineView: View {
         }
     }
 
-    private var durationBox: some View {
+    private var positionBox: some View {
         HStack(spacing: Spacing.xs) {
-            Text("Duration:")
+            Text("Position:")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .fixedSize()
 
             TransparentTextField(
-                text: $editingDurationText,
+                text: $editingPositionText,
                 placeholder: "00:00:00:00",
                 font: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium),
                 onSubmit: {
-                    applyDuration()
+                    applyPosition()
                 },
                 onEscape: {
-                    editingDurationText = durationTimecodeString
+                    editingPositionText = timelineManager.currentTimecode.stringValue()
                 },
-                isFocused: $isDurationFocused
+                isFocused: $isPositionFocused
             )
             .frame(width: 85)
-            .onChange(of: editingDurationText) { _, newValue in
+            .onChange(of: editingPositionText) { _, newValue in
                 let formatted = formatTimecodeInput(newValue)
                 if formatted != newValue {
-                    editingDurationText = formatted
+                    editingPositionText = formatted
                 }
             }
-            .onChange(of: isDurationFocused) { _, focused in
-                // Save on blur
+            .onChange(of: isPositionFocused) { _, focused in
                 if !focused {
-                    applyDuration()
+                    applyPosition()
                 }
             }
         }
@@ -913,29 +951,30 @@ struct MultiTrackTimelineView: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(durationBackground)
+                .fill(positionBackground)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(isDurationFocused ? Color.accentColor : AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
+                .stroke(isPositionFocused ? Color.accentColor : AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
         )
         .onHover { hovering in
-            isHoveringDuration = hovering
+            isHoveringPosition = hovering
         }
-        .onChange(of: timeline.config.durationFrames) { _, _ in
-            if !isDurationFocused {
-                editingDurationText = durationTimecodeString
+        .onChange(of: timelineManager.currentFrame) { _, _ in
+            // Update the displayed position when playhead moves (unless editing)
+            if !isPositionFocused {
+                editingPositionText = timelineManager.currentTimecode.stringValue()
             }
         }
         .onAppear {
-            editingDurationText = durationTimecodeString
+            editingPositionText = timelineManager.currentTimecode.stringValue()
         }
     }
 
-    private var durationBackground: Color {
-        if isDurationFocused {
-            return Color(nsColor: .controlBackgroundColor)
-        } else if isHoveringDuration {
+    private var positionBackground: Color {
+        if isPositionFocused {
+            return Color.accentColor.opacity(0.2)
+        } else if isHoveringPosition {
             return Color.white.opacity(0.08)
         } else {
             return Color.white.opacity(0.04)
@@ -989,15 +1028,8 @@ struct MultiTrackTimelineView: View {
         config.startTimecode = Timecode(.frames(startFrames), at: newRate, by: .clamping)
         config.endTimecode = Timecode(.frames(endFrames), at: newRate, by: .clamping)
         timelineManager.updateConfig(config)
-        // Update text fields
+        // Update start TC text field
         editingStartTCText = config.startTimecode.stringValue()
-        editingDurationText = durationTimecodeString
-    }
-
-    /// Duration as a timecode string (HH:MM:SS:FF)
-    private var durationTimecodeString: String {
-        let durationTC = Timecode(.frames(timeline.config.durationFrames), at: timeline.config.frameRate, by: .clamping)
-        return durationTC.stringValue()
     }
 
     /// Format timecode input as the user types, inserting colons every 2 digits
@@ -1025,18 +1057,51 @@ struct MultiTrackTimelineView: View {
         }
     }
 
-    private func applyDuration() {
-        isDurationFocused = false
-        if let durationTC = parseTimecode(editingDurationText) {
-            let durationFrames = durationTC.frameCount.wholeFrames
-            let newEndFrames = timeline.config.startTimecode.frameCount.wholeFrames + durationFrames
-            let newEnd = Timecode(.frames(newEndFrames), at: timeline.config.frameRate, by: .clamping)
-            timelineManager.setTimelineBounds(start: timeline.config.startTimecode, end: newEnd)
-            editingDurationText = durationTimecodeString
-        } else {
+    private func applyPosition() {
+        isPositionFocused = false
+        guard let newTC = parseTimecode(editingPositionText) else {
             // Reset to current value if invalid
-            editingDurationText = durationTimecodeString
+            editingPositionText = timelineManager.currentTimecode.stringValue()
+            return
         }
+
+        // Calculate the frame offset from timeline start
+        let startFrames = timeline.config.startTimecode.frameCount.wholeFrames
+        let targetFrames = newTC.frameCount.wholeFrames
+        let targetFrame = targetFrames - startFrames
+
+        // Check if target is beyond current duration
+        if targetFrame >= timeline.config.durationFrames {
+            // Store the pending seek frame and show confirmation
+            pendingSeekFrame = targetFrame
+            showExtendDurationConfirmation = true
+        } else if targetFrame < 0 {
+            // Can't seek before timeline start
+            editingPositionText = timelineManager.currentTimecode.stringValue()
+        } else {
+            // Within bounds, seek directly
+            timelineManager.seekToFrame(targetFrame)
+            onSeek(targetFrame)
+            editingPositionText = newTC.stringValue()
+        }
+    }
+
+    private func confirmExtendAndSeek() {
+        guard let targetFrame = pendingSeekFrame else { return }
+
+        // Extend timeline with padding
+        let paddingFrames = Int(TimelineManager.defaultPaddingMinutes * 60.0 * timeline.config.frameRate.fps)
+        timelineManager.extendTimeline(toEndFrame: targetFrame + paddingFrames)
+
+        // Zoom to fit the new duration
+        zoomLevel = minZoom
+
+        // Now seek to the target frame
+        timelineManager.seekToFrame(targetFrame)
+        onSeek(targetFrame)
+        editingPositionText = timelineManager.currentTimecode.stringValue()
+
+        pendingSeekFrame = nil
     }
 
     private func parseTimecode(_ string: String) -> Timecode? {
@@ -1094,7 +1159,8 @@ struct MultiTrackTimelineView: View {
                     let ruler = TimelineRulerView(
                         duration: playbackEngine.duration,
                         frameRate: timeline.config.frameRate,
-                        currentTime: playbackEngine.currentTime
+                        currentTime: playbackEngine.currentTime,
+                        startTimecode: timeline.config.startTimecode
                     )
                     .frame(width: rulerWidth, alignment: .leading)
                     .offset(x: -horizontalScrollOffset)
@@ -1124,67 +1190,8 @@ struct MultiTrackTimelineView: View {
 
                         Spacer().frame(height: Spacing.xs)
 
-                        // Video track
-                        VideoTrackView(
-                            timelineManager: timelineManager,
-                            playbackEngine: playbackEngine,
-                            thumbnailCache: thumbnailCache,
-                            mediaLibrary: mediaLibrary,
-                            pixelsPerFrame: ppf,
-                            scrollOffset: 0,
-                            showThumbnails: !debug.disableThumbnails,
-                            clipInteractionsEnabled: !debug.disableClipInteractions,
-                            onDropMedia: onDropVideoMedia,
-                            onDropMixedMedia: onDropMixedMedia,
-                            onReelRename: { reelId, newName in
-                                timelineManager.renameVideoReel(id: reelId, name: newName)
-                            },
-                            onReelSelected: { reelId, modifiers in
-                                handleReelSelection(reelId: reelId, modifiers: modifiers)
-                            },
-                            onReelDoubleClick: { reel in
-                                editingReelId = reel.id
-                                let tc = Timecode(.frames(reel.timelineStartFrame + timeline.config.startTimecode.frameCount.wholeFrames), at: timeline.config.frameRate, by: .clamping)
-                                timecodeEntryText = tc.stringValue()
-                                showTimecodeEntryDialog = true
-                            },
-                            onReelMove: { reelId, newFrame in
-                                guard let reel = timelineManager.timeline.videoReels.first(where: { $0.id == reelId }),
-                                      reel.timelineStartFrame != newFrame else { return }
-                                registerVideoReelMoveUndo(reelId: reelId, from: reel.timelineStartFrame)
-                                timelineManager.moveVideoReel(id: reelId, to: newFrame)
-                            },
-                            linkedDragPreview: linkedDragPreview,
-                            onReelDragPreview: { reel, previewFrame in
-                                if let previewFrame {
-                                    linkedDragPreview = LinkedDragPreview(
-                                        sourceURL: reel.sourceURL,
-                                        sourceStartFrame: reel.sourceStartFrame,
-                                        durationFrames: reel.durationFrames,
-                                        fromFrame: reel.timelineStartFrame,
-                                        toFrame: previewFrame
-                                    )
-                                } else {
-                                    linkedDragPreview = nil
-                                }
-                            },
-                            selectedReelIds: selectedVideoReelIds,
-                            availableAudioOutputs: audioOutputManager.mappedOutputs
-                        )
-                        .frame(width: totalContentWidth, height: TimelineLayout.videoTrackHeight)
-                        .overlay(alignment: .top) {
-                            laneBorder
-                        }
-
-                        // The video file's own audio, drawn as a short strip
-                        // directly beneath the picture with no divider between
-                        // them, so the two read as one Video File track. Its
-                        // controls are in the video header above.
-                        if let linked = timeline.videoAudioLane,
-                           let linkedIndex = timeline.audioLanes.firstIndex(where: { $0.id == linked.id }),
-                           isVideoAudioExpanded {
-                            linkedAudioStrip(lane: linked, index: linkedIndex, ppf: ppf, width: totalContentWidth)
-                        }
+                        // Video File Track: video + linked audio as one unified track
+                        videoFileTrack(ppf: ppf, totalContentWidth: totalContentWidth)
 
                         Divider()
 
@@ -1580,6 +1587,247 @@ struct MultiTrackTimelineView: View {
     /// the layout's `pixelsPerFrame`, because that width is the one thing here
     /// that already encodes the current zoom without needing the geometry width
     /// plumbed out of the `GeometryReader`.
+
+    // MARK: - Video File Track (Unified)
+
+    /// Video file track: video reels + linked audio as one unified track with a single header.
+    @ViewBuilder
+    private func videoFileTrack(ppf: CGFloat, totalContentWidth: CGFloat) -> some View {
+        let hasLinkedAudio = timeline.videoAudioLane != nil && isVideoAudioExpanded
+        let totalHeight = TimelineLayout.videoTrackHeight + (hasLinkedAudio ? TimelineLayout.linkedAudioStripHeight : 0)
+
+        HStack(spacing: 0) {
+            // Unified header spanning both video and audio
+            videoFileTrackHeader(totalHeight: totalHeight)
+
+            // Content area: video on top, audio below
+            VStack(spacing: 0) {
+                // Use VideoTrackView with header hidden to retain drop handling
+                VideoTrackView(
+                    timelineManager: timelineManager,
+                    playbackEngine: playbackEngine,
+                    thumbnailCache: thumbnailCache,
+                    mediaLibrary: mediaLibrary,
+                    pixelsPerFrame: ppf,
+                    scrollOffset: 0,
+                    showThumbnails: !TimelineDebugFlags.current.disableThumbnails,
+                    clipInteractionsEnabled: !TimelineDebugFlags.current.disableClipInteractions,
+                    onDropMedia: { urls, frame, isInternal in onDropVideoMedia(urls, frame, isInternal) },
+                    onDropMixedMedia: onDropMixedMedia,
+                    onReelSelected: { reelId, modifiers in
+                        if let id = reelId {
+                            handleReelSelection(reelId: id, modifiers: modifiers)
+                        }
+                    },
+                    onReelDoubleClick: { reel in
+                        editingReelId = reel.id
+                        let tc = Timecode(.frames(reel.timelineStartFrame + timeline.config.startTimecode.frameCount.wholeFrames), at: timeline.config.frameRate, by: .clamping)
+                        timecodeEntryText = tc.stringValue()
+                        showTimecodeEntryDialog = true
+                    },
+                    onReelMove: { reelId, newFrame in
+                        if let oldFrame = timeline.videoReels.first(where: { $0.id == reelId })?.timelineStartFrame,
+                           oldFrame != newFrame {
+                            registerVideoReelMoveUndo(reelId: reelId, from: oldFrame)
+                        }
+                        timelineManager.moveVideoReel(id: reelId, to: newFrame)
+                    },
+                    linkedDragPreview: linkedDragPreview,
+                    onReelDragPreview: { reel, frame in
+                        if let f = frame {
+                            linkedDragPreview = LinkedDragPreview(
+                                sourceURL: reel.sourceURL,
+                                sourceStartFrame: 0,
+                                durationFrames: reel.durationFrames,
+                                fromFrame: reel.timelineStartFrame,
+                                toFrame: f
+                            )
+                        } else {
+                            linkedDragPreview = nil
+                        }
+                    },
+                    selectedReelIds: selectedVideoReelIds,
+                    showsHeader: false
+                )
+                .frame(width: totalContentWidth - TimelineLayout.headerWidth, height: TimelineLayout.videoTrackHeight)
+
+                if let linked = timeline.videoAudioLane,
+                   let linkedIndex = timeline.audioLanes.firstIndex(where: { $0.id == linked.id }),
+                   isVideoAudioExpanded {
+                    linkedAudioContent(lane: linked, index: linkedIndex, ppf: ppf, width: totalContentWidth - TimelineLayout.headerWidth)
+                }
+            }
+        }
+        .frame(width: totalContentWidth, height: totalHeight)
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.3))
+        .overlay(alignment: .top) {
+            laneBorder
+        }
+    }
+
+    /// Unified header for video file track (video + linked audio).
+    private func videoFileTrackHeader(totalHeight: CGFloat) -> some View {
+        VStack(spacing: 4) {
+            // Video info with editable name
+            if let reel = timelineManager.timeline.videoReels.first {
+                let trackName = reel.name ?? "Video"
+
+                // Editable track name
+                if isEditingVideoName {
+                    TextField("", text: $editedVideoName)
+                        .font(.system(size: 10, weight: .medium))
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.center)
+                        .focused($isVideoNameFieldFocused)
+                        .onSubmit { commitVideoNameEdit(for: reel) }
+                        .onExitCommand { cancelVideoNameEdit(for: reel) }
+                        .onChange(of: isVideoNameFieldFocused) { _, focused in
+                            if !focused && isEditingVideoName {
+                                commitVideoNameEdit(for: reel)
+                            }
+                        }
+                        .frame(maxWidth: TimelineLayout.headerWidth - Spacing.md * 2)
+                        .help("Return to rename, Escape to cancel")
+                } else {
+                    Button(action: {}) {
+                        Text(trackName)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .buttonStyle(.plain)
+                    .simultaneousGesture(
+                        TapGesture(count: 2).onEnded { _ in startVideoNameEdit(for: reel) }
+                    )
+                    .help("\(trackName) - double-click to rename")
+                }
+
+                Text(String(format: "%.2f fps", reel.sourceFrameRate.fps))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.secondary)
+            } else {
+                Text("Video")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.primary)
+            }
+
+            // Audio controls
+            if let linked = timeline.videoAudioLane,
+               let index = timeline.audioLanes.firstIndex(where: { $0.id == linked.id }) {
+                AudioLaneControls(
+                    lane: linked,
+                    availableAudioOutputs: audioOutputManager.mappedOutputs,
+                    onMuteToggle: { timelineManager.toggleLaneMute(at: index) },
+                    onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
+                    onOutputMappingChange: { output in
+                        timelineManager.setLaneOutputMapping(id: linked.id, mapping: output)
+                    },
+                    onOutputNone: { timelineManager.disableLaneOutput(id: linked.id) }
+                )
+            }
+        }
+        .padding(.horizontal, Spacing.sm)
+        .frame(width: TimelineLayout.headerWidth, height: totalHeight)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.3))
+    }
+
+    private func startVideoNameEdit(for reel: VideoReel) {
+        editedVideoName = reel.name ?? "Video"
+        isEditingVideoName = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            isVideoNameFieldFocused = true
+        }
+    }
+
+    private func commitVideoNameEdit(for reel: VideoReel) {
+        guard isEditingVideoName else { return }
+        isEditingVideoName = false
+
+        let trimmed = editedVideoName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty && trimmed != reel.displayName {
+            timelineManager.renameVideoReel(id: reel.id, name: trimmed)
+        }
+    }
+
+    private func cancelVideoNameEdit(for reel: VideoReel) {
+        isEditingVideoName = false
+        editedVideoName = reel.name ?? "Video"
+    }
+
+    /// Video reels content (no header, just the clips).
+    private func videoFileTrackContent(ppf: CGFloat, width: CGFloat) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                DustyBackground()
+
+                ForEach(timelineManager.timeline.sortedVideoReels) { reel in
+                    VideoReelClipView(
+                        reel: reel,
+                        isActive: playbackEngine.activeReel?.id == reel.id,
+                        pixelsPerFrame: ppf,
+                        thumbnailCache: thumbnailCache,
+                        showThumbnails: !TimelineDebugFlags.current.disableThumbnails,
+                        isSelected: selectedVideoReelIds.contains(reel.id),
+                        interactionsEnabled: !TimelineDebugFlags.current.disableClipInteractions,
+                        isOptimized: mediaLibrary.items.first { $0.url == reel.sourceURL }?.isOptimized ?? false,
+                        timelineStartTimecode: timelineManager.formatTimecode(forFrame: reel.timelineStartFrame),
+                        onSelect: { modifiers in
+                            handleReelSelection(reelId: reel.id, modifiers: modifiers)
+                        },
+                        onDoubleClick: {
+                            editingReelId = reel.id
+                            let tc = Timecode(.frames(reel.timelineStartFrame + timeline.config.startTimecode.frameCount.wholeFrames), at: timeline.config.frameRate, by: .clamping)
+                            timecodeEntryText = tc.stringValue()
+                            showTimecodeEntryDialog = true
+                        },
+                        onSetTimelineStart: {
+                            timelineManager.setTimelineStart(toFrame: reel.timelineStartFrame)
+                        }
+                    )
+                    .offset(x: CGFloat(reel.timelineStartFrame) * ppf)
+                }
+            }
+        }
+        .frame(width: width, height: TimelineLayout.videoTrackHeight)
+    }
+
+    /// Linked audio content (waveform only, no header).
+    private func linkedAudioContent(lane: AudioLane, index: Int, ppf: CGFloat, width: CGFloat) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                DustyBackground()
+
+                ForEach(lane.clips) { clip in
+                    AudioClipView(
+                        clip: clip,
+                        lane: lane,
+                        laneIndex: index,
+                        isActive: activeAudioClipIds.contains(clip.id),
+                        pixelsPerFrame: ppf,
+                        frameRate: timeline.config.frameRate,
+                        isSelected: selectedAudioClipIds.contains(clip.id),
+                        waveformCache: waveformCache,
+                        showWaveform: !TimelineDebugFlags.current.disableWaveforms,
+                        interactionsEnabled: !TimelineDebugFlags.current.disableClipInteractions,
+                        isOptimized: mediaLibrary.items.first { $0.url == clip.sourceURL }?.isOptimized ?? false,
+                        timelineStartTimecode: nil,
+                        onSelect: { modifiers in
+                            handleClipSelection(clipId: clip.id, laneId: lane.id, modifiers: modifiers)
+                        },
+                        onDoubleClick: {},
+                        onSetTimelineStart: {
+                            timelineManager.setTimelineStart(toFrame: clip.timelineStartFrame)
+                        },
+                        clipHeight: TimelineLayout.linkedAudioStripHeight
+                    )
+                    .offset(x: CGFloat(clip.timelineStartFrame) * ppf)
+                }
+            }
+        }
+        .frame(width: width, height: TimelineLayout.linkedAudioStripHeight)
+    }
+
     /// The video file's baked-in audio, as a short strip under the picture.
     ///
     /// Reuses `AudioLaneView` at a third height with its header suppressed, so
@@ -3012,93 +3260,3 @@ private struct TimelineDebugFlags {
     }
 }
 
-// MARK: - Transparent TextField
-
-/// A TextField that removes all macOS system styling (focus ring, background)
-/// so parent views can apply custom styling without interference.
-private struct TransparentTextField: NSViewRepresentable {
-    @Binding var text: String
-    var placeholder: String = ""
-    var font: NSFont = .monospacedSystemFont(ofSize: 12, weight: .medium)
-    var alignment: NSTextAlignment = .left
-    var onSubmit: (() -> Void)?
-    var onEscape: (() -> Void)?
-
-    @Binding var isFocused: Bool
-
-    func makeNSView(context: Context) -> NSTextField {
-        let textField = NSTextField()
-        textField.delegate = context.coordinator
-        textField.isBordered = false
-        textField.drawsBackground = false
-        textField.backgroundColor = .clear
-        textField.focusRingType = .none
-        textField.font = font
-        textField.alignment = alignment
-        textField.placeholderString = placeholder
-        textField.cell?.sendsActionOnEndEditing = true
-        return textField
-    }
-
-    func updateNSView(_ nsView: NSTextField, context: Context) {
-        if nsView.stringValue != text {
-            nsView.stringValue = text
-        }
-        nsView.font = font
-        nsView.alignment = alignment
-        nsView.placeholderString = placeholder
-
-        // Handle focus changes from SwiftUI
-        DispatchQueue.main.async {
-            if isFocused && nsView.window?.firstResponder != nsView.currentEditor() {
-                nsView.window?.makeFirstResponder(nsView)
-            }
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: TransparentTextField
-
-        init(_ parent: TransparentTextField) {
-            self.parent = parent
-        }
-
-        func controlTextDidChange(_ obj: Notification) {
-            guard let textField = obj.object as? NSTextField else { return }
-            parent.text = textField.stringValue
-        }
-
-        func controlTextDidBeginEditing(_ obj: Notification) {
-            DispatchQueue.main.async {
-                self.parent.isFocused = true
-            }
-        }
-
-        func controlTextDidEndEditing(_ obj: Notification) {
-            DispatchQueue.main.async {
-                self.parent.isFocused = false
-            }
-        }
-
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                // Return key pressed
-                parent.onSubmit?()
-                // Resign first responder to exit edit mode
-                control.window?.makeFirstResponder(nil)
-                return true
-            }
-            if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
-                // Escape key pressed
-                parent.onEscape?()
-                control.window?.makeFirstResponder(nil)
-                return true
-            }
-            return false
-        }
-    }
-}

@@ -32,6 +32,8 @@ struct VideoTrackView: View {
     let onReelDragPreview: (VideoReel, Int?) -> Void
     /// Set of reel IDs selected via marquee selection (from parent)
     var selectedReelIds: Set<UUID> = []
+    /// Whether to show the track header (set false when using external unified header)
+    var showsHeader: Bool = true
 
     @State private var selectedReelId: UUID?
     @State private var isEditingName = false
@@ -63,14 +65,16 @@ struct VideoTrackView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Track header
-            trackHeader
+            // Track header (only show if not using external unified header)
+            if showsHeader {
+                trackHeader
+            }
 
             // Reels area
             reelsArea
         }
         .frame(height: TimelineLayout.videoTrackHeight)
-        .background(Color(nsColor: .textBackgroundColor).opacity(0.3))
+        .background(showsHeader ? Color(nsColor: .textBackgroundColor).opacity(0.3) : Color.clear)
     }
 
     // MARK: - Track Header
@@ -119,6 +123,7 @@ struct VideoTrackView: View {
                 .frame(width: Spacing.sm)
         }
         .frame(width: TimelineLayout.headerWidth)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.3))
     }
 
     /// Track title: the reel's name when there's exactly one, otherwise the

@@ -19,10 +19,21 @@ struct AudioClipView: View {
     let onDoubleClick: () -> Void
     let onSetTimelineStart: () -> Void
 
+    /// Optional override for clip height (uses audioClipHeight if nil)
+    var clipHeight: CGFloat?
+
     /// Track height for audio clips
-    private let trackHeight: CGFloat = TimelineLayout.audioClipHeight
-    /// Header height for filename
-    private let headerHeight: CGFloat = TimelineLayout.audioClipHeaderHeight
+    private var trackHeight: CGFloat {
+        clipHeight ?? TimelineLayout.audioClipHeight
+    }
+    /// Header height for filename - scales with clip height
+    private var headerHeight: CGFloat {
+        if let height = clipHeight, height < TimelineLayout.audioClipHeight {
+            // Proportionally smaller header for compact clips
+            return min(TimelineLayout.audioClipHeaderHeight, height * 0.4)
+        }
+        return TimelineLayout.audioClipHeaderHeight
+    }
 
     var body: some View {
         let clipContent = ZStack(alignment: .topLeading) {

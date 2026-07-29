@@ -97,6 +97,13 @@ final class TimelineManager: ObservableObject {
     /// callback.
     private var timelineChangeObservers: [UUID: () -> Void] = [:]
 
+    // MARK: - Constants
+
+    /// Default padding in minutes added when auto-extending the timeline.
+    ///
+    /// This provides workspace at the end of content.
+    static let defaultPaddingMinutes: Double = 20.0
+
     // MARK: - Initialization
 
     init(timeline: Timeline = .empty) {
@@ -273,6 +280,36 @@ final class TimelineManager: ObservableObject {
         extendTimelineIfNeeded(toEndFrame: endFrame)
     }
 
+    /// Shrink the timeline to fit content plus padding.
+    ///
+    /// Called after content deletion. Finds the rightmost content and sets
+    /// the timeline end to that position plus standard padding. Never shrinks
+    /// below the default 2-hour minimum.
+    func shrinkTimelineToContent() {
+        let config = timeline.config
+
+        // Find rightmost content frame
+        let videoEnd = timeline.videoReels.map { $0.timelineEndFrame }.max() ?? 0
+        let audioEnd = timeline.audioLanes.flatMap { $0.clips }.map { $0.timelineEndFrame }.max() ?? 0
+        let rightmostContent = max(videoEnd, audioEnd)
+
+        // Calculate minimum duration (at least default 2 hours, or content + padding)
+        let paddingFrames = Int(Self.defaultPaddingMinutes * 60.0 * config.frameRate.fps)
+        let minimumDuration = 2 * 60 * 60 * Int(config.frameRate.fps)  // 2 hours in frames
+        let targetEnd = max(minimumDuration, rightmostContent + paddingFrames)
+
+        // Only shrink if current duration is larger
+        if targetEnd < config.durationFrames {
+            var newConfig = config
+            newConfig.endTimecode = Timecode(
+                .frames(config.startTimecode.frameCount.wholeFrames + targetEnd),
+                at: config.frameRate,
+                by: .clamping
+            )
+            timeline.config = newConfig
+        }
+    }
+
     // MARK: - Video Reel Operations
 
     /// Active security-scoped URLs that should not be released until reel removal
@@ -363,6 +400,7 @@ final class TimelineManager: ObservableObject {
             url.stopAccessingSecurityScopedResource()
         }
         timeline.removeVideoReel(id: id)
+        shrinkTimelineToContent()
     }
 
     /// Move a video reel to a new timeline position
@@ -377,6 +415,13 @@ final class TimelineManager: ObservableObject {
 
         reel.timelineStartFrame = newFrame
         timeline.updateVideoReel(reel)
+
+        // Auto-extend timeline if reel now exceeds duration
+        let reelEndFrame = newFrame + reel.durationFrames
+        if reelEndFrame > timeline.config.durationFrames {
+            let paddingFrames = Int(Self.defaultPaddingMinutes * 60.0 * timeline.config.frameRate.fps)
+            extendTimelineIfNeeded(toEndFrame: reelEndFrame + paddingFrames)
+        }
 
         if moveLinkedAudio {
             moveLinkedAudioClips(for: reel, oldFrame: oldFrame, newFrame: newFrame, excludingClipId: nil)
@@ -728,6 +773,7 @@ final class TimelineManager: ObservableObject {
     /// Remove an audio clip from a lane
     func removeAudioClip(clipId: UUID, fromLane laneId: UUID) {
         timeline.removeClip(clipId: clipId, fromLane: laneId)
+        shrinkTimelineToContent()
     }
 
     /// Move an audio clip to a new position
@@ -744,6 +790,13 @@ final class TimelineManager: ObservableObject {
 
         clip.timelineStartFrame = newFrame
         timeline.audioLanes[laneIndex].updateClip(clip)
+
+        // Auto-extend timeline if clip now exceeds duration
+        let clipEndFrame = newFrame + clip.durationFrames
+        if clipEndFrame > timeline.config.durationFrames {
+            let paddingFrames = Int(Self.defaultPaddingMinutes * 60.0 * timeline.config.frameRate.fps)
+            extendTimelineIfNeeded(toEndFrame: clipEndFrame + paddingFrames)
+        }
 
         guard shouldMoveLinkedReel, clip.sourceType == .videoTrack else { return }
         moveLinkedReel(for: clip, oldFrame: oldFrame, newFrame: newFrame)

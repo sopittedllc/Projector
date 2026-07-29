@@ -729,10 +729,11 @@ enum TimelineLayout {
 
     /// Height of the video file's baked-in audio strip.
     ///
-    /// A third of a normal lane: it is part of the Video File track, not an
-    /// audio lane the user arranges, so it reads as an attachment to the video
-    /// rather than a peer of Dialogue, Music and Effects.
-    static let linkedAudioStripHeight: CGFloat = 20
+    /// About 60% of a normal lane: compact but tall enough for readable waveforms.
+    /// It is part of the Video File track, not an audio lane the user arranges,
+    /// so it reads as an attachment to the video rather than a peer of Dialogue,
+    /// Music and Effects.
+    static let linkedAudioStripHeight: CGFloat = 36
 
     /// Height of the ruler/timecode display
     static let rulerHeight: CGFloat = 24

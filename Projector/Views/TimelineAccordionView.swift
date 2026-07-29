@@ -50,6 +50,9 @@ struct TimelineAccordionView: View {
     /// Called when mixed video/audio files are dropped on the timeline
     var onDropMixedMedia: (([URL], [URL], Int) -> Void)?
 
+    /// Called when user wants to export a cue list from the MX lane
+    var onExportCueList: () -> Void
+
     // MARK: - Section sizing
 
     /// Height the section authority has given this panel.
@@ -167,6 +170,16 @@ struct TimelineAccordionView: View {
             .accessibilityLabel("Timeline")
 
             Spacer()
+
+            // Export Cue List button
+            Button(action: onExportCueList) {
+                Image(systemName: "list.bullet.rectangle")
+                    .font(Typography.icon)
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+            .accessibilityLabel("Export Cue List from MX lane")
+            .help("Export Cue List from MX lane")
 
             do {
                 // Everything numeric about the timeline in one row: what is

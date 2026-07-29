@@ -183,9 +183,18 @@ struct ContentView: View {
     /// Service for detecting embedded timecode from media files
     let embeddedTimecodeService = EmbeddedTimecodeService()
 
+    /// Service for exporting cue lists from audio analysis
+    let cueListExportService = CueListExportService()
+
     // MARK: - Onboarding
     /// Shows the interactive onboarding wizard
     @State private var showOnboarding = false
+
+    // MARK: - Cue List Export
+    /// Error message for cue list export failures
+    @State var cueListExportError: String?
+    /// Whether cue list export error alert is showing
+    @State var showCueListExportError = false
 
     var body: some View {
         mainContent
@@ -203,6 +212,11 @@ struct ContentView: View {
                 )
             }
             .sheet(isPresented: $showOnboarding, content: onboardingSheetContent)
+            .alert("Export Cue List", isPresented: $showCueListExportError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(cueListExportError ?? "An unknown error occurred.")
+            }
             .frame(
                 minWidth: HorizontalLayoutConstants.mainWindowMinWidth,
                 minHeight: HorizontalLayoutConstants.mainWindowMinHeight
@@ -270,6 +284,9 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openProjectFromMenu)) { _ in
             persistenceService.showOpenProjectPanel()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .newProject)) { _ in
+            handleNewProject()
         }
         .onReceive(NotificationCenter.default.publisher(for: .showOnboarding)) { _ in
             showOnboarding = true
@@ -630,6 +647,7 @@ struct ContentView: View {
             onDropMixedMedia: { videoURLs, audioURLs, atFrame in
                 handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: atFrame)
             },
+            onExportCueList: { handleExportCueList() },
             height: sections.timeline.height
         )
         .onChange(of: mediaLibrary.items.count) { oldCount, newCount in

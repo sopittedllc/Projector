@@ -180,4 +180,127 @@ extension ContentView {
             })
         )))
     }
+
+    // MARK: - New Project
+
+    /// Handle creating a new project, prompting to save unsaved changes first.
+    func handleNewProject() {
+        guard projectDocument.hasUnsavedChanges else {
+            resetToNewProject()
+            return
+        }
+
+        // Prompt to save unsaved changes
+        let alert = NSAlert()
+        alert.messageText = "Save changes to your project?"
+        alert.informativeText = "Your changes will be lost if you don't save them."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Don't Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let response = alert.runModal()
+
+        switch response {
+        case .alertFirstButtonReturn: // Save
+            if persistenceService.saveProject() {
+                resetToNewProject()
+            } else {
+                // No file URL, show Save As then reset
+                let service = persistenceService
+                alerts.show(.saveProject(content: AnyView(
+                    SaveProjectSheet(onSave: { url in
+                        service.handleProjectSave(to: url)
+                        self.resetToNewProject()
+                    })
+                )))
+            }
+
+        case .alertSecondButtonReturn: // Don't Save
+            resetToNewProject()
+
+        case .alertThirdButtonReturn: // Cancel
+            break
+
+        default:
+            break
+        }
+    }
+
+    /// Reset to a fresh empty project.
+    private func resetToNewProject() {
+        // Reset the project document
+        projectDocument.newProject()
+
+        // Sync timeline manager with the new empty timeline
+        timelineManager.timeline = projectDocument.timeline
+        timelineManager.currentFrame = 0
+        timelineManager.markClean()
+
+        // Clear the media library
+        mediaLibrary.load(items: [])
+
+        // Reset playback
+        playbackEngine.stop()
+        playbackEngine.timeline = timelineManager.timeline
+
+        // Clear waveform cache
+        waveformCache.clearAll()
+
+        debugPrint("ContentView: reset to new project")
+    }
+
+    // MARK: - Cue List Export
+
+    /// Handle export cue list action - shows save panel then exports.
+    func handleExportCueList() {
+        Task {
+            do {
+                // First detect cues to validate there's something to export
+                let cues = try await cueListExportService.detectCues(
+                    in: timelineManager.timeline.audioLanes,
+                    frameRate: timelineManager.timeline.config.frameRate.fps,
+                    startTimecodeFrames: timelineManager.timeline.config.startTimecode.frameCount.wholeFrames,
+                    config: .default
+                )
+
+                // Show save panel on main thread
+                await MainActor.run {
+                    let savePanel = NSSavePanel()
+                    savePanel.allowedContentTypes = [.commaSeparatedText]
+                    savePanel.nameFieldStringValue = "CueList.csv"
+                    savePanel.title = "Export Cue List"
+                    savePanel.prompt = "Export"
+
+                    let response = savePanel.runModal()
+                    guard response == .OK, let url = savePanel.url else { return }
+
+                    Task {
+                        do {
+                            try await cueListExportService.exportToCSV(cues: cues, to: url)
+                            debugPrint("ContentView: exported \(cues.count) cues to \(url.path)")
+                        } catch let error as CueListExportError {
+                            showCueListError(error.message)
+                        } catch {
+                            showCueListError(error.localizedDescription)
+                        }
+                    }
+                }
+            } catch let error as CueListExportError {
+                await MainActor.run {
+                    showCueListError(error.message)
+                }
+            } catch {
+                await MainActor.run {
+                    showCueListError(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    /// Shows an error alert for cue list export failures.
+    private func showCueListError(_ message: String) {
+        cueListExportError = message
+        showCueListExportError = true
+    }
 }
