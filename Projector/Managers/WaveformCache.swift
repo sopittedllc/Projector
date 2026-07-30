@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import Accelerate
 import DSWaveformImage
 
 // MARK: - WaveformCache
@@ -115,6 +116,19 @@ final class WaveformCache: ObservableObject {
     /// undefined behavior. This set prevents duplicate deferred requests.
     private var queuedGenerationIDs: Set<UUID> = []
 
+    /// Clips whose per-channel file is being written right now.
+    ///
+    /// Drawing these means decoding the whole source video to isolate one
+    /// channel - and the result is discarded moments later when the small mono
+    /// file lands and invalidates the atlas. Waiting costs a blank strip for a
+    /// second; not waiting costs a full decode per lane, twice over, every time
+    /// a video is split.
+    ///
+    /// Only covers extraction that is actually in flight. A clip with no file
+    /// and no pending extraction - a reopened project whose temp files were
+    /// cleaned - still draws, from the source.
+    private var clipsAwaitingExtraction: Set<UUID> = []
+
     /// DSWaveformImage analyzer for legacy track-based mode.
     private let analyzer = WaveformAnalyzer()
 
@@ -123,6 +137,15 @@ final class WaveformCache: ObservableObject {
     /// These values represent the number of samples at each resolution level.
     /// Higher counts provide more detail for zoomed-in views.
     private let atlasBucketCounts: [Int] = [256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    /// Channel count that gets its sides drawn apart rather than summed.
+    ///
+    /// Only stereo. Beyond two channels there is no settled way to stack traces
+    /// in a lane, so wider sources keep the single summed trace.
+    fileprivate static let stereoChannelCount = 2
+
+    /// Rate assumed when a track's format description cannot be read.
+    fileprivate static let defaultSampleRate: Double = 48000
 
     // MARK: - Clip-Based Waveform Methods
 
@@ -146,11 +169,42 @@ final class WaveformCache: ObservableObject {
     ///     showLoadingIndicator()
     /// }
     /// ```
+    /// Note that a clip's per-channel audio is being written, so its waveform
+    /// waits for it rather than decoding the source to get the same answer.
+    func markAwaitingExtraction(clipId: UUID) {
+        guard clipsAwaitingExtraction.insert(clipId).inserted else { return }
+        objectWillChange.send()
+    }
+
+    /// Release a clip marked by `markAwaitingExtraction(clipId:)`.
+    ///
+    /// Called whether the extraction succeeded or failed - on failure the clip
+    /// falls back to isolating its channel from the source, which is slower but
+    /// still correct.
+    ///
+    /// The change is announced explicitly because this set is not `@Published`.
+    /// The success path also clears the atlas, which would republish anyway, but
+    /// the failure path changes nothing else - and without a notification the
+    /// lane stayed blank until some unrelated redraw happened to ask again.
+    func clearAwaitingExtraction(clipId: UUID) {
+        guard clipsAwaitingExtraction.remove(clipId) != nil else { return }
+        objectWillChange.send()
+    }
+
     func renderData(for clip: AudioClip, targetWidth: Int) -> WaveformRenderData? {
+        if clipsAwaitingExtraction.contains(clip.id) { return nil }
+
         if let atlas = clipAtlases[clip.id] {
             let bucketCount = closestBucketCount(for: targetWidth)
             if let level = atlas.levels[bucketCount] {
-                return WaveformRenderData(duration: atlas.duration, level: level)
+                // Only offer channels when every one of them has this
+                // resolution, so a partial atlas cannot draw one side.
+                let channelLevels = atlas.channelLevels.compactMap { $0[bucketCount] }
+                return WaveformRenderData(
+                    duration: atlas.duration,
+                    level: level,
+                    channelLevels: channelLevels.count == atlas.channelLevels.count ? channelLevels : []
+                )
             }
         }
 
@@ -242,7 +296,30 @@ final class WaveformCache: ObservableObject {
         samplesPerSecond: Int,
         bucketCounts: [Int]
     ) async throws -> WaveformAtlas {
-        let url = clip.sourceURL
+        // A split clip must draw only its own side, never the stereo sum - that
+        // is the whole point of splitting it.
+        //
+        // Its extracted mono file is the cheap way to get that, but the waveform
+        // does not depend on it: if the file is not attached yet, or a reopened
+        // project found it cleaned out of the temp directory, the channel is
+        // isolated from the original source instead. Requiring the temp file
+        // meant a split lane whose extraction had not landed drew nothing, and
+        // nothing ever asked again.
+        let url: URL
+        let channelToIsolate: SplitChannel?
+        if let channel = clip.sourceChannel {
+            if let extracted = clip.extractedAudioURL,
+               FileManager.default.fileExists(atPath: extracted.path) {
+                url = extracted
+                channelToIsolate = nil      // already a mono file of that side
+            } else {
+                url = clip.sourceURL
+                channelToIsolate = channel
+            }
+        } else {
+            url = clip.sourceURL
+            channelToIsolate = nil
+        }
         let accessGranted = url.startAccessingSecurityScopedResource()
         defer {
             if accessGranted {
@@ -273,59 +350,160 @@ final class WaveformCache: ObservableObject {
         let trackTimeRange = try await track.load(.timeRange)
         let trackStartSeconds = CMTimeGetSeconds(trackTimeRange.start)
 
-        let rawSamples = try await samplesUsingAssetReader(
+        // Stereo sources are read a channel at a time so the sides can be drawn
+        // apart; everything else takes the downmix it always did.
+        let format = try await audioFormat(of: track)
+        let channelsToRead = format.channels == stereoChannelCount ? stereoChannelCount : 1
+
+        let rawChannels = try await samplesPerChannelUsingAssetReader(
             asset: asset,
             track: track,
             samplesPerSecond: effectiveSamplesPerSecond,
-            durationSeconds: durationSeconds
+            durationSeconds: durationSeconds,
+            channelCount: channelsToRead,
+            sourceSampleRate: format.sampleRate
         )
 
-        let samples = applyTrackOffset(
-            samples: rawSamples,
-            expectedSamples: sampleCount,
-            trackStartSeconds: trackStartSeconds,
-            durationSeconds: durationSeconds
+        let alignedChannels = rawChannels.map {
+            applyTrackOffset(
+                samples: $0,
+                expectedSamples: sampleCount,
+                trackStartSeconds: trackStartSeconds,
+                durationSeconds: durationSeconds
+            )
+        }
+
+        // Isolating one side of a stereo source: keep that channel and drop the
+        // other, so what remains is the same single trace the extracted mono
+        // file would have produced.
+        if let channelToIsolate,
+           alignedChannels.indices.contains(channelToIsolate.channelIndex) {
+            let isolated = normalize(samples: alignedChannels[channelToIsolate.channelIndex])
+            let levels = buildLevels(from: isolated, bucketCounts: bucketCounts)
+            return WaveformAtlas(duration: durationSeconds, levels: levels)
+        }
+
+        // One scale across every channel, so a quiet side stays visibly quieter.
+        let normalizedChannels = normalize(channels: alignedChannels)
+
+        guard normalizedChannels.count == stereoChannelCount else {
+            let levels = buildLevels(from: normalizedChannels.first ?? [], bucketCounts: bucketCounts)
+            return WaveformAtlas(duration: durationSeconds, levels: levels)
+        }
+
+        // The summed trace stays the fallback for short lanes and for any
+        // renderer that does not know about channels.
+        let summed = zip(normalizedChannels[0], normalizedChannels[1]).map { ($0 + $1) * 0.5 }
+        let levels = buildLevels(from: summed, bucketCounts: bucketCounts)
+
+        let channelLevels = sharedScaleLevels(
+            channels: normalizedChannels,
+            bucketCounts: bucketCounts
         )
 
-        let normalizedSamples = normalize(samples: samples)
-        let levels = buildLevels(from: normalizedSamples, bucketCounts: bucketCounts)
-        return WaveformAtlas(duration: durationSeconds, levels: levels)
+        return WaveformAtlas(
+            duration: durationSeconds,
+            levels: levels,
+            channelLevels: channelLevels
+        )
     }
 
-    /// Reads audio samples from an asset using AVAssetReader.
+    /// Channel count and sample rate of a track.
     ///
-    /// Configures the reader to output mono 16-bit PCM audio, then processes
-    /// the samples to extract peak values at the target sample rate.
+    /// Loaded once and passed down: the reader needs the rate and the atlas
+    /// needs the channel count, and `load(.formatDescriptions)` is an async
+    /// round trip worth not doing twice per clip.
+    ///
+    /// - Returns: The track's format, or a zero channel count and a 48 kHz
+    ///   assumption when the description cannot be read.
+    private nonisolated static func audioFormat(
+        of track: AVAssetTrack
+    ) async throws -> (channels: Int, sampleRate: Double) {
+        guard let description = try await track.load(.formatDescriptions).first,
+              let basic = CMAudioFormatDescriptionGetStreamBasicDescription(description) else {
+            return (0, defaultSampleRate)
+        }
+        return (Int(basic.pointee.mChannelsPerFrame), basic.pointee.mSampleRate)
+    }
+
+    /// Build per-channel levels that share one floor and peak per resolution.
+    ///
+    /// Without this each channel would be normalized against itself, which
+    /// makes every channel fill its half of the lane no matter how quiet it
+    /// really is - and a hard-panned file, the case this display exists to
+    /// reveal, would look exactly like a centred one.
+    private nonisolated static func sharedScaleLevels(
+        channels: [[Float]],
+        bucketCounts: [Int]
+    ) -> [[Int: WaveformLevel]] {
+        var perChannel = channels.map { buildLevels(from: $0, bucketCounts: bucketCounts) }
+
+        for bucketCount in bucketCounts {
+            let levels = perChannel.compactMap { $0[bucketCount] }
+            guard levels.count == perChannel.count else { continue }
+
+            let floor = levels.map(\.rmsFloor).min() ?? 0
+            let peak = levels.map(\.rmsPeak).max() ?? 0
+
+            for index in perChannel.indices {
+                perChannel[index][bucketCount] = perChannel[index][bucketCount]?
+                    .rescaled(floor: floor, peak: peak)
+            }
+        }
+
+        return perChannel
+    }
+
+    /// Reads peak samples for each channel of a track.
+    ///
+    /// Asking for one channel lets CoreAudio downmix, which is what a single
+    /// summed trace wants. Asking for two keeps the sides apart, which is the
+    /// only way a waveform can show that a file is hard panned - a downmix adds
+    /// the two together and the distinction is gone before drawing starts.
+    ///
+    /// ## Why this is vectorized
+    ///
+    /// This loop sees every sample in the file: a 90-minute reel read at 8 kHz
+    /// stereo is ~86 million of them. Walking that a frame at a time, tracking
+    /// each channel's peak in an array, made reading two channels several times
+    /// the cost of the old one-channel scalar loop rather than twice it - the
+    /// per-element bounds and uniqueness checks dominated the actual work.
+    ///
+    /// Instead each block is converted to float once (`vDSP_vflt16`) and each
+    /// bucket's peak is taken with a strided `vDSP_maxmgv`, one call per channel
+    /// per bucket. The stride is what keeps the channels apart without
+    /// deinterleaving into scratch buffers first.
     ///
     /// - Parameters:
-    ///   - asset: The AVAsset to read from
-    ///   - track: The specific audio track to process
-    ///   - samplesPerSecond: Target output sample rate
-    ///   - durationSeconds: Duration for capacity estimation
-    /// - Returns: Array of normalized peak amplitude values (0.0 to 1.0)
-    /// - Throws: `WaveformCacheError.failedToStartReading` if reader fails
-    private nonisolated static func samplesUsingAssetReader(
+    ///   - asset: The asset to read from
+    ///   - track: The audio track to process
+    ///   - samplesPerSecond: Target output sample density
+    ///   - durationSeconds: Duration, for capacity estimation
+    ///   - channelCount: Channels to keep separate
+    ///   - sourceSampleRate: The track's own rate, already loaded by the caller
+    /// - Returns: One array of normalized peaks per channel
+    /// - Throws: `WaveformCacheError.failedToStartReading` if the reader fails
+    private nonisolated static func samplesPerChannelUsingAssetReader(
         asset: AVAsset,
         track: AVAssetTrack,
         samplesPerSecond: Int,
-        durationSeconds: Double
-    ) async throws -> [Float] {
+        durationSeconds: Double,
+        channelCount: Int,
+        sourceSampleRate: Double
+    ) async throws -> [[Float]] {
+        let channels = max(1, channelCount)
         let reader = try AVAssetReader(asset: asset)
         let expectedSamples = Int(durationSeconds * Double(samplesPerSecond))
-        var samples: [Float] = []
-        samples.reserveCapacity(expectedSamples)
-
-        var sampleRate: Double = 48000
-        if let formatDesc = try await track.load(.formatDescriptions).first,
-           let basicDesc = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) {
-            sampleRate = basicDesc.pointee.mSampleRate
+        var samples = [[Float]](repeating: [], count: channels)
+        for index in samples.indices {
+            samples[index].reserveCapacity(expectedSamples)
         }
 
-        let targetSampleRate = min(sampleRate, max(8000, Double(samplesPerSecond) * 20))
+        let targetSampleRate = min(sourceSampleRate, max(8000, Double(samplesPerSecond) * 20))
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: targetSampleRate,
-            AVNumberOfChannelsKey: 1,
+            AVNumberOfChannelsKey: channels,
             AVLinearPCMBitDepthKey: 16,
             AVLinearPCMIsFloatKey: false,
             AVLinearPCMIsBigEndianKey: false,
@@ -338,46 +516,83 @@ final class WaveformCache: ObservableObject {
             throw WaveformCacheError.failedToStartReading
         }
 
-        let processingSampleRate = targetSampleRate
-        let samplesPerOutputSample = max(1, Int(processingSampleRate) / samplesPerSecond)
+        let framesPerBucket = max(1, Int(targetSampleRate) / samplesPerSecond)
         let int16Scale: Float = 1.0 / 32768.0
-        var samplesInBucket = 0
-        var currentPeak: Int32 = 0
 
-        while let sampleBuffer2 = output.copyNextSampleBuffer() {
-            guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer2) else { continue }
+        /// Float copy of the current block. Reused across blocks, which are
+        /// uniformly sized in practice, so this allocates once.
+        var scratch: [Float] = []
+
+        /// Peak so far for the bucket in progress. Buckets straddle block
+        /// boundaries, so this has to outlive one iteration.
+        var bucketPeaks = [Float](repeating: 0, count: channels)
+        var framesInBucket = 0
+
+        while let sampleBuffer = output.copyNextSampleBuffer() {
+            guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { continue }
 
             var length = 0
             var dataPointer: UnsafeMutablePointer<Int8>?
-            CMBlockBufferGetDataPointer(
+            guard CMBlockBufferGetDataPointer(
                 blockBuffer,
                 atOffset: 0,
                 lengthAtOffsetOut: nil,
                 totalLengthOut: &length,
                 dataPointerOut: &dataPointer
-            )
-
-            guard let data = dataPointer else { continue }
+            ) == kCMBlockBufferNoErr, let data = dataPointer else { continue }
 
             let sampleCount = length / MemoryLayout<Int16>.size
-            let samplePointer = data.withMemoryRebound(to: Int16.self, capacity: sampleCount) { $0 }
+            let frameCount = sampleCount / channels
+            guard frameCount > 0 else { continue }
 
-            for sampleIndex in 0..<sampleCount {
-                let absValue = abs(Int32(samplePointer[sampleIndex]))
-                if absValue > currentPeak {
-                    currentPeak = absValue
-                }
-                samplesInBucket += 1
-                if samplesInBucket >= samplesPerOutputSample {
-                    samples.append(min(1.0, Float(currentPeak) * int16Scale))
-                    samplesInBucket = 0
-                    currentPeak = 0
+            if scratch.count < sampleCount {
+                scratch = [Float](repeating: 0, count: sampleCount)
+            }
+
+            data.withMemoryRebound(to: Int16.self, capacity: sampleCount) { source in
+                scratch.withUnsafeMutableBufferPointer { floats in
+                    guard let base = floats.baseAddress else { return }
+                    vDSP_vflt16(source, 1, base, 1, vDSP_Length(sampleCount))
+
+                    var frameIndex = 0
+                    while frameIndex < frameCount {
+                        // Never crosses a bucket boundary, so one vDSP call
+                        // covers a whole run and the boundary work stays cold.
+                        let framesTaken = min(
+                            framesPerBucket - framesInBucket,
+                            frameCount - frameIndex
+                        )
+
+                        for channel in 0..<channels {
+                            var peak: Float = 0
+                            vDSP_maxmgv(
+                                base + frameIndex * channels + channel,
+                                channels,
+                                &peak,
+                                vDSP_Length(framesTaken)
+                            )
+                            bucketPeaks[channel] = Swift.max(bucketPeaks[channel], peak)
+                        }
+
+                        frameIndex += framesTaken
+                        framesInBucket += framesTaken
+
+                        if framesInBucket >= framesPerBucket {
+                            for channel in 0..<channels {
+                                samples[channel].append(min(1.0, bucketPeaks[channel] * int16Scale))
+                                bucketPeaks[channel] = 0
+                            }
+                            framesInBucket = 0
+                        }
+                    }
                 }
             }
         }
 
-        if samplesInBucket > 0 {
-            samples.append(min(1.0, Float(currentPeak) * int16Scale))
+        if framesInBucket > 0 {
+            for channel in 0..<channels {
+                samples[channel].append(min(1.0, bucketPeaks[channel] * int16Scale))
+            }
         }
 
         reader.cancelReading()
@@ -543,11 +758,50 @@ final class WaveformCache: ObservableObject {
     /// - Parameter samples: Raw amplitude samples
     /// - Returns: Normalized samples (0.0 to 1.0)
     private nonisolated static func normalize(samples: [Float]) -> [Float] {
-        guard let peak = samples.map({ abs($0) }).max(), peak > 0 else {
-            return samples.map { abs($0) }
+        scaled(samples, by: peakMagnitude(of: samples))
+    }
+
+    /// Normalize several channels against their common peak.
+    ///
+    /// Scaling each channel by its own peak would erase the level difference
+    /// between them, which is the whole point of drawing them separately.
+    private nonisolated static func normalize(channels: [[Float]]) -> [[Float]] {
+        let peak = channels.map { peakMagnitude(of: $0) }.max() ?? 0
+        return channels.map { scaled($0, by: peak) }
+    }
+
+    /// Largest absolute value in a buffer, without copying it first.
+    ///
+    /// The obvious `samples.map(abs).max()` allocates a second copy of every
+    /// channel purely to throw it away, on arrays that run to six figures.
+    private nonisolated static func peakMagnitude(of samples: [Float]) -> Float {
+        guard !samples.isEmpty else { return 0 }
+        var peak: Float = 0
+        samples.withUnsafeBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            vDSP_maxmgv(base, 1, &peak, vDSP_Length(buffer.count))
         }
-        let scale = 1.0 / peak
-        return samples.map { abs($0) * scale }
+        return peak
+    }
+
+    /// Absolute values of `samples` scaled so `peak` maps to 1.
+    ///
+    /// A peak of zero means silence, which stays silent rather than being
+    /// divided by nothing.
+    private nonisolated static func scaled(_ samples: [Float], by peak: Float) -> [Float] {
+        guard !samples.isEmpty else { return samples }
+        var output = [Float](repeating: 0, count: samples.count)
+        output.withUnsafeMutableBufferPointer { destination in
+            guard let target = destination.baseAddress else { return }
+            samples.withUnsafeBufferPointer { buffer in
+                guard let base = buffer.baseAddress else { return }
+                vDSP_vabs(base, 1, target, 1, vDSP_Length(buffer.count))
+            }
+            guard peak > 0 else { return }
+            var scale = 1.0 / peak
+            vDSP_vsmul(target, 1, &scale, target, 1, vDSP_Length(destination.count))
+        }
+        return output
     }
 
     /// Applies track timing offset and pads samples to expected length.

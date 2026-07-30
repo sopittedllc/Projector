@@ -716,7 +716,7 @@ enum SectionLayout {
 /// Timeline layout constants
 enum TimelineLayout {
     /// Width of track/lane headers (video track, audio lanes)
-    static let headerWidth: CGFloat = 120
+    static let headerWidth: CGFloat = 140
 
     /// Width of playhead/ruler header (narrower than track headers)
     static let playheadHeaderWidth: CGFloat = 80
@@ -724,16 +724,48 @@ enum TimelineLayout {
     /// Height of the video track
     static let videoTrackHeight: CGFloat = 60
 
-    /// Height of each audio lane
-    static let audioLaneHeight: CGFloat = 60
+    /// Height of each audio lane.
+    ///
+    /// Sized from what a header holds rather than picked: a title, a row of
+    /// controls and the output picker come to roughly 60pt stacked, which left
+    /// the old height fully occupied and the content pressed against the
+    /// separators above and below. This leaves room for real padding around it.
+    static let audioLaneHeight: CGFloat = 80
 
     /// Height of the video file's baked-in audio strip.
     ///
-    /// About 60% of a normal lane: compact but tall enough for readable waveforms.
-    /// It is part of the Video File track, not an audio lane the user arranges,
-    /// so it reads as an attachment to the video rather than a peer of Dialogue,
-    /// Music and Effects.
-    static let linkedAudioStripHeight: CGFloat = 36
+    /// The same height as a normal lane, and defined from it so the two cannot
+    /// drift apart. This audio carries as much information as any other lane -
+    /// including a stereo waveform, which needs the room to be read at all - so
+    /// sizing it down cost legibility to make a point about hierarchy.
+    ///
+    /// It was previously 36pt, about 60% of a lane, to read as an attachment to
+    /// the video rather than a peer of Dialogue, Music and Effects. That
+    /// distinction is now carried by its position inside the Video File track
+    /// and by its lack of a lane header, not by being short.
+    static let linkedAudioStripHeight: CGFloat = audioLaneHeight
+
+    /// Height shared by every control in a lane header.
+    ///
+    /// One height for the M/S toggles and the output picker, so the two rows
+    /// sit on a common rhythm instead of each control sizing itself to its own
+    /// text.
+    static let laneControlHeight: CGFloat = 18
+
+    /// Corner radius shared by lane header controls.
+    static let laneControlCornerRadius: CGFloat = 4
+
+    /// Width of the colour stripe identifying a lane in its header.
+    ///
+    /// Ties a header to its clips: the stripe uses the same colour the lane's
+    /// waveforms are drawn in, so a row is identifiable without reading it.
+    static let laneAccentWidth: CGFloat = 3
+
+    /// Hairline separating one track row from the next.
+    ///
+    /// The lane-height arithmetic elsewhere adds a bare `1` for this; naming it
+    /// keeps the separator and the space reserved for it in step.
+    static let laneSeparatorHeight: CGFloat = 1
 
     /// Height of the ruler/timecode display
     static let rulerHeight: CGFloat = 24
@@ -995,5 +1027,25 @@ extension TimecodeFrameRate {
         case .fps30: return "30"
         default: return "\(fps)"
         }
+    }
+}
+
+// ============================================================================
+// MARK: - Lane Colours
+// ============================================================================
+
+/// The colour a timeline lane is drawn in.
+///
+/// Sequential by lane index so neighbouring lanes stay distinguishable. Held
+/// here rather than inside a view because the clips and the lane header both
+/// need the same answer - when the palette lived in `AudioClipView` the header
+/// had no way to match the waveforms it labels.
+enum LaneColor {
+    private static let palette: [Color] = [
+        .blue, .green, .orange, .purple, .pink, .cyan, .mint, .indigo
+    ]
+
+    static func color(forLaneIndex index: Int) -> Color {
+        palette[abs(index) % palette.count]
     }
 }

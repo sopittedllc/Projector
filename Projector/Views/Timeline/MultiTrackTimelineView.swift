@@ -1115,7 +1115,10 @@ struct MultiTrackTimelineView: View {
                 // could sit on "1:30:00" while the transport read something else
                 // entirely.
                 HStack(spacing: 0) {
-                    Color.clear.frame(width: TimelineLayout.headerWidth)
+                    // Part of the header gutter, not the ruler: left clear it
+                    // stopped the column short of the panel's top edge.
+                    TimelineHeaderColumnBackground()
+                        .frame(width: TimelineLayout.headerWidth)
 
                     let rulerWidth = max(contentAreaWidth, CGFloat(timeline.config.durationFrames) * ppf)
                     let ruler = TimelineRulerView(
@@ -1564,71 +1567,53 @@ struct MultiTrackTimelineView: View {
 
     // MARK: - Video File Track (Unified)
 
-    /// Video file track: video reels + linked audio as one unified track with a single header.
+    /// Video file track: the video and the audio baked into it, as one track.
+    ///
+    /// Built as rows rather than as two tall columns. Each row is its own
+    /// `HStack` of header block and content block, and the rows are separated by
+    /// the same `laneBorder` used between ordinary audio lanes.
+    ///
+    /// The earlier shape - one full-height header beside one `VStack` of content
+    /// - could not be separated: a divider inside the content column stops at
+    /// the header, and nothing tied the two columns' vertical rhythm together,
+    /// so the header controls drifted out of register with the strips they
+    /// drive. Pairing each header with its own content makes alignment
+    /// structural and lets one separator span the whole width.
     @ViewBuilder
     private func videoFileTrack(ppf: CGFloat, totalContentWidth: CGFloat) -> some View {
-        let hasLinkedAudio = timeline.videoAudioLane != nil && isVideoAudioExpanded
-        let totalHeight = TimelineLayout.videoTrackHeight + (hasLinkedAudio ? TimelineLayout.linkedAudioStripHeight : 0)
+        let linkedLanes = isVideoAudioExpanded ? timeline.videoAudioLanes : []
+        let contentWidth = totalContentWidth - TimelineLayout.headerWidth
+        let totalHeight = TimelineLayout.videoTrackHeight
+            + CGFloat(linkedLanes.count) * (TimelineLayout.linkedAudioStripHeight + TimelineLayout.laneSeparatorHeight)
 
-        HStack(spacing: 0) {
-            // Unified header spanning both video and audio
-            videoFileTrackHeader(totalHeight: totalHeight)
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                videoInfoBlock
+                    .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.videoTrackHeight)
+                    .background(headerColumnBackground)
 
-            // Content area: video on top, audio below
-            VStack(spacing: 0) {
-                // Use VideoTrackView with header hidden to retain drop handling
-                VideoTrackView(
-                    timelineManager: timelineManager,
-                    playbackEngine: playbackEngine,
-                    thumbnailCache: thumbnailCache,
-                    mediaLibrary: mediaLibrary,
-                    pixelsPerFrame: ppf,
-                    scrollOffset: 0,
-                    showThumbnails: !TimelineDebugFlags.current.disableThumbnails,
-                    clipInteractionsEnabled: !TimelineDebugFlags.current.disableClipInteractions,
-                    onDropMedia: { urls, frame, isInternal in onDropVideoMedia(urls, frame, isInternal) },
-                    onDropMixedMedia: onDropMixedMedia,
-                    onReelSelected: { reelId, modifiers in
-                        if let id = reelId {
-                            handleReelSelection(reelId: id, modifiers: modifiers)
-                        }
-                    },
-                    onReelDoubleClick: { reel in
-                        editingReelId = reel.id
-                        let tc = Timecode(.frames(reel.timelineStartFrame + timeline.config.startTimecode.frameCount.wholeFrames), at: timeline.config.frameRate, by: .clamping)
-                        timecodeEntryText = tc.stringValue()
-                        showTimecodeEntryDialog = true
-                    },
-                    onReelMove: { reelId, newFrame in
-                        if let oldFrame = timeline.videoReels.first(where: { $0.id == reelId })?.timelineStartFrame,
-                           oldFrame != newFrame {
-                            registerVideoReelMoveUndo(reelId: reelId, from: oldFrame)
-                        }
-                        timelineManager.moveVideoReel(id: reelId, to: newFrame)
-                    },
-                    linkedDragPreview: linkedDragPreview,
-                    onReelDragPreview: { reel, frame in
-                        if let f = frame {
-                            linkedDragPreview = LinkedDragPreview(
-                                sourceURL: reel.sourceURL,
-                                sourceStartFrame: 0,
-                                durationFrames: reel.durationFrames,
-                                fromFrame: reel.timelineStartFrame,
-                                toFrame: f
+                videoRowContent(ppf: ppf, width: contentWidth)
+            }
+
+            ForEach(linkedLanes) { linked in
+                if let index = timeline.audioLanes.firstIndex(where: { $0.id == linked.id }) {
+                    laneBorder
+
+                    HStack(spacing: 0) {
+                        linkedAudioHeaderBlock(lane: linked, index: index)
+                            .frame(
+                                width: TimelineLayout.headerWidth,
+                                height: TimelineLayout.linkedAudioStripHeight
                             )
-                        } else {
-                            linkedDragPreview = nil
-                        }
-                    },
-                    selectedReelIds: selectedVideoReelIds,
-                    showsHeader: false
-                )
-                .frame(width: totalContentWidth - TimelineLayout.headerWidth, height: TimelineLayout.videoTrackHeight)
+                            .background(headerColumnBackground)
 
-                if let linked = timeline.videoAudioLane,
-                   let linkedIndex = timeline.audioLanes.firstIndex(where: { $0.id == linked.id }),
-                   isVideoAudioExpanded {
-                    linkedAudioContent(lane: linked, index: linkedIndex, ppf: ppf, width: totalContentWidth - TimelineLayout.headerWidth)
+                        linkedAudioContent(
+                            lane: linked,
+                            index: index,
+                            ppf: ppf,
+                            width: contentWidth
+                        )
+                    }
                 }
             }
         }
@@ -1639,9 +1624,119 @@ struct MultiTrackTimelineView: View {
         }
     }
 
-    /// Unified header for video file track (video + linked audio).
-    private func videoFileTrackHeader(totalHeight: CGFloat) -> some View {
-        VStack(spacing: 4) {
+    private var headerColumnBackground: some View {
+        TimelineHeaderColumnBackground()
+    }
+
+    /// The video reels themselves, with the lane header suppressed.
+    private func videoRowContent(ppf: CGFloat, width: CGFloat) -> some View {
+        VideoTrackView(
+            timelineManager: timelineManager,
+            playbackEngine: playbackEngine,
+            thumbnailCache: thumbnailCache,
+            mediaLibrary: mediaLibrary,
+            pixelsPerFrame: ppf,
+            scrollOffset: 0,
+            showThumbnails: !TimelineDebugFlags.current.disableThumbnails,
+            clipInteractionsEnabled: !TimelineDebugFlags.current.disableClipInteractions,
+            onDropMedia: { urls, frame, isInternal in onDropVideoMedia(urls, frame, isInternal) },
+            onDropMixedMedia: onDropMixedMedia,
+            onReelSelected: { reelId, modifiers in
+                if let id = reelId {
+                    handleReelSelection(reelId: id, modifiers: modifiers)
+                }
+            },
+            onReelDoubleClick: { reel in
+                editingReelId = reel.id
+                let tc = Timecode(.frames(reel.timelineStartFrame + timeline.config.startTimecode.frameCount.wholeFrames), at: timeline.config.frameRate, by: .clamping)
+                timecodeEntryText = tc.stringValue()
+                showTimecodeEntryDialog = true
+            },
+            onReelMove: { reelId, newFrame in
+                if let oldFrame = timeline.videoReels.first(where: { $0.id == reelId })?.timelineStartFrame,
+                   oldFrame != newFrame {
+                    registerVideoReelMoveUndo(reelId: reelId, from: oldFrame)
+                }
+                timelineManager.moveVideoReel(id: reelId, to: newFrame)
+            },
+            linkedDragPreview: linkedDragPreview,
+            onReelDragPreview: { reel, frame in
+                if let f = frame {
+                    linkedDragPreview = LinkedDragPreview(
+                        sourceURL: reel.sourceURL,
+                        sourceStartFrame: 0,
+                        durationFrames: reel.durationFrames,
+                        fromFrame: reel.timelineStartFrame,
+                        toFrame: f
+                    )
+                } else {
+                    linkedDragPreview = nil
+                }
+            },
+            selectedReelIds: selectedVideoReelIds,
+            showsHeader: false
+        )
+        .frame(width: width, height: TimelineLayout.videoTrackHeight)
+    }
+
+    /// Header for one of the video's audio lanes.
+    ///
+    /// Named only when the video has been split, where two rows sit together and
+    /// need telling apart; a lone lane is unambiguously "the video's audio" and a
+    /// label would just crowd the controls.
+    private func linkedAudioHeaderBlock(lane: AudioLane, index: Int) -> some View {
+        laneHeaderLayout(accent: LaneColor.color(forLaneIndex: index)) {
+            if lane.splitChannel != nil {
+                Text(lane.name)
+                    .font(Typography.subheading)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            AudioLaneControls(
+                lane: lane,
+                availableAudioOutputs: audioOutputManager.mappedOutputs,
+                onMuteToggle: { timelineManager.toggleLaneMute(at: index) },
+                onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
+                onOutputMappingChange: { output in
+                    timelineManager.setLaneOutputMapping(id: lane.id, mapping: output)
+                },
+                onOutputNone: { timelineManager.disableLaneOutput(id: lane.id) }
+            )
+        }
+    }
+
+    /// The shape every header block in this track shares.
+    ///
+    /// A colour stripe on the leading edge, then the block's own content inset
+    /// from it. The stripe is what ties a header to its clips - it is the colour
+    /// their waveforms are drawn in - and it gives the column a left edge to
+    /// align against instead of text floating in a panel.
+    private func laneHeaderLayout<Content: View>(
+        accent: Color,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(spacing: 0) {
+            Rectangle()
+                .fill(accent)
+                .frame(width: TimelineLayout.laneAccentWidth)
+
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                content()
+            }
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    /// Video name and frame rate, centred in the video row.
+    @ViewBuilder
+    private var videoInfoBlock: some View {
+        laneHeaderLayout(accent: AppColors.textTertiary) {
             // Video info with editable name
             if let reel = timelineManager.timeline.videoReels.first {
                 let trackName = reel.name ?? "Video"
@@ -1649,9 +1744,9 @@ struct MultiTrackTimelineView: View {
                 // Editable track name
                 if isEditingVideoName {
                     TextField("", text: $editedVideoName)
-                        .font(.system(size: 10, weight: .medium))
+                        .font(Typography.subheading)
                         .textFieldStyle(.plain)
-                        .multilineTextAlignment(.center)
+                        .multilineTextAlignment(.leading)
                         .focused($isVideoNameFieldFocused)
                         .onSubmit { commitVideoNameEdit(for: reel) }
                         .onExitCommand { cancelVideoNameEdit(for: reel) }
@@ -1665,10 +1760,11 @@ struct MultiTrackTimelineView: View {
                 } else {
                     Button(action: {}) {
                         Text(trackName)
-                            .font(.system(size: 10, weight: .medium))
+                            .font(Typography.subheading)
                             .foregroundColor(.primary)
                             .lineLimit(1)
                             .truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.plain)
                     .simultaneousGesture(
@@ -1678,32 +1774,14 @@ struct MultiTrackTimelineView: View {
                 }
 
                 Text(String(format: "%.2f fps", reel.sourceFrameRate.fps))
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(Typography.monoTiny)
                     .foregroundColor(.secondary)
             } else {
                 Text("Video")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(Typography.subheading)
                     .foregroundColor(.primary)
             }
-
-            // Audio controls
-            if let linked = timeline.videoAudioLane,
-               let index = timeline.audioLanes.firstIndex(where: { $0.id == linked.id }) {
-                AudioLaneControls(
-                    lane: linked,
-                    availableAudioOutputs: audioOutputManager.mappedOutputs,
-                    onMuteToggle: { timelineManager.toggleLaneMute(at: index) },
-                    onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
-                    onOutputMappingChange: { output in
-                        timelineManager.setLaneOutputMapping(id: linked.id, mapping: output)
-                    },
-                    onOutputNone: { timelineManager.disableLaneOutput(id: linked.id) }
-                )
-            }
         }
-        .padding(.horizontal, Spacing.sm)
-        .frame(width: TimelineLayout.headerWidth, height: totalHeight)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.3))
     }
 
     private func startVideoNameEdit(for reel: VideoReel) {
@@ -1864,6 +1942,11 @@ struct MultiTrackTimelineView: View {
         registerTimelineUndo(actionName: "Delete Video File")
         for reel in timelineManager.timeline.videoReels {
             removeLinkedAudio(for: reel, cleanupLanes: false)
+            // Split lanes are owned outright, so they go with the reel rather
+            // than waiting to be collected as empty. Their clips match the reel
+            // and would usually be cleared anyway; this makes the lifetime
+            // explicit instead of a side effect of the emptiness sweep.
+            timelineManager.removeLanesOwned(byReel: reel.id)
             timelineManager.removeVideoReel(id: reel.id)
         }
         removeEmptyAudioLanes()
@@ -1917,10 +2000,14 @@ struct MultiTrackTimelineView: View {
     }
 
 
+    /// Hairline between one track row and the next.
+    ///
+    /// Full strength: at half opacity it disappeared against the header gutter,
+    /// so a split video's two lanes ran together as one block.
     private var laneBorder: some View {
         Rectangle()
-            .fill(Color(nsColor: .separatorColor).opacity(0.5))
-            .frame(height: 1)
+            .fill(Color(nsColor: .separatorColor))
+            .frame(height: TimelineLayout.laneSeparatorHeight)
     }
 
     private var tracksHeight: CGFloat {

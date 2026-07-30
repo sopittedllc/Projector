@@ -158,20 +158,23 @@ struct AudioLaneView: View {
 
     private var laneHeader: some View {
         HStack(spacing: 0) {
-            // Left padding to align with panel header
-            Spacer()
-                .frame(width: Spacing.md)
+            // Colour stripe, matching the clips on this lane. Replaces a plain
+            // leading spacer: same inset, but the edge now says which lane it
+            // belongs to.
+            Rectangle()
+                .fill(LaneColor.color(forLaneIndex: laneIndex))
+                .frame(width: TimelineLayout.laneAccentWidth)
 
-            VStack(spacing: Spacing.xs) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
                 // Lane name (editable on double-click)
                 if isEditingName {
                     // Inline rename, standard macOS semantics: Return commits,
                     // Escape reverts, clicking away commits, and the existing
                     // text is selected on entry so typing replaces it.
                     TextField("", text: $editedName)
-                        .font(.system(size: 10, weight: .medium))
+                        .font(Typography.subheading)
                         .textFieldStyle(.plain)
-                        .multilineTextAlignment(.center)
+                        .multilineTextAlignment(.leading)
                         .focused($isNameFieldFocused)
                         .onSubmit { commitNameEdit() }
                         .onExitCommand { cancelNameEdit() }
@@ -190,10 +193,11 @@ struct AudioLaneView: View {
                     // content delays trackpad scrolling.
                     Button(action: {}) {
                         Text(lane.name)
-                            .font(.system(size: 10, weight: .medium))
+                            .font(Typography.subheading)
                             .foregroundColor(.primary)
                             .lineLimit(1)
                             .truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.plain)
                     .simultaneousGesture(
@@ -218,12 +222,12 @@ struct AudioLaneView: View {
                     onOutputNone: onOutputNone
                 )
             }
-            .frame(maxWidth: .infinity)
-
-            Spacer()
-                .frame(width: Spacing.sm)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(width: TimelineLayout.headerWidth, height: laneHeight)
+        .background(TimelineHeaderColumnBackground())
     }
 
 
@@ -1152,6 +1156,36 @@ private final class AudioLaneDragCaptureNSView: NSView {
 /// its baked-in audio as an ordinary lane does for its own. Extracted rather
 /// than duplicated: two copies of a routing menu would drift, and routing is
 /// the part that has to behave identically wherever it appears.
+/// Shading for the timeline's left-hand header column.
+///
+/// Recessed rather than raised: a dark wash with a hairline down the trailing
+/// edge, so the gutter sits *behind* the track content. Shading it lighter than
+/// the timeline turned the column into a pale slab that pulled the eye away
+/// from the waveforms it is supposed to label.
+///
+/// Shared by the audio lanes and the Video File track so the gutter is one
+/// continuous surface top to bottom.
+struct TimelineHeaderColumnBackground: View {
+    private enum Shade {
+        static let top = 0.18
+        static let bottom = 0.30
+        static let edge = 0.8
+    }
+
+    var body: some View {
+        LinearGradient(
+            colors: [Color.black.opacity(Shade.top), Color.black.opacity(Shade.bottom)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor).opacity(Shade.edge))
+                .frame(width: TimelineLayout.laneSeparatorHeight)
+        }
+    }
+}
+
 struct AudioLaneControls: View {
     let lane: AudioLane
     let availableAudioOutputs: [MappedAudioOutput]
@@ -1163,21 +1197,32 @@ struct AudioLaneControls: View {
     let onOutputNone: () -> Void
 
     var body: some View {
-        VStack(spacing: Spacing.xs) {
-            HStack(spacing: Spacing.sm) {
-                sampleRate
+        // Two rows on one left edge: the transport toggles, then the routing.
+        //
+        // Everything was previously centred, so each row found its own axis and
+        // the column read as scattered text. The output picker now fills the
+        // width rather than hugging its label - a control that changes width
+        // with the name of whatever it points at cannot line up with anything,
+        // and at full width it reads as the field it is.
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack(spacing: Spacing.xs) {
                 muteSolo
+                Spacer(minLength: 0)
+                sampleRate
             }
             outputPicker
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
     private var sampleRate: some View {
         if let firstClip = lane.clips.first {
+            // Metadata, not a control: pushed to the trailing edge and dimmed
+            // so it stops competing with the buttons beside it.
             Text(String(format: "%.0fkHz", firstClip.sampleRate / 1000))
-                .font(.system(size: 8, design: .monospaced))
-                .foregroundColor(.secondary)
+                .font(Typography.monoTiny)
+                .foregroundColor(AppColors.textTertiary)
         }
     }
 
@@ -1211,15 +1256,15 @@ struct AudioLaneControls: View {
     ) -> some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 9, weight: .bold))
+                .font(Typography.labelSmall)
                 .foregroundColor(isOn ? .black : .secondary)
-                .frame(width: 16, height: 14)
+                .frame(width: TimelineLayout.laneControlHeight, height: TimelineLayout.laneControlHeight)
                 .background(
-                    RoundedRectangle(cornerRadius: 3)
+                    RoundedRectangle(cornerRadius: TimelineLayout.laneControlCornerRadius)
                         .fill(isOn ? tint : AppColors.surfaceLight)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 3)
+                    RoundedRectangle(cornerRadius: TimelineLayout.laneControlCornerRadius)
                         .stroke(isOn ? tint : AppColors.borderMedium, lineWidth: 1)
                 )
         }
@@ -1263,26 +1308,42 @@ struct AudioLaneControls: View {
                 Text(outputPickerLabel)
                     .font(Typography.captionSmall)
                     .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 7))
+                    .font(Typography.iconTiny)
+                    .opacity(0.7)
             }
             .foregroundColor(.white)
             .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xs)
+            .frame(height: TimelineLayout.laneControlHeight)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: TimelineLayout.laneControlCornerRadius)
                     // Unfilled when routed nowhere, so a silent lane reads as
                     // silent across the stack rather than looking like the rest.
-                    .fill(lane.isOutputDisabled ? AppColors.surfaceMedium : Color.accentColor.opacity(0.8))
+                    .fill(hasNoOutput ? AppColors.surfaceMedium : Color.accentColor.opacity(0.8))
             )
         }
         .buttonStyle(.plain)
-        .help(lane.isOutputDisabled ? "Routed to no output - this lane is silent" : "Audio output routing")
+        .help(hasNoOutput ? "Routed to no output - this lane is silent" : "Audio output routing")
     }
 
-    /// What the button reads: the chosen output, "None", or the unassigned state.
+    /// Whether this lane reaches an output at all.
+    ///
+    /// Silenced deliberately and never-assigned are different states in the
+    /// model - only the latter is eligible for auto-assignment - but they sound
+    /// identical, so the header presents them the same way.
+    private var hasNoOutput: Bool {
+        lane.isOutputDisabled || resolvedOutputName == nil
+    }
+
+    private var resolvedOutputName: String? {
+        availableAudioOutputs.first { $0.id == lane.outputMappingId }?.name
+    }
+
+    /// What the button reads: the chosen output, or NONE when routed nowhere.
     private var outputPickerLabel: String {
-        if lane.isOutputDisabled { return "None" }
-        return availableAudioOutputs.first { $0.id == lane.outputMappingId }?.name ?? "Output"
+        hasNoOutput ? "NONE" : (resolvedOutputName ?? "NONE")
     }
 }

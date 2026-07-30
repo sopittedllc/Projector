@@ -50,6 +50,7 @@ final class AlertCoordinator: ObservableObject {
         // MARK: Confirmation Alerts
         case missingFile(message: String, onLocate: () -> Void, onSkip: () -> Void, onSkipAll: () -> Void)
         case fpsConflict(message: String, onChangeProjectFPS: () -> Void, onCancel: () -> Void)
+        case hardPannedAudio(message: String, onSplit: () -> Void, onKeepAsIs: () -> Void)
 
         // MARK: Sheets
         case videoInsert(
@@ -69,6 +70,7 @@ final class AlertCoordinator: ObservableObject {
             case .duplicateMedia: return "duplicateMedia"
             case .missingFile: return "missingFile"
             case .fpsConflict: return "fpsConflict"
+            case .hardPannedAudio: return "hardPannedAudio"
             case .videoInsert: return "videoInsert"
             case .saveProject: return "saveProject"
             case .settings: return "settings"
@@ -127,7 +129,7 @@ private struct AlertCoordinatorModifier: ViewModifier {
                     guard let alert = coordinator.activeAlert else { return nil }
                     switch alert {
                     case .error, .videoAlreadyInTimeline, .audioAlreadyInTimeline,
-                         .duplicateMedia, .missingFile, .fpsConflict:
+                         .duplicateMedia, .missingFile, .fpsConflict, .hardPannedAudio:
                         return alert  // These are alerts
                     case .videoInsert, .saveProject, .settings:
                         return nil    // These are sheets, don't show as alerts
@@ -180,6 +182,18 @@ private struct AlertCoordinatorModifier: ViewModifier {
                         message: Text(message),
                         primaryButton: .destructive(Text("Change Project FPS"), action: onChangeProjectFPS),
                         secondaryButton: .cancel(Text("Cancel"), action: onCancel)
+                    )
+
+                case .hardPannedAudio(let message, let onSplit, let onKeepAsIs):
+                    // Splitting is offered, never assumed: the detector reads
+                    // correlation, and a wide stereo mix can look like a split
+                    // track. Restructuring a timeline on that guess is worse
+                    // than leaving the file alone.
+                    return Alert(
+                        title: Text("Hard-Panned Audio Detected"),
+                        message: Text(message),
+                        primaryButton: .default(Text("Split Channels"), action: onSplit),
+                        secondaryButton: .cancel(Text("Keep As Is"), action: onKeepAsIs)
                     )
 
                 default:

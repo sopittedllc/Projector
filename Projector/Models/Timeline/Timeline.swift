@@ -149,6 +149,12 @@ struct Timeline: Codable, Equatable, Sendable {
         audioLanes.insert(lane, at: 0)
     }
 
+    /// Insert an audio lane at a position, clamped into range.
+    mutating func insertAudioLane(_ lane: AudioLane, at index: Int) {
+        let position = Swift.max(0, Swift.min(index, audioLanes.count))
+        audioLanes.insert(lane, at: position)
+    }
+
     /// Remove an audio lane by ID
     mutating func removeAudioLane(id: UUID) {
         audioLanes.removeAll { $0.id == id }
@@ -244,7 +250,29 @@ extension Timeline {
     /// could not be presented as "the video file's audio", so nothing else is
     /// allowed to land there (see the drop guards in the timeline view).
     var videoAudioLane: AudioLane? {
-        audioLanes.first { lane in
+        videoAudioLanes.first
+    }
+
+    /// Every lane belonging to the video file, in the order they should be drawn.
+    ///
+    /// There are two once a hard-panned video has been split - one per side -
+    /// and one otherwise. Ownership recorded on the lane wins; the derived rule
+    /// is the fallback for projects saved before ownership was stored, where a
+    /// lane counts if every clip on it came from a video track.
+    ///
+    /// The two are never mixed. If any lane declares an owner, the derived rule
+    /// is not consulted at all - otherwise a split pair would pick up a third,
+    /// unowned lane that merely happens to hold video audio.
+    var videoAudioLanes: [AudioLane] {
+        let owned = audioLanes.filter(\.isLockedToVideo)
+        guard owned.isEmpty else {
+            return owned.sorted { left, right in
+                // Left above right; anything unsided keeps its existing order.
+                (left.splitChannel?.channelIndex ?? 0) < (right.splitChannel?.channelIndex ?? 0)
+            }
+        }
+
+        return audioLanes.filter { lane in
             !lane.clips.isEmpty && lane.clips.allSatisfy { $0.sourceType == .videoTrack }
         }
     }
@@ -254,7 +282,8 @@ extension Timeline {
     /// The video's audio is drawn as part of the combined Video File track, so
     /// it must not also appear in the ordinary lane list.
     var standaloneAudioLanes: [AudioLane] {
-        guard let linked = videoAudioLane else { return audioLanes }
-        return audioLanes.filter { $0.id != linked.id }
+        let linkedIds = Set(videoAudioLanes.map(\.id))
+        guard !linkedIds.isEmpty else { return audioLanes }
+        return audioLanes.filter { !linkedIds.contains($0.id) }
     }
 }

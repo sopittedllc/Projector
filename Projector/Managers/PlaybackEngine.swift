@@ -1258,7 +1258,10 @@ final class PlaybackEngine: ObservableObject {
         lane: AudioLane,
         shouldPlay: Bool
     ) {
-        guard let sourceTime = clip.sourceTime(at: currentFrame, masterFrameRate: frameRate) else { return }
+        guard let sourceTime = clip.sourceTime(at: currentFrame, masterFrameRate: frameRate) else {
+            debugPrint("SCHEDULE: clip \(clip.id) not active at frame \(currentFrame) - nothing scheduled")
+            return
+        }
 
         let file = playback.audioFile
         let sampleRate = file.processingFormat.sampleRate
@@ -1271,7 +1274,15 @@ final class PlaybackEngine: ObservableObject {
         let availableFrames = max(0, file.length - startFrame)
         let frameCount = AVAudioFrameCount(min(Double(availableFrames), Double(maxFrames)))
 
-        guard frameCount > 0 else { return }
+        debugPrint("SCHEDULE: lane=\(lane.name) sourceTime=\(String(format: "%.3f", sourceTime))s "
+                   + "startFrame=\(startFrame) fileLength=\(file.length) available=\(availableFrames) "
+                   + "maxFrames=\(maxFrames) frameCount=\(frameCount) shouldPlay=\(shouldPlay) "
+                   + "vol=\(clip.volume * lane.volume)")
+
+        guard frameCount > 0 else {
+            debugPrint("SCHEDULE: NOTHING SCHEDULED for lane \(lane.name) - frameCount is 0")
+            return
+        }
 
         playback.player.stop()
         playback.player.volume = clip.volume * lane.volume
@@ -1382,6 +1393,25 @@ final class PlaybackEngine: ObservableObject {
         return playback
     }
 
+    /// Drop a clip's loaded audio so it is read again from its current file.
+    ///
+    /// Players are cached by clip id, and a clip whose `extractedAudioURL`
+    /// changes keeps the same id - so without this it plays whatever file it was
+    /// first loaded from, forever. That bites when a hard-panned video is split:
+    /// the new lanes exist before their per-channel files are written, load the
+    /// whole stereo track in the meantime, and would then keep playing both
+    /// sides on both lanes even after the mono files arrive.
+    ///
+    /// Also clears the failure cooldown, since a clip that could not be loaded
+    /// from the old file deserves an immediate try at the new one.
+    ///
+    /// - Parameter id: The clip whose audio source changed.
+    func invalidateAudioClip(id: UUID) {
+        removeAudioPlayback(id: id)
+        failedClipCooldowns.removeValue(forKey: id)
+        loadingClipIds.remove(id)
+    }
+
     private func removeAudioPlayback(id: UUID) {
         guard let playback = audioPlayers[id] else { return }
         playback.player.stop()
@@ -1470,17 +1500,35 @@ final class PlaybackEngine: ObservableObject {
         }
 
         // Set desired routing crosspoints
-        let channelsToMap = min(inputChannelCount, outputCount, totalOutputChannels - outputOffset)
-        for i in 0..<channelsToMap {
-            let inputCh = i
-            let outputCh = outputOffset + i
+        let availableOutputs = totalOutputChannels - outputOffset
+        let outputsToFill = min(outputCount, availableOutputs)
+
+        func setCrosspoint(input inputCh: Int, output outputCh: Int) {
             let crossPoint = UInt32((inputCh << 16) | outputCh)
-            status = AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume,
-                                  kAudioUnitScope_Global, crossPoint, 1.0, 0)
-            if status != noErr { debugPrint("MatrixMixer crosspoint[\(inputCh)->\(outputCh)] set error: \(status)") }
+            let result = AudioUnitSetParameter(audioUnit, kMatrixMixerParam_Volume,
+                                               kAudioUnitScope_Global, crossPoint, 1.0, 0)
+            if result != noErr { debugPrint("MatrixMixer crosspoint[\(inputCh)->\(outputCh)] set error: \(result)") }
         }
 
-        debugPrint("MatrixMixer configured: \(inputChannelCount) inputs -> outputs \(outputOffset)-\(outputOffset + channelsToMap - 1)")
+        if inputChannelCount == 1 && outputsToFill > 1 {
+            // A mono source feeds every channel of its output rather than only
+            // the first. Mapping straight down the diagonal would send it to the
+            // left of a stereo pair and leave the right silent, so the lane would
+            // play hard left through no choice of the user's.
+            //
+            // This is also what de-pans a split track: each half is mono, and
+            // sending it to both sides puts it back in the centre.
+            for offset in 0..<outputsToFill {
+                setCrosspoint(input: 0, output: outputOffset + offset)
+            }
+            debugPrint("MatrixMixer configured: mono input -> outputs \(outputOffset)-\(outputOffset + outputsToFill - 1) (duplicated)")
+        } else {
+            let channelsToMap = min(inputChannelCount, outputsToFill)
+            for i in 0..<channelsToMap {
+                setCrosspoint(input: i, output: outputOffset + i)
+            }
+            debugPrint("MatrixMixer configured: \(inputChannelCount) inputs -> outputs \(outputOffset)-\(outputOffset + channelsToMap - 1)")
+        }
     }
 
     private func configureAudioEngineIfNeeded() {
@@ -1516,10 +1564,62 @@ final class PlaybackEngine: ObservableObject {
             try audioEngine.start()
             applyAudioOutputDevice()
             synchronizeOutputFormatIfNeeded()
+            #if DEBUG
+            installOutputMeterTap()
+            #endif
         } catch {
             debugPrint("PlaybackEngine: Failed to start audio engine: \(error)")
         }
     }
+
+    #if DEBUG
+    private static var meterTapInstalled = false
+    private static var meterWasLive = false
+
+    /// Report which output channels actually carry signal.
+    ///
+    /// Diagnostic only. Routing can be configured perfectly and still be
+    /// inaudible if it lands on channels nobody is monitoring, and the logs
+    /// above cannot tell those two cases apart - they say where audio was
+    /// *sent*, not whether anything came out. This measures the engine's real
+    /// output.
+    private func installOutputMeterTap() {
+        guard !Self.meterTapInstalled else { return }
+        Self.meterTapInstalled = true
+
+        let node = audioEngine.mainMixerNode
+        let format = node.outputFormat(forBus: 0)
+        guard format.channelCount > 0 else { return }
+
+        node.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
+            guard let data = buffer.floatChannelData, buffer.frameLength > 0 else { return }
+            var live: [String] = []
+            for channel in 0..<Int(buffer.format.channelCount) {
+                var energy: Float = 0
+                for frame in 0..<Int(buffer.frameLength) {
+                    let sample = data[channel][frame]
+                    energy += sample * sample
+                }
+                let rms = (energy / Float(buffer.frameLength)).squareRoot()
+                if rms > 0.0001 {
+                    live.append(String(format: "ch%d=%.4f", channel + 1, rms))
+                }
+            }
+            if live.isEmpty {
+                // Silent buffers are the normal resting state; logging every one
+                // buries everything else. Only the transitions matter.
+                if Self.meterWasLive {
+                    Self.meterWasLive = false
+                    debugPrint("METER: went silent")
+                }
+            } else {
+                Self.meterWasLive = true
+                debugPrint("METER: signal on \(live.joined(separator: " "))")
+            }
+        }
+        debugPrint("METER: tap installed on mainMixer (\(format.channelCount)ch)")
+    }
+    #endif
 
     private func synchronizeOutputFormatIfNeeded() {
         guard audioPlayers.isEmpty else { return }

@@ -186,11 +186,7 @@ struct AudioClipView: View {
     }
 
     private var laneColor: Color {
-        // Use lane index for consistent, sequential coloring
-        let colors: [Color] = [
-            .blue, .green, .orange, .purple, .pink, .cyan, .mint, .indigo
-        ]
-        return colors[laneIndex % colors.count]
+        LaneColor.color(forLaneIndex: laneIndex)
     }
 
     private var borderColor: Color {
@@ -215,13 +211,14 @@ struct AudioClipView: View {
                 GeometryReader { geometry in
                     let targetCount = max(1, Int(clipWidth))
                     if let renderData = waveformCache.renderData(for: clip, targetWidth: targetCount) {
-                        let sliced = slice(level: renderData.level, duration: renderData.duration)
-                        ZStack {
-                            Rectangle()
-                                .fill(Color.white.opacity(0.14))
-                                .frame(height: 1)
-                            WaveformBarsView(level: sliced, mode: .rms)
-                                .stroke(Color.white.opacity(0.85), lineWidth: 0.7)
+                        let showChannels = renderData.isStereo
+                            && geometry.size.height >= WaveformLayout.minimumStereoHeight
+                        Group {
+                            if showChannels {
+                                stereoWaveform(renderData, height: geometry.size.height)
+                            } else {
+                                monoWaveform(renderData, height: geometry.size.height)
+                            }
                         }
                         .drawingGroup()
                         .frame(width: geometry.size.width, height: geometry.size.height)
@@ -237,6 +234,64 @@ struct AudioClipView: View {
                 .clipped()
             }
         }
+    }
+
+    /// The single summed trace, centred in the clip.
+    private func monoWaveform(_ data: WaveformRenderData, height: CGFloat) -> some View {
+        let sliced = slice(level: data.level, duration: data.duration)
+        return ZStack {
+            centerLine
+            WaveformBarsView(level: sliced, mode: .rms)
+                .stroke(Color.white.opacity(WaveformLayout.traceOpacity), lineWidth: WaveformLayout.traceWidth)
+        }
+    }
+
+    /// Left above right, each in its own half with its own centre line.
+    ///
+    /// Stacked rather than overlaid: two traces sharing a baseline turn into one
+    /// shape the moment they differ, which is precisely when the difference
+    /// matters. The two levels already share a scale, so a side carrying
+    /// nothing draws flat next to a side that is working.
+    private func stereoWaveform(_ data: WaveformRenderData, height: CGFloat) -> some View {
+        let halfHeight = height / 2
+
+        return VStack(spacing: 0) {
+            ForEach(Array(slicedChannels(data).enumerated()), id: \.offset) { _, level in
+                ZStack {
+                    centerLine
+                    WaveformBarsView(level: level, mode: .rms, amplitudeBoost: WaveformLayout.stereoAmplitudeBoost)
+                        .stroke(Color.white.opacity(WaveformLayout.traceOpacity), lineWidth: WaveformLayout.traceWidth)
+                }
+                .frame(height: halfHeight)
+            }
+        }
+        .overlay(alignment: .center) {
+            // Marks where one channel ends and the next begins, so the pair does
+            // not read as a single trace with a gap in the middle.
+            Rectangle()
+                .fill(Color.black.opacity(WaveformLayout.channelDividerOpacity))
+                .frame(height: WaveformLayout.hairline)
+        }
+    }
+
+    private var centerLine: some View {
+        Rectangle()
+            .fill(Color.white.opacity(WaveformLayout.centerLineOpacity))
+            .frame(height: WaveformLayout.hairline)
+    }
+
+    /// The visible portion of each channel, rescaled against the pair.
+    ///
+    /// `slice(level:duration:)` derives contrast from whatever it was handed, so
+    /// slicing the channels one at a time would give each its own scale and undo
+    /// the shared normalization done during analysis. Re-sharing here keeps the
+    /// per-clip contrast that makes a quiet passage readable *and* the level
+    /// difference between the sides.
+    private func slicedChannels(_ data: WaveformRenderData) -> [WaveformLevel] {
+        let sliced = data.channelLevels.prefix(2).map { slice(level: $0, duration: data.duration) }
+        let floor = sliced.map(\.rmsFloor).min() ?? 0
+        let peak = sliced.map(\.rmsPeak).max() ?? 0
+        return sliced.map { $0.rescaled(floor: floor, peak: peak) }
     }
 
     private func slice(level: WaveformLevel, duration: Double) -> WaveformLevel {
@@ -255,6 +310,33 @@ struct AudioClipView: View {
     }
 }
 
+/// Fixed values for waveform drawing.
+private enum WaveformLayout {
+    /// Below this the lane is split into halves too thin to read, so the
+    /// summed trace is drawn instead.
+    ///
+    /// Sized against what the timeline actually gives a waveform, which is the
+    /// clip height minus its header - not the lane height. The video file's
+    /// linked audio strip is the tightest case at 36 - 14.4 = 21.6pt, and an
+    /// ordinary audio clip gets 50 - 18 = 32pt. A threshold set from the lane
+    /// heights instead would exclude every video file, which is the one case
+    /// this display was asked for.
+    static let minimumStereoHeight: CGFloat = 16
+
+    static let hairline: CGFloat = 1
+    static let traceWidth: CGFloat = 0.7
+    static let traceOpacity: Double = 0.85
+    static let centerLineOpacity: Double = 0.14
+
+    /// Separator between the two channels. Darker than the centre lines so the
+    /// split between channels outranks the baseline within each one.
+    static let channelDividerOpacity: Double = 0.35
+
+    /// How much more of its half a stacked channel may fill. Kept below the
+    /// point where a peak would touch the divider.
+    static let stereoAmplitudeBoost: CGFloat = 1.3
+}
+
 private struct WaveformBarsView: Shape {
     enum Mode {
         case rms
@@ -265,6 +347,13 @@ private struct WaveformBarsView: Shape {
     let mode: Mode
     var centerLine: Bool = true
 
+    /// Multiplier on how much of the available half-height a trace may use.
+    ///
+    /// A stacked channel owns half the space a single trace would, so it is
+    /// allowed to fill more of it - at the default scale the two traces in a
+    /// 21.6pt strip would be a few points tall and read as noise.
+    var amplitudeBoost: CGFloat = 1.0
+
     func path(in rect: CGRect) -> Path {
         var path = Path()
         guard level.count > 0 else { return path }
@@ -273,7 +362,7 @@ private struct WaveformBarsView: Shape {
         let height = rect.height
         let midY = rect.midY
         let xStep = width / CGFloat(level.count)
-        let amplitudeScale: CGFloat = mode == .rms ? 0.62 : 0.72
+        let amplitudeScale: CGFloat = (mode == .rms ? 0.62 : 0.72) * amplitudeBoost
         var floor = level.rmsFloor
         let peak = max(level.rmsPeak, 0.0001)
         if peak - floor < peak * 0.1 {

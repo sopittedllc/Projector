@@ -62,6 +62,13 @@ public struct AudioClip: Identifiable, Codable, Equatable, Sendable {
     /// This must match the video's sourceFrameRate for proper audio/video sync
     public var sourceFrameRate: TimecodeFrameRate?
 
+    /// Which side of a hard-panned source this clip plays, if it was split.
+    ///
+    /// `nil` for every ordinary clip, which takes the source whole. When set,
+    /// `extractedAudioURL` points at a mono file holding only that side, so the
+    /// clip plays one channel of a split track without the other bleeding in.
+    public var sourceChannel: SplitChannel?
+
     /// End frame on timeline (exclusive)
     public var timelineEndFrame: Int {
         timelineStartFrame + durationFrames
@@ -95,7 +102,8 @@ public struct AudioClip: Identifiable, Codable, Equatable, Sendable {
         channelCount: Int = 2,
         sampleRate: Double = 48000,
         extractedAudioURL: URL? = nil,
-        sourceFrameRate: TimecodeFrameRate? = nil
+        sourceFrameRate: TimecodeFrameRate? = nil,
+        sourceChannel: SplitChannel? = nil
     ) {
         self.id = id
         self.mediaItemId = mediaItemId
@@ -113,6 +121,7 @@ public struct AudioClip: Identifiable, Codable, Equatable, Sendable {
         self.sampleRate = sampleRate
         self.extractedAudioURL = extractedAudioURL
         self.sourceFrameRate = sourceFrameRate
+        self.sourceChannel = sourceChannel
     }
 
     /// Check if this clip is active at a given timeline frame
@@ -180,6 +189,7 @@ extension AudioClip {
         case sampleRate
         case extractedAudioPath
         case sourceFrameRate
+        case sourceChannel
     }
 
     public init(from decoder: Decoder) throws {
@@ -210,6 +220,7 @@ extension AudioClip {
         }
 
         sourceFrameRate = try container.decodeIfPresent(TimecodeFrameRate.self, forKey: .sourceFrameRate)
+        sourceChannel = try container.decodeIfPresent(SplitChannel.self, forKey: .sourceChannel)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -231,5 +242,6 @@ extension AudioClip {
         try container.encode(sampleRate, forKey: .sampleRate)
         try container.encodeIfPresent(extractedAudioURL?.path, forKey: .extractedAudioPath)
         try container.encodeIfPresent(sourceFrameRate, forKey: .sourceFrameRate)
+        try container.encodeIfPresent(sourceChannel, forKey: .sourceChannel)
     }
 }

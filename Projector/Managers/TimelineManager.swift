@@ -488,6 +488,117 @@ final class TimelineManager: ObservableObject {
         timeline.removeAudioLane(id: id)
     }
 
+    /// Replace a video's single audio lane with one lane per channel.
+    ///
+    /// Used when a hard-panned video is split. The original lane and its clip
+    /// are removed and two owned lanes take their place, each holding a copy of
+    /// the clip pointed at one side of the source. Both are locked to the reel,
+    /// so neither can be deleted alone and both go when the video does.
+    ///
+    /// Each lane spans a full stereo output (`outputChannelCount` 2) even though
+    /// its clip is mono. That pairing is what un-pans the split: the mixer sees
+    /// one input channel and two output channels, and duplicates the input
+    /// across both, so a side that was hard left comes back centred. Setting the
+    /// lane to one output channel instead would map it to a single speaker and
+    /// reproduce the very panning the split is meant to undo.
+    ///
+    /// - Parameters:
+    ///   - laneId: The existing video-audio lane to replace.
+    ///   - reelId: The reel that will own both new lanes.
+    ///   - names: Display name for each side.
+    /// - Returns: The two new lanes, left then right, or `nil` if the lane or
+    ///   its clip could not be found.
+    @discardableResult
+    func splitVideoAudioLaneByChannel(
+        laneId: UUID,
+        reelId: UUID,
+        names: [SplitChannel: String]
+    ) -> [AudioLane]? {
+        guard let laneIndex = timeline.audioLanes.firstIndex(where: { $0.id == laneId }),
+              let sourceClip = timeline.audioLanes[laneIndex].clips.first else {
+            return nil
+        }
+
+        let original = timeline.audioLanes[laneIndex]
+        var created: [AudioLane] = []
+
+        for channel in SplitChannel.allCases {
+            var clip = sourceClip
+            clip = AudioClip(
+                mediaItemId: sourceClip.mediaItemId,
+                sourceURL: sourceClip.sourceURL,
+                sourceBookmark: sourceClip.sourceBookmark,
+                timelineStartFrame: sourceClip.timelineStartFrame,
+                durationFrames: sourceClip.durationFrames,
+                sourceStartFrame: sourceClip.sourceStartFrame,
+                sourceType: sourceClip.sourceType,
+                sourceTrackIndex: sourceClip.sourceTrackIndex,
+                volume: sourceClip.volume,
+                isMuted: sourceClip.isMuted,
+                name: names[channel],
+                channelCount: 1,
+                sampleRate: sourceClip.sampleRate,
+                // Cleared deliberately: the existing extraction is the whole
+                // stereo track, and using it here would play both sides on both
+                // lanes. The per-channel file replaces it once written.
+                extractedAudioURL: nil,
+                sourceFrameRate: sourceClip.sourceFrameRate,
+                sourceChannel: channel
+            )
+
+            let lane = AudioLane(
+                name: names[channel] ?? channel.conventionalRoleName,
+                clips: [clip],
+                isMuted: original.isMuted,
+                isSolo: original.isSolo,
+                volume: original.volume,
+                outputChannelOffset: original.outputChannelOffset,
+                outputChannelCount: 2,
+                outputDeviceUID: original.outputDeviceUID,
+                // Both sides inherit where the video's audio was already going.
+                //
+                // Splitting is a change to how the audio is *organized*, not to
+                // where it comes out. Pre-assigning the pair to the DX/SFX and MX
+                // roles reads as helpful, but on a large interface those roles sit
+                // high in the channel list - so the video's sound left the monitor
+                // path the instant it was split, which is indistinguishable from
+                // playback having broken. Inheriting keeps it audible; the lane's
+                // own output menu is how it gets moved.
+                outputMappingId: original.outputMappingId,
+                isOutputDisabled: original.isOutputDisabled,
+                colorIndex: (original.colorIndex + channel.channelIndex) % 8,
+                ownerVideoReelId: reelId,
+                splitChannel: channel
+            )
+            created.append(lane)
+        }
+
+        // Insert where the original sat, so the pair stays with its video.
+        timeline.removeAudioLane(id: laneId)
+        for (offset, lane) in created.enumerated() {
+            timeline.insertAudioLane(lane, at: laneIndex + offset)
+        }
+
+        return created
+    }
+
+    /// Point a split lane's clip at the mono file extracted for its channel.
+    func updateSplitClipSource(laneId: UUID, extractedURL: URL) {
+        guard let laneIndex = timeline.audioLanes.firstIndex(where: { $0.id == laneId }),
+              var clip = timeline.audioLanes[laneIndex].clips.first else { return }
+        clip.extractedAudioURL = extractedURL
+        timeline.audioLanes[laneIndex].updateClip(clip)
+    }
+
+    /// Remove every lane owned by a reel.
+    ///
+    /// Called when the video goes: an owned lane has no meaning without it.
+    func removeLanesOwned(byReel reelId: UUID) {
+        for lane in timeline.audioLanes where lane.ownerVideoReelId == reelId {
+            timeline.removeAudioLane(id: lane.id)
+        }
+    }
+
     /// Rename an audio lane
     func renameAudioLane(id: UUID, name: String) {
         if var lane = timeline.audioLanes.first(where: { $0.id == id }) {
@@ -971,7 +1082,7 @@ final class TimelineManager: ObservableObject {
 //     3-4 still means channels 3-4. Re-binding by channel range keeps a project
 //     routed correctly across a device change.
 //
-//  4. OTHERWISE CLEAR IT. An unresolvable mapping shows as "Output" rather than
+//  4. OTHERWISE CLEAR IT. An unresolvable mapping shows as "NONE" rather than
 //     silently routing audio somewhere the user did not choose.
 //
 //  5. NONE IS LEFT ALONE. A lane the user routed to None is not an unassigned

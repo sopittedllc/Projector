@@ -1,12 +1,59 @@
 # Session State
 
-> **Last Updated**: 2026-07-27
-> **Status**: IDLE — import is now silent; user tested and confirmed; dead sheet code removed
-> **Branch**: codex/repair-sync-core
+> **Last Updated**: 2026-07-30
+> **Status**: AWAITING USER RUNTIME VERIFICATION — split-channel performance regression fixed
+> **Branch**: main
 
 ---
 
-## Current Task
+## Current Task (2026-07-30)
+
+**Task**: Undo the slowdown the hard-panned-split feature introduced in split detection
+and waveform rendering. Builds clean; 74 unit tests green; **app not yet run by user**.
+
+Five regressions found and fixed, all in the uncommitted split-channel work:
+
+1. **Detection was serialized behind a full audio export.** `ContentView+Timeline.swift`
+   awaited `extractAudioInBackground` *before* starting `AudioPanningAnalyzer`. The two read
+   the same source file and neither needs the other's output, so on a feature-length reel the
+   split question waited out an entire export before it began looking. Now started with
+   `async let` alongside the extraction. The *offer* still waits for the extraction, which is a
+   real constraint — the split replaces the lane the extraction writes into.
+
+2. **Waveform peak extraction went scalar over 2 channels.** `samplesPerChannelUsingAssetReader`
+   tracked per-channel peaks in a `[Int32]`, so every sample paid bounds + uniqueness checks.
+   Rewritten with Accelerate: `vDSP_vflt16` once per block, then a strided `vDSP_maxmgv` per
+   bucket per channel. **Bit-identical output** (144 randomized differential cases incl.
+   bucket-straddling blocks and `Int16.min`); ~5x faster than the regressed version and ~3x
+   faster than the original mono baseline.
+
+3. **`WaveformLevel.scaling(for:)` fully sorted up to 16384 floats on the render path** — once
+   per channel, per clip, per view update, so stereo doubled an already-costly step. Only two
+   sorted values are ever read, so it now uses quickselect for the percentile and `vDSP_maxv`
+   for the peak. **Identical results** (1800 differential cases incl. all-equal / sorted /
+   reversed / duplicate-heavy inputs); 21x faster (584µs → 28µs per call).
+
+4. **The superseded lane's full-video decode was orphaned, not cancelled.** `performChannelSplit`
+   now cancels the pre-split clip's in-flight waveform generation — the same full decode the
+   split's `markAwaitingExtraction` gating exists to avoid doing twice.
+
+5. **`clipsAwaitingExtraction` is not `@Published`.** On the extraction *failure* path nothing
+   else changed, so the lane could stay blank until an unrelated redraw. `mark`/`clear` now send
+   `objectWillChange`.
+
+Also: one redundant `load(.formatDescriptions)` per clip removed (channel count and sample rate
+now loaded together); `normalize` no longer allocates a throwaway copy of every channel just to
+find a maximum; deleted `samplesUsingAssetReader`, dead since the per-channel read landed.
+
+**Files**: `Managers/WaveformCache.swift`, `Models/WaveformData.swift`,
+`Views/ContentView+Timeline.swift`
+
+**Next**: user runs the app and verifies — see the checklist in the session transcript. Nothing
+committed.
+
+---
+
+## Previous Task
 
 **Task**: Three things, all uncommitted and all built + tested green:
 

@@ -211,13 +211,17 @@ struct SettingsView: View {
 
     // MARK: - Output Choosers
 
-    /// The two named roles plus a free-form third.
+    /// The three named roles plus a free-form fourth.
     ///
-    /// DX/SFX and MX get dedicated buttons because they are the two a scoring
-    /// session almost always needs; choosing one twice re-points it rather than
-    /// adding a duplicate.
+    /// Stereo Out, DX/SFX and MX get dedicated rows because they are what a
+    /// scoring session almost always needs; choosing one twice re-points it
+    /// rather than adding a duplicate.
+    ///
+    /// Stereo Out leads because it is the one an unconfigured device already
+    /// has, and the only one needed to simply hear playback.
     private var outputChoosers: some View {
         VStack(alignment: .leading, spacing: SettingsDesign.rowSpacing) {
+            outputRow(.stereoOut)
             outputRow(.music)
             outputRow(.dialogueEffects)
 
@@ -273,10 +277,12 @@ struct SettingsView: View {
         audioManager.mappedOutputs.first { role.matches($0) }
     }
 
-    /// Outputs that fill neither named role.
+    /// Outputs that fill no named role.
     private var additionalOutputs: [MappedAudioOutput] {
         audioManager.mappedOutputs.filter { output in
-            !OutputRole.dialogueEffects.matches(output) && !OutputRole.music.matches(output)
+            !OutputRole.stereoOut.matches(output)
+                && !OutputRole.dialogueEffects.matches(output)
+                && !OutputRole.music.matches(output)
         }
     }
 
@@ -498,12 +504,14 @@ struct SettingsView: View {
 /// exactly those two, so the common setup is two clicks rather than naming
 /// things by hand. Anything else is `additional`, where the user supplies a name.
 enum OutputRole: Identifiable, Hashable {
+    case stereoOut
     case dialogueEffects
     case music
     case additional
 
     var id: String {
         switch self {
+        case .stereoOut:       return MappedAudioOutput.stereoOutRoleId
         case .dialogueEffects: return "dx-sfx"
         case .music:           return "mx"
         case .additional:      return "additional"
@@ -513,6 +521,7 @@ enum OutputRole: Identifiable, Hashable {
     /// Name given to the output. `additional` has none - the user types one.
     var fixedName: String? {
         switch self {
+        case .stereoOut:       return "Stereo Out"
         case .dialogueEffects: return "DX/SFX"
         case .music:           return "MX"
         case .additional:      return nil
@@ -521,6 +530,7 @@ enum OutputRole: Identifiable, Hashable {
 
     var title: String {
         switch self {
+        case .stereoOut:       return "Choose a Stereo Output"
         case .dialogueEffects: return "Choose a DX/SFX Output"
         case .music:           return "Choose an MX Output"
         case .additional:      return "Add an Output"
@@ -528,8 +538,13 @@ enum OutputRole: Identifiable, Hashable {
     }
 
     /// Names that mean this role in mappings saved before `roleId` existed.
+    ///
+    /// `stereoOut` is listed here too, for a narrower reason: outputs seeded
+    /// before the role existed were saved with no `roleId`, so they are adopted
+    /// by name rather than being orphaned into the extras list.
     private var legacyNames: Set<String> {
         switch self {
+        case .stereoOut:       return ["stereo out", "stereo", "stereo-out"]
         case .dialogueEffects: return ["dx/sfx", "dx", "sfx", "dx-sfx"]
         case .music:           return ["mx", "music"]
         case .additional:      return []

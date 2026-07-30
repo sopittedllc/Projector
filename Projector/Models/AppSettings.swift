@@ -140,6 +140,20 @@ final class AppSettings: ObservableObject {
         return mappings[key] ?? []
     }
 
+    /// Whether this device has ever had its outputs decided by the user.
+    ///
+    /// Distinguishes "never seen this device" from "user cleared every output",
+    /// which `mappedOutputs(for:)` alone cannot: both return an empty array. The
+    /// difference is whether the key exists at all, so an absent key means
+    /// untouched and a key holding `[]` means deliberately emptied.
+    ///
+    /// Without this, seeding a default output on an empty list would re-create
+    /// it the instant the user cleared it, making the default impossible to
+    /// remove. See `AudioOutputManager.loadMappedOutputs()`.
+    func hasConfiguredOutputs(for deviceUID: String?) -> Bool {
+        loadAudioOutputMappings()[Self.mappingKey(for: deviceUID)] != nil
+    }
+
     func setMappedOutputs(_ outputs: [MappedAudioOutput], for deviceUID: String?) {
         let key = Self.mappingKey(for: deviceUID)
         var mappings = loadAudioOutputMappings()
@@ -191,6 +205,13 @@ final class AppSettings: ObservableObject {
 }
 
 struct MappedAudioOutput: Identifiable, Codable, Hashable {
+    /// Identifier for the built-in stereo role, shared by the seeding code in
+    /// `AudioOutputManager` and the `OutputRole.stereoOut` UI case.
+    ///
+    /// Lives here, in the model layer, because both sides need the same string
+    /// and `Managers` must not reach into `Views` to get it.
+    static let stereoOutRoleId = "stereo-out"
+
     let id: UUID
     var name: String
     var channelStart: Int

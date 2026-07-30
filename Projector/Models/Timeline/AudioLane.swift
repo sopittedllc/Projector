@@ -44,6 +44,30 @@ public struct AudioLane: Identifiable, Codable, Equatable, Sendable {
     /// Color index for visual distinction
     public var colorIndex: Int
 
+    /// The video reel this lane belongs to, when it is not a lane the user made.
+    ///
+    /// Set on the lanes created by splitting a hard-panned video: they carry
+    /// that video's audio and nothing else, so they are owned by it. An owned
+    /// lane cannot be deleted on its own and goes away with the video.
+    ///
+    /// Recorded rather than inferred. The single video-audio lane is recognized
+    /// by inspecting its clips (see `Timeline.videoAudioLanes`), which works
+    /// while there is only one but cannot say which of a split *pair* is which,
+    /// nor survive the user rearranging clips. Optional so projects saved before
+    /// splitting existed still decode, and those fall back to the derived rule.
+    public var ownerVideoReelId: UUID?
+
+    /// Which side of a hard-panned source this lane carries.
+    ///
+    /// `nil` for every ordinary lane. Paired with `ownerVideoReelId` it names
+    /// the lane exactly: "the left side of that reel".
+    public var splitChannel: SplitChannel?
+
+    /// Whether this lane is owned by a video and cannot stand alone.
+    public var isLockedToVideo: Bool {
+        ownerVideoReelId != nil
+    }
+
     public init(
         id: UUID = UUID(),
         name: String,
@@ -56,7 +80,9 @@ public struct AudioLane: Identifiable, Codable, Equatable, Sendable {
         outputDeviceUID: String? = nil,
         outputMappingId: UUID? = nil,
         isOutputDisabled: Bool = false,
-        colorIndex: Int = 0
+        colorIndex: Int = 0,
+        ownerVideoReelId: UUID? = nil,
+        splitChannel: SplitChannel? = nil
     ) {
         self.id = id
         self.name = name
@@ -70,6 +96,8 @@ public struct AudioLane: Identifiable, Codable, Equatable, Sendable {
         self.outputMappingId = outputMappingId
         self.isOutputDisabled = isOutputDisabled
         self.colorIndex = colorIndex
+        self.ownerVideoReelId = ownerVideoReelId
+        self.splitChannel = splitChannel
     }
 
     /// Get all clips active at a given timeline frame
@@ -135,6 +163,8 @@ extension AudioLane {
         case outputDeviceUID
         case outputMappingId
         case isOutputDisabled
+        case ownerVideoReelId
+        case splitChannel
         case colorIndex
     }
 
@@ -152,6 +182,8 @@ extension AudioLane {
         outputMappingId = try container.decodeIfPresent(UUID.self, forKey: .outputMappingId)
         // Absent in projects saved before None existed, which routed everywhere.
         isOutputDisabled = try container.decodeIfPresent(Bool.self, forKey: .isOutputDisabled) ?? false
+        ownerVideoReelId = try container.decodeIfPresent(UUID.self, forKey: .ownerVideoReelId)
+        splitChannel = try container.decodeIfPresent(SplitChannel.self, forKey: .splitChannel)
         colorIndex = try container.decode(Int.self, forKey: .colorIndex)
     }
 
@@ -168,6 +200,8 @@ extension AudioLane {
         try container.encodeIfPresent(outputDeviceUID, forKey: .outputDeviceUID)
         try container.encodeIfPresent(outputMappingId, forKey: .outputMappingId)
         try container.encode(isOutputDisabled, forKey: .isOutputDisabled)
+        try container.encodeIfPresent(ownerVideoReelId, forKey: .ownerVideoReelId)
+        try container.encodeIfPresent(splitChannel, forKey: .splitChannel)
         try container.encode(colorIndex, forKey: .colorIndex)
     }
 }

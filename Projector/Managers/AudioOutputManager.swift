@@ -138,6 +138,22 @@ final class AudioOutputManager: ObservableObject {
     private nonisolated(unsafe) var listenerQueue = DispatchQueue(label: "com.projector.audiodevicelistener")
     private let settings = AppSettings.shared
 
+    // MARK: - Constants
+
+    /// The output every unconfigured device starts with.
+    private enum DefaultOutput {
+        /// Fills the built-in stereo role, so Settings shows it in that role's
+        /// fixed row rather than listing it as an extra output.
+        static let name = "Stereo Out"
+
+        static let roleId = MappedAudioOutput.stereoOutRoleId
+
+        /// One-based, matching how channels are labelled in the UI.
+        static let firstChannelNumber = 1
+
+        static let channelCount = 2
+    }
+
     // MARK: - Initialization
 
     init() {
@@ -288,21 +304,53 @@ final class AudioOutputManager: ObservableObject {
         return buffers.reduce(0) { $0 + Int($1.mNumberChannels) }
     }
 
-    /// Load the outputs the user has defined for the selected device.
+    /// Load the outputs the user has defined for the selected device, seeding a
+    /// default `Stereo Out` the first time a device is seen.
     ///
-    /// A device with no saved outputs has **none** - selecting an interface does
-    /// not create any. Outputs are made deliberately, through the guided DX/SFX,
-    /// MX and "add additional" flow in Settings, because an output is a routing
-    /// decision about a session, not a fact about the hardware.
+    /// A device the user has never configured gets exactly **one** output: a
+    /// stereo pair on the first two channels, so playback makes sound before
+    /// anyone opens Settings. Everything beyond that is still a deliberate
+    /// decision through the guided DX/SFX, MX and "add additional" flow, because
+    /// a routing map is a decision about a session, not a fact about the
+    /// hardware.
     ///
-    /// This used to fabricate a stereo pair per channel ("Output 1-2", "Output
-    /// 3-4", ...) on selection, which was wrong twice over: it filled the
-    /// Settings list with entries the user never asked for, and because those
-    /// entries were minted in memory with a fresh `UUID` each launch and never
-    /// saved, lanes auto-assigned to them stored an id that referred to nothing
-    /// the next time the app opened.
+    /// Two failures from the earlier auto-creation are deliberately not repeated
+    /// here. That version fabricated a pair for *every* channel ("Output 1-2",
+    /// "Output 3-4", ...), filling Settings with entries nobody asked for - this
+    /// one seeds a single pair. And it minted them in memory with a fresh `UUID`
+    /// each launch without ever saving, so a lane assigned to one stored an id
+    /// that referred to nothing on the next launch - this one is persisted
+    /// through `setMappedOutputs` before being published, so the id is stable.
+    ///
+    /// Seeding is keyed on `hasConfiguredOutputs(for:)` rather than on the list
+    /// being empty, so clearing `Stereo Out` removes it for good instead of
+    /// having it reappear on the next device change.
     private func loadMappedOutputs() {
+        seedDefaultOutputIfNeverConfigured()
         mappedOutputs = settings.mappedOutputs(for: selectedDeviceUID)
+    }
+
+    /// Persist the default stereo output for a device seen for the first time.
+    ///
+    /// Reads the channel count from `selectedDevice` rather than the published
+    /// `selectedDeviceChannelCount`, because `selectedDeviceUID.didSet` loads
+    /// mappings *before* it refreshes that property - it would still hold the
+    /// previous device's count here.
+    ///
+    /// A device that cannot carry a stereo pair is left empty rather than seeded
+    /// with something narrower; Settings already explains that case.
+    private func seedDefaultOutputIfNeverConfigured() {
+        guard !settings.hasConfiguredOutputs(for: selectedDeviceUID) else { return }
+        guard let device = selectedDevice,
+              device.outputChannelCount >= DefaultOutput.channelCount else { return }
+
+        let stereoOut = MappedAudioOutput(
+            name: DefaultOutput.name,
+            channelStart: DefaultOutput.firstChannelNumber - 1,
+            channelCount: DefaultOutput.channelCount,
+            roleId: DefaultOutput.roleId
+        )
+        settings.setMappedOutputs([stereoOut], for: selectedDeviceUID)
     }
 
     private func updateSelectedDeviceChannelCount() {
