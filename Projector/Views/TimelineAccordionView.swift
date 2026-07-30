@@ -187,6 +187,20 @@ struct TimelineAccordionView: View {
                 .accessibilityLabel("Export Cue List from MX lane")
             }
 
+            // Settings button - always visible, styled to match Export Cue List
+            Button(action: onSettingsPressed) {
+                HStack(spacing: Spacing.xs) {
+                    Image(systemName: "gearshape")
+                        .frame(width: 12, height: 12)
+                    Text("Settings")
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+            }
+            .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentBlue, help: "Timeline settings"))
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityLabel("Timeline settings")
+
             do {
                 // Everything numeric about the timeline in one row: what is
                 // coming in, where the playhead is, and the bounds it runs

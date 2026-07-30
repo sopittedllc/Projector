@@ -506,8 +506,7 @@ struct ContentView: View {
                 settings: settings,
                 playerWindow: PlayerWindowController.shared,
                 onDropURLs: { urls in handlePlaybackAreaDrop(urls: urls) },
-                onDropProviders: { providers in mediaImportCoordinator.handleDrop(providers: providers) },
-                onOpenSettings: { alerts.show(.settings(content: AnyView(EmptyView()))) }
+                onDropProviders: { providers in mediaImportCoordinator.handleDrop(providers: providers) }
             )
             video
             video.controlsSection
@@ -638,7 +637,7 @@ struct ContentView: View {
             onDropVideoMedia: handleVideoDropOnTimeline,
             onDropAudioMedia: handleAudioDropOnTimeline,
             onSeek: { frame in playbackEngine.seekToFrame(frame) },
-            onSettingsPressed: { },
+            onSettingsPressed: { alerts.show(.settings(content: AnyView(EmptyView()))) },
             onAddAudioLane: {
                 let laneNumber = timelineManager.timeline.audioLanes.count + 1
                 _ = timelineManager.addAudioLane(name: "Audio \(laneNumber)")

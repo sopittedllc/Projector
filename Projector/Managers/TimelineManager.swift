@@ -575,6 +575,15 @@ final class TimelineManager: ObservableObject {
         }
     }
 
+    /// Reorder an audio lane to a new position.
+    ///
+    /// - Parameters:
+    ///   - fromIndex: Source position of the lane
+    ///   - toIndex: Target position for the lane
+    func moveAudioLane(from fromIndex: Int, to toIndex: Int) {
+        timeline.moveLane(from: fromIndex, to: toIndex)
+    }
+
     // MARK: - Audio Lane Index-Based Convenience Methods
 
     /// Toggle lane mute state by index

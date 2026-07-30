@@ -161,6 +161,20 @@ struct Timeline: Codable, Equatable, Sendable {
         }
     }
 
+    /// Move an audio lane from one position to another.
+    ///
+    /// - Parameters:
+    ///   - fromIndex: Source position of the lane
+    ///   - toIndex: Target position for the lane
+    mutating func moveLane(from fromIndex: Int, to toIndex: Int) {
+        guard fromIndex != toIndex,
+              fromIndex >= 0, fromIndex < audioLanes.count,
+              toIndex >= 0, toIndex < audioLanes.count else { return }
+
+        let lane = audioLanes.remove(at: fromIndex)
+        audioLanes.insert(lane, at: toIndex)
+    }
+
     /// Add a clip to a lane
     mutating func addClip(_ clip: AudioClip, toLane laneId: UUID) {
         if let index = audioLanes.firstIndex(where: { $0.id == laneId }) {

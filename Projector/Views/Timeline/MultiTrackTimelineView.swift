@@ -145,6 +145,11 @@ struct MultiTrackTimelineView: View {
     @State private var linkedDragPreview: LinkedDragPreview?
     @State private var laneChangePreview: LaneChangePreview?
 
+    // Lane reorder state
+    @State private var draggingLaneId: UUID?
+    @State private var draggingLaneOffset: CGFloat = 0
+    @State private var laneReorderTargetIndex: Int?
+
     // Unified multi-file drop state
     @State private var isMultiFileDropTargeted = false
     @State private var externalDragItemCount: Int = 0
@@ -748,15 +753,6 @@ struct MultiTrackTimelineView: View {
                 .buttonStyle(.plain)
                 .help("Show the video player window")
                 .accessibilityLabel("Show video player window")
-
-                // Settings button
-                Button(action: onSettingsPressed) {
-                    Image(systemName: "gearshape")
-                        .frame(width: 18, height: 18)
-                }
-                .buttonStyle(.plain)
-                .help("Timeline settings")
-                .accessibilityLabel("Timeline settings")
             }
             .padding(.horizontal, Spacing.md)
             .frame(height: TimelineLayout.toolbarHeight)
@@ -1166,126 +1162,149 @@ struct MultiTrackTimelineView: View {
                         // otherwise appear twice.
                         ForEach(Array(timeline.standaloneAudioLanes.enumerated()), id: \.element.id) { _, lane in
                             let index = timeline.audioLanes.firstIndex(where: { $0.id == lane.id }) ?? 0
-                            AudioLaneView(
-                                lane: lane,
-                                laneIndex: index,
-                                activeClipIds: activeAudioClipIds,
-                                waveformCache: waveformCache,
-                                pixelsPerFrame: ppf,
-                                frameRate: timeline.config.frameRate,
-                                scrollOffset: 0,
-                                timelineDurationFrames: timeline.config.durationFrames,
-                                showWaveforms: !debug.disableWaveforms,
-                                clipInteractionsEnabled: !debug.disableClipInteractions,
-                                availableAudioOutputs: audioOutputManager.mappedOutputs,
-                                linkedDragPreview: linkedDragPreview,
-                                timelineStartFrames: timeline.config.startTimecode.frameCount.wholeFrames,
-                                mediaLibrary: mediaLibrary,
-                                onMuteToggle: { timelineManager.toggleLaneMute(at: index) },
-                                onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
-                                onVolumeChange: { volume in timelineManager.setLaneVolume(at: index, volume: volume) },
-                                onOutputMappingChange: { output in timelineManager.setLaneOutputMapping(id: lane.id, mapping: output) },
-                                onOutputNone: { timelineManager.disableLaneOutput(id: lane.id) },
-                                onDropMedia: { urls, frame, isInternal in onDropAudioMedia(index, urls, frame, isInternal) },
-                                onDropMixedMedia: onDropMixedMedia,
-                                onClipSelected: { clipId, modifiers in
-                                    handleClipSelection(clipId: clipId, laneId: lane.id, modifiers: modifiers)
-                                },
-                                onClipDoubleClick: { clip in
-                                    editingClipId = clip.id
-                                    editingLaneId = lane.id
-                                    let tc = Timecode(.frames(clip.timelineStartFrame + timeline.config.startTimecode.frameCount.wholeFrames), at: timeline.config.frameRate, by: .clamping)
-                                    timecodeEntryText = tc.stringValue()
-                                    showTimecodeEntryDialog = true
-                                },
-                                onClipSetTimelineStart: { clip in
-                                    timelineManager.setTimelineStart(toFrame: clip.timelineStartFrame)
-                                },
-                                onClipMove: { clipId, newFrame in
-                                    guard let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == lane.id }),
-                                          let clip = lane.clips.first(where: { $0.id == clipId }),
-                                          clip.timelineStartFrame != newFrame else { return }
-                                    registerAudioClipMoveUndo(clipId: clipId, laneId: lane.id, from: clip.timelineStartFrame)
-                                    timelineManager.moveAudioClip(clipId: clipId, inLane: lane.id, to: newFrame)
-                                },
-                                onClipDragPreview: { clip, previewFrame in
-                                    guard clip.sourceType == .videoTrack else {
-                                        if linkedDragPreview != nil {
+                            let isDragging = draggingLaneId == lane.id
+                            let isTarget = laneReorderTargetIndex == index && draggingLaneId != nil && draggingLaneId != lane.id
+
+                            VStack(spacing: 0) {
+                                // Insertion indicator above this lane
+                                if isTarget {
+                                    laneReorderInsertionIndicator
+                                        .padding(.horizontal, Spacing.xs)
+                                }
+
+                                AudioLaneView(
+                                    lane: lane,
+                                    laneIndex: index,
+                                    activeClipIds: activeAudioClipIds,
+                                    waveformCache: waveformCache,
+                                    pixelsPerFrame: ppf,
+                                    frameRate: timeline.config.frameRate,
+                                    scrollOffset: 0,
+                                    timelineDurationFrames: timeline.config.durationFrames,
+                                    showWaveforms: !debug.disableWaveforms,
+                                    clipInteractionsEnabled: !debug.disableClipInteractions && !isDragging,
+                                    availableAudioOutputs: audioOutputManager.mappedOutputs,
+                                    linkedDragPreview: linkedDragPreview,
+                                    timelineStartFrames: timeline.config.startTimecode.frameCount.wholeFrames,
+                                    mediaLibrary: mediaLibrary,
+                                    onMuteToggle: { timelineManager.toggleLaneMute(at: index) },
+                                    onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
+                                    onVolumeChange: { volume in timelineManager.setLaneVolume(at: index, volume: volume) },
+                                    onOutputMappingChange: { output in timelineManager.setLaneOutputMapping(id: lane.id, mapping: output) },
+                                    onOutputNone: { timelineManager.disableLaneOutput(id: lane.id) },
+                                    onDropMedia: { urls, frame, isInternal in onDropAudioMedia(index, urls, frame, isInternal) },
+                                    onDropMixedMedia: onDropMixedMedia,
+                                    onClipSelected: { clipId, modifiers in
+                                        handleClipSelection(clipId: clipId, laneId: lane.id, modifiers: modifiers)
+                                    },
+                                    onClipDoubleClick: { clip in
+                                        editingClipId = clip.id
+                                        editingLaneId = lane.id
+                                        let tc = Timecode(.frames(clip.timelineStartFrame + timeline.config.startTimecode.frameCount.wholeFrames), at: timeline.config.frameRate, by: .clamping)
+                                        timecodeEntryText = tc.stringValue()
+                                        showTimecodeEntryDialog = true
+                                    },
+                                    onClipSetTimelineStart: { clip in
+                                        timelineManager.setTimelineStart(toFrame: clip.timelineStartFrame)
+                                    },
+                                    onClipMove: { clipId, newFrame in
+                                        guard let lane = timelineManager.timeline.audioLanes.first(where: { $0.id == lane.id }),
+                                              let clip = lane.clips.first(where: { $0.id == clipId }),
+                                              clip.timelineStartFrame != newFrame else { return }
+                                        registerAudioClipMoveUndo(clipId: clipId, laneId: lane.id, from: clip.timelineStartFrame)
+                                        timelineManager.moveAudioClip(clipId: clipId, inLane: lane.id, to: newFrame)
+                                    },
+                                    onClipDragPreview: { clip, previewFrame in
+                                        guard clip.sourceType == .videoTrack else {
+                                            if linkedDragPreview != nil {
+                                                linkedDragPreview = nil
+                                            }
+                                            return
+                                        }
+                                        if let previewFrame {
+                                            linkedDragPreview = LinkedDragPreview(
+                                                sourceURL: clip.sourceURL,
+                                                sourceStartFrame: clip.sourceStartFrame,
+                                                durationFrames: clip.durationFrames,
+                                                fromFrame: clip.timelineStartFrame,
+                                                toFrame: previewFrame
+                                            )
+                                        } else {
                                             linkedDragPreview = nil
                                         }
-                                        return
-                                    }
-                                    if let previewFrame {
-                                        linkedDragPreview = LinkedDragPreview(
-                                            sourceURL: clip.sourceURL,
-                                            sourceStartFrame: clip.sourceStartFrame,
-                                            durationFrames: clip.durationFrames,
-                                            fromFrame: clip.timelineStartFrame,
-                                            toFrame: previewFrame
-                                        )
-                                    } else {
-                                        linkedDragPreview = nil
-                                    }
-                                },
-                                onLaneRename: { newName in
-                                    timelineManager.renameAudioLane(id: lane.id, name: newName)
-                                },
-                                onDeleteLane: {
-                                    // Snapshot-based undo, so a lane deleted
-                                    // with clips on it comes back intact.
-                                    registerTimelineUndo(actionName: "Delete Lane")
-                                    timelineManager.removeAudioLane(id: lane.id)
-                                },
-                                onClipLaneChangeRequested: { clipId, laneOffset in
-                                    // Move video-linked audio clip to adjacent lane
-                                    let currentIndex = index
-                                    let targetIndex = currentIndex + laneOffset
-                                    guard targetIndex >= 0 && targetIndex < timeline.audioLanes.count else { return }
-                                    let targetLane = timeline.audioLanes[targetIndex]
+                                    },
+                                    onLaneRename: { newName in
+                                        timelineManager.renameAudioLane(id: lane.id, name: newName)
+                                    },
+                                    onDeleteLane: {
+                                        // Snapshot-based undo, so a lane deleted
+                                        // with clips on it comes back intact.
+                                        registerTimelineUndo(actionName: "Delete Lane")
+                                        timelineManager.removeAudioLane(id: lane.id)
+                                    },
+                                    onClipLaneChangeRequested: { clipId, laneOffset in
+                                        // Move video-linked audio clip to adjacent lane
+                                        let currentIndex = index
+                                        let targetIndex = currentIndex + laneOffset
+                                        guard targetIndex >= 0 && targetIndex < timeline.audioLanes.count else { return }
+                                        let targetLane = timeline.audioLanes[targetIndex]
 
-                                    // Check if clip would overlap in target lane
-                                    if let clip = lane.clips.first(where: { $0.id == clipId }) {
-                                        if !targetLane.hasOverlap(with: clip) {
-                                            timelineManager.moveAudioClipToLane(
-                                                clipId: clipId,
-                                                fromLane: lane.id,
-                                                toLane: targetLane.id
-                                            )
+                                        // Check if clip would overlap in target lane
+                                        if let clip = lane.clips.first(where: { $0.id == clipId }) {
+                                            if !targetLane.hasOverlap(with: clip) {
+                                                timelineManager.moveAudioClipToLane(
+                                                    clipId: clipId,
+                                                    fromLane: lane.id,
+                                                    toLane: targetLane.id
+                                                )
+                                            }
                                         }
-                                    }
-                                    // Clear preview after move
-                                    laneChangePreview = nil
-                                },
-                                onClipLaneChangePreview: { clip, laneOffset in
-                                    guard let offset = laneOffset else {
-                                        // Clear preview
+                                        // Clear preview after move
                                         laneChangePreview = nil
-                                        return
-                                    }
-                                    let targetIndex = index + offset
-                                    guard targetIndex >= 0 && targetIndex < timeline.audioLanes.count else {
-                                        laneChangePreview = nil
-                                        return
-                                    }
-                                    let targetLane = timeline.audioLanes[targetIndex]
-                                    let isValid = !targetLane.hasOverlap(with: clip)
-                                    laneChangePreview = LaneChangePreview(
-                                        clipId: clip.id,
-                                        timelineStartFrame: clip.timelineStartFrame,
-                                        durationFrames: clip.durationFrames,
-                                        sourceLaneIndex: index,
-                                        targetLaneIndex: targetIndex,
-                                        isValidDrop: isValid
-                                    )
-                                },
-                                laneChangePreview: laneChangePreview,
-                                selectedClipIds: selectedAudioClipIds
-                            )
-                            .frame(width: totalContentWidth, height: TimelineLayout.audioLaneHeight)
-                            .overlay(alignment: .bottom) {
-                                if index == timeline.audioLanes.count - 1 {
-                                    laneBorder
+                                    },
+                                    onClipLaneChangePreview: { clip, laneOffset in
+                                        guard let offset = laneOffset else {
+                                            // Clear preview
+                                            laneChangePreview = nil
+                                            return
+                                        }
+                                        let targetIndex = index + offset
+                                        guard targetIndex >= 0 && targetIndex < timeline.audioLanes.count else {
+                                            laneChangePreview = nil
+                                            return
+                                        }
+                                        let targetLane = timeline.audioLanes[targetIndex]
+                                        let isValid = !targetLane.hasOverlap(with: clip)
+                                        laneChangePreview = LaneChangePreview(
+                                            clipId: clip.id,
+                                            timelineStartFrame: clip.timelineStartFrame,
+                                            durationFrames: clip.durationFrames,
+                                            sourceLaneIndex: index,
+                                            targetLaneIndex: targetIndex,
+                                            isValidDrop: isValid
+                                        )
+                                    },
+                                    laneChangePreview: laneChangePreview,
+                                    selectedClipIds: selectedAudioClipIds
+                                )
+                                .frame(width: totalContentWidth, height: TimelineLayout.audioLaneHeight)
+                                // Drag gesture overlay on header area only
+                                .overlay(alignment: .leading) {
+                                    Color.clear
+                                        .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
+                                        .contentShape(Rectangle())
+                                        .gesture(laneReorderGesture(laneId: lane.id, laneIndex: index))
                                 }
+                                .overlay(alignment: .bottom) {
+                                    if index == timeline.audioLanes.count - 1 {
+                                        laneBorder
+                                    }
+                                }
+                                // Visual feedback when dragging
+                                .opacity(isDragging ? 0.6 : 1.0)
+                                .offset(y: isDragging ? draggingLaneOffset : 0)
+                                .zIndex(isDragging ? 100 : 0)
+                                .animation(isDragging ? nil : AppAnimations.quick, value: isDragging)
                             }
 
                             if index < timeline.audioLanes.count - 1 {
@@ -2543,6 +2562,69 @@ struct MultiTrackTimelineView: View {
             timelineManager.moveVideoReel(id: reelId, to: oldFrame)
         }
         undoManager?.setActionName("Move Video Reel")
+    }
+
+    // MARK: - Lane Reorder
+
+    /// Calculate target lane index based on vertical drag offset.
+    ///
+    /// - Parameters:
+    ///   - sourceLaneIndex: The index of the lane being dragged (in audioLanes array)
+    ///   - dragOffset: The vertical offset of the drag
+    /// - Returns: The target index where the lane should be inserted
+    private func calculateLaneReorderTarget(from sourceLaneIndex: Int, dragOffset: CGFloat) -> Int {
+        let laneHeight = TimelineLayout.audioLaneHeight + 1 // Include divider
+        let lanesMoved = Int(round(dragOffset / laneHeight))
+        let targetIndex = sourceLaneIndex + lanesMoved
+        return max(0, min(targetIndex, timeline.audioLanes.count - 1))
+    }
+
+    /// Create a long-press + drag gesture for lane reordering.
+    ///
+    /// - Parameter laneId: The ID of the lane this gesture is attached to
+    /// - Parameter laneIndex: The index of the lane in audioLanes array
+    /// - Returns: A gesture that handles lane reordering
+    private func laneReorderGesture(laneId: UUID, laneIndex: Int) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.3)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onChanged { value in
+                switch value {
+                case .second(true, let drag):
+                    guard let drag = drag else { return }
+                    if draggingLaneId == nil {
+                        // Start of drag
+                        draggingLaneId = laneId
+                    }
+                    draggingLaneOffset = drag.translation.height
+                    laneReorderTargetIndex = calculateLaneReorderTarget(
+                        from: laneIndex,
+                        dragOffset: drag.translation.height
+                    )
+                default:
+                    break
+                }
+            }
+            .onEnded { value in
+                if case .second(true, _) = value,
+                   let targetIndex = laneReorderTargetIndex,
+                   targetIndex != laneIndex {
+                    // Perform the reorder
+                    registerTimelineUndo(actionName: "Reorder Lane")
+                    timelineManager.moveAudioLane(from: laneIndex, to: targetIndex)
+                }
+                // Reset state
+                draggingLaneId = nil
+                draggingLaneOffset = 0
+                laneReorderTargetIndex = nil
+            }
+    }
+
+    /// Insertion indicator line shown between lanes during reorder drag.
+    private var laneReorderInsertionIndicator: some View {
+        Rectangle()
+            .fill(Color.accentColor)
+            .frame(height: 2)
+            .shadow(color: Color.accentColor.opacity(0.5), radius: 2, x: 0, y: 0)
     }
 
     // MARK: - Marquee Selection

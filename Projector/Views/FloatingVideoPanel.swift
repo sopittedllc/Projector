@@ -491,9 +491,6 @@ struct InlineVideoArea: View {
     let onDropURLs: ([URL]) -> Void
     let onDropProviders: ([NSItemProvider]) -> Bool
 
-    /// Raises the Settings overlay.
-    var onOpenSettings: () -> Void = {}
-
     @EnvironmentObject private var dragContext: DragContext
 
     @State private var isDropTargeted = false
@@ -573,8 +570,6 @@ struct InlineVideoArea: View {
     /// with the Media panel beside it.
     var controlsSection: some View {
         HStack(spacing: Spacing.sm) {
-            settingsButton
-
             Spacer()
 
             // Only alongside the actual picture - over the popped-out
@@ -593,29 +588,6 @@ struct InlineVideoArea: View {
         // Width follows the column; only the height is the strip's own.
         .frame(maxWidth: .infinity)
         .frame(height: MainWindowLayout.videoControlsBarHeight)
-    }
-
-    /// Opens Settings. Lives at the far left of the strip, opposite the video
-    /// controls, because it acts on the app rather than on playback.
-    private var settingsButton: some View {
-        Button(action: onOpenSettings) {
-            HStack(spacing: Spacing.xs) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 13, weight: .medium))
-                Text("Settings")
-                    .font(Typography.captionSmall)
-                    .lineLimit(1)
-                    .fixedSize()
-            }
-            .foregroundColor(.white.opacity(0.8))
-            .padding(.horizontal, Spacing.sm)
-            .frame(height: 32)
-            .background(AppColors.overlayDarker)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-        }
-        .buttonStyle(.plain)
-        .help("Open settings")
-        .accessibilityLabel("Open settings")
     }
 
     /// Run/stop state, and the control for it.
