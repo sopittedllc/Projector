@@ -420,9 +420,9 @@ struct AudioLaneView: View {
                 onSetTimelineStart: {
                     onClipSetTimelineStart(clip)
                 },
-                clipHeight: laneHeight
+                clipHeight: TimelineLayout.audioClipHeight
             )
-            .offset(x: clipOffset(for: clip))
+            .offset(x: clipOffset(for: clip), y: (laneHeight - TimelineLayout.audioClipHeight) / 2)
             .simultaneousGesture(
                 DragGesture(minimumDistance: 4)
                     .onChanged { value in

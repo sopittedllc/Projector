@@ -82,15 +82,18 @@ struct FullScreenToggleButton: View {
                   : "arrow.up.left.and.arrow.down.right")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.white)
-                .padding(Spacing.sm)
-                .background(
-                    Circle()
-                        .fill(Color.black.opacity(0.6))
-                )
+                .frame(width: 32, height: 32)
+                .background(Color.white.opacity(0.10))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
-        .padding(Spacing.xl)
-        .opacity(0.7)
+        .onHover { hovering in
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
         .help(isFullScreen ? "Exit Full Screen" : "Enter Full Screen")
     }
 }

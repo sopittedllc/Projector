@@ -499,18 +499,15 @@ struct ContentView: View {
     /// the section authority - so the column is exactly 16:9 plus its controls
     /// strip at every window size and the picture never letterboxes inside it.
     private func videoColumn(_ sections: SectionSizes) -> some View {
-        VStack(spacing: 0) {
-            let video = InlineVideoArea(
-                playbackEngine: playbackEngine,
-                midiSyncViewModel: midiSyncViewModel,
-                settings: settings,
-                playerWindow: PlayerWindowController.shared,
-                onDropURLs: { urls in handlePlaybackAreaDrop(urls: urls) },
-                onDropProviders: { providers in mediaImportCoordinator.handleDrop(providers: providers) }
-            )
-            video
-            video.controlsSection
-        }
+        InlineVideoArea(
+            playbackEngine: playbackEngine,
+            midiSyncViewModel: midiSyncViewModel,
+            settings: settings,
+            playerWindow: PlayerWindowController.shared,
+            onDropURLs: { urls in handlePlaybackAreaDrop(urls: urls) },
+            onDropProviders: { providers in mediaImportCoordinator.handleDrop(providers: providers) }
+        )
+        // Controls are now overlaid on video, so use full height for picture
         .frame(width: sections.video.width, height: sections.video.height)
         // One surface for picture and controls, so the column has a visible
         // bottom edge level with the Media panel beside it. Both columns have

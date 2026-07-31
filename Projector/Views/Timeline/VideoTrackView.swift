@@ -238,8 +238,9 @@ struct VideoTrackView: View {
                 // Background with drop zone
                 dropZoneBackground
 
-                // Reels
+                // Reels - vertically centered with subtle padding
                 reelsContent
+                    .offset(y: (TimelineLayout.videoTrackHeight - TimelineLayout.videoClipHeight) / 2)
 
                 // Show preview for all drops (single and multi-file)
                 if (isDropAllowed || isLoadingDropPreview), let previewFrame = dropPreviewFrame {

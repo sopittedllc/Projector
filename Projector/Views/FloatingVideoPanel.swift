@@ -396,8 +396,6 @@ struct PlayerWindowContent: View {
         VStack {
             Spacer()
             HStack {
-                VideoFrameRateChip(frameRate: playbackEngine.frameRate)
-
                 Spacer()
 
                 HStack(spacing: Spacing.sm) {
@@ -415,11 +413,11 @@ struct PlayerWindowContent: View {
     /// close button is easy to miss - this is the discoverable equivalent.
     private var collapseButton: some View {
         Button(action: onCollapse) {
-            Image(systemName: "chevron.down.circle")
+            Image(systemName: "pip.exit")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.white)
                 .frame(width: 32, height: 32)
-                .background(AppColors.overlayDarker)
+                .background(Color.white.opacity(0.10))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
@@ -433,7 +431,7 @@ struct PlayerWindowContent: View {
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(settings.playerWindowPinnedToFront ? AppColors.accent : .white)
                 .frame(width: 32, height: 32)
-                .background(AppColors.overlayDarker)
+                .background(Color.white.opacity(0.10))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
@@ -542,6 +540,16 @@ struct InlineVideoArea: View {
 
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Controls overlay - always visible, bottom-right corner
+        .overlay(alignment: .bottomTrailing) {
+            if !playerWindow.isPoppedOut {
+                HStack(spacing: 4) {
+                    fullScreenButton
+                    popOutButton
+                }
+                .padding(5)
+            }
+        }
     }
 
     // MARK: - Popped-Out Placeholder
@@ -555,39 +563,6 @@ struct InlineVideoArea: View {
                 .font(Typography.bodySmall)
                 .foregroundColor(AppColors.textTertiary)
         }
-    }
-
-    // MARK: - Controls Overlay
-
-    /// Play/stop and pop-out, over the picture.
-    ///
-    /// Pinned bottom-trailing to match the player window's overlay, so the same
-    /// controls stay in the same corner whichever window the video is in.
-    /// Transport controls for the inline player, as a section of their own.
-    ///
-    /// Deliberately outside `InlineVideoArea`: while they lived inside it they
-    /// ate 40pt of picture. Sized and spaced so the video column ends level
-    /// with the Media panel beside it.
-    var controlsSection: some View {
-        HStack(spacing: Spacing.sm) {
-            Spacer()
-
-            // Only alongside the actual picture - over the popped-out
-            // placeholder it would be describing a video that isn't there.
-            if !playerWindow.isPoppedOut {
-                VideoFrameRateChip(frameRate: playbackEngine.frameRate)
-            }
-
-            playStopButton
-            fullScreenButton
-            popOutButton
-        }
-        // No panel background. On its own surface directly beneath the picture
-        // it read as a second, crowded box rather than a strip of controls.
-        .padding(.horizontal, Spacing.xs)
-        // Width follows the column; only the height is the strip's own.
-        .frame(maxWidth: .infinity)
-        .frame(height: MainWindowLayout.videoControlsBarHeight)
     }
 
     /// Run/stop state, and the control for it.
@@ -657,14 +632,24 @@ struct InlineVideoArea: View {
                 playerWindow.show()
             }
         }) {
-            Image(systemName: playerWindow.isPoppedOut ? "pip.exit" : "pip.enter")
+            // Pop out: pip.enter; Pop in: pip.exit (inverse)
+            Image(systemName: playerWindow.isPoppedOut
+                  ? "pip.exit"
+                  : "pip.enter")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.white)
                 .frame(width: 32, height: 32)
-                .background(AppColors.overlayDarker)
+                .background(Color.white.opacity(0.10))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
         .help(playerWindow.isPoppedOut
               ? "Bring the video back into the main window"
               : "Pop the video out into its own window")

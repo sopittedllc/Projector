@@ -139,8 +139,10 @@ struct FileManagerView: View {
     var body: some View {
         VStack(spacing: 0) {
             headerBar
+            Divider()
 
-            // Optimization suggestion banner. Hidden while collapsed - it does
+            // Optimization suggestion banner - below header divider for
+            // symmetric header padding. Hidden while collapsed - it does
             // not fit the header-height frame, and importing auto-expands the
             // panel anyway, so a live suggestion is still seen.
             if let suggestion = activeSuggestion {
@@ -172,7 +174,6 @@ struct FileManagerView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
 
-            Divider()
             contentArea
         }
         // maxWidth is explicit because nothing else supplies it once collapsed:

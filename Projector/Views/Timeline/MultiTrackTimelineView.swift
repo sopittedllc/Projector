@@ -734,9 +734,6 @@ struct MultiTrackTimelineView: View {
                 // Current position (editable - double-click or click to edit)
                 positionBox
 
-                // Frame rate (dropdown)
-                fpsBox
-
                 // Transport controls
                 transportControls
 
@@ -943,40 +940,6 @@ struct MultiTrackTimelineView: View {
         } else {
             return Color.white.opacity(0.04)
         }
-    }
-
-    private var fpsBox: some View {
-        HStack(spacing: Spacing.xs) {
-            Text("FPS:")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .fixedSize()
-
-            Menu {
-                ForEach(availableFrameRates, id: \.self) { rate in
-                    Button(rate.displayName) {
-                        changeFrameRate(to: rate)
-                    }
-                }
-            } label: {
-                Text(timeline.config.frameRate.displayName)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .frame(minWidth: 50)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-        }
-        .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(AppColors.borderLight, lineWidth: PanelLayout.borderWidth)
-        )
     }
 
     private var availableFrameRates: [TimecodeFrameRate] {
@@ -1766,7 +1729,14 @@ struct MultiTrackTimelineView: View {
                             }
                         }
                         .frame(maxWidth: TimelineLayout.headerWidth - Spacing.md * 2)
-                        .help("Return to rename, Escape to cancel")
+                        .padding(.horizontal, Spacing.xs)
+                        .padding(.vertical, 2)
+                        .background(Color.black.opacity(0.3))
+                        .cornerRadius(4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.accentColor, lineWidth: 1)
+                        )
                 } else {
                     Button(action: {}) {
                         Text(trackName)
@@ -1783,14 +1753,52 @@ struct MultiTrackTimelineView: View {
                     .help("\(trackName) - double-click to rename")
                 }
 
-                Text(String(format: "%.2f fps", reel.sourceFrameRate.fps))
-                    .font(Typography.monoTiny)
-                    .foregroundColor(.secondary)
+                // FPS and playback state
+                HStack(spacing: Spacing.sm) {
+                    videoHeaderFpsControl
+                    videoHeaderPlaybackIndicator
+                }
             } else {
                 Text("Video")
                     .font(Typography.subheading)
                     .foregroundColor(.primary)
+
+                // FPS and playback state (shown even without video)
+                HStack(spacing: Spacing.sm) {
+                    videoHeaderFpsControl
+                    videoHeaderPlaybackIndicator
+                }
             }
+        }
+    }
+
+    /// Play/stop indicator for video lane header
+    private var videoHeaderPlaybackIndicator: some View {
+        Image(systemName: playbackEngine.isPlaying ? "play.fill" : "stop.fill")
+            .font(.system(size: 10, weight: .medium))
+            .foregroundColor(playbackEngine.isPlaying ? AppColors.accentGreen : .secondary)
+    }
+
+    /// FPS dropdown for video lane header - simple gray text
+    private var videoHeaderFpsControl: some View {
+        HStack(spacing: Spacing.xs) {
+            Text("FPS")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.secondary)
+
+            Menu {
+                ForEach(availableFrameRates, id: \.self) { rate in
+                    Button(rate.displayName) {
+                        changeFrameRate(to: rate)
+                    }
+                }
+            } label: {
+                Text(timeline.config.frameRate.displayName)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
         }
     }
 
@@ -1881,9 +1889,12 @@ struct MultiTrackTimelineView: View {
                         onSetTimelineStart: {
                             timelineManager.setTimelineStart(toFrame: clip.timelineStartFrame)
                         },
-                        clipHeight: TimelineLayout.linkedAudioStripHeight
+                        clipHeight: TimelineLayout.audioClipHeight
                     )
-                    .offset(x: CGFloat(clip.timelineStartFrame) * ppf)
+                    .offset(
+                        x: CGFloat(clip.timelineStartFrame) * ppf,
+                        y: (TimelineLayout.linkedAudioStripHeight - TimelineLayout.audioClipHeight) / 2
+                    )
                 }
             }
         }

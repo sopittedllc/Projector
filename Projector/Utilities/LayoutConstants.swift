@@ -416,9 +416,9 @@ enum MainWindowLayout {
     // window size. The video pillarboxes within it (`videoGravity` is
     // `.resizeAspect`) - the 16:9 is the column's shape, not the media's.
 
-    /// Height of the control strip beneath the inline picture. No padding
-    /// around it - every point spent here is a point off the picture.
-    static let videoControlsBarHeight: CGFloat = 36
+    /// Height of the control strip beneath the inline picture.
+    /// Set to 0 because controls are now overlaid on the video.
+    static let videoControlsBarHeight: CGFloat = 0
 
     /// Height of the top row at the reference window size.
     ///
@@ -721,8 +721,8 @@ enum TimelineLayout {
     /// Width of playhead/ruler header (narrower than track headers)
     static let playheadHeaderWidth: CGFloat = 80
 
-    /// Height of the video track
-    static let videoTrackHeight: CGFloat = 60
+    /// Height of the video track (matches audio lane height for visual consistency)
+    static let videoTrackHeight: CGFloat = 80
 
     /// Height of each audio lane.
     ///
@@ -776,11 +776,16 @@ enum TimelineLayout {
     /// Height of the new-lane drop zone strip when no drag is in progress
     static let newLaneDropZoneInactiveHeight: CGFloat = 20
 
-    /// Height of video reel clips
-    static let videoClipHeight: CGFloat = 42
+    /// Height of video reel clips.
+    ///
+    /// Fills the lane minus subtle padding (2pt top and bottom). Changed from
+    /// 42pt so the video region occupies the lane similarly to audio clips.
+    static let videoClipHeight: CGFloat = 76
 
-    /// Height of audio clips
-    static let audioClipHeight: CGFloat = 50
+    /// Height of audio clips.
+    ///
+    /// Fills the lane minus subtle padding (2pt top and bottom).
+    static let audioClipHeight: CGFloat = 76
 
     /// Height of audio clip headers (filename bar)
     static let audioClipHeaderHeight: CGFloat = 18
