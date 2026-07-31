@@ -128,17 +128,19 @@ struct TimelineAccordionView: View {
 
             Spacer()
 
-            // Add Audio Lane button (secondary action)
+            // Add Audio Lane button (styled to match Settings/Import)
             Button(action: onAddAudioLane) {
                 HStack(spacing: Spacing.xs) {
                     Image(systemName: "plus")
-                        .font(Typography.iconSmall)
+                        .frame(width: 12, height: 12)
                     Text("Audio Lane")
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
-            .buttonStyle(GlassTextButtonStyle())
+            .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentGreen))
+            .fixedSize(horizontal: true, vertical: false)
             .accessibilityLabel("Add a new audio lane")
-            .help("Add a new audio lane")
         }
         .frame(maxWidth: .infinity)
         .frame(height: PanelLayout.footerHeight + Spacing.md) // Include space for resize handle
@@ -187,20 +189,6 @@ struct TimelineAccordionView: View {
                 .accessibilityLabel("Export Cue List from MX lane")
             }
 
-            // Settings button - always visible, styled to match Export Cue List
-            Button(action: onSettingsPressed) {
-                HStack(spacing: Spacing.xs) {
-                    Image(systemName: "gearshape")
-                        .frame(width: 12, height: 12)
-                    Text("Settings")
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-            }
-            .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentBlue, help: "Timeline settings"))
-            .fixedSize(horizontal: true, vertical: false)
-            .accessibilityLabel("Timeline settings")
-
             do {
                 // Everything numeric about the timeline in one row: what is
                 // coming in, where the playhead is, and the bounds it runs
@@ -224,6 +212,20 @@ struct TimelineAccordionView: View {
                     .padding(.horizontal, Spacing.sm)
 
                 zoomControls
+
+                // Settings button - far right
+                Button(action: onSettingsPressed) {
+                    HStack(spacing: Spacing.xs) {
+                        Image(systemName: "gearshape")
+                            .frame(width: 12, height: 12)
+                        Text("Settings")
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+                .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentBlue))
+                .fixedSize(horizontal: true, vertical: false)
+                .accessibilityLabel("Timeline settings")
             }
         }
         .frame(height: PanelLayout.headerHeight)

@@ -147,8 +147,10 @@ struct MultiTrackTimelineView: View {
 
     // Lane reorder state
     @State private var draggingLaneId: UUID?
+    @State private var draggingLaneSourceIndex: Int?
     @State private var draggingLaneOffset: CGFloat = 0
     @State private var laneReorderTargetIndex: Int?
+    @State private var laneReorderCursorPushed = false
 
     // Unified multi-file drop state
     @State private var isMultiFileDropTargeted = false
@@ -1166,15 +1168,9 @@ struct MultiTrackTimelineView: View {
                         ForEach(Array(timeline.standaloneAudioLanes.enumerated()), id: \.element.id) { _, lane in
                             let index = timeline.audioLanes.firstIndex(where: { $0.id == lane.id }) ?? 0
                             let isDragging = draggingLaneId == lane.id
-                            let isTarget = laneReorderTargetIndex == index && draggingLaneId != nil && draggingLaneId != lane.id
+                            let displacementOffset = isDragging ? 0 : laneDisplacementOffset(for: index)
 
                             VStack(spacing: 0) {
-                                // Insertion indicator above this lane
-                                if isTarget {
-                                    laneReorderInsertionIndicator
-                                        .padding(.horizontal, Spacing.xs)
-                                }
-
                                 AudioLaneView(
                                     lane: lane,
                                     laneIndex: index,
@@ -1291,23 +1287,34 @@ struct MultiTrackTimelineView: View {
                                     selectedClipIds: selectedAudioClipIds
                                 )
                                 .frame(width: totalContentWidth, height: TimelineLayout.audioLaneHeight)
-                                // Drag gesture overlay on header area only
-                                .overlay(alignment: .leading) {
-                                    Color.clear
-                                        .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.audioLaneHeight)
+                                // Drag handle covers header except controls row at bottom
+                                // Full header width, top portion only (lane name row)
+                                .overlay(alignment: .topLeading) {
+                                    Color.white.opacity(0.001)
+                                        .frame(width: TimelineLayout.headerWidth, height: 40)
                                         .contentShape(Rectangle())
-                                        .gesture(laneReorderGesture(laneId: lane.id, laneIndex: index))
+                                        .allowsHitTesting(true)
+                                        .highPriorityGesture(laneReorderGesture(laneId: lane.id, laneIndex: index))
                                 }
                                 .overlay(alignment: .bottom) {
                                     if index == timeline.audioLanes.count - 1 {
                                         laneBorder
                                     }
                                 }
-                                // Visual feedback when dragging
-                                .opacity(isDragging ? 0.6 : 1.0)
-                                .offset(y: isDragging ? draggingLaneOffset : 0)
+                                // Visual feedback when dragging - neon green overlay
+                                .overlay {
+                                    if isDragging {
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .fill(Color(red: 0.0, green: 1.0, blue: 0.0).opacity(0.25))
+                                            .overlay {
+                                                RoundedRectangle(cornerRadius: 4)
+                                                    .stroke(Color(red: 0.0, green: 1.0, blue: 0.0), lineWidth: 2)
+                                            }
+                                    }
+                                }
+                                .offset(y: isDragging ? draggingLaneOffset : displacementOffset)
                                 .zIndex(isDragging ? 100 : 0)
-                                .animation(isDragging ? nil : AppAnimations.quick, value: isDragging)
+                                .animation(isDragging ? nil : AppAnimations.quick, value: displacementOffset)
                             }
 
                             if index < timeline.audioLanes.count - 1 {
@@ -1408,6 +1415,9 @@ struct MultiTrackTimelineView: View {
             .onChanged { value in
                 // Don't start marquee during multi-file drag operations
                 guard !isMultiFileDrag, externalDragItemCount == 0 else { return }
+
+                // Don't start marquee if drag started in header area (lane reorder zone)
+                guard value.startLocation.x >= TimelineLayout.headerWidth else { return }
 
                 if !isMarqueeSelecting {
                     // Start marquee selection
@@ -2661,7 +2671,14 @@ struct MultiTrackTimelineView: View {
     /// - Returns: The target index where the lane should be inserted
     private func calculateLaneReorderTarget(from sourceLaneIndex: Int, dragOffset: CGFloat) -> Int {
         let laneHeight = TimelineLayout.audioLaneHeight + 1 // Include divider
-        let lanesMoved = Int(round(dragOffset / laneHeight))
+        // Trigger reorder once drag exceeds 25% of lane height (about 20px)
+        let threshold: CGFloat = 20
+        if abs(dragOffset) < threshold {
+            return sourceLaneIndex
+        }
+        // Calculate how many lanes we've moved past
+        let adjustedOffset = dragOffset - (dragOffset > 0 ? threshold : -threshold)
+        let lanesMoved = Int(adjustedOffset / laneHeight) + (dragOffset > 0 ? 1 : -1)
         let targetIndex = sourceLaneIndex + lanesMoved
         return max(0, min(targetIndex, timeline.audioLanes.count - 1))
     }
@@ -2672,15 +2689,21 @@ struct MultiTrackTimelineView: View {
     /// - Parameter laneIndex: The index of the lane in audioLanes array
     /// - Returns: A gesture that handles lane reordering
     private func laneReorderGesture(laneId: UUID, laneIndex: Int) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.3)
+        LongPressGesture(minimumDuration: 0.15)
             .sequenced(before: DragGesture(minimumDistance: 0))
             .onChanged { value in
                 switch value {
+                case .first(true):
+                    // Long press started - immediately show closed hand cursor
+                    if !laneReorderCursorPushed {
+                        NSCursor.closedHand.push()
+                        laneReorderCursorPushed = true
+                    }
                 case .second(true, let drag):
                     guard let drag = drag else { return }
                     if draggingLaneId == nil {
-                        // Start of drag
                         draggingLaneId = laneId
+                        draggingLaneSourceIndex = laneIndex
                     }
                     draggingLaneOffset = drag.translation.height
                     laneReorderTargetIndex = calculateLaneReorderTarget(
@@ -2692,6 +2715,11 @@ struct MultiTrackTimelineView: View {
                 }
             }
             .onEnded { value in
+                // Pop the closed hand cursor
+                if laneReorderCursorPushed {
+                    NSCursor.pop()
+                    laneReorderCursorPushed = false
+                }
                 if case .second(true, _) = value,
                    let targetIndex = laneReorderTargetIndex,
                    targetIndex != laneIndex {
@@ -2701,6 +2729,7 @@ struct MultiTrackTimelineView: View {
                 }
                 // Reset state
                 draggingLaneId = nil
+                draggingLaneSourceIndex = nil
                 draggingLaneOffset = 0
                 laneReorderTargetIndex = nil
             }
@@ -2712,6 +2741,34 @@ struct MultiTrackTimelineView: View {
             .fill(Color.accentColor)
             .frame(height: 2)
             .shadow(color: Color.accentColor.opacity(0.5), radius: 2, x: 0, y: 0)
+    }
+
+    /// Calculate the displacement offset for a lane during drag reorder.
+    /// When dragging a lane to a new position, other lanes slide out of the way.
+    private func laneDisplacementOffset(for laneIndex: Int) -> CGFloat {
+        guard let sourceIndex = draggingLaneSourceIndex,
+              let targetIndex = laneReorderTargetIndex,
+              sourceIndex != targetIndex,
+              laneIndex != sourceIndex else {
+            return 0
+        }
+
+        let laneHeight = TimelineLayout.audioLaneHeight + 1 // Include divider
+
+        // Dragging down (source < target): lanes between source and target move UP
+        if sourceIndex < targetIndex {
+            if laneIndex > sourceIndex && laneIndex <= targetIndex {
+                return -laneHeight
+            }
+        }
+        // Dragging up (source > target): lanes between target and source move DOWN
+        else {
+            if laneIndex >= targetIndex && laneIndex < sourceIndex {
+                return laneHeight
+            }
+        }
+
+        return 0
     }
 
     // MARK: - Marquee Selection

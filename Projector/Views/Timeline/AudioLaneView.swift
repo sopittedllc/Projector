@@ -186,8 +186,15 @@ struct AudioLaneView: View {
                                 commitNameEdit()
                             }
                         }
+                        .padding(.horizontal, Spacing.xs)
+                        .padding(.vertical, 2)
+                        .background(Color.black.opacity(0.3))
+                        .cornerRadius(4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.accentColor, lineWidth: 1)
+                        )
                         .frame(maxWidth: TimelineLayout.headerWidth - Spacing.md - Spacing.sm - 12)
-                        .help("Return to rename, Escape to cancel")
                 } else {
                     // Button rather than onTapGesture: a tap gesture inside scrollable
                     // content delays trackpad scrolling.
