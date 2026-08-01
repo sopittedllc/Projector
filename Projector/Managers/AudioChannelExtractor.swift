@@ -291,13 +291,16 @@ enum AudioChannelExtractor {
 
     /// A temp-directory URL for one side of a source file.
     ///
-    /// Named from the source and the side so the two halves cannot collide, and
-    /// so a stale file is recognizable while debugging.
+    /// Stable for a given source and side, so re-splitting a reel overwrites the
+    /// file it wrote last time. It used to append a UUID, which meant every
+    /// split left another pair of several-hundred-megabyte files behind that
+    /// nothing would ever read again.
     static func temporaryURL(for sourceURL: URL, channel: SplitChannel) -> URL {
-        let base = sourceURL.deletingPathExtension().lastPathComponent
-        let unique = UUID().uuidString.prefix(8)
-        return FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(base)-\(channel.rawValue)-\(unique).caf")
+        TemporaryAudioFiles.url(
+            for: sourceURL,
+            role: channel.rawValue,
+            fileExtension: "caf"
+        )
     }
 }
 

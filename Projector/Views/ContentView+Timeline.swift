@@ -1015,6 +1015,17 @@ extension ContentView {
 
                 // Dropped only now: it was the source of the traces handed over.
                 waveformCache.removeCachedWaveform(for: job.candidate.clipId)
+
+                // The reel's stereo extraction is dead weight once both sides
+                // have their own file - nothing plays or draws from it again,
+                // and on a feature-length reel it is hundreds of megabytes.
+                TemporaryAudioFiles.remove(
+                    TemporaryAudioFiles.url(
+                        for: job.reel.sourceURL,
+                        role: "track0",
+                        fileExtension: "mov"
+                    )
+                )
             }
 
             syncTimelineToPlaybackEngine()
@@ -1061,11 +1072,16 @@ extension ContentView {
             throw NSError(domain: "ContentView", code: -3, userInfo: [NSLocalizedDescriptionKey: "Failed to create export session"])
         }
 
-        // Deterministic filename based on source URL and track
+        // Stable across launches, so the same reel reuses one file. This was
+        // keyed on `String.hashValue`, which Swift seeds per process - the same
+        // reel got a new filename every time the app started, and every one of
+        // them stayed on disk.
         // Use .mov container for passthrough compatibility
-        let keyHash = "\(sourceURL.absoluteString)-track\(trackIndex)".hashValue
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("projector-audio-\(abs(keyHash)).mov")
+        let tempURL = TemporaryAudioFiles.url(
+            for: sourceURL,
+            role: "track\(trackIndex)",
+            fileExtension: "mov"
+        )
 
         if FileManager.default.fileExists(atPath: tempURL.path) {
             try FileManager.default.removeItem(at: tempURL)

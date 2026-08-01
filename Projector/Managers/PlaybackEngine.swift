@@ -1915,11 +1915,14 @@ final class PlaybackEngine: ObservableObject {
             throw PlaybackEngineError.audioExtractionFailed
         }
 
-        // Use a deterministic filename based on source URL and track index
+        // Stable across launches, and the same name the import path derives, so
+        // the two share one file instead of extracting the same audio twice.
         // Use .mov container for passthrough compatibility
-        let keyHash = "\(key.url.absoluteString)-track\(key.trackIndex)".hashValue
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("projector-audio-\(abs(keyHash)).mov")
+        let tempURL = TemporaryAudioFiles.url(
+            for: key.url,
+            role: "track\(key.trackIndex)",
+            fileExtension: "mov"
+        )
 
         // Remove existing file if present
         if FileManager.default.fileExists(atPath: tempURL.path) {
