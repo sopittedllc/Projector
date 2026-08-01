@@ -106,6 +106,9 @@ struct ContentView: View {
     // MARK: - Alert & Sheet Coordination
     @StateObject var alerts = AlertCoordinator()
 
+    /// Gathers hard-panned reels so one import raises one split offer.
+    @StateObject var splitOffers = SplitOfferCoordinator()
+
     // MARK: - UI State
     // Note: Some properties use internal access to allow extension in ContentView+Timeline.swift and ContentView+Setup.swift
     @State private var showWelcomeOverlay = false
@@ -201,13 +204,16 @@ struct ContentView: View {
             .alertCoordinator(alerts)
             .sheet(isPresented: Binding(
                 get: { alerts.activeAlert?.id == "settings" },
-                set: { if !$0 { alerts.dismiss() } }
+                // Guarded so a dismissal only ever clears the settings sheet.
+                // The getter is false for every other alert, and acting on that
+                // would dismiss whatever is really on screen.
+                set: { if !$0, alerts.activeAlert?.id == "settings" { alerts.dismiss() } }
             )) {
                 SettingsView(
                     audioManager: audioManager,
                     isPresented: Binding(
                         get: { alerts.activeAlert?.id == "settings" },
-                        set: { if !$0 { alerts.dismiss() } }
+                        set: { if !$0, alerts.activeAlert?.id == "settings" { alerts.dismiss() } }
                     )
                 )
             }

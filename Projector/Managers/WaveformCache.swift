@@ -116,19 +116,6 @@ final class WaveformCache: ObservableObject {
     /// undefined behavior. This set prevents duplicate deferred requests.
     private var queuedGenerationIDs: Set<UUID> = []
 
-    /// Clips whose per-channel file is being written right now.
-    ///
-    /// Drawing these means decoding the whole source video to isolate one
-    /// channel - and the result is discarded moments later when the small mono
-    /// file lands and invalidates the atlas. Waiting costs a blank strip for a
-    /// second; not waiting costs a full decode per lane, twice over, every time
-    /// a video is split.
-    ///
-    /// Only covers extraction that is actually in flight. A clip with no file
-    /// and no pending extraction - a reopened project whose temp files were
-    /// cleaned - still draws, from the source.
-    private var clipsAwaitingExtraction: Set<UUID> = []
-
     /// DSWaveformImage analyzer for legacy track-based mode.
     private let analyzer = WaveformAnalyzer()
 
@@ -169,31 +156,55 @@ final class WaveformCache: ObservableObject {
     ///     showLoadingIndicator()
     /// }
     /// ```
-    /// Note that a clip's per-channel audio is being written, so its waveform
-    /// waits for it rather than decoding the source to get the same answer.
-    func markAwaitingExtraction(clipId: UUID) {
-        guard clipsAwaitingExtraction.insert(clipId).inserted else { return }
-        objectWillChange.send()
+    /// Give a split clip the side of the stereo trace already drawn for it.
+    ///
+    /// A stereo clip's atlas holds each channel separately - it is what draws the
+    /// two stacked traces on an unsplit video's lane - at every resolution and
+    /// already normalized on a scale shared with the other side. That is exactly
+    /// the trace the split clip needs, so splitting can hand it over rather than
+    /// decode the audio again to arrive back at the same numbers.
+    ///
+    /// Without this a split costs two extra full decodes per reel to redraw what
+    /// was on screen a moment earlier, which is most of the wait after answering
+    /// the split question.
+    ///
+    /// - Parameters:
+    ///   - sourceClipId: The stereo clip being split.
+    ///   - channel: Side the new clip carries.
+    ///   - newClipId: The split clip that should show that side.
+    /// - Returns: `true` if per-channel data existed and was handed over. `false`
+    ///   means the caller must let the clip generate its own, which happens when
+    ///   the stereo trace had not finished drawing yet.
+    @discardableResult
+    func adoptChannel(from sourceClipId: UUID, channel: SplitChannel, as newClipId: UUID) -> Bool {
+        guard let source = clipAtlases[sourceClipId],
+              source.channelLevels.indices.contains(channel.channelIndex) else {
+            return false
+        }
+
+        // The side becomes the clip's whole trace: a mono clip has no channels
+        // of its own to keep apart.
+        clipAtlases[newClipId] = WaveformAtlas(
+            duration: source.duration,
+            levels: source.channelLevels[channel.channelIndex]
+        )
+        return true
     }
 
-    /// Release a clip marked by `markAwaitingExtraction(clipId:)`.
+    /// Store an atlas for a clip directly.
     ///
-    /// Called whether the extraction succeeded or failed - on failure the clip
-    /// falls back to isolating its channel from the source, which is slower but
-    /// still correct.
+    /// Production code gets an atlas by generating one or by `adoptChannel`; this
+    /// exists so tests can set up a clip that already has a trace without
+    /// decoding audio to produce one.
     ///
-    /// The change is announced explicitly because this set is not `@Published`.
-    /// The success path also clears the atlas, which would republish anyway, but
-    /// the failure path changes nothing else - and without a notification the
-    /// lane stayed blank until some unrelated redraw happened to ask again.
-    func clearAwaitingExtraction(clipId: UUID) {
-        guard clipsAwaitingExtraction.remove(clipId) != nil else { return }
-        objectWillChange.send()
+    /// - Parameters:
+    ///   - atlas: The atlas to store.
+    ///   - clipId: Clip it belongs to.
+    func setAtlasForTesting(_ atlas: WaveformAtlas, for clipId: UUID) {
+        clipAtlases[clipId] = atlas
     }
 
     func renderData(for clip: AudioClip, targetWidth: Int) -> WaveformRenderData? {
-        if clipsAwaitingExtraction.contains(clip.id) { return nil }
-
         if let atlas = clipAtlases[clip.id] {
             let bucketCount = closestBucketCount(for: targetWidth)
             if let level = atlas.levels[bucketCount] {

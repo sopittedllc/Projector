@@ -1963,11 +1963,10 @@ struct MultiTrackTimelineView: View {
         registerTimelineUndo(actionName: "Delete Video File")
         for reel in timelineManager.timeline.videoReels {
             removeLinkedAudio(for: reel, cleanupLanes: false)
-            // Split lanes are owned outright, so they go with the reel rather
-            // than waiting to be collected as empty. Their clips match the reel
-            // and would usually be cleared anyway; this makes the lifetime
-            // explicit instead of a side effect of the emptiness sweep.
-            timelineManager.removeLanesOwned(byReel: reel.id)
+            // A split lane is shared by every split reel, so only this reel's
+            // clips go; the lane follows if that empties it. Removing the lane
+            // outright would take the other reels' audio with it.
+            timelineManager.removeLanesOwned(byReel: reel.id, sourceURL: reel.sourceURL)
             timelineManager.removeVideoReel(id: reel.id)
         }
         removeEmptyAudioLanes()

@@ -50,7 +50,6 @@ final class AlertCoordinator: ObservableObject {
         // MARK: Confirmation Alerts
         case missingFile(message: String, onLocate: () -> Void, onSkip: () -> Void, onSkipAll: () -> Void)
         case fpsConflict(message: String, onChangeProjectFPS: () -> Void, onCancel: () -> Void)
-        case hardPannedAudio(message: String, onSplit: () -> Void, onKeepAsIs: () -> Void)
 
         // MARK: Sheets
         case videoInsert(
@@ -70,10 +69,25 @@ final class AlertCoordinator: ObservableObject {
             case .duplicateMedia: return "duplicateMedia"
             case .missingFile: return "missingFile"
             case .fpsConflict: return "fpsConflict"
-            case .hardPannedAudio: return "hardPannedAudio"
             case .videoInsert: return "videoInsert"
             case .saveProject: return "saveProject"
             case .settings: return "settings"
+            }
+        }
+
+        /// Whether this case presents as a sheet rather than an alert.
+        ///
+        /// The two are driven by separate presentation modifiers over the same
+        /// state, so each binding needs to know which cases belong to it - both
+        /// to decide what to present and to make sure a dismissal only clears
+        /// the presentation that actually raised it.
+        var isSheet: Bool {
+            switch self {
+            case .error, .videoAlreadyInTimeline, .audioAlreadyInTimeline,
+                 .duplicateMedia, .missingFile, .fpsConflict:
+                return false
+            case .videoInsert, .saveProject, .settings:
+                return true
             }
         }
     }
@@ -81,20 +95,51 @@ final class AlertCoordinator: ObservableObject {
     // MARK: - Published State
 
     /// Currently active alert/sheet, if any.
-    @Published var activeAlert: AlertType?
+    @Published private(set) var activeAlert: AlertType?
+
+    /// Alerts raised while another was already on screen, oldest first.
+    ///
+    /// Not published: nothing renders the queue, and republishing on every
+    /// enqueue would invalidate the whole view tree for state it cannot see.
+    private var pending: [AlertType] = []
 
     // MARK: - Methods
 
-    /// Shows an alert or sheet.
+    /// Shows an alert or sheet, or queues it if one is already presenting.
+    ///
+    /// Queued rather than assigned because several imports can finish at once
+    /// and each raises its own question. A batch drop of hard-panned reels used
+    /// to overwrite `activeAlert` once per reel, so the user answered whichever
+    /// extraction happened to finish last and every other offer was destroyed
+    /// before it could be seen - silently discarding work they had asked for.
     ///
     /// - Parameter alert: The alert type to show.
     func show(_ alert: AlertType) {
+        guard activeAlert == nil else {
+            pending.append(alert)
+            return
+        }
         activeAlert = alert
     }
 
-    /// Dismisses the current alert or sheet.
+    /// Dismisses the current alert or sheet and presents the next queued one.
     func dismiss() {
         activeAlert = nil
+        presentNextIfNeeded()
+    }
+
+    /// Moves the next queued alert on screen, one runloop turn later.
+    ///
+    /// The delay is load-bearing. Clearing and reassigning `activeAlert` in a
+    /// single turn leaves SwiftUI with no observable transition through nil, and
+    /// the replacement alert never appears - so a queued alert would be lost in
+    /// exactly the way the queue exists to prevent.
+    private func presentNextIfNeeded() {
+        guard !pending.isEmpty else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.activeAlert == nil, !self.pending.isEmpty else { return }
+            self.activeAlert = self.pending.removeFirst()
+        }
     }
 }
 
@@ -126,16 +171,19 @@ private struct AlertCoordinatorModifier: ViewModifier {
             .alert(item: Binding(
                 get: {
                     // Filter to only return alert types, not sheet types
-                    guard let alert = coordinator.activeAlert else { return nil }
-                    switch alert {
-                    case .error, .videoAlreadyInTimeline, .audioAlreadyInTimeline,
-                         .duplicateMedia, .missingFile, .fpsConflict, .hardPannedAudio:
-                        return alert  // These are alerts
-                    case .videoInsert, .saveProject, .settings:
-                        return nil    // These are sheets, don't show as alerts
-                    }
+                    guard let alert = coordinator.activeAlert, !alert.isSheet else { return nil }
+                    return alert
                 },
-                set: { coordinator.activeAlert = $0 }
+                set: { (newValue: AlertCoordinator.AlertType?) in
+                    // Only clear when an alert is what is actually on screen.
+                    // This binding reports nil whenever a sheet is active, and
+                    // acting on that would dismiss the sheet and pull the next
+                    // queued item forward while the user was still reading it.
+                    guard case .none = newValue,
+                          let active = coordinator.activeAlert,
+                          !active.isSheet else { return }
+                    coordinator.dismiss()
+                }
             )) { alert in
                 switch alert {
                 case .error(let message):
@@ -184,18 +232,6 @@ private struct AlertCoordinatorModifier: ViewModifier {
                         secondaryButton: .cancel(Text("Cancel"), action: onCancel)
                     )
 
-                case .hardPannedAudio(let message, let onSplit, let onKeepAsIs):
-                    // Splitting is offered, never assumed: the detector reads
-                    // correlation, and a wide stereo mix can look like a split
-                    // track. Restructuring a timeline on that guess is worse
-                    // than leaving the file alone.
-                    return Alert(
-                        title: Text("Hard-Panned Audio Detected"),
-                        message: Text(message),
-                        primaryButton: .default(Text("Split Channels"), action: onSplit),
-                        secondaryButton: .cancel(Text("Keep As Is"), action: onKeepAsIs)
-                    )
-
                 default:
                     // Sheet types should never reach here due to binding filter above
                     return Alert(title: Text("Unexpected Alert"))
@@ -215,7 +251,15 @@ private struct AlertCoordinatorModifier: ViewModifier {
                         return nil
                     }
                 },
-                set: { coordinator.activeAlert = $0 }
+                set: { (newValue: AlertCoordinator.AlertType?) in
+                    // Mirrors the alert binding: this one reports nil for every
+                    // alert-type case too, so it must confirm one of its own
+                    // sheets is presenting before clearing it.
+                    guard case .none = newValue,
+                          let active = coordinator.activeAlert,
+                          active.isSheet, active.id != "settings" else { return }
+                    coordinator.dismiss()
+                }
             )) { alert in
                 sheetContent(for: alert)
             }

@@ -93,12 +93,18 @@ public struct PanningAnalysis: Sendable, Equatable {
 /// A file silent on *both* sides is rejected: it correlates with nothing and
 /// would read as a perfect split, but there is nothing there to separate.
 ///
-/// ## Why this only ever suggests
+/// ## Why the verdict is acted on, and why it is still cautious
 ///
-/// A heavily decorrelated wide stereo mix can look like a split track, and no
-/// threshold makes that ambiguity go away. The result is therefore offered to
-/// the user as a question rather than applied - restructuring someone's
-/// timeline on a guess is worse than missing a split.
+/// A hard-panned reel plays with everything on one side or the other, which is
+/// broken however it got that way, so a split is applied on import rather than
+/// offered. The question only ever had one sensible answer, and asking it put a
+/// dialog between the user and a timeline that already worked.
+///
+/// A heavily decorrelated wide stereo mix can nonetheless measure like a split
+/// track, and no threshold makes that ambiguity go away. Two things keep acting
+/// on it safe: the correlation bar stays deliberately low, so the test is biased
+/// towards saying no, and the caller registers the whole import as one undo - a
+/// reel split against the user's wishes costs a Cmd-Z, not a rebuilt timeline.
 ///
 /// ## Thread Safety
 ///

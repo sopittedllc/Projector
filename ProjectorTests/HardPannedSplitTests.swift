@@ -200,25 +200,27 @@ final class HardPannedSplitTests: XCTestCase {
 
     // MARK: - The Split
 
-    func testSplitProducesTwoOwnedMonoLanes() throws {
+    func testSplitProducesTwoMonoLanesLockedToVideo() throws {
         let manager = makeManager()
         let reelId = UUID()
         let lane = manager.addAudioLane(name: "Reel_01")
-        manager.timeline.addClip(makeVideoClip(), toLane: lane.id)
+        let clip = makeVideoClip()
+        manager.timeline.addClip(clip, toLane: lane.id)
 
         let output = MappedAudioOutput(name: "Stereo Out", channelStart: 0, channelCount: 2)
         manager.setLaneOutputMapping(id: lane.id, mapping: output)
         let original = try XCTUnwrap(manager.timeline.audioLanes.first { $0.id == lane.id })
 
-        let created = try XCTUnwrap(manager.splitVideoAudioLaneByChannel(
-            laneId: lane.id,
+        let created = try XCTUnwrap(manager.splitVideoAudioClipByChannel(
+            clipId: clip.id,
+            inLane: lane.id,
             reelId: reelId,
             names: [.left: "DX/SFX", .right: "MX"]
         ))
 
         XCTAssertEqual(created.count, 2)
         XCTAssertNil(manager.timeline.audioLanes.first { $0.id == lane.id },
-                     "the original lane should be replaced, not left behind")
+                     "a lane emptied by the split should not be left behind")
 
         XCTAssertEqual(created[0].name, "DX/SFX")
         XCTAssertEqual(created[0].splitChannel, .left)
@@ -234,7 +236,9 @@ final class HardPannedSplitTests: XCTestCase {
         }
 
         for lane in created {
-            XCTAssertEqual(lane.ownerVideoReelId, reelId)
+            // Shared by every split reel, so no single reel owns it; the side is
+            // what marks it as video audio.
+            XCTAssertNil(lane.ownerVideoReelId)
             XCTAssertTrue(lane.isLockedToVideo)
             // A mono clip spanning a stereo output is what un-pans the side: the
             // mixer duplicates one input channel across two output channels.
@@ -253,10 +257,12 @@ final class HardPannedSplitTests: XCTestCase {
     func testSplitLanesKeepTimingOfTheOriginalClip() throws {
         let manager = makeManager()
         let lane = manager.addAudioLane(name: "Reel_01")
-        manager.timeline.addClip(makeVideoClip(start: 120, duration: 360), toLane: lane.id)
+        let clip = makeVideoClip(start: 120, duration: 360)
+        manager.timeline.addClip(clip, toLane: lane.id)
 
-        let created = try XCTUnwrap(manager.splitVideoAudioLaneByChannel(
-            laneId: lane.id, reelId: UUID(), names: [.left: "DX/SFX", .right: "MX"]
+        let created = try XCTUnwrap(manager.splitVideoAudioClipByChannel(
+            clipId: clip.id, inLane: lane.id, reelId: UUID(),
+            names: [.left: "DX/SFX", .right: "MX"]
         ))
 
         for lane in created {
@@ -267,11 +273,12 @@ final class HardPannedSplitTests: XCTestCase {
 
     func testSplitLanesSurviveATimelineRoundTrip() throws {
         let manager = makeManager()
-        let reelId = UUID()
         let lane = manager.addAudioLane(name: "Reel_01")
-        manager.timeline.addClip(makeVideoClip(), toLane: lane.id)
-        manager.splitVideoAudioLaneByChannel(
-            laneId: lane.id, reelId: reelId, names: [.left: "DX/SFX", .right: "MX"]
+        let clip = makeVideoClip()
+        manager.timeline.addClip(clip, toLane: lane.id)
+        manager.splitVideoAudioClipByChannel(
+            clipId: clip.id, inLane: lane.id, reelId: UUID(),
+            names: [.left: "DX/SFX", .right: "MX"]
         )
 
         let data = try JSONEncoder().encode(manager.timeline)
@@ -281,9 +288,101 @@ final class HardPannedSplitTests: XCTestCase {
         XCTAssertEqual(linked.count, 2)
         XCTAssertEqual(linked.first?.splitChannel, .left)
         XCTAssertEqual(linked.last?.splitChannel, .right)
-        XCTAssertTrue(linked.allSatisfy { $0.ownerVideoReelId == reelId })
         XCTAssertTrue(decoded.standaloneAudioLanes.isEmpty)
     }
+
+    // MARK: - Shared Lanes
+
+    /// A second split joins the lanes the first one made, so six reels give two
+    /// lanes rather than twelve.
+    func testSplittingASecondReelReusesTheSameTwoLanes() throws {
+        let manager = makeManager()
+        let lane = manager.addAudioLane(name: "Video Audio")
+        let clipA = makeVideoClip(start: 0, duration: 480)
+        let clipB = makeVideoClip(start: 480, duration: 480)
+        manager.timeline.addClip(clipA, toLane: lane.id)
+        manager.timeline.addClip(clipB, toLane: lane.id)
+
+        manager.splitVideoAudioClipByChannel(
+            clipId: clipA.id, inLane: lane.id, reelId: UUID(),
+            names: [.left: "DX/SFX", .right: "MX"]
+        )
+        manager.splitVideoAudioClipByChannel(
+            clipId: clipB.id, inLane: lane.id, reelId: UUID(),
+            names: [.left: "DX/SFX", .right: "MX"]
+        )
+
+        let splitLanes = manager.timeline.audioLanes.filter { $0.splitChannel != nil }
+        XCTAssertEqual(splitLanes.count, 2, "both reels should share one lane per side")
+        for lane in splitLanes {
+            XCTAssertEqual(lane.clips.count, 2, "each side should hold a clip from both reels")
+        }
+    }
+
+    func testSplittingOneReelKeepsAnotherReelsClipInTheSameLane() throws {
+        let manager = makeManager()
+        let lane = manager.addAudioLane(name: "Video Audio")
+        let clipA = makeVideoClip(start: 0, duration: 480)
+        let clipB = makeVideoClip(start: 480, duration: 480)
+        manager.timeline.addClip(clipA, toLane: lane.id)
+        manager.timeline.addClip(clipB, toLane: lane.id)
+
+        manager.splitVideoAudioClipByChannel(
+            clipId: clipA.id, inLane: lane.id, reelId: UUID(),
+            names: [.left: "DX/SFX", .right: "MX"]
+        )
+
+        let survivor = manager.timeline.audioLanes.first { $0.id == lane.id }
+        XCTAssertEqual(survivor?.clips.map(\.id), [clipB.id],
+                       "splitting one reel must not destroy another reel's audio")
+    }
+
+    func testDeletingAReelTakesOnlyItsOwnSplitClips() {
+        let manager = makeManager()
+        let keptURL = URL(fileURLWithPath: "/tmp/Reel_02.mov")
+        let goingReelId = UUID()
+
+        for channel in [SplitChannel.left, .right] {
+            manager.timeline.addAudioLane(AudioLane(
+                name: channel.conventionalRoleName,
+                clips: [
+                    AudioClip(sourceURL: reelURL, timelineStartFrame: 0, durationFrames: 240,
+                              sourceType: .videoTrack, sourceChannel: channel),
+                    AudioClip(sourceURL: keptURL, timelineStartFrame: 240, durationFrames: 240,
+                              sourceType: .videoTrack, sourceChannel: channel)
+                ],
+                splitChannel: channel
+            ))
+        }
+
+        manager.removeLanesOwned(byReel: goingReelId, sourceURL: reelURL)
+
+        let splitLanes = manager.timeline.audioLanes.filter { $0.splitChannel != nil }
+        XCTAssertEqual(splitLanes.count, 2, "the shared lanes must survive")
+        for lane in splitLanes {
+            XCTAssertEqual(lane.clips.map(\.sourceURL), [keptURL],
+                           "only the removed reel's clips should go")
+        }
+    }
+
+    func testDeletingTheLastSplitReelRemovesTheEmptyLanes() {
+        let manager = makeManager()
+        for channel in [SplitChannel.left, .right] {
+            manager.timeline.addAudioLane(AudioLane(
+                name: channel.conventionalRoleName,
+                clips: [AudioClip(sourceURL: reelURL, timelineStartFrame: 0, durationFrames: 240,
+                                  sourceType: .videoTrack, sourceChannel: channel)],
+                splitChannel: channel
+            ))
+        }
+
+        manager.removeLanesOwned(byReel: UUID(), sourceURL: reelURL)
+
+        XCTAssertTrue(manager.timeline.audioLanes.isEmpty,
+                      "a split lane with nothing left on it is just clutter")
+    }
+
+    // MARK: - Legacy Ownership
 
     func testDeletingTheReelRemovesBothOwnedLanes() {
         let manager = makeManager()
@@ -325,16 +424,21 @@ final class HardPannedSplitTests: XCTestCase {
         XCTAssertEqual(manager.timeline.audioLanes.first?.ownerVideoReelId, keepReelId)
     }
 
-    func testSplitClipSourceIsAttachedToTheRightLane() throws {
+    // MARK: - Extraction
+
+    func testSplitClipSourceIsAttachedToTheRightClip() throws {
         let manager = makeManager()
         let lane = manager.addAudioLane(name: "Reel_01")
-        manager.timeline.addClip(makeVideoClip(), toLane: lane.id)
-        let created = try XCTUnwrap(manager.splitVideoAudioLaneByChannel(
-            laneId: lane.id, reelId: UUID(), names: [.left: "DX/SFX", .right: "MX"]
+        let clip = makeVideoClip()
+        manager.timeline.addClip(clip, toLane: lane.id)
+        let created = try XCTUnwrap(manager.splitVideoAudioClipByChannel(
+            clipId: clip.id, inLane: lane.id, reelId: UUID(),
+            names: [.left: "DX/SFX", .right: "MX"]
         ))
 
         let leftURL = URL(fileURLWithPath: "/tmp/Reel_01-left.caf")
-        manager.updateSplitClipSource(laneId: created[0].id, extractedURL: leftURL)
+        let leftClipId = try XCTUnwrap(created[0].clips.first?.id)
+        manager.updateSplitClipSource(clipId: leftClipId, inLane: created[0].id, extractedURL: leftURL)
 
         let lanes = manager.timeline.audioLanes
         let left = lanes.first { $0.id == created[0].id }
@@ -345,6 +449,36 @@ final class HardPannedSplitTests: XCTestCase {
                      "attaching one side must not touch the other")
     }
 
+    /// On a shared lane the extraction must land on the reel being split, not on
+    /// whichever reel happened to be split first.
+    func testAttachingASecondReelsAudioLeavesTheFirstAlone() throws {
+        let manager = makeManager()
+        let lane = manager.addAudioLane(name: "Video Audio")
+        let clipA = makeVideoClip(start: 0, duration: 480)
+        let clipB = makeVideoClip(start: 480, duration: 480)
+        manager.timeline.addClip(clipA, toLane: lane.id)
+        manager.timeline.addClip(clipB, toLane: lane.id)
+
+        manager.splitVideoAudioClipByChannel(
+            clipId: clipA.id, inLane: lane.id, reelId: UUID(),
+            names: [.left: "DX/SFX", .right: "MX"]
+        )
+        let second = try XCTUnwrap(manager.splitVideoAudioClipByChannel(
+            clipId: clipB.id, inLane: lane.id, reelId: UUID(),
+            names: [.left: "DX/SFX", .right: "MX"]
+        ))
+
+        let leftLane = try XCTUnwrap(manager.timeline.audioLanes.first { $0.splitChannel == .left })
+        let secondClipId = try XCTUnwrap(leftLane.clips.last?.id)
+        let url = URL(fileURLWithPath: "/tmp/Reel_02-left.caf")
+        manager.updateSplitClipSource(clipId: secondClipId, inLane: second[0].id, extractedURL: url)
+
+        let updated = try XCTUnwrap(manager.timeline.audioLanes.first { $0.splitChannel == .left })
+        XCTAssertNil(updated.clips.first?.extractedAudioURL,
+                     "the earlier reel's clip must not be repointed")
+        XCTAssertEqual(updated.clips.last?.extractedAudioURL, url)
+    }
+
     // MARK: - Routing
 
     /// Assigning an output must keep the lane spanning a stereo pair, since that
@@ -352,9 +486,11 @@ final class HardPannedSplitTests: XCTestCase {
     func testAssigningAStereoOutputKeepsTheLaneStereo() throws {
         let manager = makeManager()
         let lane = manager.addAudioLane(name: "Reel_01")
-        manager.timeline.addClip(makeVideoClip(), toLane: lane.id)
-        let created = try XCTUnwrap(manager.splitVideoAudioLaneByChannel(
-            laneId: lane.id, reelId: UUID(), names: [.left: "DX/SFX", .right: "MX"]
+        let clip = makeVideoClip()
+        manager.timeline.addClip(clip, toLane: lane.id)
+        let created = try XCTUnwrap(manager.splitVideoAudioClipByChannel(
+            clipId: clip.id, inLane: lane.id, reelId: UUID(),
+            names: [.left: "DX/SFX", .right: "MX"]
         ))
 
         let output = MappedAudioOutput(
@@ -374,9 +510,11 @@ final class HardPannedSplitTests: XCTestCase {
     func testRoutingOneSplitLaneLeavesTheOtherAlone() throws {
         let manager = makeManager()
         let lane = manager.addAudioLane(name: "Reel_01")
-        manager.timeline.addClip(makeVideoClip(), toLane: lane.id)
-        let created = try XCTUnwrap(manager.splitVideoAudioLaneByChannel(
-            laneId: lane.id, reelId: UUID(), names: [.left: "DX/SFX", .right: "MX"]
+        let clip = makeVideoClip()
+        manager.timeline.addClip(clip, toLane: lane.id)
+        let created = try XCTUnwrap(manager.splitVideoAudioClipByChannel(
+            clipId: clip.id, inLane: lane.id, reelId: UUID(),
+            names: [.left: "DX/SFX", .right: "MX"]
         ))
 
         manager.setLaneOutputMapping(
@@ -388,13 +526,156 @@ final class HardPannedSplitTests: XCTestCase {
         XCTAssertNil(right.outputMappingId, "the right lane should still be unassigned")
     }
 
-    func testSplittingALaneWithNoClipsFails() {
+    func testSplittingAClipThatIsNotThereFails() {
         let manager = makeManager()
         let lane = manager.addAudioLane(name: "Empty")
 
-        XCTAssertNil(manager.splitVideoAudioLaneByChannel(
-            laneId: lane.id, reelId: UUID(), names: [.left: "DX/SFX", .right: "MX"]
+        XCTAssertNil(manager.splitVideoAudioClipByChannel(
+            clipId: UUID(), inLane: lane.id, reelId: UUID(),
+            names: [.left: "DX/SFX", .right: "MX"]
         ))
         XCTAssertEqual(manager.timeline.audioLanes.count, 1, "a failed split must change nothing")
+    }
+
+    // MARK: - Output Naming
+
+    /// A lane with no mapping is not silent - the engine feeds it from its
+    /// channel span - so a split lane must state the output it is really on.
+    func testSplitLanesCarryTheChannelSpanTheEngineWillUse() throws {
+        let manager = makeManager()
+        let lane = manager.addAudioLane(name: "Reel_01")
+        let clip = makeVideoClip()
+        manager.timeline.addClip(clip, toLane: lane.id)
+
+        let created = try XCTUnwrap(manager.splitVideoAudioClipByChannel(
+            clipId: clip.id, inLane: lane.id, reelId: UUID(),
+            names: [.left: "DX/SFX", .right: "MX"]
+        ))
+
+        for lane in created {
+            XCTAssertEqual(lane.outputChannelCount, 2)
+            XCTAssertEqual(lane.outputChannelOffset, 0,
+                           "the span the engine falls back to must be the one a lane advertises")
+        }
+    }
+
+    /// Splitting a lane that already has an output must carry it to both sides,
+    /// so the sound does not move off whatever is being monitored.
+    func testSplitLanesInheritAnExplicitOutput() throws {
+        let manager = makeManager()
+        let lane = manager.addAudioLane(name: "Reel_01")
+        let clip = makeVideoClip()
+        manager.timeline.addClip(clip, toLane: lane.id)
+
+        let output = MappedAudioOutput(name: "Stereo Out", channelStart: 0, channelCount: 2)
+        manager.setLaneOutputMapping(id: lane.id, mapping: output)
+
+        let created = try XCTUnwrap(manager.splitVideoAudioClipByChannel(
+            clipId: clip.id, inLane: lane.id, reelId: UUID(),
+            names: [.left: "DX/SFX", .right: "MX"]
+        ))
+
+        for lane in created {
+            XCTAssertEqual(lane.outputMappingId, output.id,
+                           "both sides must keep the output the video audio was using")
+        }
+    }
+
+    // MARK: - Waveform Handover
+
+    /// The stereo trace already on screen holds both sides separately, so a
+    /// split can hand each one over instead of decoding to recompute it.
+    func testSplitClipAdoptsTheChannelAlreadyDrawn() {
+        let cache = WaveformCache()
+        let stereoClipId = UUID()
+        let leftClipId = UUID()
+
+        let left = WaveformLevel(min: [-0.1, -0.9, -0.3], max: [0.1, 0.9, 0.3], rms: [0.05, 0.6, 0.2])
+        let right = WaveformLevel(min: [-0.4, -0.2, -0.8], max: [0.4, 0.2, 0.8], rms: [0.3, 0.1, 0.5])
+        cache.setAtlasForTesting(
+            WaveformAtlas(
+                duration: 12,
+                levels: [3: WaveformLevel(min: [-0.25, -0.55, -0.55], max: [0.25, 0.55, 0.55], rms: [0.2, 0.35, 0.35])],
+                channelLevels: [[3: left], [3: right]]
+            ),
+            for: stereoClipId
+        )
+
+        let adopted = cache.adoptChannel(from: stereoClipId, channel: .left, as: leftClipId)
+
+        XCTAssertTrue(adopted)
+        let atlas = cache.clipAtlases[leftClipId]
+        XCTAssertEqual(atlas?.duration, 12)
+        XCTAssertEqual(atlas?.levels[3]?.max, left.max,
+                       "the split clip must draw the exact side it was already showing")
+        XCTAssertTrue(atlas?.channelLevels.isEmpty ?? false,
+                      "a mono clip has no channels of its own to keep apart")
+    }
+
+    func testAdoptingTheRightChannelTakesTheOtherSide() {
+        let cache = WaveformCache()
+        let stereoClipId = UUID()
+        let rightClipId = UUID()
+
+        let left = WaveformLevel(min: [-0.1, -0.9], max: [0.1, 0.9], rms: [0.05, 0.6])
+        let right = WaveformLevel(min: [-0.4, -0.2], max: [0.4, 0.2], rms: [0.3, 0.1])
+        cache.setAtlasForTesting(
+            WaveformAtlas(duration: 8, levels: [2: left], channelLevels: [[2: left], [2: right]]),
+            for: stereoClipId
+        )
+
+        cache.adoptChannel(from: stereoClipId, channel: .right, as: rightClipId)
+
+        XCTAssertEqual(cache.clipAtlases[rightClipId]?.levels[2]?.max, right.max)
+    }
+
+    /// Nothing to hand over when the stereo trace had not finished drawing, and
+    /// the caller has to know so the clip can generate its own.
+    func testAdoptingReportsFailureWithoutPerChannelData() {
+        let cache = WaveformCache()
+        let stereoClipId = UUID()
+
+        cache.setAtlasForTesting(
+            WaveformAtlas(duration: 5, levels: [2: WaveformLevel(min: [-0.5, -0.5], max: [0.5, 0.5], rms: [0.4, 0.4])]),
+            for: stereoClipId
+        )
+
+        XCTAssertFalse(cache.adoptChannel(from: stereoClipId, channel: .left, as: UUID()))
+        XCTAssertFalse(cache.adoptChannel(from: UUID(), channel: .left, as: UUID()),
+                       "an unknown clip has nothing to give")
+    }
+
+    // MARK: - Undo
+
+    /// Splitting happens without being asked, so restoring the timeline exactly
+    /// as the import left it is what makes that safe.
+    func testRestoringASnapshotUndoesAWholeBatchSplit() throws {
+        let manager = makeManager()
+        let lane = manager.addAudioLane(name: "Video Audio")
+        let clipA = makeVideoClip(start: 0, duration: 480)
+        let clipB = makeVideoClip(start: 480, duration: 480)
+        manager.timeline.addClip(clipA, toLane: lane.id)
+        manager.timeline.addClip(clipB, toLane: lane.id)
+
+        // What the undo registration captures before anything moves.
+        let snapshot = manager.timeline
+
+        manager.splitVideoAudioClipByChannel(
+            clipId: clipA.id, inLane: lane.id, reelId: UUID(),
+            names: [.left: "DX/SFX", .right: "MX"]
+        )
+        manager.splitVideoAudioClipByChannel(
+            clipId: clipB.id, inLane: lane.id, reelId: UUID(),
+            names: [.left: "DX/SFX", .right: "MX"]
+        )
+        XCTAssertEqual(manager.timeline.audioLanes.filter { $0.splitChannel != nil }.count, 2)
+
+        manager.timeline = snapshot
+
+        let lanes = manager.timeline.audioLanes
+        XCTAssertEqual(lanes.count, 1, "one undo must take both reels' splits with it")
+        XCTAssertTrue(lanes.allSatisfy { $0.splitChannel == nil })
+        XCTAssertEqual(lanes.first?.clips.map(\.id), [clipA.id, clipB.id],
+                       "both reels' original clips must come back to the lane they were on")
     }
 }

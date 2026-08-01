@@ -59,13 +59,18 @@ public struct AudioLane: Identifiable, Codable, Equatable, Sendable {
 
     /// Which side of a hard-panned source this lane carries.
     ///
-    /// `nil` for every ordinary lane. Paired with `ownerVideoReelId` it names
-    /// the lane exactly: "the left side of that reel".
+    /// `nil` for every ordinary lane. A split lane is shared by every reel that
+    /// has been split, holding one clip per reel end to end, so the side is what
+    /// identifies it - there is no single owning reel to name.
     public var splitChannel: SplitChannel?
 
-    /// Whether this lane is owned by a video and cannot stand alone.
+    /// Whether this lane belongs to video audio and cannot stand alone.
+    ///
+    /// True for a split lane whatever its clips, and for the single-owner lanes
+    /// written before splits were shared. `ownerVideoReelId` is still honoured so
+    /// those projects keep opening the way they were saved.
     public var isLockedToVideo: Bool {
-        ownerVideoReelId != nil
+        splitChannel != nil || ownerVideoReelId != nil
     }
 
     public init(

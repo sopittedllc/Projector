@@ -358,6 +358,10 @@ extension ContentView {
                 pendingVideoFPS = videoFPS
                 pendingVideoInsertFrame = atFrame
                 showFPSConflictAlertViaCoordinator(videoFPS: videoFPS, projectFPS: projectFPS)
+                // Deferred behind a dialog, so it leaves the batch rather than
+                // holding it open. If the user goes ahead it reports as its own
+                // batch once the import resumes.
+                splitHardPannedReelsIfBatchComplete(candidate: nil)
                 return
             }
 
@@ -383,6 +387,8 @@ extension ContentView {
         } catch {
             isLoadingMedia = false
             alerts.show(.error(error.localizedDescription))
+            // A file that never imported still has to leave the batch.
+            splitHardPannedReelsIfBatchComplete(candidate: nil)
         }
     }
 
@@ -457,32 +463,45 @@ extension ContentView {
             }
 
             // Extract audio in background and update the placeholder clip with extractedAudioURL
-            if let (lane, clipId) = audioResult {
+            guard let audioResult else {
+                // Still reports, so a batch waiting on this file is not left
+                // one short and held open forever.
+                splitHardPannedReelsIfBatchComplete(candidate: nil)
+                return
+            }
+
+            if case let (lane, clipId) = audioResult {
                 Task(priority: .utility) {
-                    // Started alongside the extraction, not after it. The two
-                    // read the same source file and neither needs the other's
-                    // output, so running them in sequence meant the split
-                    // question waited out a full export of the reel before it
-                    // even began looking - on a feature that is minutes of
-                    // nothing happening.
-                    async let analysis = Self.hardPanningAnalysis(of: reel.sourceURL)
+                    // The reel's stereo audio is extracted independently. The
+                    // split question does not depend on it: `updateExtractedAudioURL`
+                    // does nothing if the clip has already moved, and a split
+                    // attaches its own per-channel files rather than reusing this
+                    // one. Waiting for it meant the question could not be asked
+                    // until every reel in the drop had been exported in full.
+                    let extraction = Task(priority: .utility) {
+                        await self.extractAudioInBackground(
+                            reel: reel,
+                            laneId: lane.id,
+                            clipId: clipId
+                        )
+                    }
 
-                    await self.extractAudioInBackground(reel: reel, laneId: lane.id, clipId: clipId)
-
-                    // Asking still waits for the extraction, which is a
-                    // different constraint: the split replaces the very lane the
-                    // extraction writes into, so offering earlier would race it.
-                    await self.offerChannelSplitIfHardPanned(
+                    let analysis = await Self.hardPanningAnalysis(of: reel.sourceURL)
+                    await self.reportSplitCandidate(
                         reel: reel,
                         laneId: lane.id,
-                        analysis: await analysis
+                        clipId: clipId,
+                        analysis: analysis
                     )
+
+                    await extraction.value
                 }
             }
         } catch {
             debugPrint("addVideoToTimeline: FAILED [T+\(elapsed())] - \(error)")
             isLoadingMedia = false
             alerts.show(.error(error.localizedDescription))
+            splitHardPannedReelsIfBatchComplete(candidate: nil)
         }
     }
 
@@ -758,7 +777,7 @@ extension ContentView {
         }
     }
 
-    /// Offer to split a freshly imported reel whose channels are unrelated.
+    /// Report one reel's analysis to the batch, and ask once the batch is done.
     ///
     /// Runs after import rather than during it. Analysis reads a slice of the
     /// audio track, and blocking the import on that would trade a responsive
@@ -769,132 +788,247 @@ extension ContentView {
     ///
     /// - Parameters:
     ///   - reel: The imported reel.
-    ///   - laneId: Lane holding the reel's audio, which a split would replace.
+    ///   - laneId: Lane holding the reel's audio.
+    ///   - clipId: That reel's clip on the lane, which a split would move.
     ///   - analysis: Result from `hardPanningAnalysis(of:)`, computed alongside
     ///     the reel's audio extraction rather than after it.
-    private func offerChannelSplitIfHardPanned(
+    private func reportSplitCandidate(
         reel: VideoReel,
         laneId: UUID,
+        clipId: UUID,
         analysis: PanningAnalysis?
     ) async {
-        guard let analysis, analysis.isHardPanned else { return }
-
-        debugPrint("offerChannelSplitIfHardPanned: hard panning detected in \(reel.displayName) "
-                   + "(correlation \(analysis.correlation))")
-
-        // Built in pieces rather than one chained expression: a single
-        // concatenation of this many interpolated segments pushes the type
-        // checker past its time limit and fails the build.
-        let leftName = SplitChannel.left.conventionalRoleName
-        let rightName = SplitChannel.right.conventionalRoleName
-        var message = "\"\(reel.displayName)\" has different audio on its left and right channels, "
-        message += "which usually means the stems were delivered hard panned.\n\n"
-        message += "Splitting puts the left channel on a \(leftName) lane and the right on a "
-        message += "\(rightName) lane, each played to both sides so it no longer sounds panned.\n\n"
-        message += "Both lanes keep the output this video's audio is using now, so nothing moves. "
-        message += "Use each lane's output menu to send them somewhere separate."
+        var candidate: SplitCandidate?
+        if let analysis, analysis.isHardPanned {
+            debugPrint("reportSplitCandidate: hard panning detected in \(reel.displayName) "
+                       + "(correlation \(analysis.correlation))")
+            candidate = SplitCandidate(
+                id: reel.id,
+                displayName: reel.displayName,
+                laneId: laneId,
+                clipId: clipId,
+                correlation: analysis.correlation
+            )
+        }
 
         await MainActor.run {
-            alerts.show(.hardPannedAudio(
-                message: message,
-                onSplit: {
-                    Task { await self.performChannelSplit(reel: reel, laneId: laneId) }
-                },
-                onKeepAsIs: {}
-            ))
+            splitHardPannedReelsIfBatchComplete(candidate: candidate)
         }
     }
 
-    /// Replace the reel's audio lane with one lane per channel.
+    /// Hand a result to the batch, and split the lot once the last one lands.
     ///
-    /// The lanes appear immediately holding clips with no audio file yet, then
-    /// each side is extracted in the background and attached. Doing it in that
-    /// order keeps the UI responsive on a long reel, matching how the ordinary
-    /// import already behaves.
+    /// Applied rather than offered. A hard-panned reel plays with everything on
+    /// one side or the other, which is broken however it got that way, and the
+    /// question only ever had one sensible answer - so asking it was a step
+    /// between the user and a timeline that already worked.
     ///
-    /// Both lanes inherit the output the video's audio was already using, so
-    /// splitting never moves the sound somewhere it cannot be heard.
-    private func performChannelSplit(reel: VideoReel, laneId: UUID) async {
+    /// The detection is not certain: a heavily decorrelated wide stereo mix can
+    /// measure like a split track, and no threshold makes that go away. What
+    /// makes acting on it safe is that the whole batch is registered as a single
+    /// undo, so a reel split against the user's wishes costs one Cmd-Z rather
+    /// than a rebuilt timeline.
+    ///
+    /// - Parameter candidate: The reel if it is hard panned, `nil` otherwise.
+    @MainActor
+    func splitHardPannedReelsIfBatchComplete(candidate: SplitCandidate?) {
+        guard let batch = splitOffers.finish(candidate: candidate) else { return }
+
+        // Snapshot before anything moves, so undo restores the lanes exactly as
+        // the import left them.
+        let previousTimeline = timelineManager.timeline
+        undoManager?.registerUndo(withTarget: timelineManager) { manager in
+            manager.timeline = previousTimeline
+        }
+        undoManager?.setActionName(
+            batch.count == 1 ? "Split Hard-Panned Audio" : "Split \(batch.count) Hard-Panned Reels"
+        )
+
+        Task {
+            await performChannelSplits(for: batch)
+        }
+    }
+
+    /// Record, on each split lane, the output it is already playing through.
+    ///
+    /// A lane with no mapping is not silent - the engine falls back to the
+    /// channel offset and count the lane carries, which is the first stereo pair
+    /// by default. The menu reads that as "NONE" while the sound comes out of an
+    /// output the user was never told about.
+    ///
+    /// Ordinary lanes avoid this because `AudioLaneView` assigns a default when
+    /// it appears. Split lanes are drawn as part of the Video File track by
+    /// `AudioLaneControls`, which has no such step, so they kept the mismatch
+    /// until something unrelated refreshed the output list.
+    ///
+    /// Named here rather than left to a default sweep so both sides state the
+    /// output they are on from the moment they exist, and so the split keeps its
+    /// promise that the audio does not move.
+    ///
+    /// - Parameter lanes: Lanes produced by the split.
+    @MainActor
+    private func nameOutputOfSplitLanes(_ lanes: [AudioLane]) {
+        let outputs = audioManager.mappedOutputs
+        guard !outputs.isEmpty else { return }
+
+        for lane in lanes where lane.outputMappingId == nil && !lane.isOutputDisabled {
+            // The output the engine is already feeding: the one covering the
+            // lane's channel span. Falls back to the first, which is the span a
+            // lane starts with anyway.
+            let current = outputs.first {
+                $0.channelStart == lane.outputChannelOffset
+                    && $0.channelCount == lane.outputChannelCount
+            } ?? outputs[0]
+            timelineManager.setLaneOutputMapping(id: lane.id, mapping: current)
+        }
+    }
+
+    /// Split every chosen reel, showing the result only once it is finished.
+    ///
+    /// Two phases, deliberately. Every reel's channels are extracted first,
+    /// touching nothing the user can see, and only then is the timeline changed -
+    /// in one transaction that creates the lanes, attaches the audio, hands over
+    /// the waveforms and names the outputs together.
+    ///
+    /// Doing it a reel at a time meant watching the work happen: lanes appearing
+    /// one pair at a time, the original lane shrinking as each reel left it, and
+    /// waveforms filling in between. Every one of those states is real, but none
+    /// of them is anything the user asked to see.
+    ///
+    /// Extraction runs concurrently across reels, which only became safe once it
+    /// stopped touching the timeline. The transaction that follows stays ordered:
+    /// each split looks for the shared lane for its side, so two at once would
+    /// both find none and create a competing pair.
+    ///
+    /// - Parameter candidates: Reels the user chose to split.
+    private func performChannelSplits(for candidates: [SplitCandidate]) async {
         let names: [SplitChannel: String] = [
             .left: SplitChannel.left.conventionalRoleName,
             .right: SplitChannel.right.conventionalRoleName
         ]
 
-        let lanes = await MainActor.run { () -> [AudioLane]? in
-            // The lane about to be replaced may still be decoding the whole
-            // source video for a waveform nobody will ever see. Cancelled here
-            // rather than left to finish - it is the same full decode the split
-            // is trying to avoid doing twice.
-            if let supersededClipId = timelineManager.timeline.audioLanes
-                .first(where: { $0.id == laneId })?.clips.first?.id {
-                waveformCache.cancelGeneration(for: supersededClipId)
-                waveformCache.removeCachedWaveform(for: supersededClipId)
+        // Resolve the reels once, up front. A reel deleted while the dialog was
+        // open simply drops out.
+        let jobs: [(candidate: SplitCandidate, reel: VideoReel)] = await MainActor.run {
+            candidates.compactMap { candidate in
+                guard let reel = timelineManager.timeline.videoReels
+                    .first(where: { $0.id == candidate.id }) else { return nil }
+                // The stereo clip may still be decoding for a waveform that is
+                // about to be replaced by the handover.
+                waveformCache.cancelGeneration(for: candidate.clipId)
+                return (candidate, reel)
             }
-
-            return timelineManager.splitVideoAudioLaneByChannel(
-                laneId: laneId,
-                reelId: reel.id,
-                names: names
-            )
         }
+        guard !jobs.isEmpty else { return }
 
-        guard let lanes else {
-            debugPrint("performChannelSplit: lane \(laneId) no longer splittable")
-            return
-        }
+        // Phase 1: extract, changing nothing on screen.
+        var extracted: [UUID: [SplitChannel: URL]] = [:]
+        var failures: [(name: String, error: Error)] = []
 
-        // Hold the waveforms until each channel's file exists. Without this both
-        // lanes decode the whole source video to draw a trace that is replaced
-        // seconds later by the extracted one.
-        await MainActor.run {
-            for lane in lanes {
-                if let clipId = lane.clips.first?.id {
-                    waveformCache.markAwaitingExtraction(clipId: clipId)
-                }
-            }
-            syncTimelineToPlaybackEngine()
-        }
-
-        for lane in lanes {
-            guard let channel = lane.splitChannel else { continue }
-            let clipId = lane.clips.first?.id
-            do {
-                let destination = AudioChannelExtractor.temporaryURL(
-                    for: reel.sourceURL,
-                    channel: channel
-                )
-                let extracted = try await AudioChannelExtractor.extractChannel(
-                    from: reel.sourceURL,
-                    channel: channel,
-                    to: destination
-                )
-                await MainActor.run {
-                    timelineManager.updateSplitClipSource(laneId: lane.id, extractedURL: extracted)
-                    // The clip's waveform and its loaded audio may both have been
-                    // built from the video, which is stereo and identical for
-                    // both lanes. Dropping each forces a reload from this
-                    // channel's own file.
-                    if let clipId {
-                        waveformCache.removeCachedWaveform(for: clipId)
-                        waveformCache.clearAwaitingExtraction(clipId: clipId)
-                        playbackEngine.invalidateAudioClip(id: clipId)
+        await withTaskGroup(of: (UUID, String, Result<[SplitChannel: URL], Error>).self) { group in
+            for job in jobs {
+                let reelId = job.reel.id
+                let sourceURL = job.reel.sourceURL
+                let displayName = job.reel.displayName
+                group.addTask {
+                    var destinations: [SplitChannel: URL] = [:]
+                    for channel in SplitChannel.allCases {
+                        destinations[channel] = AudioChannelExtractor.temporaryURL(
+                            for: sourceURL,
+                            channel: channel
+                        )
                     }
-                    syncTimelineToPlaybackEngine()
+                    do {
+                        let written = try await AudioChannelExtractor.extractChannels(
+                            from: sourceURL,
+                            to: destinations
+                        )
+                        return (reelId, displayName, .success(written))
+                    } catch {
+                        return (reelId, displayName, .failure(error))
+                    }
                 }
-                debugPrint("performChannelSplit: \(channel.rawValue) -> \(extracted.lastPathComponent)")
-            } catch {
-                debugPrint("performChannelSplit: \(channel.rawValue) failed - \(error)")
-                await MainActor.run {
-                    // Released so the lane falls back to isolating its channel
-                    // from the source rather than staying blank forever.
-                    if let clipId { waveformCache.clearAwaitingExtraction(clipId: clipId) }
-                    alerts.show(.error(
-                        "Couldn't split the \(channel.displayName.lowercased()) channel of "
-                        + "\"\(reel.displayName)\".\n\n\(error.localizedDescription)"
-                    ))
+            }
+
+            for await (reelId, displayName, result) in group {
+                switch result {
+                case .success(let written): extracted[reelId] = written
+                case .failure(let error): failures.append((displayName, error))
                 }
             }
         }
+
+        // Phase 2: one transaction. Everything the user sees changes at once.
+        await MainActor.run {
+            for job in jobs {
+                // A reel whose extraction failed is left unsplit rather than
+                // half-split: better the lane it already had than two lanes with
+                // no audio behind them.
+                guard let written = extracted[job.reel.id] else { continue }
+
+                guard let split = timelineManager.splitVideoAudioClipByChannel(
+                    clipId: job.candidate.clipId,
+                    inLane: job.candidate.laneId,
+                    reelId: job.reel.id,
+                    names: names
+                ) else {
+                    debugPrint("performChannelSplits: clip \(job.candidate.clipId) no longer splittable")
+                    continue
+                }
+
+                nameOutputOfSplitLanes(split)
+
+                for lane in split {
+                    guard let channel = lane.splitChannel,
+                          let clipId = lane.clips.first(where: {
+                              $0.sourceURL == job.reel.sourceURL && $0.sourceChannel == channel
+                          })?.id else { continue }
+
+                    if let url = written[channel] {
+                        timelineManager.updateSplitClipSource(
+                            clipId: clipId,
+                            inLane: lane.id,
+                            extractedURL: url
+                        )
+                    }
+
+                    // Hand each side the trace already drawn for it. The stereo
+                    // clip's atlas holds both channels separately - that is what
+                    // was on screen while the question was being asked - so the
+                    // split lanes show the right waveform straight away instead
+                    // of decoding to recompute numbers we already had.
+                    if !waveformCache.adoptChannel(
+                        from: job.candidate.clipId,
+                        channel: channel,
+                        as: clipId
+                    ) {
+                        // Nothing to inherit, because the stereo trace had not
+                        // finished. The clip generates its own from the mono file
+                        // that is already attached, which is the cheap source.
+                        waveformCache.removeCachedWaveform(for: clipId)
+                    }
+
+                    // The loaded audio was the stereo video and must be reread
+                    // from this channel's own file, or the lane plays both sides.
+                    playbackEngine.invalidateAudioClip(id: clipId)
+                }
+
+                // Dropped only now: it was the source of the traces handed over.
+                waveformCache.removeCachedWaveform(for: job.candidate.clipId)
+            }
+
+            syncTimelineToPlaybackEngine()
+
+            if let first = failures.first {
+                let more = failures.count > 1 ? " (and \(failures.count - 1) more)" : ""
+                alerts.show(.error(
+                    "Couldn't split the channels of \"\(first.name)\"\(more).\n\n"
+                    + first.error.localizedDescription
+                ))
+            }
+        }
+
+        debugPrint("performChannelSplits: split \(extracted.count) of \(jobs.count) reels")
     }
 
     /// Extract an audio track from an asset to a temporary file
@@ -1001,9 +1135,16 @@ extension ContentView {
     func addVideoFilesSequentially(urls: [URL], startFrame: Int) async {
         var currentFrame = startFrame
 
+        // Declared up front so the whole drop is one batch. Counting as each
+        // file starts would let a short reel finish analysing before the next
+        // one began, and close the batch early.
+        splitOffers.expect(urls.count)
+
         for url in urls {
             // Skip duplicates
             if timelineManager.timeline.videoReels.contains(where: { $0.sourceURL == url }) {
+                // Never imported, so it reports out of the batch here instead.
+                splitHardPannedReelsIfBatchComplete(candidate: nil)
                 continue
             }
 

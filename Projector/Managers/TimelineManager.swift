@@ -488,43 +488,49 @@ final class TimelineManager: ObservableObject {
         timeline.removeAudioLane(id: id)
     }
 
-    /// Replace a video's single audio lane with one lane per channel.
+    /// Move one reel's video audio onto a lane per channel.
     ///
-    /// Used when a hard-panned video is split. The original lane and its clip
-    /// are removed and two owned lanes take their place, each holding a copy of
-    /// the clip pointed at one side of the source. Both are locked to the reel,
-    /// so neither can be deleted alone and both go when the video does.
+    /// Used when a hard-panned video is split. The reel's clip is replaced by two
+    /// mono clips, one per side, each appended to the shared lane for that side -
+    /// created on first use and reused by every later split. Six split reels
+    /// therefore produce two lanes holding six clips each, not twelve lanes, so
+    /// an output is chosen once per side rather than once per reel.
+    ///
+    /// Only the reel's own clip moves. Reels dropped together are laid end to end
+    /// and share a lane, and an earlier version replaced that whole lane - which
+    /// silently destroyed the audio of every other reel on it.
     ///
     /// Each lane spans a full stereo output (`outputChannelCount` 2) even though
-    /// its clip is mono. That pairing is what un-pans the split: the mixer sees
+    /// its clips are mono. That pairing is what un-pans the split: the mixer sees
     /// one input channel and two output channels, and duplicates the input
     /// across both, so a side that was hard left comes back centred. Setting the
     /// lane to one output channel instead would map it to a single speaker and
     /// reproduce the very panning the split is meant to undo.
     ///
     /// - Parameters:
-    ///   - laneId: The existing video-audio lane to replace.
-    ///   - reelId: The reel that will own both new lanes.
-    ///   - names: Display name for each side.
-    /// - Returns: The two new lanes, left then right, or `nil` if the lane or
-    ///   its clip could not be found.
+    ///   - clipId: The reel's clip on `laneId`.
+    ///   - laneId: The video-audio lane currently holding that clip.
+    ///   - reelId: The reel being split.
+    ///   - names: Display name for each side, used when a lane is first created.
+    /// - Returns: The lanes now holding the reel's audio, left then right, or
+    ///   `nil` if the clip could not be found.
     @discardableResult
-    func splitVideoAudioLaneByChannel(
-        laneId: UUID,
+    func splitVideoAudioClipByChannel(
+        clipId: UUID,
+        inLane laneId: UUID,
         reelId: UUID,
         names: [SplitChannel: String]
     ) -> [AudioLane]? {
         guard let laneIndex = timeline.audioLanes.firstIndex(where: { $0.id == laneId }),
-              let sourceClip = timeline.audioLanes[laneIndex].clips.first else {
+              let sourceClip = timeline.audioLanes[laneIndex].clips.first(where: { $0.id == clipId }) else {
             return nil
         }
 
         let original = timeline.audioLanes[laneIndex]
-        var created: [AudioLane] = []
+        var destinations: [AudioLane] = []
 
         for channel in SplitChannel.allCases {
-            var clip = sourceClip
-            clip = AudioClip(
+            let clip = AudioClip(
                 mediaItemId: sourceClip.mediaItemId,
                 sourceURL: sourceClip.sourceURL,
                 sourceBookmark: sourceClip.sourceBookmark,
@@ -545,6 +551,17 @@ final class TimelineManager: ObservableObject {
                 sourceFrameRate: sourceClip.sourceFrameRate,
                 sourceChannel: channel
             )
+
+            // Reuse the side's existing lane if a reel has already been split,
+            // so every split reel's left channel lands on one lane and every
+            // right channel on another.
+            if let existing = timeline.audioLanes.first(where: { $0.splitChannel == channel }) {
+                timeline.addClip(clip, toLane: existing.id)
+                if let updated = timeline.audioLanes.first(where: { $0.id == existing.id }) {
+                    destinations.append(updated)
+                }
+                continue
+            }
 
             let lane = AudioLane(
                 name: names[channel] ?? channel.conventionalRoleName,
@@ -567,35 +584,75 @@ final class TimelineManager: ObservableObject {
                 outputMappingId: original.outputMappingId,
                 isOutputDisabled: original.isOutputDisabled,
                 colorIndex: (original.colorIndex + channel.channelIndex) % 8,
-                ownerVideoReelId: reelId,
+                // Left unset: the lane is shared by every split reel, so no one
+                // reel owns it. `splitChannel` is what marks it as video audio.
+                ownerVideoReelId: nil,
                 splitChannel: channel
             )
-            created.append(lane)
+            // Placed below the lane being split rather than above it, so the
+            // original keeps its index while the pair is inserted and any other
+            // reel's audio still sitting on it stays put.
+            timeline.insertAudioLane(lane, at: laneIndex + 1 + destinations.count)
+            destinations.append(lane)
         }
 
-        // Insert where the original sat, so the pair stays with its video.
-        timeline.removeAudioLane(id: laneId)
-        for (offset, lane) in created.enumerated() {
-            timeline.insertAudioLane(lane, at: laneIndex + offset)
+        // Only this reel's clip leaves the original lane. Any other reel's audio
+        // stays exactly where it was; the lane goes only once it is empty.
+        guard let currentIndex = timeline.audioLanes.firstIndex(where: { $0.id == laneId }) else {
+            return destinations
+        }
+        timeline.audioLanes[currentIndex].clips.removeAll { $0.id == clipId }
+        if timeline.audioLanes[currentIndex].clips.isEmpty {
+            timeline.removeAudioLane(id: laneId)
         }
 
-        return created
+        return destinations
     }
 
-    /// Point a split lane's clip at the mono file extracted for its channel.
-    func updateSplitClipSource(laneId: UUID, extractedURL: URL) {
+    /// Point one split clip at the mono file extracted for its channel.
+    ///
+    /// Identified by clip rather than by lane: a split lane holds one clip per
+    /// split reel, so addressing the lane alone would repoint whichever reel
+    /// happened to be split first at this reel's audio.
+    ///
+    /// - Parameters:
+    ///   - clipId: The clip to repoint.
+    ///   - laneId: Lane holding it.
+    ///   - extractedURL: The mono file written for that clip's channel.
+    func updateSplitClipSource(clipId: UUID, inLane laneId: UUID, extractedURL: URL) {
         guard let laneIndex = timeline.audioLanes.firstIndex(where: { $0.id == laneId }),
-              var clip = timeline.audioLanes[laneIndex].clips.first else { return }
+              var clip = timeline.audioLanes[laneIndex].clips.first(where: { $0.id == clipId }) else { return }
         clip.extractedAudioURL = extractedURL
         timeline.audioLanes[laneIndex].updateClip(clip)
     }
 
-    /// Remove every lane owned by a reel.
+    /// Remove a reel's split audio, leaving other reels' audio in place.
     ///
-    /// Called when the video goes: an owned lane has no meaning without it.
-    func removeLanesOwned(byReel reelId: UUID) {
+    /// Called when the video goes: its split channels have no meaning without
+    /// it. Split lanes are shared, so this takes the reel's clips rather than
+    /// the lanes - dropping a whole lane would delete every other split reel's
+    /// audio with it. A lane emptied by the removal goes too, since an empty
+    /// split lane is just clutter.
+    ///
+    /// Lanes owned outright are still removed whole. Those come from projects
+    /// saved before splits were shared, where a lane really did belong to one
+    /// reel.
+    ///
+    /// - Parameters:
+    ///   - reelId: The reel being removed.
+    ///   - sourceURL: That reel's media, used to find its clips on shared lanes.
+    func removeLanesOwned(byReel reelId: UUID, sourceURL: URL? = nil) {
         for lane in timeline.audioLanes where lane.ownerVideoReelId == reelId {
             timeline.removeAudioLane(id: lane.id)
+        }
+
+        guard let sourceURL else { return }
+        for lane in timeline.audioLanes where lane.splitChannel != nil {
+            guard let index = timeline.audioLanes.firstIndex(where: { $0.id == lane.id }) else { continue }
+            timeline.audioLanes[index].clips.removeAll { $0.sourceURL == sourceURL }
+            if timeline.audioLanes[index].clips.isEmpty {
+                timeline.removeAudioLane(id: lane.id)
+            }
         }
     }
 

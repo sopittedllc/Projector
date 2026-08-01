@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import Accelerate
 
 /// Writes one side of a stereo track out as its own mono file.
 ///
@@ -32,6 +33,146 @@ enum AudioChannelExtractor {
         /// Frames per read. Large enough that the loop is not syscall-bound,
         /// small enough that a feature-length reel does not balloon memory.
         static let bufferFrames = 16384
+    }
+
+    /// Extract both sides of an asset's audio track to mono files, in one pass.
+    ///
+    /// A split needs both halves, and reading the source once for each meant
+    /// decoding a feature-length reel twice over - the bulk of the wait between
+    /// answering the split question and seeing the waveforms appear. One read
+    /// feeds both writers instead.
+    ///
+    /// - Parameters:
+    ///   - url: Source file, which may be a video container.
+    ///   - trackIndex: Audio track to read from.
+    ///   - destinations: Where to write each side. Overwritten if they exist.
+    /// - Returns: The written file for each side.
+    /// - Throws: `ChannelExtractionError` if the source cannot be read, is not
+    ///   stereo, or a destination cannot be written.
+    static func extractChannels(
+        from url: URL,
+        trackIndex: Int = 0,
+        to destinations: [SplitChannel: URL]
+    ) async throws -> [SplitChannel: URL] {
+        let asset = AVURLAsset(url: url)
+        let tracks = try await asset.loadTracks(withMediaType: .audio)
+        guard tracks.indices.contains(trackIndex) else {
+            throw ChannelExtractionError.noAudioTrack
+        }
+        let track = tracks[trackIndex]
+
+        guard let description = try await track.load(.formatDescriptions).first,
+              let basic = CMAudioFormatDescriptionGetStreamBasicDescription(description) else {
+            throw ChannelExtractionError.unreadableFormat
+        }
+        let sourceChannelCount = Int(basic.pointee.mChannelsPerFrame)
+        let sampleRate = basic.pointee.mSampleRate
+
+        guard sourceChannelCount >= Extraction.stereoChannelCount else {
+            throw ChannelExtractionError.notStereo(channels: sourceChannelCount)
+        }
+
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: Extraction.stereoChannelCount,
+            AVLinearPCMBitDepthKey: Extraction.bitDepth,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false
+        ])
+        output.alwaysCopiesSampleData = false
+        reader.add(output)
+
+        guard let monoFormat = AVAudioFormat(
+            standardFormatWithSampleRate: sampleRate,
+            channels: AVAudioChannelCount(Extraction.monoChannelCount)
+        ) else {
+            throw ChannelExtractionError.unreadableFormat
+        }
+
+        // Both sides are required. `vDSP_ctoz` writes the pair together, and a
+        // split needs both halves anyway, so there is no one-sided case to serve.
+        let ordered = SplitChannel.allCases
+        guard ordered.allSatisfy({ destinations[$0] != nil }) else {
+            throw ChannelExtractionError.writeFailed(nil)
+        }
+
+        var files: [AVAudioFile] = []
+        for channel in ordered {
+            guard let destination = destinations[channel] else { continue }
+            try? FileManager.default.removeItem(at: destination)
+            files.append(try AVAudioFile(
+                forWriting: destination,
+                settings: monoFormat.settings,
+                commonFormat: .pcmFormatFloat32,
+                interleaved: false
+            ))
+        }
+
+        guard reader.startReading() else {
+            throw ChannelExtractionError.readFailed(reader.error)
+        }
+
+        while let sampleBuffer = output.copyNextSampleBuffer() {
+            guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { continue }
+
+            var length = 0
+            var pointer: UnsafeMutablePointer<Int8>?
+            guard CMBlockBufferGetDataPointer(
+                blockBuffer,
+                atOffset: 0,
+                lengthAtOffsetOut: nil,
+                totalLengthOut: &length,
+                dataPointerOut: &pointer
+            ) == kCMBlockBufferNoErr, let pointer else { continue }
+
+            let totalSamples = length / MemoryLayout<Float>.size
+            let frameCount = totalSamples / Extraction.stereoChannelCount
+            guard frameCount > 0 else { continue }
+
+            var buffers: [AVAudioPCMBuffer] = []
+            for _ in ordered {
+                guard let buffer = AVAudioPCMBuffer(
+                    pcmFormat: monoFormat,
+                    frameCapacity: AVAudioFrameCount(frameCount)
+                ) else {
+                    throw ChannelExtractionError.writeFailed(nil)
+                }
+                buffer.frameLength = AVAudioFrameCount(frameCount)
+                buffers.append(buffer)
+            }
+
+            // Deinterleave straight into the output buffers. An interleaved L/R
+            // pair has the same layout as a complex real/imaginary pair, which
+            // is what `vDSP_ctoz` splits - one vectorised call in place of a
+            // scalar copy per frame, per side.
+            guard let left = buffers[0].floatChannelData?[0],
+                  let right = buffers[1].floatChannelData?[0] else {
+                throw ChannelExtractionError.writeFailed(nil)
+            }
+
+            var split = DSPSplitComplex(realp: left, imagp: right)
+            pointer.withMemoryRebound(to: DSPComplex.self, capacity: frameCount) { pairs in
+                vDSP_ctoz(pairs, 2, &split, 1, vDSP_Length(frameCount))
+            }
+
+            for (index, file) in files.enumerated() {
+                do {
+                    try file.write(from: buffers[index])
+                } catch {
+                    reader.cancelReading()
+                    throw ChannelExtractionError.writeFailed(error)
+                }
+            }
+        }
+
+        if reader.status == .failed {
+            throw ChannelExtractionError.readFailed(reader.error)
+        }
+
+        return destinations
     }
 
     /// Extract a single channel of an asset's audio track to a mono file.

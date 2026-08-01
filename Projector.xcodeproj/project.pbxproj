@@ -40,12 +40,15 @@
 		A1000001227D3F00000000E2 /* DocumentIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = A1000001227D3F00000000E3 /* DocumentIcon.icns */; };
 		B1294F4D2F7C94C400783FA8 /* TransportViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F4C2F7C94C400783FA8 /* TransportViewModel.swift */; };
 		B1294F502F7C94D400783FA8 /* AlertCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F4E2F7C94D400783FA8 /* AlertCoordinator.swift */; };
+		SOC001COORD000002 /* SplitOfferCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = SOC001COORD000001 /* SplitOfferCoordinator.swift */; };
 		B1294F522F7C958C00783FA8 /* TransportActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F512F7C958C00783FA8 /* TransportActor.swift */; };
 		B1294F5A2F7C9F1600783FA8 /* TransportActorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F592F7C9F1600783FA8 /* TransportActorTests.swift */; };
 		B1294F5B2F7C9F1600783FA8 /* PlaybackEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F562F7C9F1600783FA8 /* PlaybackEngineTests.swift */; };
 		B1294F5C2F7C9F1600783FA8 /* TimelineManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F582F7C9F1600783FA8 /* TimelineManagerTests.swift */; };
 		HPS001SPLITTEST0002 /* HardPannedSplitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */; };
 		APA001PANTEST000002 /* AudioPanningAnalyzerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */; };
+		ALC001QUEUETEST0002 /* AlertCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ALC001QUEUETEST0001 /* AlertCoordinatorTests.swift */; };
+		SOC002TESTS000002 /* SplitOfferCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SOC002TESTS000001 /* SplitOfferCoordinatorTests.swift */; };
 		B1294F5D2F7C9F1600783FA8 /* IntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F542F7C9F1600783FA8 /* IntegrationTests.swift */; };
 		B1294F5E2F7C9F1600783FA8 /* AudioOutputManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F532F7C9F1600783FA8 /* AudioOutputManagerTests.swift */; };
 		B1294F5F2F7C9F1600783FA8 /* TimelineActorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F572F7C9F1600783FA8 /* TimelineActorTests.swift */; };
@@ -181,6 +184,7 @@
 		A1000001227D3F00000000E3 /* DocumentIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = DocumentIcon.icns; sourceTree = "<group>"; };
 		B1294F4C2F7C94C400783FA8 /* TransportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportViewModel.swift; sourceTree = "<group>"; };
 		B1294F4E2F7C94D400783FA8 /* AlertCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertCoordinator.swift; sourceTree = "<group>"; };
+		SOC001COORD000001 /* SplitOfferCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitOfferCoordinator.swift; sourceTree = "<group>"; };
 		B1294F512F7C958C00783FA8 /* TransportActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportActor.swift; sourceTree = "<group>"; };
 		B1294F532F7C9F1600783FA8 /* AudioOutputManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioOutputManagerTests.swift; sourceTree = "<group>"; };
 		B1294F542F7C9F1600783FA8 /* IntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationTests.swift; sourceTree = "<group>"; };
@@ -190,6 +194,8 @@
 		B1294F582F7C9F1600783FA8 /* TimelineManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineManagerTests.swift; sourceTree = "<group>"; };
 		HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardPannedSplitTests.swift; sourceTree = "<group>"; };
 		APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPanningAnalyzerTests.swift; sourceTree = "<group>"; };
+		ALC001QUEUETEST0001 /* AlertCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertCoordinatorTests.swift; sourceTree = "<group>"; };
+		SOC002TESTS000001 /* SplitOfferCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitOfferCoordinatorTests.swift; sourceTree = "<group>"; };
 		B1294F592F7C9F1600783FA8 /* TransportActorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportActorTests.swift; sourceTree = "<group>"; };
 		B149C5432F0722DA001F9C85 /* ProjectorQuickLook.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ProjectorQuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B149C5452F0722DA001F9C85 /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
@@ -313,6 +319,8 @@
 				B1294F582F7C9F1600783FA8 /* TimelineManagerTests.swift */,
 				HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */,
 				APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */,
+				ALC001QUEUETEST0001 /* AlertCoordinatorTests.swift */,
+				SOC002TESTS000001 /* SplitOfferCoordinatorTests.swift */,
 				B1294F592F7C9F1600783FA8 /* TransportActorTests.swift */,
 				14506C8D8408E65D66372269 /* TestAudioFileFactory.swift */,
 				FD5C2B42215FEBC92028DAE5 /* WaveformCacheTests.swift */,
@@ -471,6 +479,7 @@
 			isa = PBXGroup;
 			children = (
 				B1294F4E2F7C94D400783FA8 /* AlertCoordinator.swift */,
+				SOC001COORD000001 /* SplitOfferCoordinator.swift */,
 			);
 			path = Coordinators;
 			sourceTree = "<group>";
@@ -739,6 +748,8 @@
 				B1294F5C2F7C9F1600783FA8 /* TimelineManagerTests.swift in Sources */,
 				HPS001SPLITTEST0002 /* HardPannedSplitTests.swift in Sources */,
 				APA001PANTEST000002 /* AudioPanningAnalyzerTests.swift in Sources */,
+				ALC001QUEUETEST0002 /* AlertCoordinatorTests.swift in Sources */,
+				SOC002TESTS000002 /* SplitOfferCoordinatorTests.swift in Sources */,
 				B1294F5D2F7C9F1600783FA8 /* IntegrationTests.swift in Sources */,
 				B1294F5E2F7C9F1600783FA8 /* AudioOutputManagerTests.swift in Sources */,
 				B1294F5F2F7C9F1600783FA8 /* TimelineActorTests.swift in Sources */,
@@ -754,6 +765,7 @@
 			files = (
 				AM01AUDIOMETER002 /* AudioMeterView.swift in Sources */,
 				B1294F502F7C94D400783FA8 /* AlertCoordinator.swift in Sources */,
+				SOC001COORD000002 /* SplitOfferCoordinator.swift in Sources */,
 				753331FCF4CC4E1A8578392C /* MediaOptimizationServiceProtocol.swift in Sources */,
 				2D32AFD4ED0B4C24B8B2504B /* MediaOptimizationService.swift in Sources */,
 				MFRS001MISSINGFILE01 /* MissingFileResolutionService.swift in Sources */,
