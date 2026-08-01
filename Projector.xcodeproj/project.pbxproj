@@ -45,6 +45,7 @@
 		B1294F5B2F7C9F1600783FA8 /* PlaybackEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F562F7C9F1600783FA8 /* PlaybackEngineTests.swift */; };
 		B1294F5C2F7C9F1600783FA8 /* TimelineManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F582F7C9F1600783FA8 /* TimelineManagerTests.swift */; };
 		HPS001SPLITTEST0002 /* HardPannedSplitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */; };
+		APA001PANTEST000002 /* AudioPanningAnalyzerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */; };
 		B1294F5D2F7C9F1600783FA8 /* IntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F542F7C9F1600783FA8 /* IntegrationTests.swift */; };
 		B1294F5E2F7C9F1600783FA8 /* AudioOutputManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F532F7C9F1600783FA8 /* AudioOutputManagerTests.swift */; };
 		B1294F5F2F7C9F1600783FA8 /* TimelineActorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F572F7C9F1600783FA8 /* TimelineActorTests.swift */; };
@@ -188,6 +189,7 @@
 		B1294F572F7C9F1600783FA8 /* TimelineActorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineActorTests.swift; sourceTree = "<group>"; };
 		B1294F582F7C9F1600783FA8 /* TimelineManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineManagerTests.swift; sourceTree = "<group>"; };
 		HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardPannedSplitTests.swift; sourceTree = "<group>"; };
+		APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPanningAnalyzerTests.swift; sourceTree = "<group>"; };
 		B1294F592F7C9F1600783FA8 /* TransportActorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportActorTests.swift; sourceTree = "<group>"; };
 		B149C5432F0722DA001F9C85 /* ProjectorQuickLook.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ProjectorQuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B149C5452F0722DA001F9C85 /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
@@ -310,6 +312,7 @@
 				B1294F572F7C9F1600783FA8 /* TimelineActorTests.swift */,
 				B1294F582F7C9F1600783FA8 /* TimelineManagerTests.swift */,
 				HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */,
+				APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */,
 				B1294F592F7C9F1600783FA8 /* TransportActorTests.swift */,
 				14506C8D8408E65D66372269 /* TestAudioFileFactory.swift */,
 				FD5C2B42215FEBC92028DAE5 /* WaveformCacheTests.swift */,
@@ -735,6 +738,7 @@
 				B1294F5B2F7C9F1600783FA8 /* PlaybackEngineTests.swift in Sources */,
 				B1294F5C2F7C9F1600783FA8 /* TimelineManagerTests.swift in Sources */,
 				HPS001SPLITTEST0002 /* HardPannedSplitTests.swift in Sources */,
+				APA001PANTEST000002 /* AudioPanningAnalyzerTests.swift in Sources */,
 				B1294F5D2F7C9F1600783FA8 /* IntegrationTests.swift in Sources */,
 				B1294F5E2F7C9F1600783FA8 /* AudioOutputManagerTests.swift in Sources */,
 				B1294F5F2F7C9F1600783FA8 /* TimelineActorTests.swift in Sources */,

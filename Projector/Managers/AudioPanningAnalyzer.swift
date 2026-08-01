@@ -82,9 +82,16 @@ public struct PanningAnalysis: Sendable, Equatable {
 /// | Mono in a stereo file  | ~1.0        | not split   |
 /// | Ordinary stereo mix    | ~0.4 - 0.95 | not split   |
 /// | Hard-panned split      | ~0.0        | **split**   |
+/// | One side silent        | ~0.0        | **split**   |
 ///
-/// Both channels must also carry real signal, so a file with one dead side is
-/// not mistaken for a split.
+/// A reel with one dead side counts as a split. It is not a deliverable anyone
+/// intended - it means the edit was exported wrong - and splitting it is how
+/// the user finds out, because the empty lane draws as a flat line beside a
+/// full one. Declining to offer would hide the defect behind a reel that just
+/// sounds one-sided for no visible reason.
+///
+/// A file silent on *both* sides is rejected: it correlates with nothing and
+/// would read as a perfect split, but there is nothing there to separate.
 ///
 /// ## Why this only ever suggests
 ///
@@ -109,10 +116,12 @@ enum AudioPanningAnalyzer {
         /// is biased towards saying no.
         static let maximumSplitCorrelation: Float = 0.2
 
-        /// Both channels must reach this RMS to be considered live, ~-60 dBFS.
+        /// A channel at or above this RMS carries signal, ~-60 dBFS.
         ///
-        /// Guards the degenerate case: silence correlates with nothing, so a
-        /// file with one empty side would otherwise read as perfectly split.
+        /// Only one side has to clear it. The bar exists to reject a file that
+        /// is silent throughout, not to veto a legitimate split that happens to
+        /// have a dead channel - see the type's documentation for why a
+        /// one-sided reel is worth surfacing rather than hiding.
         static let minimumChannelRMS: Float = 0.001
     }
 
@@ -265,14 +274,17 @@ enum AudioPanningAnalyzer {
         let denominator = (sumLeftSquared * sumRightSquared).squareRoot()
         let correlation = denominator > 0 ? Float(sumProduct / denominator) : 0
 
-        let bothChannelsLive = leftRMS >= Thresholds.minimumChannelRMS
-            && rightRMS >= Thresholds.minimumChannelRMS
+        // One live side is enough. A dead channel still splits, because the
+        // resulting flat lane is the point - it shows the user the reel was
+        // exported wrong. Only a file silent on both sides is rejected.
+        let hasSignal = leftRMS >= Thresholds.minimumChannelRMS
+            || rightRMS >= Thresholds.minimumChannelRMS
 
         return PanningAnalysis(
             correlation: correlation,
             leftRMS: leftRMS,
             rightRMS: rightRMS,
-            isHardPanned: bothChannelsLive && abs(correlation) < Thresholds.maximumSplitCorrelation
+            isHardPanned: hasSignal && abs(correlation) < Thresholds.maximumSplitCorrelation
         )
     }
 
