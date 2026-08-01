@@ -793,6 +793,21 @@ enum TimelineLayout {
     /// Width of thumbnails in video reels
     static let thumbnailWidth: CGFloat = 48
 
+    /// Narrowest a clip may draw, whatever its duration.
+    ///
+    /// Zoomed out far enough, a short clip works out to a few points wide and
+    /// becomes impossible to see or grab, so it is floored here. The floor does
+    /// overstate the clip's length at that zoom, which is the accepted cost of
+    /// keeping it selectable.
+    ///
+    /// Video and audio must share the value. They were previously floored
+    /// separately at 60 and 40, so any clip short enough to hit both drew a
+    /// reel 1.5x wider than the lanes carrying that same reel's audio - which
+    /// reads as the audio being shorter than the video it came from.
+    ///
+    /// 44pt is the macOS HIG minimum target size.
+    static let minimumClipWidth: CGFloat = 44
+
     /// Spacing between ruler markings
     static let rulerSpacing: CGFloat = 5
 

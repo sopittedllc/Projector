@@ -154,7 +154,7 @@ struct AudioClipView: View {
     // MARK: - Computed Properties
 
     private var clipWidth: CGFloat {
-        max(40, CGFloat(clip.durationFrames) * pixelsPerFrame)
+        max(TimelineLayout.minimumClipWidth, CGFloat(clip.durationFrames) * pixelsPerFrame)
     }
 
     private var clipDurationSeconds: Double {

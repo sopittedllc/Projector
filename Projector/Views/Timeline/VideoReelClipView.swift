@@ -209,7 +209,7 @@ struct VideoReelClipView: View {
     // MARK: - Computed Properties
 
     private var reelWidth: CGFloat {
-        max(60, CGFloat(reel.durationFrames) * pixelsPerFrame)
+        max(TimelineLayout.minimumClipWidth, CGFloat(reel.durationFrames) * pixelsPerFrame)
     }
 
     private var borderColor: Color {
