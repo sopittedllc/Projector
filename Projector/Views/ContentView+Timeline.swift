@@ -444,13 +444,13 @@ extension ContentView {
                 debugPrint("addVideoToTimeline: Reel loaded in playback engine [T+\(elapsed())]")
             }
 
-            // Check for audio tracks and create lane + placeholder clip IMMEDIATELY
-            // This ensures the audio region appears in UI right away, before extraction completes
-            let audioResult = await prepareAudioLaneIfNeeded(for: reel)
-            debugPrint("addVideoToTimeline: Audio lane + clip prepared [T+\(elapsed())]")
+            // Check for audio tracks and create lanes + placeholder clips for ALL tracks
+            // This ensures audio regions appear in UI right away, before extraction completes
+            let audioResults = await prepareAudioLanesForAllTracks(for: reel)
+            debugPrint("addVideoToTimeline: Audio lanes + clips prepared (\(audioResults.count) tracks) [T+\(elapsed())]")
 
-            // The placeholder clip exists by now, so the lane the video's audio
-            // landed on can be identified and routed from the video's name.
+            // The placeholder clips exist by now, so the lanes can be identified
+            // and routed from the video's name.
             applyNamedOutputToVideoAudio(for: url)
 
             isLoadingMedia = false
@@ -462,27 +462,53 @@ extension ContentView {
                 thumbnailCacheRef.prewarm(for: reel)
             }
 
-            // Extract audio in background and update the placeholder clip with extractedAudioURL
-            guard let audioResult else {
+            // Handle background work for audio tracks
+            guard !audioResults.isEmpty else {
                 // Still reports, so a batch waiting on this file is not left
                 // one short and held open forever.
                 splitHardPannedReelsIfBatchComplete(candidate: nil)
                 return
             }
 
-            if case let (lane, clipId) = audioResult {
+            // For tracks 1+, extract in background and update extractedAudioURL
+            // Track 0 plays directly from the video container (no extraction needed)
+            for result in audioResults where result.trackIndex > 0 {
                 Task(priority: .utility) {
-                    // Nothing is extracted any more - the clip plays the reel
-                    // itself - so the import's only remaining background work is
-                    // deciding whether the reel is hard panned.
+                    do {
+                        let extractedURL = try await AudioTrackExtractor.extractTrack(
+                            from: reel.sourceURL,
+                            trackIndex: result.trackIndex,
+                            clipId: result.clipId
+                        )
+                        await MainActor.run {
+                            self.timelineManager.updateExtractedAudioURL(
+                                clipId: result.clipId,
+                                url: extractedURL
+                            )
+                            self.playbackEngine.invalidateAudioClip(id: result.clipId)
+                        }
+                        debugPrint("addVideoToTimeline: Extracted track \(result.trackIndex) for \(reel.displayName)")
+                    } catch {
+                        debugPrint("addVideoToTimeline: Failed to extract track \(result.trackIndex): \(error)")
+                    }
+                }
+            }
+
+            // Only track 0 is analyzed for hard panning (it's the primary audio track)
+            if let firstResult = audioResults.first(where: { $0.trackIndex == 0 }) {
+                Task(priority: .utility) {
+                    // Track 0 plays directly from the reel - check for hard panning
                     let analysis = await Self.hardPanningAnalysis(of: reel.sourceURL)
                     await self.reportSplitCandidate(
                         reel: reel,
-                        laneId: lane.id,
-                        clipId: clipId,
+                        laneId: firstResult.lane.id,
+                        clipId: firstResult.clipId,
                         analysis: analysis
                     )
                 }
+            } else {
+                // No track 0 somehow, still report to batch
+                splitHardPannedReelsIfBatchComplete(candidate: nil)
             }
         } catch {
             debugPrint("addVideoToTimeline: FAILED [T+\(elapsed())] - \(error)")
@@ -624,94 +650,116 @@ extension ContentView {
 
     // MARK: - Audio Extraction Helpers
 
-    /// Check if video has audio tracks and create lane + placeholder clip immediately
-    /// Returns (lane, clipId) if audio tracks exist, nil otherwise
-    /// Reuses existing lanes if the new clip fits without overlap
-    private func prepareAudioLaneIfNeeded(for reel: VideoReel) async -> (lane: AudioLane, clipId: UUID)? {
+    /// Result from preparing audio lanes for a video reel.
+    struct AudioTrackResult {
+        let lane: AudioLane
+        let clipId: UUID
+        let trackIndex: Int
+    }
+
+    /// Check if video has audio tracks and create lanes + placeholder clips for each.
+    ///
+    /// Creates one lane per audio track, each with its own clip. Track 0 plays directly
+    /// from the video container; tracks 1+ require background extraction to separate
+    /// CAF files before playback.
+    ///
+    /// - Parameter reel: The video reel to check for audio tracks.
+    /// - Returns: Array of results, one per audio track. Empty if no audio tracks.
+    private func prepareAudioLanesForAllTracks(for reel: VideoReel) async -> [AudioTrackResult] {
         let asset = AVAsset(url: reel.sourceURL)
         do {
             let audioTracks = try await asset.loadTracks(withMediaType: .audio)
             guard !audioTracks.isEmpty else {
-                debugPrint("prepareAudioLaneIfNeeded: No audio tracks found")
-                return nil
+                debugPrint("prepareAudioLanesForAllTracks: No audio tracks found")
+                return []
             }
 
-            // Get channel count and sample rate from audio format
-            let audioTrack = audioTracks[0]
-            let formatDescriptions = try await audioTrack.load(.formatDescriptions)
-            var channelCount = 2
-            var sampleRate: Double = 48000
+            var results: [AudioTrackResult] = []
 
-            if let formatDesc = formatDescriptions.first {
-                let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)
-                if let format = asbd?.pointee {
-                    channelCount = Int(format.mChannelsPerFrame)
-                    sampleRate = format.mSampleRate
+            for (trackIndex, audioTrack) in audioTracks.enumerated() {
+                // Get channel count and sample rate from audio format
+                let formatDescriptions = try await audioTrack.load(.formatDescriptions)
+                var channelCount = 2
+                var sampleRate: Double = 48000
+
+                if let formatDesc = formatDescriptions.first {
+                    let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)
+                    if let format = asbd?.pointee {
+                        channelCount = Int(format.mChannelsPerFrame)
+                        sampleRate = format.mSampleRate
+                    }
                 }
-            }
 
-            // Create a placeholder clip IMMEDIATELY (without extractedAudioURL)
-            // This ensures the audio region appears in UI right away, before extraction completes
-            let clip = AudioClip(
-                mediaItemId: reel.mediaItemId,
-                sourceURL: reel.sourceURL,
-                sourceBookmark: reel.sourceBookmark,
-                timelineStartFrame: reel.timelineStartFrame,
-                durationFrames: reel.durationFrames,
-                sourceStartFrame: reel.sourceStartFrame,
-                sourceType: .videoTrack,
-                sourceTrackIndex: 0,
-                channelCount: channelCount,
-                sampleRate: sampleRate,
-                extractedAudioURL: nil,  // Will be set after extraction
-                sourceFrameRate: reel.sourceFrameRate
-            )
-
-            // Try to find an existing lane where the clip fits without overlap.
-            //
-            // Skips lanes reserved by an in-flight batch drop. A mixed drop
-            // reserves one empty lane per audio file before importing the
-            // videos; an empty lane never "overlaps", so without this filter the
-            // video's embedded audio would adopt a lane earmarked for one of
-            // those files, and that file would then have nowhere to land.
-            let reserved = reservedAudioLaneIds
-            var targetLane: AudioLane?
-            for lane in timelineManager.timeline.audioLanes where !reserved.contains(lane.id) {
-                if !lane.hasOverlap(with: clip) {
-                    targetLane = lane
-                    debugPrint("prepareAudioLaneIfNeeded: Found existing lane '\(lane.name)' with no overlap")
-                    break
+                // Determine lane name: first track gets the video name, others get Track N suffix
+                let trackName: String
+                if audioTracks.count == 1 {
+                    trackName = laneName(for: reel.sourceURL)
+                } else {
+                    let baseName = reel.sourceURL.deletingPathExtension().lastPathComponent
+                    trackName = "\(baseName) - Track \(trackIndex + 1)"
                 }
+
+                // Create a placeholder clip IMMEDIATELY (without extractedAudioURL for tracks 1+)
+                // Track 0 plays directly from the video; tracks 1+ need extraction
+                let clip = AudioClip(
+                    mediaItemId: reel.mediaItemId,
+                    sourceURL: reel.sourceURL,
+                    sourceBookmark: reel.sourceBookmark,
+                    timelineStartFrame: reel.timelineStartFrame,
+                    durationFrames: reel.durationFrames,
+                    sourceStartFrame: reel.sourceStartFrame,
+                    sourceType: .videoTrack,
+                    sourceTrackIndex: trackIndex,
+                    channelCount: channelCount,
+                    sampleRate: sampleRate,
+                    extractedAudioURL: nil,  // Will be set after extraction for tracks 1+
+                    sourceFrameRate: reel.sourceFrameRate
+                )
+
+                // Try to find an existing lane where the clip fits without overlap.
+                //
+                // Skips lanes reserved by an in-flight batch drop. A mixed drop
+                // reserves one empty lane per audio file before importing the
+                // videos; an empty lane never "overlaps", so without this filter the
+                // video's embedded audio would adopt a lane earmarked for one of
+                // those files, and that file would then have nowhere to land.
+                let reserved = reservedAudioLaneIds
+                var targetLane: AudioLane?
+                for lane in timelineManager.timeline.audioLanes where !reserved.contains(lane.id) {
+                    if !lane.hasOverlap(with: clip) {
+                        targetLane = lane
+                        debugPrint("prepareAudioLanesForAllTracks: Found existing lane '\(lane.name)' with no overlap for track \(trackIndex)")
+                        break
+                    }
+                }
+
+                // If no existing lane can fit the clip, create a new one
+                if targetLane == nil {
+                    targetLane = timelineManager.addAudioLaneAtTop(name: trackName)
+                    debugPrint("prepareAudioLanesForAllTracks: Created new lane '\(targetLane!.name)' for track \(trackIndex)")
+                } else if let adopted = targetLane,
+                          adopted.clips.isEmpty,
+                          isGenericLaneName(adopted.name) {
+                    // Adopting an empty, never-named lane: give it the track's name
+                    timelineManager.renameAudioLane(id: adopted.id, name: trackName)
+                    targetLane = timelineManager.timeline.audioLanes.first { $0.id == adopted.id }
+                    debugPrint("prepareAudioLanesForAllTracks: renamed adopted lane '\(adopted.name)' -> '\(trackName)'")
+                }
+
+                guard let lane = targetLane else {
+                    debugPrint("prepareAudioLanesForAllTracks: Failed to get target lane for track \(trackIndex)")
+                    continue
+                }
+
+                timelineManager.timeline.addClip(clip, toLane: lane.id)
+                results.append(AudioTrackResult(lane: lane, clipId: clip.id, trackIndex: trackIndex))
             }
 
-            // If no existing lane can fit the clip, create a new one
-            if targetLane == nil {
-                targetLane = timelineManager.addAudioLaneAtTop(name: laneName(for: reel.sourceURL))
-                debugPrint("prepareAudioLaneIfNeeded: Created new lane '\(targetLane!.name)'")
-            } else if let adopted = targetLane,
-                      adopted.clips.isEmpty,
-                      isGenericLaneName(adopted.name) {
-                // Adopting an empty, never-named lane: give it the media's name
-                // like a freshly created one would get. A lane the user has
-                // named, or one that already holds clips, keeps its name.
-                let named = laneName(for: reel.sourceURL)
-                timelineManager.renameAudioLane(id: adopted.id, name: named)
-                targetLane = timelineManager.timeline.audioLanes.first { $0.id == adopted.id }
-                debugPrint("prepareAudioLaneIfNeeded: renamed adopted lane '\(adopted.name)' -> '\(named)'")
-            }
-
-            guard let lane = targetLane else {
-                debugPrint("prepareAudioLaneIfNeeded: Failed to get target lane")
-                return nil
-            }
-
-            timelineManager.timeline.addClip(clip, toLane: lane.id)
-
-            debugPrint("prepareAudioLaneIfNeeded: Added clip to lane '\(lane.name)' with \(audioTracks.count) audio track(s)")
-            return (lane, clip.id)
+            debugPrint("prepareAudioLanesForAllTracks: Created \(results.count) clips from \(audioTracks.count) audio track(s)")
+            return results
         } catch {
-            debugPrint("prepareAudioLaneIfNeeded: Failed to check audio tracks - \(error)")
-            return nil
+            debugPrint("prepareAudioLanesForAllTracks: Failed to check audio tracks - \(error)")
+            return []
         }
     }
 

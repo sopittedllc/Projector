@@ -395,12 +395,33 @@ final class TimelineManager: ObservableObject {
 
     /// Remove a video reel by ID
     func removeVideoReel(id: UUID) {
+        // Clean up extracted audio files for all clips from this reel
+        // before removing anything
+        if let reel = timeline.videoReels.first(where: { $0.id == id }) {
+            cleanupExtractedAudioFiles(for: reel.sourceURL)
+        }
+
         // Release security-scoped access when reel is removed
         if let url = activeSecurityScopedURLs.removeValue(forKey: id) {
             url.stopAccessingSecurityScopedResource()
         }
         timeline.removeVideoReel(id: id)
         shrinkTimelineToContent()
+    }
+
+    /// Delete any extracted audio files for clips from a source URL.
+    ///
+    /// Called when removing a video reel to clean up temporary files created
+    /// for multi-track audio extraction.
+    private func cleanupExtractedAudioFiles(for sourceURL: URL) {
+        for lane in timeline.audioLanes {
+            for clip in lane.clips where clip.sourceURL == sourceURL {
+                if let extractedURL = clip.extractedAudioURL {
+                    try? FileManager.default.removeItem(at: extractedURL)
+                    debugPrint("TimelineManager: cleaned up \(extractedURL.lastPathComponent)")
+                }
+            }
+        }
     }
 
     /// Move a video reel to a new timeline position
@@ -1053,6 +1074,24 @@ final class TimelineManager: ObservableObject {
            var clip = timeline.audioLanes[laneIndex].clips.first(where: { $0.id == clipId }) {
             clip.extractedAudioURL = extractedURL
             timeline.audioLanes[laneIndex].updateClip(clip)
+        }
+    }
+
+    /// Update extracted audio URL for an audio clip by searching all lanes.
+    ///
+    /// Convenience method when the lane ID is not known. Used when background
+    /// extraction completes for multi-track video audio.
+    ///
+    /// - Parameters:
+    ///   - clipId: The clip to update.
+    ///   - url: The extracted audio file URL.
+    func updateExtractedAudioURL(clipId: UUID, url: URL) {
+        for laneIndex in timeline.audioLanes.indices {
+            if var clip = timeline.audioLanes[laneIndex].clips.first(where: { $0.id == clipId }) {
+                clip.extractedAudioURL = url
+                timeline.audioLanes[laneIndex].updateClip(clip)
+                return
+            }
         }
     }
 

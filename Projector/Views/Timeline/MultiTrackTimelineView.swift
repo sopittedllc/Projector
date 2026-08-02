@@ -1654,12 +1654,15 @@ struct MultiTrackTimelineView: View {
 
     /// Header for one of the video's audio lanes.
     ///
-    /// Named only when the video has been split, where two rows sit together and
-    /// need telling apart; a lone lane is unambiguously "the video's audio" and a
-    /// label would just crowd the controls.
+    /// Named when there are multiple audio tracks (split channels or multi-track
+    /// video) so the user can tell them apart. A lone lane is unambiguously "the
+    /// video's audio" and a label would just crowd the controls.
     private func linkedAudioHeaderBlock(lane: AudioLane, index: Int) -> some View {
         laneHeaderLayout(accent: LaneColor.color(forLaneIndex: index)) {
-            if lane.splitChannel != nil {
+            // Show name when there are multiple video audio lanes:
+            // - Split channels (hard-panned audio)
+            // - Multi-track video (discrete audio tracks)
+            if lane.splitChannel != nil || timeline.videoAudioLanes.count > 1 {
                 Text(lane.name)
                     .font(Typography.subheading)
                     .foregroundColor(.primary)

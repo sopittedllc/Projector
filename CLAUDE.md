@@ -376,33 +376,25 @@ When **removing** a feature:
 
 ## Known Issues
 
-### Only the First Audio Track of a Video Is Imported
+### ~~Only the First Audio Track of a Video Is Imported~~ (RESOLVED)
 
-**Status**: Open. Pre-existing, not a regression — `audioTracks[0]` and
-`trackIndex: 0` have been hardcoded since video audio import was written.
+**Status**: Resolved. Implemented per-track extraction for tracks 1+ while
+keeping track 0 playing directly from the video container.
 
-**Symptom**: A video carrying discrete stems on separate tracks plays only the
-first one, silently. Found with
-`MT HOOD - EP 1- FC1 (20260619)_SplitTrack.mov`, which has four mono LPCM audio
-tracks (A1–A4): the reel imports and plays dialogue alone, with A2–A4 dropped
-and nothing said about it. This is distinct from the hard-panned case, which is
-one *stereo* track carrying two stems and is handled.
+**Solution**: Videos with multiple audio tracks now create one lane per track.
+Track 0 plays directly via `AVAudioFile`. Tracks 1+ are extracted to temporary
+CAF files using `AVAssetReader`/`AVAssetWriter` in `AudioTrackExtractor`, then
+played via `extractedAudioURL`. Extraction happens in the background after
+import; clips are playable once extraction completes. Lane headers show track
+names when there are multiple audio tracks. Extracted files are cleaned up when
+the video reel is removed.
 
-**Where**: `ContentView+Timeline.prepareAudioLaneIfNeeded` creates a single clip
-from `audioTracks[0]`. `PlaybackEngine.loadAudioClip` then opens the media with
-`AVAudioFile`, which reads the first audio track and offers no way to select
-another.
-
-**Why it is not a small fix**: `AVAudioFile` cannot address a specific audio
-track. Now that audio is played straight from the source rather than extracted
-to disk, supporting the others needs one of:
-
-1. per-track extraction, reinstating a disk cache for multi-track files only, or
-2. an `AVAssetReader` streaming path feeding `AVAudioPlayerNode` buffers, which
-   is the general solution and also the larger one.
-
-**Wanted behaviour**: each audio track becomes its own lane, as the channel
-split already does for a hard-panned pair.
+**Files changed**:
+- `Managers/AudioTrackExtractor.swift` (new) - extraction service
+- `Views/ContentView+Timeline.swift` - `prepareAudioLanesForAllTracks()`
+- `Managers/PlaybackEngine.swift` - uses `extractedAudioURL` for tracks 1+
+- `Managers/TimelineManager.swift` - cleanup and `updateExtractedAudioURL()`
+- `Views/Timeline/MultiTrackTimelineView.swift` - shows track labels
 
 ### Document Icon for .projector Files
 

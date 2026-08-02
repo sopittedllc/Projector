@@ -273,6 +273,15 @@ final class PlaybackEngine: ObservableObject {
             didStart = resolved.startAccessingSecurityScopedResource()
         }
 
+        /// Initialize with a plain URL (no security-scoped access needed).
+        ///
+        /// Used for extracted audio files in the app's temporary directory,
+        /// which are already inside the sandbox.
+        init(localURL: URL) {
+            url = localURL
+            didStart = false
+        }
+
         deinit {
             if didStart {
                 url.stopAccessingSecurityScopedResource()
@@ -1065,19 +1074,47 @@ final class PlaybackEngine: ObservableObject {
             failedClipCooldowns.removeValue(forKey: clip.id)
         }
 
+        // For video tracks 1+, we need an extracted audio file.
+        // AVAudioFile can only read track 0 from a video container.
+        // If extraction hasn't completed yet, skip loading - we'll retry when invalidated.
+        let trackIndex = clip.sourceTrackIndex ?? 0
+        if clip.sourceType == .videoTrack && trackIndex > 0 {
+            if let extractedURL = clip.extractedAudioURL,
+               FileManager.default.fileExists(atPath: extractedURL.path) {
+                debugPrint("loadAudioClip: using extracted file for track \(trackIndex)")
+            } else {
+                // Extraction not complete - skip for now, will be invalidated when ready
+                debugPrint("loadAudioClip: track \(trackIndex) not yet extracted, skipping")
+                return
+            }
+        }
+
         loadingClipIds.insert(clip.id)
 
-        debugPrint("loadAudioClip: starting for clip \(clip.id), sourceType=\(clip.sourceType)")
+        debugPrint("loadAudioClip: starting for clip \(clip.id), sourceType=\(clip.sourceType), trackIndex=\(trackIndex)")
         let clipSnapshot = clip
         let laneSnapshot = lane
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             do {
-                // Read straight from the media, video container included -
-                // `AVAudioFile` opens those directly, and a seek into one costs
-                // about two milliseconds. Copying the audio out first bought
-                // nothing except a second copy of every reel on disk.
-                let access = SecurityScopedAccess(for: clipSnapshot)
+                // Determine which URL to read from:
+                // - For video track 0: read directly from video container
+                // - For video tracks 1+: read from extracted CAF file
+                // - For audio files: read from source URL
+                let access: SecurityScopedAccess
+                let trackIdx = clipSnapshot.sourceTrackIndex ?? 0
+                if clipSnapshot.sourceType == .videoTrack && trackIdx > 0,
+                   let extractedURL = clipSnapshot.extractedAudioURL {
+                    // Extracted files are in the app's temp directory - no security scope needed
+                    access = SecurityScopedAccess(localURL: extractedURL)
+                } else {
+                    // Read straight from the media, video container included -
+                    // `AVAudioFile` opens those directly, and a seek into one costs
+                    // about two milliseconds. Copying the audio out first bought
+                    // nothing except a second copy of every reel on disk.
+                    access = SecurityScopedAccess(for: clipSnapshot)
+                }
+
                 let audioFile = try AVAudioFile(forReading: access.url)
                 let playback = try await self.buildAudioPlayback(
                     for: clipSnapshot,
