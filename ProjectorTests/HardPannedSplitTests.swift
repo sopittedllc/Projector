@@ -426,58 +426,7 @@ final class HardPannedSplitTests: XCTestCase {
 
     // MARK: - Extraction
 
-    func testSplitClipSourceIsAttachedToTheRightClip() throws {
-        let manager = makeManager()
-        let lane = manager.addAudioLane(name: "Reel_01")
-        let clip = makeVideoClip()
-        manager.timeline.addClip(clip, toLane: lane.id)
-        let created = try XCTUnwrap(manager.splitVideoAudioClipByChannel(
-            clipId: clip.id, inLane: lane.id, reelId: UUID(),
-            names: [.left: "DX/SFX", .right: "MX"]
-        ))
 
-        let leftURL = URL(fileURLWithPath: "/tmp/Reel_01-left.caf")
-        let leftClipId = try XCTUnwrap(created[0].clips.first?.id)
-        manager.updateSplitClipSource(clipId: leftClipId, inLane: created[0].id, extractedURL: leftURL)
-
-        let lanes = manager.timeline.audioLanes
-        let left = lanes.first { $0.id == created[0].id }
-        let right = lanes.first { $0.id == created[1].id }
-
-        XCTAssertEqual(left?.clips.first?.extractedAudioURL, leftURL)
-        XCTAssertNil(right?.clips.first?.extractedAudioURL,
-                     "attaching one side must not touch the other")
-    }
-
-    /// On a shared lane the extraction must land on the reel being split, not on
-    /// whichever reel happened to be split first.
-    func testAttachingASecondReelsAudioLeavesTheFirstAlone() throws {
-        let manager = makeManager()
-        let lane = manager.addAudioLane(name: "Video Audio")
-        let clipA = makeVideoClip(start: 0, duration: 480)
-        let clipB = makeVideoClip(start: 480, duration: 480)
-        manager.timeline.addClip(clipA, toLane: lane.id)
-        manager.timeline.addClip(clipB, toLane: lane.id)
-
-        manager.splitVideoAudioClipByChannel(
-            clipId: clipA.id, inLane: lane.id, reelId: UUID(),
-            names: [.left: "DX/SFX", .right: "MX"]
-        )
-        let second = try XCTUnwrap(manager.splitVideoAudioClipByChannel(
-            clipId: clipB.id, inLane: lane.id, reelId: UUID(),
-            names: [.left: "DX/SFX", .right: "MX"]
-        ))
-
-        let leftLane = try XCTUnwrap(manager.timeline.audioLanes.first { $0.splitChannel == .left })
-        let secondClipId = try XCTUnwrap(leftLane.clips.last?.id)
-        let url = URL(fileURLWithPath: "/tmp/Reel_02-left.caf")
-        manager.updateSplitClipSource(clipId: secondClipId, inLane: second[0].id, extractedURL: url)
-
-        let updated = try XCTUnwrap(manager.timeline.audioLanes.first { $0.splitChannel == .left })
-        XCTAssertNil(updated.clips.first?.extractedAudioURL,
-                     "the earlier reel's clip must not be repointed")
-        XCTAssertEqual(updated.clips.last?.extractedAudioURL, url)
-    }
 
     // MARK: - Routing
 
@@ -677,5 +626,34 @@ final class HardPannedSplitTests: XCTestCase {
         XCTAssertTrue(lanes.allSatisfy { $0.splitChannel == nil })
         XCTAssertEqual(lanes.first?.clips.map(\.id), [clipA.id, clipB.id],
                        "both reels' original clips must come back to the lane they were on")
+    }
+
+    // MARK: - Split Roles
+
+    /// Each side belongs on the output configured for its role. Matching on the
+    /// channel span instead put both lanes on the same output, since a split
+    /// pair shares one.
+    func testEachSideCarriesItsOwnRoleIdentifier() {
+        XCTAssertEqual(SplitChannel.left.conventionalRoleId, "dx-sfx")
+        XCTAssertEqual(SplitChannel.right.conventionalRoleId, "mx")
+        XCTAssertNotEqual(
+            SplitChannel.left.conventionalRoleId,
+            SplitChannel.right.conventionalRoleId,
+            "the two sides must not resolve to one output"
+        )
+    }
+
+    /// The identifiers have to match the roles the settings UI writes, or a
+    /// configured output will never be found.
+    func testRoleIdentifiersMatchTheConfiguredOutputs() {
+        let dx = MappedAudioOutput(name: "DX/SFX", channelStart: 2, channelCount: 2, roleId: "dx-sfx")
+        let mx = MappedAudioOutput(name: "MX", channelStart: 4, channelCount: 2, roleId: "mx")
+        let outputs = [dx, mx]
+
+        let forLeft = outputs.first { $0.roleId == SplitChannel.left.conventionalRoleId }
+        let forRight = outputs.first { $0.roleId == SplitChannel.right.conventionalRoleId }
+
+        XCTAssertEqual(forLeft?.id, dx.id)
+        XCTAssertEqual(forRight?.id, mx.id)
     }
 }

@@ -205,18 +205,6 @@ final class PlaybackEngine: ObservableObject {
     /// Cached output format
     private var audioOutputFormat: AVAudioFormat?
 
-    /// Cached extracted audio files for video tracks
-    private var extractedAudioCache: [AudioExtractionKey: URL] = [:]
-
-    /// Access order for LRU eviction of extracted audio cache
-    private var extractedAudioAccessOrder: [AudioExtractionKey] = []
-
-    /// Maximum number of extracted audio files to cache
-    private let maxExtractedAudioCacheSize = 10
-
-    /// Pending audio extractions to prevent race conditions
-    private var pendingExtractions: [AudioExtractionKey: Task<URL, Error>] = [:]
-
     /// Clips currently being loaded (to prevent duplicate load attempts)
     private var loadingClipIds: Set<UUID> = []
 
@@ -245,13 +233,6 @@ final class PlaybackEngine: ObservableObject {
     /// Seconds before reel boundary to start preloading
     private let preloadThreshold: Double = 5.0
 
-    /// Key for caching extracted audio from video files.
-    private struct AudioExtractionKey: Hashable {
-        /// Source video URL.
-        let url: URL
-        /// Audio track index within the video.
-        let trackIndex: Int
-    }
 
     /// Sendable wrapper for AVAssetExportSession used in legacy export.
     private struct ExportSessionBox: @unchecked Sendable {
@@ -260,6 +241,45 @@ final class PlaybackEngine: ObservableObject {
 
     /// State container for an actively playing audio clip.
     ///
+    /// Keeps sandbox access to a file open for as long as it is needed.
+    ///
+    /// Audio used to be copied into the app's container before playback, so
+    /// access to the user's media only had to last the length of that copy.
+    /// Playing straight from the source means the file is read again on every
+    /// seek, so access has to live as long as the open file - which is what this
+    /// ties it to.
+    final class SecurityScopedAccess {
+        /// The URL access was granted for, which a bookmark may have relocated.
+        let url: URL
+        private let didStart: Bool
+
+        /// Resolve a clip's media, preferring its bookmark.
+        ///
+        /// - Parameter clip: Clip whose source is being opened.
+        init(for clip: AudioClip) {
+            var resolved = clip.sourceURL
+            if let bookmarkData = clip.sourceBookmark {
+                var isStale = false
+                if let bookmarked = try? URL(
+                    resolvingBookmarkData: bookmarkData,
+                    options: .withSecurityScope,
+                    relativeTo: nil,
+                    bookmarkDataIsStale: &isStale
+                ) {
+                    resolved = bookmarked
+                }
+            }
+            url = resolved
+            didStart = resolved.startAccessingSecurityScopedResource()
+        }
+
+        deinit {
+            if didStart {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+    }
+
     /// Holds references to the audio graph nodes and scheduling state for a single clip.
     private final class AudioClipPlayback {
         let clipId: UUID
@@ -268,6 +288,19 @@ final class PlaybackEngine: ObservableObject {
         let matrixMixer: AVAudioUnit
         let audioFile: AVAudioFile
         let inputChannelCount: Int
+
+        /// One side of a hard-panned source, if this lane carries only that.
+        ///
+        /// The file read is the ordinary stereo one; the side is selected in the
+        /// matrix mixer, so splitting costs no extra file on disk.
+        let isolatedChannel: Int?
+
+        /// Sandbox access to the media, held for as long as the file is open.
+        ///
+        /// Audio is read straight from the user's video now, so access cannot be
+        /// released after opening the way a one-shot extraction could - the file
+        /// is read again on every seek.
+        let mediaAccess: SecurityScopedAccess?
 
         var outputMappingId: UUID?
         var outputChannelOffset: Int
@@ -281,6 +314,8 @@ final class PlaybackEngine: ObservableObject {
             matrixMixer: AVAudioUnit,
             audioFile: AVAudioFile,
             inputChannelCount: Int,
+            isolatedChannel: Int?,
+            mediaAccess: SecurityScopedAccess?,
             outputMappingId: UUID?,
             outputChannelOffset: Int,
             outputChannelCount: Int
@@ -291,6 +326,8 @@ final class PlaybackEngine: ObservableObject {
             self.matrixMixer = matrixMixer
             self.audioFile = audioFile
             self.inputChannelCount = inputChannelCount
+            self.isolatedChannel = isolatedChannel
+            self.mediaAccess = mediaAccess
             self.outputMappingId = outputMappingId
             self.outputChannelOffset = outputChannelOffset
             self.outputChannelCount = outputChannelCount
@@ -1036,23 +1073,18 @@ final class PlaybackEngine: ObservableObject {
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             do {
-                let sourceURL: URL
-                if clipSnapshot.sourceType == .videoTrack {
-                    // Use pre-extracted audio if available (fast path)
-                    if let extractedURL = clipSnapshot.extractedAudioURL,
-                       FileManager.default.fileExists(atPath: extractedURL.path) {
-                        debugPrint("loadAudioClip: using pre-extracted audio at \(extractedURL.lastPathComponent)")
-                        sourceURL = extractedURL
-                    } else {
-                        // Fallback to extraction (slow path, may fail due to security context)
-                        debugPrint("loadAudioClip: extracting audio from video track (fallback)")
-                        sourceURL = try await self.getExtractedAudioURL(for: clipSnapshot)
-                    }
-                } else {
-                    sourceURL = clipSnapshot.sourceURL
-                }
-                let audioFile = try AVAudioFile(forReading: sourceURL)
-                let playback = try await self.buildAudioPlayback(for: clipSnapshot, lane: laneSnapshot, audioFile: audioFile)
+                // Read straight from the media, video container included -
+                // `AVAudioFile` opens those directly, and a seek into one costs
+                // about two milliseconds. Copying the audio out first bought
+                // nothing except a second copy of every reel on disk.
+                let access = SecurityScopedAccess(for: clipSnapshot)
+                let audioFile = try AVAudioFile(forReading: access.url)
+                let playback = try await self.buildAudioPlayback(
+                    for: clipSnapshot,
+                    lane: laneSnapshot,
+                    audioFile: audioFile,
+                    mediaAccess: access
+                )
                 await MainActor.run {
                     self.audioPlayers[clipSnapshot.id] = playback
                     self.loadingClipIds.remove(clipSnapshot.id)
@@ -1074,84 +1106,10 @@ final class PlaybackEngine: ObservableObject {
         }
     }
 
-    /// Get or extract audio URL, coordinating concurrent requests
-    private func getExtractedAudioURL(for clip: AudioClip) async throws -> URL {
-        let key = AudioExtractionKey(
-            url: clip.sourceURL,
-            trackIndex: clip.sourceTrackIndex ?? 0
-        )
 
-        // Atomically check cache, pending task, or create new extraction
-        let taskToAwait: Task<URL, Error> = await MainActor.run {
-            // Check cache first
-            if let cached = self.extractedAudioCache[key] {
-                // Update LRU access order
-                self.updateExtractedAudioAccessOrder(key)
-                return Task { cached }
-            }
 
-            // Check for pending extraction
-            if let pendingTask = self.pendingExtractions[key] {
-                return pendingTask
-            }
 
-            // Create and register new extraction task
-            let extractionTask = Task<URL, Error> {
-                try await Self.extractAudioToTemporaryFile(for: clip, key: key)
-            }
-            self.pendingExtractions[key] = extractionTask
-            return extractionTask
-        }
 
-        do {
-            let extractedURL = try await taskToAwait.value
-            await MainActor.run {
-                self.addToExtractedAudioCache(key: key, url: extractedURL)
-                self.pendingExtractions.removeValue(forKey: key)
-            }
-            return extractedURL
-        } catch {
-            _ = await MainActor.run {
-                self.pendingExtractions.removeValue(forKey: key)
-            }
-            throw error
-        }
-    }
-
-    /// Add to extracted audio cache with LRU eviction
-    private func addToExtractedAudioCache(key: AudioExtractionKey, url: URL) {
-        // Remove oldest entries if at capacity
-        while extractedAudioCache.count >= maxExtractedAudioCacheSize,
-              let oldestKey = extractedAudioAccessOrder.first {
-            evictExtractedAudioCacheEntry(oldestKey)
-        }
-
-        extractedAudioCache[key] = url
-        extractedAudioAccessOrder.append(key)
-    }
-
-    /// Update access order for LRU tracking
-    private func updateExtractedAudioAccessOrder(_ key: AudioExtractionKey) {
-        extractedAudioAccessOrder.removeAll { $0 == key }
-        extractedAudioAccessOrder.append(key)
-    }
-
-    /// Evict a single cache entry and delete its temp file
-    private func evictExtractedAudioCacheEntry(_ key: AudioExtractionKey) {
-        if let url = extractedAudioCache.removeValue(forKey: key) {
-            try? FileManager.default.removeItem(at: url)
-        }
-        extractedAudioAccessOrder.removeAll { $0 == key }
-    }
-
-    /// Clear all extracted audio cache entries and their temp files
-    private func clearExtractedAudioCache() {
-        for url in extractedAudioCache.values {
-            try? FileManager.default.removeItem(at: url)
-        }
-        extractedAudioCache.removeAll()
-        extractedAudioAccessOrder.removeAll()
-    }
 
     /// Stop all audio clips
     private func stopAllAudioClips() {
@@ -1296,7 +1254,8 @@ final class PlaybackEngine: ObservableObject {
                 playback.matrixMixer,
                 inputChannelCount: playback.inputChannelCount,
                 outputOffset: playback.outputChannelOffset,
-                outputCount: playback.outputChannelCount
+                outputCount: playback.outputChannelCount,
+                isolatedChannel: playback.isolatedChannel
             )
             playback.player.play()
         }
@@ -1305,7 +1264,8 @@ final class PlaybackEngine: ObservableObject {
     private func buildAudioPlayback(
         for clip: AudioClip,
         lane: AudioLane,
-        audioFile: AVAudioFile
+        audioFile: AVAudioFile,
+        mediaAccess: SecurityScopedAccess?
     ) async throws -> AudioClipPlayback {
         configureAudioEngineIfNeeded()
 
@@ -1386,6 +1346,8 @@ final class PlaybackEngine: ObservableObject {
             matrixMixer: matrixMixer,
             audioFile: audioFile,
             inputChannelCount: inputChannelCount,
+            isolatedChannel: clip.sourceChannel?.channelIndex,
+            mediaAccess: mediaAccess,
             outputMappingId: lane.outputMappingId,
             outputChannelOffset: lane.outputChannelOffset,
             outputChannelCount: lane.outputChannelCount
@@ -1436,7 +1398,8 @@ final class PlaybackEngine: ObservableObject {
             playback.matrixMixer,
             inputChannelCount: playback.inputChannelCount,
             outputOffset: lane.outputChannelOffset,
-            outputCount: lane.outputChannelCount
+            outputCount: lane.outputChannelCount,
+            isolatedChannel: playback.isolatedChannel
         )
     }
 
@@ -1458,11 +1421,16 @@ final class PlaybackEngine: ObservableObject {
     ///   - inputChannelCount: Number of input channels from the audio source
     ///   - outputOffset: The starting output channel index (e.g., 2 for outputs 3-4)
     ///   - outputCount: Number of output channels to route to
+    ///   - isolatedChannel: A single input channel to take, ignoring the rest.
+    ///     Set for a lane holding one side of a hard-panned source, which reads
+    ///     the ordinary stereo file and selects its half here rather than
+    ///     playing a mono copy written to disk for the purpose.
     private func configureMatrixMixerRouting(
         _ matrixMixer: AVAudioUnit,
         inputChannelCount: Int,
         outputOffset: Int,
-        outputCount: Int
+        outputCount: Int,
+        isolatedChannel: Int? = nil
     ) {
         let audioUnit = matrixMixer.audioUnit
         let totalOutputChannels = max(2, audioOutputChannelCount)
@@ -1510,14 +1478,24 @@ final class PlaybackEngine: ObservableObject {
             if result != noErr { debugPrint("MatrixMixer crosspoint[\(inputCh)->\(outputCh)] set error: \(result)") }
         }
 
-        if inputChannelCount == 1 && outputsToFill > 1 {
+        if let isolatedChannel, isolatedChannel < inputChannelCount {
+            // One side of a hard-panned source, taken straight from the stereo
+            // file. Only this input is given a crosspoint, so the other side is
+            // simply never mixed in - the same result an extracted mono file
+            // gave, without writing one.
+            //
+            // It feeds every output channel, which is what un-pans it: a side
+            // that was hard left comes back centred.
+            for offset in 0..<outputsToFill {
+                setCrosspoint(input: isolatedChannel, output: outputOffset + offset)
+            }
+            debugPrint("MatrixMixer configured: input \(isolatedChannel) only -> outputs "
+                       + "\(outputOffset)-\(outputOffset + outputsToFill - 1) (isolated, duplicated)")
+        } else if inputChannelCount == 1 && outputsToFill > 1 {
             // A mono source feeds every channel of its output rather than only
             // the first. Mapping straight down the diagonal would send it to the
             // left of a stereo pair and leave the right silent, so the lane would
             // play hard left through no choice of the user's.
-            //
-            // This is also what de-pans a split track: each half is mono, and
-            // sending it to both sides puts it back in the centre.
             for offset in 0..<outputsToFill {
                 setCrosspoint(input: 0, output: outputOffset + offset)
             }
@@ -1853,92 +1831,6 @@ final class PlaybackEngine: ObservableObject {
         }
     }
 
-    private static func extractAudioToTemporaryFile(for clip: AudioClip, key: AudioExtractionKey) async throws -> URL {
-        // Resolve security-scoped bookmark if available, otherwise try direct access
-        let accessURL: URL
-        var didStartAccess = false
-
-        if let bookmarkData = clip.sourceBookmark {
-            var isStale = false
-            if let resolvedURL = try? URL(
-                resolvingBookmarkData: bookmarkData,
-                options: .withSecurityScope,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) {
-                accessURL = resolvedURL
-                didStartAccess = accessURL.startAccessingSecurityScopedResource()
-                debugPrint("extractAudioToTemporaryFile: resolved bookmark, startAccess=\(didStartAccess), stale=\(isStale), url=\(accessURL.lastPathComponent)")
-            } else {
-                // Bookmark resolution failed, try direct URL
-                accessURL = clip.sourceURL
-                didStartAccess = accessURL.startAccessingSecurityScopedResource()
-                debugPrint("extractAudioToTemporaryFile: bookmark failed, trying direct, startAccess=\(didStartAccess), url=\(accessURL.lastPathComponent)")
-            }
-        } else {
-            // No bookmark, try direct URL access
-            accessURL = clip.sourceURL
-            didStartAccess = accessURL.startAccessingSecurityScopedResource()
-            debugPrint("extractAudioToTemporaryFile: no bookmark, startAccess=\(didStartAccess), url=\(accessURL.lastPathComponent)")
-        }
-
-        defer {
-            if didStartAccess {
-                accessURL.stopAccessingSecurityScopedResource()
-            }
-        }
-
-        let asset = AVAsset(url: accessURL)
-        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-        guard key.trackIndex < audioTracks.count else {
-            throw PlaybackEngineError.noAudioTrack
-        }
-
-        let composition = AVMutableComposition()
-        guard let compositionTrack = composition.addMutableTrack(
-            withMediaType: .audio,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else {
-            throw PlaybackEngineError.audioExtractionFailed
-        }
-
-        let track = audioTracks[key.trackIndex]
-        let duration = try await asset.load(.duration)
-        try compositionTrack.insertTimeRange(
-            CMTimeRange(start: .zero, duration: duration),
-            of: track,
-            at: .zero
-        )
-
-        // Use passthrough - copies audio stream without re-encoding (MUCH faster)
-        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
-            throw PlaybackEngineError.audioExtractionFailed
-        }
-
-        // Stable across launches, and the same name the import path derives, so
-        // the two share one file instead of extracting the same audio twice.
-        // Use .mov container for passthrough compatibility
-        let tempURL = TemporaryAudioFiles.url(
-            for: key.url,
-            role: "track\(key.trackIndex)",
-            fileExtension: "mov"
-        )
-
-        // Remove existing file if present
-        if FileManager.default.fileExists(atPath: tempURL.path) {
-            try FileManager.default.removeItem(at: tempURL)
-        }
-
-        if #available(macOS 15.0, *) {
-            try await export.export(to: tempURL, as: .mov)
-        } else {
-            export.outputURL = tempURL
-            export.outputFileType = .mov
-            try await exportAudioLegacy(export)
-        }
-
-        return tempURL
-    }
 
     private static func exportAudioLegacy(_ export: AVAssetExportSession) async throws {
         let box = ExportSessionBox(session: export)
@@ -2316,9 +2208,9 @@ final class PlaybackEngine: ObservableObject {
         // Stop and clean up audio engine
         audioEngine.stop()
 
-        // Clear caches and delete temp files
+        // Clear caches. Nothing is extracted to disk any more, so there are no
+        // temporary files to delete alongside them.
         assetCache.removeAll()
-        clearExtractedAudioCache()
         audioPlayers.removeAll()
         failedClipCooldowns.removeAll()
     }

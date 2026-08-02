@@ -252,12 +252,12 @@ struct ContentView: View {
             setupAudioCallback()
             setupTimelineCallbacks()
 
-            // Reclaim extracted audio nothing has read in a week. Off the main
-            // thread: it stats every file in the directory, and none of it is
-            // needed before the window is usable.
+            // Reclaim the audio earlier versions extracted to disk. Nothing
+            // writes these any more. Off the main thread: it stats every file in
+            // the temporary directory, and none of it is needed before the
+            // window is usable.
             Task.detached(priority: .background) {
-                let reclaimed = TemporaryAudioFiles.purgeUnused()
-                    + TemporaryAudioFiles.purgeLegacyFiles()
+                let reclaimed = TemporaryAudioFiles.purgeLegacyFiles()
                 if reclaimed > 0 {
                     debugPrint("TemporaryAudioFiles: reclaimed \(reclaimed / 1_000_000) MB")
                 }

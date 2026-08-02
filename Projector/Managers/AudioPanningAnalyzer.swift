@@ -39,6 +39,21 @@ public enum SplitChannel: String, Codable, Sendable, Hashable, CaseIterable {
         case .right: return "MX"
         }
     }
+
+    /// Identifier of the output role this side belongs on.
+    ///
+    /// Must match `OutputRole.id` in the settings UI. Duplicated as a literal
+    /// rather than shared, because that type lives in the presentation layer and
+    /// this one may not reach into it.
+    ///
+    /// Used to send each half of a split to the output configured for its role,
+    /// so the two do not both land on whichever output happened to match first.
+    public var conventionalRoleId: String {
+        switch self {
+        case .left:  return "dx-sfx"
+        case .right: return "mx"
+        }
+    }
 }
 
 // MARK: - Panning Analysis

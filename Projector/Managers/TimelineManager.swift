@@ -609,22 +609,6 @@ final class TimelineManager: ObservableObject {
         return destinations
     }
 
-    /// Point one split clip at the mono file extracted for its channel.
-    ///
-    /// Identified by clip rather than by lane: a split lane holds one clip per
-    /// split reel, so addressing the lane alone would repoint whichever reel
-    /// happened to be split first at this reel's audio.
-    ///
-    /// - Parameters:
-    ///   - clipId: The clip to repoint.
-    ///   - laneId: Lane holding it.
-    ///   - extractedURL: The mono file written for that clip's channel.
-    func updateSplitClipSource(clipId: UUID, inLane laneId: UUID, extractedURL: URL) {
-        guard let laneIndex = timeline.audioLanes.firstIndex(where: { $0.id == laneId }),
-              var clip = timeline.audioLanes[laneIndex].clips.first(where: { $0.id == clipId }) else { return }
-        clip.extractedAudioURL = extractedURL
-        timeline.audioLanes[laneIndex].updateClip(clip)
-    }
 
     /// Remove a reel's split audio, leaving other reels' audio in place.
     ///
