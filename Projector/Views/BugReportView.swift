@@ -25,10 +25,11 @@ private enum BugReportLayout {
 
 /// Lets a user describe a problem and send it with the diagnostic report.
 ///
-/// The report is shown in full before anything is sent. Composers routinely work
-/// on unreleased material under NDA, and the report carries media file paths, so
-/// "trust us" is not good enough - the contents are on screen and the user
-/// decides.
+/// Everything the app gathered by itself is on screen before anything is sent.
+/// Composers routinely work on unreleased material under NDA, and the report
+/// carries media file paths, so "trust us" is not good enough - the collected
+/// data is visible and the user decides. Their own description is the one part
+/// not repeated in the pane, because they are looking at it as they type it.
 struct BugReportView: View {
     @ObservedObject var viewModel: BugReportViewModel
 
@@ -146,13 +147,13 @@ struct BugReportView: View {
                     }
                 }
             } label: {
-                Text("Review what will be sent")
+                Text("Review the diagnostic data")
                     .font(Typography.heading)
             }
 
-            Text("Includes your macOS version, audio and MIDI devices, project "
-                 + "statistics, media file paths, and a log of recent activity. "
-                 + "Your description is added to the top.")
+            Text("Your macOS version, audio and MIDI devices, project statistics, "
+                 + "media file paths, and a log of recent activity. What you wrote "
+                 + "above is sent along with it.")
                 .font(Typography.caption)
                 .foregroundColor(AppColors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -233,6 +234,14 @@ struct BugReportView: View {
 
             Button("Send by Email") {
                 viewModel.sendByEmail()
+                // Mail coming to the front is the confirmation - leaving the
+                // sheet up behind it just puts something in the way of the
+                // message the user now has to finish sending. A failure keeps
+                // the sheet open, because that is the case with something left
+                // to read.
+                if viewModel.outcome == .emailOpened {
+                    isPresented = false
+                }
             }
             .keyboardShortcut(.defaultAction)
             .disabled(viewModel.isPreparing)

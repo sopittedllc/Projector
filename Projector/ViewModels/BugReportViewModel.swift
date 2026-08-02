@@ -20,10 +20,13 @@ final class BugReportViewModel: ObservableObject {
     /// What the user typed. Added to the top of the report when it is sent.
     @Published var userDescription: String = ""
 
-    /// The report as it will be attached, minus the user's description.
+    /// The diagnostic half of the report - everything the app gathered on its
+    /// own, without the user's description.
     ///
-    /// Built once. The description is prepended at send time rather than
-    /// rebuilt on every keystroke.
+    /// Built once, because the log it contains can run to a hundred kilobytes
+    /// and re-rendering that on every keystroke would make the description box
+    /// stutter. The sheet says the description is added on top rather than
+    /// showing a stale placeholder in its place.
     @Published private(set) var previewText: String = ""
 
     /// True until the snapshot and log have been collected.
@@ -72,8 +75,7 @@ final class BugReportViewModel: ObservableObject {
         self.snapshot = snapshot
         self.log = log
         self.overwritten = overwritten
-        self.previewText = DiagnosticReportBuilder.build(
-            description: "",
+        self.previewText = DiagnosticReportBuilder.diagnosticSections(
             snapshot: snapshot,
             log: log,
             overwritten: overwritten

@@ -187,11 +187,29 @@ public enum DiagnosticReportBuilder {
         log: [DiagnosticEntry],
         overwritten: Int
     ) -> String {
-        var out = ""
-
-        out += section("WHAT HAPPENED")
+        var out = section("WHAT HAPPENED")
         let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
         out += trimmed.isEmpty ? "(no description given)\n" : "\(trimmed)\n"
+        return out + diagnosticSections(
+            snapshot: snapshot,
+            log: log,
+            overwritten: overwritten
+        )
+    }
+
+    /// Everything the app collected on its own, without the user's description.
+    ///
+    /// This is what the review pane shows. Rebuilding the whole report on every
+    /// keystroke would mean re-laying out a log that can run to a hundred
+    /// kilobytes or more, so the user's own words are left out here and the
+    /// sheet says so - rather than the pane claiming no description was given
+    /// while the user is looking at the one they just typed.
+    public static func diagnosticSections(
+        snapshot: DiagnosticSnapshot,
+        log: [DiagnosticEntry],
+        overwritten: Int
+    ) -> String {
+        var out = ""
 
         out += section("APPLICATION")
         out += line("Version", "\(snapshot.appVersion) (build \(snapshot.appBuild))")
