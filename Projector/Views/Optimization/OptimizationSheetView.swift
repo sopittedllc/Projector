@@ -66,11 +66,11 @@ struct OptimizationSheetView: View {
                 debugPrint("OptimizationSheetView: NOT calling analyze() - isProjectSaved: \(viewModel.isProjectSaved), state: \(viewModel.state)")
             }
         }
-        .onChange(of: viewModel.state) { oldState, newState in
-            debugPrint("OptimizationSheetView: state changed from \(oldState) to \(newState)")
+        .onChangeCompat(of: viewModel.state) { newState in
+            debugPrint("OptimizationSheetView: state changed to \(newState)")
         }
-        .onChange(of: projectDocument.fileURL) { oldURL, newURL in
-            debugPrint("OptimizationSheetView: projectDocument.fileURL changed from \(String(describing: oldURL)) to \(String(describing: newURL))")
+        .onChangeCompat(of: projectDocument.fileURL) { newURL in
+            debugPrint("OptimizationSheetView: projectDocument.fileURL changed to \(String(describing: newURL))")
         }
     }
 

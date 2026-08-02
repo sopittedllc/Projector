@@ -397,7 +397,17 @@ final class ProjectMediaLibrary: ObservableObject {
 
         do {
             let time = CMTime(seconds: 1, preferredTimescale: 600)
-            let cgImage = try await generator.image(at: time).image
+            // `image(at:)` is macOS 13. The continuation-wrapped callback API
+            // is available on Monterey and returns the same picture.
+            let cgImage: CGImage = try await withCheckedThrowingContinuation { continuation in
+                generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: time)]) { _, image, _, _, error in
+                    if let image {
+                        continuation.resume(returning: image)
+                    } else {
+                        continuation.resume(throwing: error ?? CocoaError(.fileReadUnknown))
+                    }
+                }
+            }
 
             // Convert CGImage to PNG data using ImageIO
             let mutableData = NSMutableData()

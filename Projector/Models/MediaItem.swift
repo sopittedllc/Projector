@@ -74,7 +74,9 @@ final class DragContext: ObservableObject {
     private func scheduleCleanup() {
         cleanupTask?.cancel()
         cleanupTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(self?.cleanupTimeout ?? 5.0))
+            // `Task.sleep(for:)` is macOS 13; nanoseconds works on Monterey.
+            let timeout = self?.cleanupTimeout ?? 5.0
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             guard !Task.isCancelled else { return }
             // If we get here, the drag was likely cancelled (no drop handler called)
             if self?.isDragging == true {

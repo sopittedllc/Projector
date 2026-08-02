@@ -324,15 +324,10 @@ struct MultiTrackTimelineView: View {
     private var bodyWithFocus: some View {
         bodyWithVisuals
             .focusable()
-            .focusEffectDisabled()
+            .focusRingHidden()
             .focused($isTimelineFocused)
             .onDeleteCommand {
                 deleteSelectedItem()
-            }
-            .onKeyPress(.return) {
-                guard !isEditingText else { return .ignored }
-                playbackEngine.stop()
-                return .handled
             }
     }
 
@@ -350,7 +345,7 @@ struct MultiTrackTimelineView: View {
             .alert("Extend Timeline?", isPresented: $showExtendDurationConfirmation) {
                 Button("Cancel", role: .cancel) {
                     pendingSeekFrame = nil
-                    editingPositionText = timelineManager.currentTimecode.stringValue()
+                    editingPositionText = playheadTimecodeString()
                 }
                 Button("Extend") {
                     confirmExtendAndSeek()
@@ -363,21 +358,21 @@ struct MultiTrackTimelineView: View {
     /// onChange handlers for selection and playback.
     private var bodyWithOnChange: some View {
         bodyWithDialogs
-            .onChange(of: selectedVideoReelId) { _, newValue in
+            .onChangeCompat(of: selectedVideoReelId) { newValue in
                 if newValue != nil {
                     isTimelineFocused = true
                 }
             }
-            .onChange(of: selectedAudioClipId) { _, newValue in
+            .onChangeCompat(of: selectedAudioClipId) { newValue in
                 if newValue != nil {
                     isTimelineFocused = true
                 }
             }
-            .onChange(of: playbackEngine.currentFrame) { _, _ in
+            .onChangeCompat(of: playbackEngine.currentFrame) { _ in
                 updateActiveAudioClipIds()
                 scrollPlayheadIntoViewIfNeeded()
             }
-            .onChange(of: cachedScrollView) { _, scrollView in
+            .onChangeCompat(of: cachedScrollView) { scrollView in
                 scrollView?.contentView.postsBoundsChangedNotifications = true
                 horizontalScrollOffset = scrollView?.contentView.bounds.origin.x ?? 0
             }
@@ -431,30 +426,18 @@ struct MultiTrackTimelineView: View {
     /// Keyboard navigation handlers.
     private var bodyWithKeyboardHandlers: some View {
         bodyWithNotifications
-            .onKeyPress(.escape) {
-                guard !isEditingText else { return .ignored }
-                deselectAll()
-                return .handled
-            }
-            .onKeyPress(.leftArrow) {
-                guard !isEditingText else { return .ignored }
-                navigateSelection(direction: .left)
-                return .handled
-            }
-            .onKeyPress(.rightArrow) {
-                guard !isEditingText else { return .ignored }
-                navigateSelection(direction: .right)
-                return .handled
-            }
-            .onKeyPress(.upArrow) {
-                guard !isEditingText else { return .ignored }
-                navigateSelection(direction: .up)
-                return .handled
-            }
-            .onKeyPress(.downArrow) {
-                guard !isEditingText else { return .ignored }
-                navigateSelection(direction: .down)
-                return .handled
+            // Return lives here too now, so every key the timeline claims is
+            // declared in one place rather than split across two modifiers.
+            .onTimelineKey(isEnabled: !isEditingText) { key in
+                switch key {
+                case .returnKey: playbackEngine.stop()
+                case .escape:    deselectAll()
+                case .leftArrow:  navigateSelection(direction: .left)
+                case .rightArrow: navigateSelection(direction: .right)
+                case .upArrow:    navigateSelection(direction: .up)
+                case .downArrow:  navigateSelection(direction: .down)
+                }
+                return true
             }
     }
 
@@ -631,7 +614,7 @@ struct MultiTrackTimelineView: View {
                 .textFieldStyle(.roundedBorder)
                 .font(Typography.monoDisplay)
                 .frame(width: 150)
-                .onChange(of: timecodeEntryText) { _, newValue in
+                .onChangeCompat(of: timecodeEntryText) { newValue in
                     timecodeEntryText = formatTimecodeInput(newValue)
                     timecodeEntryError = nil // Clear error when user types
                 }
@@ -834,13 +817,13 @@ struct MultiTrackTimelineView: View {
                 isFocused: $isStartTCFocused
             )
             .frame(width: 85)
-            .onChange(of: editingStartTCText) { _, newValue in
+            .onChangeCompat(of: editingStartTCText) { newValue in
                 let formatted = formatTimecodeInput(newValue)
                 if formatted != newValue {
                     editingStartTCText = formatted
                 }
             }
-            .onChange(of: isStartTCFocused) { _, focused in
+            .onChangeCompat(of: isStartTCFocused) { focused in
                 // Save on blur
                 if !focused {
                     applyStartTimecode()
@@ -891,18 +874,18 @@ struct MultiTrackTimelineView: View {
                     applyPosition()
                 },
                 onEscape: {
-                    editingPositionText = timelineManager.currentTimecode.stringValue()
+                    editingPositionText = timeline.config.timecode(at: playbackEngine.currentFrame).stringValue()
                 },
                 isFocused: $isPositionFocused
             )
             .frame(width: 85)
-            .onChange(of: editingPositionText) { _, newValue in
+            .onChangeCompat(of: editingPositionText) { newValue in
                 let formatted = formatTimecodeInput(newValue)
                 if formatted != newValue {
                     editingPositionText = formatted
                 }
             }
-            .onChange(of: isPositionFocused) { _, focused in
+            .onChangeCompat(of: isPositionFocused) { focused in
                 if !focused {
                     applyPosition()
                 }
@@ -921,14 +904,16 @@ struct MultiTrackTimelineView: View {
         .onHover { hovering in
             isHoveringPosition = hovering
         }
-        .onChange(of: timelineManager.currentFrame) { _, _ in
-            // Update the displayed position when playhead moves (unless editing)
-            if !isPositionFocused {
-                editingPositionText = timelineManager.currentTimecode.stringValue()
-            }
+        // Follows the playhead the timeline actually draws, which comes from the
+        // playback engine. This watched `timelineManager.currentFrame`, which is
+        // only ever written by a manual seek - so the field sat at the timeline
+        // start for the whole session while the playhead moved without it.
+        .onChangeCompat(of: playbackEngine.currentFrame) { frame in
+            guard !isPositionFocused else { return }
+            editingPositionText = timeline.config.timecode(at: frame).stringValue()
         }
         .onAppear {
-            editingPositionText = timelineManager.currentTimecode.stringValue()
+            editingPositionText = timeline.config.timecode(at: playbackEngine.currentFrame).stringValue()
         }
     }
 
@@ -984,11 +969,20 @@ struct MultiTrackTimelineView: View {
         }
     }
 
+    /// The timecode of the playhead the timeline is actually drawing.
+    ///
+    /// `timelineManager.currentFrame` is only ever written by a manual seek, so
+    /// reading it here left the field showing the timeline start.
+    private func playheadTimecodeString() -> String {
+        timelineManager.timeline.config
+            .timecode(at: playbackEngine.currentFrame).stringValue()
+    }
+
     private func applyPosition() {
         isPositionFocused = false
         guard let newTC = parseTimecode(editingPositionText) else {
             // Reset to current value if invalid
-            editingPositionText = timelineManager.currentTimecode.stringValue()
+            editingPositionText = timeline.config.timecode(at: playbackEngine.currentFrame).stringValue()
             return
         }
 
@@ -1004,7 +998,7 @@ struct MultiTrackTimelineView: View {
             showExtendDurationConfirmation = true
         } else if targetFrame < 0 {
             // Can't seek before timeline start
-            editingPositionText = timelineManager.currentTimecode.stringValue()
+            editingPositionText = timeline.config.timecode(at: playbackEngine.currentFrame).stringValue()
         } else {
             // Within bounds, seek directly
             timelineManager.seekToFrame(targetFrame)
@@ -1026,7 +1020,7 @@ struct MultiTrackTimelineView: View {
         // Now seek to the target frame
         timelineManager.seekToFrame(targetFrame)
         onSeek(targetFrame)
-        editingPositionText = timelineManager.currentTimecode.stringValue()
+        editingPositionText = playheadTimecodeString()
 
         pendingSeekFrame = nil
     }
@@ -1726,7 +1720,7 @@ struct MultiTrackTimelineView: View {
                         .focused($isVideoNameFieldFocused)
                         .onSubmit { commitVideoNameEdit(for: reel) }
                         .onExitCommand { cancelVideoNameEdit(for: reel) }
-                        .onChange(of: isVideoNameFieldFocused) { _, focused in
+                        .onChangeCompat(of: isVideoNameFieldFocused) { focused in
                             if !focused && isEditingVideoName {
                                 commitVideoNameEdit(for: reel)
                             }

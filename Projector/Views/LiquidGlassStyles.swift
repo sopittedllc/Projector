@@ -253,7 +253,7 @@ private struct GlassTextButtonBody: View {
         configuration.label
             .font(Typography.label)
             .foregroundColor(isHovered ? tint : tint.opacity(0.8))
-            .underline(isHovered)
+            .modifier(UnderlineWhenHovered(isUnderlined: isHovered))
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(AppAnimations.quick, value: configuration.isPressed)
             .animation(AppAnimations.quick, value: isHovered)
@@ -561,4 +561,27 @@ extension Color {
     .padding(Spacing.xxl)
     .frame(width: 400, height: 350)
     .background(Color.black.opacity(0.8))
+}
+
+
+/// Underlines a label, using the real text underline where it exists.
+///
+/// `underline(_:pattern:color:)` is macOS 13. On newer systems this is exactly
+/// the modifier that was here before; older ones get a rule beneath the label,
+/// which spans the control rather than hugging the text.
+private struct UnderlineWhenHovered: ViewModifier {
+    let isUnderlined: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 13, *) {
+            content.underline(isUnderlined)
+        } else if isUnderlined {
+            content.overlay(alignment: .bottom) {
+                Rectangle().frame(height: 1)
+            }
+        } else {
+            content
+        }
+    }
 }

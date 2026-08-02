@@ -148,7 +148,7 @@ struct VideoTrackView: View {
                 .focused($isNameFieldFocused)
                 .onSubmit { commitNameEdit(for: reel) }
                 .onExitCommand { cancelNameEdit(for: reel) }
-                .onChange(of: isNameFieldFocused) { _, focused in
+                .onChangeCompat(of: isNameFieldFocused) { focused in
                     if focused {
                         selectAllInFieldEditor()
                     } else if isEditingName {

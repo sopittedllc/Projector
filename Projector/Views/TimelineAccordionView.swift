@@ -100,7 +100,7 @@ struct TimelineAccordionView: View {
         // that duration - so without this the newly added media lands outside
         // the visible span and the timeline appears not to have taken it. Only
         // fires on growth, so zooming in and working stays undisturbed.
-        .onChange(of: timelineManager.timeline.config.durationFrames) { oldValue, newValue in
+        .onChangeWithPrevious(of: timelineManager.timeline.config.durationFrames) { oldValue, newValue in
             guard newValue > oldValue else { return }
             withAnimation(AppAnimations.standard) {
                 timelineViewModel.zoomLevel = timelineViewModel.minZoom
@@ -330,7 +330,7 @@ struct TimelinePositionControl: View {
                     applyPosition()
                 },
                 onEscape: {
-                    editingPositionText = timelineManager.currentTimecode.stringValue()
+                    editingPositionText = playheadTimecodeString()
                 },
                 isFocused: $isPositionFocused
             )
@@ -366,13 +366,13 @@ struct TimelinePositionControl: View {
             }
         }
         .help("Click to edit playhead position")
-        .onChange(of: editingPositionText) { _, newValue in
+        .onChangeCompat(of: editingPositionText) { newValue in
             let formatted = formatTimecodeInput(newValue)
             if formatted != newValue {
                 editingPositionText = formatted
             }
         }
-        .onChange(of: isPositionFocused) { wasFocused, isFocused in
+        .onChangeWithPrevious(of: isPositionFocused) { wasFocused, isFocused in
             if !isFocused && wasFocused {
                 // Don't apply again if we already applied via onSubmit (Return key)
                 if !didApplyOnSubmit {
@@ -381,18 +381,21 @@ struct TimelinePositionControl: View {
                 didApplyOnSubmit = false
             }
         }
-        .onChange(of: timelineManager.currentFrame) { _, _ in
-            if !isPositionFocused {
-                editingPositionText = timelineManager.currentTimecode.stringValue()
-            }
+        // Follows the playhead the timeline actually draws. This watched
+        // `timelineManager.currentFrame`, which only a manual seek ever writes,
+        // so the field sat at the timeline start while the playhead moved.
+        .onChangeCompat(of: playbackEngine.currentFrame) { frame in
+            guard !isPositionFocused else { return }
+            editingPositionText = timelineManager.timeline.config.timecode(at: frame).stringValue()
         }
         .onAppear {
-            editingPositionText = timelineManager.currentTimecode.stringValue()
+            editingPositionText = timelineManager.timeline.config
+                .timecode(at: playbackEngine.currentFrame).stringValue()
         }
         .alert("Extend Timeline?", isPresented: $showExtendConfirmation) {
             Button("Cancel", role: .cancel) {
                 pendingSeekFrame = nil
-                editingPositionText = timelineManager.currentTimecode.stringValue()
+                editingPositionText = playheadTimecodeString()
             }
             Button("Extend") {
                 confirmExtendAndSeek()
@@ -417,9 +420,18 @@ struct TimelinePositionControl: View {
         return result
     }
 
+    /// The timecode of the playhead the timeline is actually drawing.
+    ///
+    /// `timelineManager.currentFrame` is only ever written by a manual seek, so
+    /// reading it here left the field showing the timeline start.
+    private func playheadTimecodeString() -> String {
+        timelineManager.timeline.config
+            .timecode(at: playbackEngine.currentFrame).stringValue()
+    }
+
     private func applyPosition() {
         guard let newTC = parseTimecode(editingPositionText) else {
-            editingPositionText = timelineManager.currentTimecode.stringValue()
+            editingPositionText = playheadTimecodeString()
             isPositionFocused = false
             return
         }
@@ -433,7 +445,7 @@ struct TimelinePositionControl: View {
             pendingSeekFrame = targetFrame
             showExtendConfirmation = true
         } else if targetFrame < 0 {
-            editingPositionText = timelineManager.currentTimecode.stringValue()
+            editingPositionText = playheadTimecodeString()
         } else {
             // Use playbackEngine.seekToFrame which updates both playback and UI
             playbackEngine.seekToFrame(targetFrame)
@@ -571,13 +583,13 @@ struct TimelineTimecodeControls: View {
             }
         }
         .help("Click to edit start timecode")
-        .onChange(of: editingStartTCText) { _, newValue in
+        .onChangeCompat(of: editingStartTCText) { newValue in
             let formatted = formatTimecodeInput(newValue)
             if formatted != newValue {
                 editingStartTCText = formatted
             }
         }
-        .onChange(of: isStartTCFocused) { wasFocused, isFocused in
+        .onChangeWithPrevious(of: isStartTCFocused) { wasFocused, isFocused in
             if !isFocused && wasFocused {
                 // Don't apply again if we already applied via onSubmit (Return key)
                 if !didApplyOnSubmit {
@@ -586,7 +598,7 @@ struct TimelineTimecodeControls: View {
                 didApplyOnSubmit = false
             }
         }
-        .onChange(of: timelineManager.timeline.config.startTimecode) { _, newValue in
+        .onChangeCompat(of: timelineManager.timeline.config.startTimecode) { newValue in
             if !isStartTCFocused {
                 editingStartTCText = newValue.stringValue()
             }
@@ -770,7 +782,7 @@ struct TimelineHeaderReadouts: View {
         .accessibilityLabel(readoutTooltip)
         // Drive the flash only while mismatched, and settle to fully opaque when
         // resolved so the readout doesn't freeze mid-fade.
-        .onChange(of: frameRateMismatch) { _, mismatched in
+        .onChangeCompat(of: frameRateMismatch) { mismatched in
             if mismatched {
                 withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
                     mismatchFlash = 0.25

@@ -63,6 +63,8 @@
 		B19B58B82F0889F200FA33EC /* MIDISyncViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B62F0889F200FA33EC /* MIDISyncViewModel.swift */; };
 		B19B58B92F0889F200FA33EC /* MIDISyncServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B12F0889F200FA33EC /* MIDISyncServiceProtocol.swift */; };
 		B19B58BA2F0889F200FA33EC /* LayoutConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B42F0889F200FA33EC /* LayoutConstants.swift */; };
+		OCC001COMPAT00002 /* OnChangeCompat.swift in Sources */ = {isa = PBXBuildFile; fileRef = OCC001COMPAT00001 /* OnChangeCompat.swift */; };
+		KPC001COMPAT00002 /* KeyPressCompat.swift in Sources */ = {isa = PBXBuildFile; fileRef = KPC001COMPAT00001 /* KeyPressCompat.swift */; };
 		DEBUGLOG00000002 /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBUGLOG00000001 /* DebugLog.swift */; };
 		B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */; };
 		B19B58BD2F088AEA00FA33EC /* MIDISyncActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */; };
@@ -208,6 +210,8 @@
 		B19B58B12F0889F200FA33EC /* MIDISyncServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncServiceProtocol.swift; sourceTree = "<group>"; };
 		B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportServiceProtocol.swift; sourceTree = "<group>"; };
 		B19B58B42F0889F200FA33EC /* LayoutConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutConstants.swift; sourceTree = "<group>"; };
+		OCC001COMPAT00001 /* OnChangeCompat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnChangeCompat.swift; sourceTree = "<group>"; };
+		KPC001COMPAT00001 /* KeyPressCompat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyPressCompat.swift; sourceTree = "<group>"; };
 		DEBUGLOG00000001 /* DebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLog.swift; sourceTree = "<group>"; };
 		B19B58B62F0889F200FA33EC /* MIDISyncViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncViewModel.swift; sourceTree = "<group>"; };
 		B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncActor.swift; sourceTree = "<group>"; };
@@ -516,6 +520,8 @@
 			isa = PBXGroup;
 			children = (
 				B19B58B42F0889F200FA33EC /* LayoutConstants.swift */,
+				OCC001COMPAT00001 /* OnChangeCompat.swift */,
+				KPC001COMPAT00001 /* KeyPressCompat.swift */,
 				DEBUGLOG00000001 /* DebugLog.swift */,
 			);
 			path = Utilities;
@@ -787,6 +793,8 @@
 				553738493E8342C88FB81BA3 /* FloatingVideoPanel.swift in Sources */,
 				B19B58B92F0889F200FA33EC /* MIDISyncServiceProtocol.swift in Sources */,
 				B19B58BA2F0889F200FA33EC /* LayoutConstants.swift in Sources */,
+				OCC001COMPAT00002 /* OnChangeCompat.swift in Sources */,
+				KPC001COMPAT00002 /* KeyPressCompat.swift in Sources */,
 				DEBUGLOG00000002 /* DebugLog.swift in Sources */,
 				B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */,
 				BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */,
@@ -886,7 +894,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = ProjectorUITests;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.projector.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
@@ -903,7 +911,7 @@
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = ProjectorUITests;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.projector.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
@@ -965,7 +973,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -1024,7 +1032,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -1115,7 +1123,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.projector.app.ProjectorQuickLook;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1148,7 +1156,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.projector.app.ProjectorQuickLook;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1176,7 +1184,7 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.projector.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
@@ -1197,7 +1205,7 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.projector.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;

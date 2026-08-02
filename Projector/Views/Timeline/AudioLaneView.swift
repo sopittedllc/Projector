@@ -130,7 +130,7 @@ struct AudioLaneView: View {
         .onAppear {
             applyDefaultMappingIfNeeded()
         }
-        .onChange(of: availableAudioOutputs) { _, _ in
+        .onChangeCompat(of: availableAudioOutputs) { _ in
             applyDefaultMappingIfNeeded()
         }
     }
@@ -178,7 +178,7 @@ struct AudioLaneView: View {
                         .focused($isNameFieldFocused)
                         .onSubmit { commitNameEdit() }
                         .onExitCommand { cancelNameEdit() }
-                        .onChange(of: isNameFieldFocused) { _, focused in
+                        .onChangeCompat(of: isNameFieldFocused) { focused in
                             if focused {
                                 selectAllInFieldEditor()
                             } else if isEditingName {

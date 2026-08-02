@@ -100,14 +100,7 @@ struct AudioClipView: View {
                 // Waveform area
                 ZStack {
                     waveformLayer
-                        .clipShape(
-                            UnevenRoundedRectangle(
-                                topLeadingRadius: 0,
-                                bottomLeadingRadius: 4,
-                                bottomTrailingRadius: 4,
-                                topTrailingRadius: 0
-                            )
-                        )
+                        .modifier(BottomRoundedClip(radius: 4))
                 }
                 .frame(height: trackHeight - headerHeight)
             }
@@ -456,4 +449,55 @@ private struct WaveformBarsView: Shape {
     }
     .padding()
     .background(Color(white: 0.15))
+}
+
+/// Clips to a shape rounded on its bottom corners only.
+///
+/// Uses `UnevenRoundedRectangle` wherever it exists, so the corners are drawn by
+/// the same code as before. Older systems get the hand-built path below, whose
+/// quadratic corners are a close but not pixel-identical match.
+struct BottomRoundedClip: ViewModifier {
+    let radius: CGFloat
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 13, *) {
+            content.clipShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: radius,
+                    bottomTrailingRadius: radius,
+                    topTrailingRadius: 0
+                )
+            )
+        } else {
+            content.clipShape(BottomRoundedRectangle(radius: radius))
+        }
+    }
+}
+
+/// A rectangle rounded on its bottom corners only, for systems without
+/// `UnevenRoundedRectangle`.
+struct BottomRoundedRectangle: Shape {
+    let radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let r = min(radius, min(rect.width, rect.height) / 2)
+
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - r, y: rect.maxY),
+            control: CGPoint(x: rect.maxX, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX, y: rect.maxY - r),
+            control: CGPoint(x: rect.minX, y: rect.maxY)
+        )
+        path.closeSubpath()
+        return path
+    }
 }

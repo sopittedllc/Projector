@@ -689,7 +689,7 @@ struct ChooseOutputSheet: View {
         }
         .padding()
         .frame(width: 380, height: role.fixedName == nil ? 260 : 220)
-        .onChange(of: isStereo) { _, _ in
+        .onChangeCompat(of: isStereo) { _ in
             // The previous pick may not survive the format change - a channel
             // that works as mono can be the last one, with no partner for a pair.
             if let channel = firstChannel, !selectableChannels.contains(channel) {

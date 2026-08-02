@@ -67,7 +67,7 @@ struct VideoInsertSheetView: View {
                 .font(.system(size: 13, design: .monospaced))
                 .textFieldStyle(.roundedBorder)
                 .focused($isTimecodeFocused)
-                .onChange(of: timecodeText) { _, newValue in
+                .onChangeCompat(of: timecodeText) { newValue in
                     timecodeText = Self.formatTimecodeInput(newValue)
                 }
                 .onSubmit {

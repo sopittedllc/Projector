@@ -14,8 +14,13 @@ struct ProjectorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        // Single window app - only one project open at a time
-        Window("Projector", id: "main") {
+        // Single window app - only one project open at a time.
+        //
+        // `WindowGroup` rather than `Window`, which is macOS 13+ and would put
+        // the floor above the Monterey machines composers are still working on.
+        // The group can in principle open more than one window; the New Item
+        // command is removed below, which is what actually keeps it to one.
+        WindowGroup("Projector", id: "main") {
             ContentView()
         }
         .windowStyle(.automatic)

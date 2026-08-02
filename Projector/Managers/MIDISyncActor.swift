@@ -334,7 +334,8 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// Shorter than the 1.5s staleness threshold in
     /// `decayIncomingSignalIfStale()`, so a feed that stops is reported as gone
     /// within roughly two seconds.
-    private static let heartbeatInterval: Duration = .milliseconds(500)
+    /// Expressed in nanoseconds rather than `Duration`, which is macOS 13.
+    private static let heartbeatNanoseconds: UInt64 = 500 * NSEC_PER_MSEC
 
     /// Starts the periodic state emission.
     ///
@@ -349,7 +350,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         idleHeartbeat?.cancel()
         idleHeartbeat = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: Self.heartbeatInterval)
+                try? await Task.sleep(nanoseconds: Self.heartbeatNanoseconds)
                 guard !Task.isCancelled else { return }
                 await self?.emitState()
             }

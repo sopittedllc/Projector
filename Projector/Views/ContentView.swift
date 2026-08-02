@@ -378,13 +378,13 @@ struct ContentView: View {
             }
             .padding(SectionLayout.margin)
             .onAppear { contentHeight = sections.everything.height }
-            .onChange(of: sections.everything.height) { _, newValue in
+            .onChangeCompat(of: sections.everything.height) { newValue in
                 contentHeight = newValue
             }
             // Outputs defined in Settings are the source of truth for
             // routing; lanes follow. See the audio routing authority in
             // TimelineManager.
-            .onChange(of: audioManager.mappedOutputs) { _, outputs in
+            .onChangeCompat(of: audioManager.mappedOutputs) { outputs in
                 timelineManager.reconcileOutputMappings(with: outputs)
             }
         }
@@ -429,23 +429,23 @@ struct ContentView: View {
         // is captured whenever the content area changes size, which is the only
         // thing a user resize can produce now that nothing resizes the window
         // back at them.
-        .onChange(of: contentHeight) { _, _ in captureMainWindowFrame() }
-        .onChange(of: topRowShare) { _, newValue in
+        .onChangeCompat(of: contentHeight) { _ in captureMainWindowFrame() }
+        .onChangeCompat(of: topRowShare) { newValue in
             projectDocument.updateUIState { $0.topRowShare = Double(newValue) }
             captureMainWindowFrame()
         }
-        .onChange(of: timelineViewModel.isExpanded) { _, newValue in
+        .onChangeCompat(of: timelineViewModel.isExpanded) { newValue in
             projectDocument.updateUIState { $0.timelineExpanded = newValue }
         }
         // Reapply when a different project is opened.
-        .onChange(of: projectDocument.fileURL) { _, _ in applySavedUIState() }
+        .onChangeCompat(of: projectDocument.fileURL) { _ in applySavedUIState() }
         // Size the player window to the media, so that if it is popped out it
         // arrives on the video's aspect rather than a fixed 640x360.
         //
         // It is no longer *shown* here: the video now appears inline in the
         // main window, and opening the separate window on import would pull the
         // picture straight back out of it.
-        .onChange(of: timelineManager.timeline.videoReels.count) { oldCount, newCount in
+        .onChangeWithPrevious(of: timelineManager.timeline.videoReels.count) { oldCount, newCount in
             if oldCount == 0 && newCount > 0 {
                 // Only when the project has no player layout of its own. A saved
                 // frame is a size the user chose - matching the media is a
@@ -461,7 +461,7 @@ struct ContentView: View {
                 dismissTimecodeEditing()
             }
         )
-        .onChange(of: audioManager.mappedOutputs) { _, outputs in
+        .onChangeCompat(of: audioManager.mappedOutputs) { outputs in
             guard !outputs.isEmpty else { return }
             let lanes = timelineManager.timeline.audioLanes
             var didAssign = false
@@ -476,7 +476,7 @@ struct ContentView: View {
             }
         }
         // Sync to PlaybackEngine when lane output mappings change (e.g., from dropdown)
-        .onChange(of: timelineManager.timeline.audioLanes.map { LaneOutputState(id: $0.id, mappingId: $0.outputMappingId, offset: $0.outputChannelOffset, count: $0.outputChannelCount) }) { _, _ in
+        .onChangeCompat(of: timelineManager.timeline.audioLanes.map { LaneOutputState(id: $0.id, mappingId: $0.outputMappingId, offset: $0.outputChannelOffset, count: $0.outputChannelCount) }) { _ in
             syncTimelineToPlaybackEngine()
         }
     }
@@ -663,7 +663,7 @@ struct ContentView: View {
             onExportCueList: { handleExportCueList() },
             height: sections.timeline.height
         )
-        .onChange(of: mediaLibrary.items.count) { oldCount, newCount in
+        .onChangeCompat(of: mediaLibrary.items.count) { newCount in
             // Auto-expand timeline when media is first imported
             if newCount > 0 && !timelineViewModel.isExpanded {
                 timelineViewModel.expandIfNeeded()

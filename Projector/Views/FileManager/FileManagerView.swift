@@ -188,7 +188,7 @@ struct FileManagerView: View {
         .glassPanel()
         .onAppear {
         }
-        .onChange(of: mediaLibrary.items.count) { oldCount, newCount in
+        .onChangeWithPrevious(of: mediaLibrary.items.count) { oldCount, newCount in
             // If items were removed, re-check if suggestion is still valid
             if newCount < oldCount {
                 reevaluateOptimizationSuggestion()
@@ -256,7 +256,7 @@ struct FileManagerView: View {
                     }
             }
         }
-        .onChange(of: showOptimizationSheet) { _, isShowing in
+        .onChangeCompat(of: showOptimizationSheet) { isShowing in
             if isShowing && optimizationViewModel == nil {
                 // Create ViewModel when sheet is about to show
                 optimizationViewModel = OptimizationViewModel(
@@ -280,13 +280,13 @@ struct FileManagerView: View {
             )
         }
         // Take focus when an item is selected
-        .onChange(of: selectedItemIds) { _, newValue in
+        .onChangeCompat(of: selectedItemIds) { newValue in
             if !newValue.isEmpty {
                 isMediaListFocused = true
             }
         }
         // Re-open optimization or consolidation sheet after project is saved
-        .onChange(of: projectDocument.fileURL) { oldURL, newURL in
+        .onChangeWithPrevious(of: projectDocument.fileURL) { oldURL, newURL in
             if oldURL == nil && newURL != nil {
                 if pendingOptimizationAfterSave {
                     pendingOptimizationAfterSave = false
@@ -384,7 +384,7 @@ struct FileManagerView: View {
             GeometryReader { geo in
                 Color.clear
                     .onAppear { headerBarWidth = geo.size.width }
-                    .onChange(of: geo.size.width) { _, newWidth in
+                    .onChangeCompat(of: geo.size.width) { newWidth in
                         headerBarWidth = newWidth
                     }
             }
@@ -572,7 +572,7 @@ struct FileManagerView: View {
                                         // Store frame in coordinate space of scroll content
                                         itemFrames[item.id] = cellGeometry.frame(in: .named("mediaScrollContent"))
                                     }
-                                    .onChange(of: cellGeometry.frame(in: .named("mediaScrollContent"))) { _, newFrame in
+                                    .onChangeCompat(of: cellGeometry.frame(in: .named("mediaScrollContent"))) { newFrame in
                                         itemFrames[item.id] = newFrame
                                     }
                             }
@@ -582,7 +582,10 @@ struct FileManagerView: View {
                 .padding(Spacing.sm)
                 .coordinateSpace(name: "mediaScrollContent")
             }
-            .scrollIndicators(.visible)
+            // Kept exactly as it was wherever the modifier exists. Below
+            // macOS 13 the indicators follow the system default instead, which
+            // means they fade rather than staying visible.
+            .modifier(AlwaysVisibleScrollIndicators())
             .coordinateSpace(name: "mediaScrollOuter")
             // Marquee selection gesture - use simultaneous gesture to not block scrolling
             .gesture(
@@ -1127,4 +1130,20 @@ enum OptimizationStatusHelper {
     }
 
     return PreviewWrapper()
+}
+
+
+/// Pins scroll indicators visible where `scrollIndicators(_:)` exists.
+///
+/// macOS 13 introduced the modifier. Older systems fall through unchanged, so
+/// their indicators behave as the system decides.
+private struct AlwaysVisibleScrollIndicators: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 13, *) {
+            content.scrollIndicators(.visible)
+        } else {
+            content
+        }
+    }
 }
