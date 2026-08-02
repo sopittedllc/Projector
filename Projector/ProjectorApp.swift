@@ -55,6 +55,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     func applicationDidFinishLaunching(_ notification: Notification) {
         debugPrint("AppDelegate: applicationDidFinishLaunching")
 
+        // Reading it here fixes the session clock at launch rather than at the
+        // moment someone first opens a bug report.
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        diagnosticLog(.info, .app, "Launched \(version) at \(SystemFacts.launchDate)")
+
         // Allow developers to exercise onboarding intentionally without making
         // every Debug launch forget the user's completed setup.
         #if DEBUG
@@ -371,7 +376,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         }
         mainMenu.insertItem(viewMenuItem, at: 3)
 
-        debugPrint("setupMenus: DONE. Added Edit and View menus")
+        // Help > Report a Bug.
+        //
+        // The menus above are inserted at fixed indices because this code owns
+        // them outright. Help is different: macOS keeps it last and may have
+        // built one already, so this appends to whatever is there instead of
+        // replacing a menu the system is entitled to add its own items to.
+        let helpMenu: NSMenu
+        if let existing = mainMenu.items.first(where: { $0.title == "Help" })?.submenu {
+            helpMenu = existing
+        } else {
+            helpMenu = NSMenu(title: "Help")
+            let helpMenuItem = NSMenuItem(title: "Help", action: nil, keyEquivalent: "")
+            helpMenuItem.submenu = helpMenu
+            mainMenu.addItem(helpMenuItem)
+        }
+
+        // Guarded on the title so a second pass cannot stack duplicates in a
+        // menu this code does not exclusively own.
+        if !helpMenu.items.contains(where: { $0.title == Self.reportBugMenuTitle }) {
+            let reportBugItem = NSMenuItem(
+                title: Self.reportBugMenuTitle,
+                action: #selector(reportBug(_:)),
+                keyEquivalent: ""
+            )
+            reportBugItem.target = self
+            reportBugItem.isEnabled = true
+            helpMenu.addItem(reportBugItem)
+        }
+
+        debugPrint("setupMenus: DONE. Added Edit, View and Help menus")
+    }
+
+    /// Title of the Help menu item, also used to avoid adding it twice.
+    private static let reportBugMenuTitle = "Report a Bug..."
+
+    /// Asks the main view to open the bug report sheet.
+    @objc private func reportBug(_ sender: Any?) {
+        NotificationCenter.default.post(name: .projectorReportBugRequested, object: nil)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -678,6 +720,10 @@ extension Notification.Name {
     static let newProject = Notification.Name("newProject")
     static let videoFileSelected = Notification.Name("videoFileSelected")
     static let saveProject = Notification.Name("saveProject")
+
+    /// Posted by Help > Report a Bug. The menu is AppKit and has no path to
+    /// `ContentView`'s state, so it asks for the sheet this way.
+    static let projectorReportBugRequested = Notification.Name("projectorReportBugRequested")
     static let saveProjectAs = Notification.Name("saveProjectAs")
     static let checkUnsavedChanges = Notification.Name("checkUnsavedChanges")
 

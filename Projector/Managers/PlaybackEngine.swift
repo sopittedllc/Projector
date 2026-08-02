@@ -408,6 +408,10 @@ final class PlaybackEngine: ObservableObject {
     /// If the playhead is in a gap, a timer advances the frame counter at the timeline's frame rate.
     /// Active audio clips are also started and synchronized.
     func play() {
+        // Transport transitions only. Seeks are deliberately not logged: they
+        // fire continuously while the playhead is dragged and would flush the
+        // ring buffer of everything that led up to the problem.
+        diagnosticLog(.info, .playback, "Play from frame \(currentFrame)")
         transportOverride = false  // Clear override when user plays
         resetSeekState()
 
@@ -422,6 +426,7 @@ final class PlaybackEngine: ObservableObject {
                         try await loadReel(reel)
                     } catch {
                         debugPrint("PlaybackEngine.play: Failed to load reel '\(reel.sourceURL.lastPathComponent)': \(error)")
+                        diagnosticLog(.error, .playback, "Failed to load reel '\(reel.sourceURL.lastPathComponent)': \(error.localizedDescription)")
                     }
                     seekWithinReel(reel, timelineFrame: currentFrame, resumeAfterSeek: true) {}
                 }
@@ -446,6 +451,7 @@ final class PlaybackEngine: ObservableObject {
     ///
     /// Pauses video playback, stops gap timer, and stops all audio clips.
     func pause() {
+        diagnosticLog(.info, .playback, "Pause at frame \(currentFrame)")
         currentPlayer?.pause()
         isPlaying = false
         resetSeekState()
@@ -831,6 +837,7 @@ final class PlaybackEngine: ObservableObject {
         updateAudioOutputDeviceSettings()
 
         debugPrint("setAudioOutputDevice: UID=\(deviceUID ?? "nil"), DeviceID=\(audioOutputDeviceID ?? 0), Channels=\(audioOutputChannelCount)")
+        diagnosticLog(.info, .audio, "Output device set: UID=\(deviceUID ?? "none"), channels=\(audioOutputChannelCount)")
 
         reconfigureAudioEngineForOutputChange()
     }
@@ -1135,6 +1142,7 @@ final class PlaybackEngine: ObservableObject {
                 }
             } catch {
                 debugPrint("PlaybackEngine: Failed to load audio clip: \(error)")
+                diagnosticLog(.error, .audio, "Failed to load audio clip: \(error.localizedDescription)")
                 await MainActor.run {
                     self.loadingClipIds.remove(clipSnapshot.id)
                     self.failedClipCooldowns[clipSnapshot.id] = Date() // Start cooldown

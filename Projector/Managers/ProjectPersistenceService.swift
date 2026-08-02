@@ -86,8 +86,10 @@ final class ProjectPersistenceService: ObservableObject {
         if projectDocument.fileURL != nil {
             do {
                 try projectDocument.save()
+                diagnosticLog(.info, .project, "Project saved")
                 return true
             } catch {
+                diagnosticLog(.error, .project, "Project save failed: \(error.localizedDescription)")
                 onError?(error.localizedDescription)
                 return false
             }
@@ -137,6 +139,7 @@ final class ProjectPersistenceService: ObservableObject {
     func openProject(from url: URL) {
         do {
             try projectDocument.load(from: url)
+            diagnosticLog(.info, .project, "Opened project \(url.lastPathComponent)")
 
             // Restore timeline and media library
             timelineManager.timeline = projectDocument.timeline

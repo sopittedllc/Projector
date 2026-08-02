@@ -199,6 +199,13 @@ struct ContentView: View {
     /// Whether cue list export error alert is showing
     @State var showCueListExportError = false
 
+    // MARK: - Bug Reporting
+    /// Whether the bug report sheet is showing.
+    @State var showBugReport = false
+    /// Built fresh each time the sheet opens, so the report describes the app as
+    /// it was when the user noticed the problem.
+    @State var bugReportViewModel: BugReportViewModel?
+
     var body: some View {
         mainContent
             .alertCoordinator(alerts)
@@ -218,6 +225,22 @@ struct ContentView: View {
                 )
             }
             .sheet(isPresented: $showOnboarding, content: onboardingSheetContent)
+            .sheet(isPresented: $showBugReport) {
+                if let bugReportViewModel {
+                    BugReportView(
+                        viewModel: bugReportViewModel,
+                        isPresented: $showBugReport
+                    )
+                }
+            }
+            // Help > Report a Bug reaches the same sheet. The menu is built in
+            // AppKit, which has no path to this view's state, so it asks by
+            // notification instead.
+            .onReceive(
+                NotificationCenter.default.publisher(for: .projectorReportBugRequested)
+            ) { _ in
+                presentBugReport()
+            }
             .alert("Export Cue List", isPresented: $showCueListExportError) {
                 Button("OK", role: .cancel) { }
             } message: {
@@ -652,6 +675,7 @@ struct ContentView: View {
             onDropAudioMedia: handleAudioDropOnTimeline,
             onSeek: { frame in playbackEngine.seekToFrame(frame) },
             onSettingsPressed: { alerts.show(.settings(content: AnyView(EmptyView()))) },
+            onReportBugPressed: { presentBugReport() },
             onAddAudioLane: {
                 let laneNumber = timelineManager.timeline.audioLanes.count + 1
                 _ = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
@@ -672,6 +696,56 @@ struct ContentView: View {
     }
 
     // MARK: - Audio Lane Preset Application
+
+    // MARK: - Bug Reporting
+
+    /// Opens the bug report sheet with a freshly built view model.
+    func presentBugReport() {
+        // Guarded so the menu command cannot stack a second sheet on top of one
+        // the user already has open.
+        guard !showBugReport else { return }
+        bugReportViewModel = BugReportViewModel(gatherSnapshot: makeDiagnosticSnapshot)
+        showBugReport = true
+    }
+
+    /// Reads the app's current state for the diagnostic report.
+    ///
+    /// Deliberately counts rather than contents for the timeline: how many reels
+    /// and clips there are diagnoses layout and playback bugs, while the cue
+    /// names and timings would say more about the user's unreleased project than
+    /// about the app. Media paths are the exception - a missing-media or
+    /// permissions bug is unreadable without them - and the sheet shows the user
+    /// those paths before anything is sent.
+    private func makeDiagnosticSnapshot() -> DiagnosticSnapshot {
+        let info = Bundle.main.infoDictionary
+        let timeline = timelineManager.timeline
+        let processInfo = ProcessInfo.processInfo
+
+        return DiagnosticSnapshot(
+            appVersion: info?["CFBundleShortVersionString"] as? String ?? "unknown",
+            appBuild: info?["CFBundleVersion"] as? String ?? "unknown",
+            bundleIdentifier: Bundle.main.bundleIdentifier ?? "unknown",
+            osVersion: processInfo.operatingSystemVersionString,
+            hardwareModel: SystemFacts.hardwareModel,
+            architecture: SystemFacts.architecture,
+            physicalMemoryGB: Double(processInfo.physicalMemory) / DiagnosticUnits.bytesPerGigabyte,
+            uptime: Date().timeIntervalSince(SystemFacts.launchDate),
+            audioOutputs: audioManager.mappedOutputs.map {
+                "\($0.name) — channel start \($0.channelStart), count \($0.channelCount)"
+            },
+            midiInputs: midiSyncViewModel.availableInputs,
+            selectedMIDIInput: midiSyncViewModel.selectedInputName,
+            midiSyncState: String(describing: midiSyncViewModel.mtcState),
+            projectPath: projectDocument.fileURL?.path,
+            hasUnsavedChanges: projectDocument.hasUnsavedChanges,
+            videoReelCount: timeline.videoReels.count,
+            audioLaneCount: timeline.audioLanes.count,
+            audioClipCount: timeline.audioLanes.reduce(0) { $0 + $1.clips.count },
+            timelineFrameRate: String(describing: timeline.config.frameRate),
+            timelineDurationFrames: timeline.config.durationFrames,
+            mediaPaths: mediaLibrary.items.map { $0.url.path }
+        )
+    }
 
     // MARK: - Sheet Content (Extracted for Type Checker)
 

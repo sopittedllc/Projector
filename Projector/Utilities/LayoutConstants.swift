@@ -923,14 +923,23 @@ enum FileManagerLayout {
 enum TimelineSectionLayout {
     /// Width the expanded timeline header needs before its controls clip.
     ///
-    /// Title + MTC IN + Start TC + Duration + divider + zoom controls, plus the
-    /// header's own horizontal padding. Still the widest thing in the panel
-    /// column, so it - not the media panel - sets the window's minimum width.
-    /// Measured at runtime rather than estimated - the estimates were wrong
+    /// Title + MTC IN + Start TC + Duration + divider + zoom controls + Settings
+    /// + Report a Bug, plus the header's own horizontal padding. Still the
+    /// widest thing in the panel column, so it - not the media panel - sets the
+    /// window's minimum width.
+    /// Measured rather than estimated - the estimates were wrong
     /// twice, and 20pt short is enough to break "Timeline" into "Tim/eli...".
     /// 770pt is the header's intrinsic width; the rest is the panel column's
     /// own horizontal padding.
-    static let headerMinWidth: CGFloat = 770 + Spacing.md * 2
+    ///
+    /// The Report a Bug button was added to this row after the 770pt figure was
+    /// taken. Its label is 62.7pt at `Typography.caption`, plus a 12pt icon, the
+    /// 4pt gap inside the button and 8pt of padding each side - 95pt of button
+    /// where an icon-only one would have been 28pt. Rounded up to 70 so the
+    /// window cannot be dragged narrow enough to start compressing the readouts.
+    static let reportBugButtonAllowance: CGFloat = 70
+
+    static let headerMinWidth: CGFloat = 770 + reportBugButtonAllowance + Spacing.md * 2
 
     /// Reference height: the combined Video File track plus three audio lanes.
     ///

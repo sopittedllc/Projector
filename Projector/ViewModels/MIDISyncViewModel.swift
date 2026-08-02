@@ -465,6 +465,16 @@ public final class MIDISyncViewModel: ObservableObject {
     private func subscribeToSyncState() {
         streamTask = Task {
             for await state in service.syncStateStream {
+                // Transitions only. This stream ticks on the idle heartbeat and
+                // again on every incoming frame, so recording each update would
+                // bury everything else in the ring within seconds.
+                if self.mtcState != state.mtcState {
+                    diagnosticLog(.info, .midi, "MTC state \(self.mtcState) -> \(state.mtcState)")
+                }
+                if self.selectedInputName != state.selectedInputName {
+                    diagnosticLog(.info, .midi, "MIDI input: \(state.selectedInputName ?? "none")")
+                }
+
                 // Update all published properties atomically
                 self.mtcState = state.mtcState
                 self.mtcTimecode = state.mtcTimecode

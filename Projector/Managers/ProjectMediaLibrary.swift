@@ -276,8 +276,10 @@ final class ProjectMediaLibrary: ObservableObject {
         for url in urls {
             do {
                 let item = try await importFile(from: url)
+                diagnosticLog(.info, .media, "Imported \(url.lastPathComponent) (\(item.type), \(String(format: "%.1f", item.duration))s)")
                 results.append(.success(item))
             } catch {
+                diagnosticLog(.error, .media, "Import failed for \(url.lastPathComponent): \(error.localizedDescription)")
                 results.append(.failure(error))
             }
         }

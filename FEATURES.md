@@ -578,6 +578,96 @@ fullscreen DAW.
 
 ---
 
+### Bug Reporting
+
+**Status**: Active
+**Added**: 2026-08-02
+
+#### Description
+
+Lets any user - not just beta testers - report a problem with a diagnostic
+report attached. An always-on ring buffer records recent events; the sheet
+gathers those plus machine, device and project facts, shows the user the whole
+report, and hands it to their mail client as a `.txt` attachment.
+
+Reachable two ways: a ladybug button right of Settings in the timeline header,
+and Help > Report a Bug...
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Protocol | `Contracts/DiagnosticLogServiceProtocol.swift` | `DiagnosticLevel`, `DiagnosticCategory`, `DiagnosticEntry`, `DiagnosticLogService` |
+| Service | `Managers/DiagnosticLog.swift` | Ring-buffer actor + `diagnosticLog(_:_:_:)` free function |
+| Service | `Managers/DiagnosticReportBuilder.swift` | `SupportContact`, `DiagnosticUnits`, `DiagnosticSnapshot`, `SystemFacts`, report formatting |
+| ViewModel | `ViewModels/BugReportViewModel.swift` | Gathering, email/save/copy delivery |
+| View | `Views/BugReportView.swift` | The sheet |
+
+#### State Properties
+
+| File | Property | Type | Purpose |
+|------|----------|------|---------|
+| `ContentView.swift` | `@State var showBugReport` | `Bool` | Sheet visibility |
+| `ContentView.swift` | `@State var bugReportViewModel` | `BugReportViewModel?` | Rebuilt each time the sheet opens |
+| `BugReportView.swift` | `@State private var isShowingReport` | `Bool` | Review pane, expanded by default |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `TimelineAccordionView.swift` | `accordionHeader`, after Settings | Ladybug button + `onReportBugPressed` callback |
+| `ContentView.swift` | `timelinePanel(_:)` | Passes `onReportBugPressed` |
+| `ContentView.swift` | `presentBugReport()`, `makeDiagnosticSnapshot()` | Sheet presentation + state gathering |
+| `ContentView.swift` | body `.sheet` + `.onReceive` | Sheet and menu notification |
+| `ProjectorApp.swift` | `setupMenus()`, `reportBug(_:)` | Help menu item |
+| `ProjectorApp.swift` | `.projectorReportBugRequested` | Notification name |
+| `ProjectorApp.swift` | `applicationDidFinishLaunching` | Fixes `SystemFacts.launchDate`, logs launch |
+| `PlaybackEngine.swift` | `play()`, `pause()`, reel/clip load failures, `setAudioOutputDevice` | `diagnosticLog` calls |
+| `ProjectMediaLibrary.swift` | `importFiles(from:)` | Per-file import success/failure |
+| `ProjectPersistenceService.swift` | `saveProject()`, `openProject(from:)` | Save/open outcomes |
+| `MIDISyncViewModel.swift` | `subscribeToSyncState()` | MTC state + input transitions only |
+
+#### Dependencies
+
+- Depends on: nothing. The log is self-contained and records whether or not the
+  sheet is ever opened.
+- Depended by: nothing yet. Any subsystem can call `diagnosticLog`.
+
+#### Layout Constants
+
+- `BugReportLayout` (private) in `Views/BugReportView.swift`
+- `DiagnosticLogConstants` in `Managers/DiagnosticLog.swift`
+- `DiagnosticUnits` in `Managers/DiagnosticReportBuilder.swift`
+
+#### Notes
+
+- **Change `SupportContact.email`** in `DiagnosticReportBuilder.swift` to
+  redirect reports. It ships in the binary and is visible to anyone who has the
+  app.
+- `diagnosticLog` is **not** compiled out of release builds - that is the point.
+  It is still not safe for real-time paths: never call it from an audio render
+  callback, a MIDI quarter-frame handler, or per-video-frame code.
+- Debug-level entries are dropped in release builds so the ring covers a longer
+  stretch of real time.
+- Entries are recorded through detached tasks and can arrive out of order; they
+  are timestamped at the call site and `snapshot()` sorts by that.
+- Mirrored to `os.Logger` under subsystem `com.keegandewitt.projector`. Info
+  level is memory-only, so `log show` will not find it - use
+  `log stream --predicate 'subsystem == "com.keegandewitt.projector"' --info`.
+
+#### Removal Checklist
+
+- [ ] Delete the five files above
+- [ ] Remove `onReportBugPressed` from `TimelineAccordionView` and its button
+- [ ] Remove the two `ContentView` state properties, `.sheet`, `.onReceive`,
+      `presentBugReport()`, `makeDiagnosticSnapshot()`
+- [ ] Remove the Help menu block, `reportBug(_:)`, `reportBugMenuTitle` and the
+      notification name from `ProjectorApp.swift`
+- [ ] Remove `diagnosticLog` calls listed under Integration Points
+- [ ] Remove the five file references from `project.pbxproj`
+
+---
+
 ## Removed Features
 
 ### Import Placement Dialogs

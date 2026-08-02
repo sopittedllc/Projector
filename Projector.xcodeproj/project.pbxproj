@@ -65,6 +65,11 @@
 		B19B58BA2F0889F200FA33EC /* LayoutConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B42F0889F200FA33EC /* LayoutConstants.swift */; };
 		OCC001COMPAT00002 /* OnChangeCompat.swift in Sources */ = {isa = PBXBuildFile; fileRef = OCC001COMPAT00001 /* OnChangeCompat.swift */; };
 		KPC001COMPAT00002 /* KeyPressCompat.swift in Sources */ = {isa = PBXBuildFile; fileRef = KPC001COMPAT00001 /* KeyPressCompat.swift */; };
+		DLSP01CONTRACT0002 /* DiagnosticLogServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DLSP01CONTRACT0001 /* DiagnosticLogServiceProtocol.swift */; };
+		DLOG01MANAGER00002 /* DiagnosticLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DLOG01MANAGER00001 /* DiagnosticLog.swift */; };
+		DRPB01MANAGER00002 /* DiagnosticReportBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DRPB01MANAGER00001 /* DiagnosticReportBuilder.swift */; };
+		BRVM01VIEWMODEL002 /* BugReportViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BRVM01VIEWMODEL001 /* BugReportViewModel.swift */; };
+		BRVW01VIEW00000002 /* BugReportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BRVW01VIEW00000001 /* BugReportView.swift */; };
 		DEBUGLOG00000002 /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBUGLOG00000001 /* DebugLog.swift */; };
 		B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */; };
 		B19B58BD2F088AEA00FA33EC /* MIDISyncActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */; };
@@ -212,6 +217,11 @@
 		B19B58B42F0889F200FA33EC /* LayoutConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutConstants.swift; sourceTree = "<group>"; };
 		OCC001COMPAT00001 /* OnChangeCompat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnChangeCompat.swift; sourceTree = "<group>"; };
 		KPC001COMPAT00001 /* KeyPressCompat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyPressCompat.swift; sourceTree = "<group>"; };
+		DLSP01CONTRACT0001 /* DiagnosticLogServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLogServiceProtocol.swift; sourceTree = "<group>"; };
+		DLOG01MANAGER00001 /* DiagnosticLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLog.swift; sourceTree = "<group>"; };
+		DRPB01MANAGER00001 /* DiagnosticReportBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticReportBuilder.swift; sourceTree = "<group>"; };
+		BRVM01VIEWMODEL001 /* BugReportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugReportViewModel.swift; sourceTree = "<group>"; };
+		BRVW01VIEW00000001 /* BugReportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugReportView.swift; sourceTree = "<group>"; };
 		DEBUGLOG00000001 /* DebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLog.swift; sourceTree = "<group>"; };
 		B19B58B62F0889F200FA33EC /* MIDISyncViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncViewModel.swift; sourceTree = "<group>"; };
 		B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncActor.swift; sourceTree = "<group>"; };
@@ -419,6 +429,8 @@
 				C1TIMELINE0000000B /* PlaybackEngine.swift */,
 			
 				DC464AD144D744A481F09CC4 /* CueListExportService.swift */,
+				DLOG01MANAGER00001 /* DiagnosticLog.swift */,
+				DRPB01MANAGER00001 /* DiagnosticReportBuilder.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -447,6 +459,7 @@
 				VINS0002VIDEOINSERT02 /* VideoInsertSheetView.swift */,
 				ONBOARD02ONBOARD02 /* OnboardingView.swift */,
 				VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */,
+				BRVW01VIEW00000001 /* BugReportView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -512,6 +525,7 @@
 				F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */,
 			
 				DDE3B90C98784B309245A5C5 /* CueListExportServiceProtocol.swift */,
+				DLSP01CONTRACT0001 /* DiagnosticLogServiceProtocol.swift */,
 			);
 			path = Contracts;
 			sourceTree = "<group>";
@@ -534,6 +548,7 @@
 				DE90E852077C43F9AE6F40DF /* OptimizationViewModel.swift */,
 				B19B58B62F0889F200FA33EC /* MIDISyncViewModel.swift */,
 				B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */,
+				BRVM01VIEWMODEL001 /* BugReportViewModel.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -795,7 +810,12 @@
 				B19B58BA2F0889F200FA33EC /* LayoutConstants.swift in Sources */,
 				OCC001COMPAT00002 /* OnChangeCompat.swift in Sources */,
 				KPC001COMPAT00002 /* KeyPressCompat.swift in Sources */,
-				DEBUGLOG00000002 /* DebugLog.swift in Sources */,
+				DLSP01CONTRACT0002 /* DiagnosticLogServiceProtocol.swift in Sources */,
+		DLOG01MANAGER00002 /* DiagnosticLog.swift in Sources */,
+		DRPB01MANAGER00002 /* DiagnosticReportBuilder.swift in Sources */,
+		BRVM01VIEWMODEL002 /* BugReportViewModel.swift in Sources */,
+		BRVW01VIEW00000002 /* BugReportView.swift in Sources */,
+		DEBUGLOG00000002 /* DebugLog.swift in Sources */,
 				B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */,
 				BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */,
 				67053C082F0B787BAEF7B06D /* EmbeddedTimecodeService.swift in Sources */,

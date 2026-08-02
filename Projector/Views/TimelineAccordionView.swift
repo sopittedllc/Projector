@@ -44,6 +44,9 @@ struct TimelineAccordionView: View {
     /// Called when settings button is pressed
     var onSettingsPressed: () -> Void
 
+    /// Called when the report a bug button is pressed
+    var onReportBugPressed: () -> Void
+
     /// Called when user wants to add a new audio lane
     var onAddAudioLane: () -> Void
 
@@ -226,6 +229,26 @@ struct TimelineAccordionView: View {
                 .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentBlue))
                 .fixedSize(horizontal: true, vertical: false)
                 .accessibilityLabel("Timeline settings")
+
+                // Report a Bug - far right, after Settings.
+                //
+                // Worded to match Settings, which costs this row about 67pt it
+                // did not have to give. `TimelineSectionLayout.headerMinWidth`
+                // carries that width so the window cannot be made narrow enough
+                // to compress the readouts - if that constant is ever recomputed,
+                // this button has to be in the measurement.
+                Button(action: onReportBugPressed) {
+                    HStack(spacing: Spacing.xs) {
+                        Image(systemName: "ladybug")
+                            .frame(width: 12, height: 12)
+                        Text("Report a Bug")
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+                .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentPink))
+                .fixedSize(horizontal: true, vertical: false)
+                .accessibilityLabel("Report a bug")
             }
         }
         .frame(height: PanelLayout.headerHeight)
