@@ -158,7 +158,7 @@ named constants over magic numbers, and runtime verification for UI changes.
 
 ## License
 
-Free to download, use and share. Source is published here.
+[MIT](LICENSE) — free to use, modify and redistribute, including commercially.
 
 Copyright © 2026 Keegan DeWitt / Musique LA.
 
