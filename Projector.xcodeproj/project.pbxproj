@@ -49,6 +49,7 @@
 		HPS001SPLITTEST0002 /* HardPannedSplitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */; };
 		APA001PANTEST000002 /* AudioPanningAnalyzerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */; };
 		TCFRTEST0000002 /* TimecodeFrameRateNearestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCFRTEST0000001 /* TimecodeFrameRateNearestTests.swift */; };
+		ETCRESTEST00002 /* EmbeddedTimecodeResultTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ETCRESTEST00001 /* EmbeddedTimecodeResultTests.swift */; };
 		ALC001QUEUETEST0002 /* AlertCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ALC001QUEUETEST0001 /* AlertCoordinatorTests.swift */; };
 		TAF002TESTS000002 /* TemporaryAudioFilesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TAF002TESTS000001 /* TemporaryAudioFilesTests.swift */; };
 		SOC002TESTS000002 /* SplitOfferCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SOC002TESTS000001 /* SplitOfferCoordinatorTests.swift */; };
@@ -208,6 +209,7 @@
 		HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardPannedSplitTests.swift; sourceTree = "<group>"; };
 		APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPanningAnalyzerTests.swift; sourceTree = "<group>"; };
 		TCFRTEST0000001 /* TimecodeFrameRateNearestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeFrameRateNearestTests.swift; sourceTree = "<group>"; };
+		ETCRESTEST00001 /* EmbeddedTimecodeResultTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeResultTests.swift; sourceTree = "<group>"; };
 		ALC001QUEUETEST0001 /* AlertCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertCoordinatorTests.swift; sourceTree = "<group>"; };
 		TAF002TESTS000001 /* TemporaryAudioFilesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporaryAudioFilesTests.swift; sourceTree = "<group>"; };
 		SOC002TESTS000001 /* SplitOfferCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitOfferCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -344,6 +346,7 @@
 				HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */,
 				APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */,
 				TCFRTEST0000001 /* TimecodeFrameRateNearestTests.swift */,
+				ETCRESTEST00001 /* EmbeddedTimecodeResultTests.swift */,
 				ALC001QUEUETEST0001 /* AlertCoordinatorTests.swift */,
 				TAF002TESTS000001 /* TemporaryAudioFilesTests.swift */,
 				SOC002TESTS000001 /* SplitOfferCoordinatorTests.swift */,
@@ -785,6 +788,7 @@
 				HPS001SPLITTEST0002 /* HardPannedSplitTests.swift in Sources */,
 				APA001PANTEST000002 /* AudioPanningAnalyzerTests.swift in Sources */,
 		TCFRTEST0000002 /* TimecodeFrameRateNearestTests.swift in Sources */,
+		ETCRESTEST00002 /* EmbeddedTimecodeResultTests.swift in Sources */,
 				ALC001QUEUETEST0002 /* AlertCoordinatorTests.swift in Sources */,
 				TAF002TESTS000002 /* TemporaryAudioFilesTests.swift in Sources */,
 				SOC002TESTS000002 /* SplitOfferCoordinatorTests.swift in Sources */,

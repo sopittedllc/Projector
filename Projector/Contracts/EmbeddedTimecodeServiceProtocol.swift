@@ -83,7 +83,11 @@ struct BatchTimecodeItem: Identifiable, Sendable {
 /// Contains the detected timecode value along with metadata about its source
 /// and the frame rate it was recorded at.
 struct EmbeddedTimecodeResult: Sendable, Equatable {
-    /// The detected timecode as a frame count at the source frame rate
+    /// The detected timecode as a count of frames on its own counting grid.
+    ///
+    /// A timecode address, not an elapsed duration. `01:10:12:03` at 23.976 is
+    /// 101091 frames because timecode labels advance 24 per second regardless
+    /// of the rate actually running - see ``convertedFrames(to:)``.
     let timecodeFrames: Int
 
     /// The detected timecode formatted as HH:MM:SS:FF or HH:MM:SS;FF (drop-frame)
@@ -98,12 +102,41 @@ struct EmbeddedTimecodeResult: Sendable, Equatable {
     /// Whether the timecode uses drop-frame format
     let isDropFrame: Bool
 
-    /// Convert this timecode to a different frame rate
+    /// This timecode as a frame count on another rate's counting grid.
     ///
-    /// - Parameter targetFrameRate: The target frame rate to convert to
-    /// - Returns: Frame count at the target frame rate
+    /// ## Grids, not speeds
+    ///
+    /// Timecode counts labels, and an NTSC rate counts the same labels as its
+    /// integer cousin: 23.976 and 24 both run 00, 01 ... 23 within a second,
+    /// and 29.97 and 30 both run 00 ... 29. They differ in how long that second
+    /// takes in the real world, not in how the address is spelled. So a
+    /// timecode address carries between the two unchanged, and only a genuine
+    /// change of grid - 24 to 25, say - moves the count at all.
+    ///
+    /// Scaling by the *real* rates instead is what put a reel four seconds late
+    /// on the timeline. `01:10:12:03` is 101091 frames; multiplying by
+    /// 24/23.976 gives 101192, which reads as `01:10:16:08`. The error is the
+    /// 1000/1001 NTSC ratio applied to a whole hour of timecode, and it shows
+    /// up as a fixed offset, the same at the head of the reel as at the tail -
+    /// picture and position simply disagree from the first frame.
+    ///
+    /// - Parameter targetFrameRate: Rate whose grid the count is wanted on.
+    /// - Returns: Frame count on that grid.
     func convertedFrames(to targetFrameRate: Double) -> Int {
-        Int(Double(timecodeFrames) * targetFrameRate / frameRate)
+        let sourceGrid = Self.countingGrid(for: frameRate)
+        let targetGrid = Self.countingGrid(for: targetFrameRate)
+        guard sourceGrid > 0, targetGrid > 0 else { return timecodeFrames }
+        if sourceGrid == targetGrid { return timecodeFrames }
+        return Int((Double(timecodeFrames) * targetGrid / sourceGrid).rounded())
+    }
+
+    /// Labels per second for a rate: 23.976 counts 24, 29.97 counts 30.
+    ///
+    /// Rounding is the whole rule. Every rate the app supports is either an
+    /// integer or that integer pulled down by 1000/1001, and the pulldown never
+    /// moves it as far as half a frame.
+    private static func countingGrid(for frameRate: Double) -> Double {
+        frameRate.rounded()
     }
 }
 
