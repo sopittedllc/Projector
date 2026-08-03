@@ -1,4 +1,5 @@
 import Foundation
+import CoreMedia
 import SwiftTimecodeCore
 
 /// Represents a video file (reel) placed on the master timeline
@@ -78,6 +79,40 @@ public struct VideoReel: Identifiable, Codable, Equatable, Sendable {
     public func sourceTime(at timelineFrame: Int) -> Double? {
         guard let frame = sourceFrame(at: timelineFrame) else { return nil }
         return Double(frame) / sourceFrameRate.fps
+    }
+
+    /// Convert a timeline frame to an exact source time.
+    ///
+    /// Built from the rate's frame duration as a rational - 1001/24000 for
+    /// 23.976 - so the result lands precisely on a frame boundary.
+    ///
+    /// Seeking used to go through `Double` seconds and a 600-tick `CMTime`,
+    /// which cannot represent an NTSC frame boundary: one frame at 23.976 is
+    /// 25.025 ticks of a 600 timescale. The requested instant therefore landed
+    /// a hair either side of the boundary and, with zero tolerance, the player
+    /// returned whichever frame contained it - so a seek was accurate to about
+    /// a frame either way, drifting between exact, one early and one late as
+    /// the rounding fell. On NTSC material that is a frame of slop on every
+    /// hit point.
+    ///
+    /// - Parameter timelineFrame: Frame on the timeline.
+    /// - Returns: Exact source time, or `nil` outside this reel's range.
+    public func sourceCMTime(at timelineFrame: Int) -> CMTime? {
+        guard let frame = sourceFrame(at: timelineFrame) else { return nil }
+        let duration = sourceFrameRate.frameDuration
+        return CMTime(
+            value: CMTimeValue(frame) * CMTimeValue(duration.numerator),
+            timescale: CMTimeScale(duration.denominator)
+        )
+    }
+
+    /// One frame of this reel's source, exactly.
+    public var sourceFrameDuration: CMTime {
+        let duration = sourceFrameRate.frameDuration
+        return CMTime(
+            value: CMTimeValue(duration.numerator),
+            timescale: CMTimeScale(duration.denominator)
+        )
     }
 }
 

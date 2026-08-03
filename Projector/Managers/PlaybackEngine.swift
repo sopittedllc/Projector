@@ -871,7 +871,7 @@ final class PlaybackEngine: ObservableObject {
         resumeAfterSeek: Bool,
         completion: @escaping () -> Void
     ) {
-        guard let sourceTime = reel.sourceTime(at: timelineFrame),
+        guard let sourceTime = reel.sourceCMTime(at: timelineFrame),
               let player = currentPlayer else {
             completion()
             return
@@ -887,11 +887,14 @@ final class PlaybackEngine: ObservableObject {
         isSeekingVideo = true
         pendingVideoSeekFrame = nil
 
-        let time = CMTime(seconds: sourceTime, preferredTimescale: 600)
+        // Exact, on the source's own frame grid. A 600-tick CMTime cannot land
+        // on an NTSC frame boundary - one 23.976 frame is 25.025 ticks - which
+        // left every seek a frame either side of where it was asked for.
+        let time = sourceTime
 
         // Use frame-duration tolerance for smoother seeking during playback
         // Zero tolerance is too aggressive and can cause stalls
-        let frameDuration = CMTime(seconds: 1.0 / reel.sourceFrameRate.fps, preferredTimescale: 600)
+        let frameDuration = reel.sourceFrameDuration
         let tolerance = isMTCSynced ? frameDuration : .zero
 
         player.seek(to: time, toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] completed in
