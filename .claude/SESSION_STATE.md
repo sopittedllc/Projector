@@ -1,57 +1,114 @@
 # Session State
 
-> **Last Updated**: 2026-07-30
-> **Status**: AWAITING USER RUNTIME VERIFICATION — split-channel performance regression fixed
+> **Last Updated**: 2026-08-02
+> **Status**: FIXES VERIFIED IN THE RUNNING APP — awaiting user sign-off
 > **Branch**: main
 
 ---
 
-## Current Task (2026-07-30)
+## Current Task (2026-08-02)
 
-**Task**: Undo the slowdown the hard-panned-split feature introduced in split detection
-and waveform rendering. Builds clean; 74 unit tests green; **app not yet run by user**.
+Four defects found while diagnosing `Reel 1.mov` playback. All fixed, all
+verified by driving the running Debug build (not by code reading).
 
-Five regressions found and fixed, all in the uncommitted split-channel work:
+### 1. Split reels were routed to outputs nobody was monitoring
 
-1. **Detection was serialized behind a full audio export.** `ContentView+Timeline.swift`
-   awaited `extractAudioInBackground` *before* starting `AudioPanningAnalyzer`. The two read
-   the same source file and neither needs the other's output, so on a feature-length reel the
-   split question waited out an entire export before it began looking. Now started with
-   `async let` alongside the extraction. The *offer* still waits for the extraction, which is a
-   real constraint — the split replaces the lane the extraction writes into.
+The "no audio" report. `nameOutputOfSplitLanes` sent each split lane to the
+output matching its role. On this rig that is Lynx ch 28-29 (DX/SFX) and 31-32
+(MX), while the desk is monitored from ch 1-2, so every hard-panned import went
+silent on arrival.
 
-2. **Waveform peak extraction went scalar over 2 channels.** `samplesPerChannelUsingAssetReader`
-   tracked per-channel peaks in a `[Int32]`, so every sample paid bounds + uniqueness checks.
-   Rewritten with Accelerate: `vDSP_vflt16` once per block, then a strided `vDSP_maxmgv` per
-   bucket per channel. **Bit-identical output** (144 randomized differential cases incl.
-   bucket-straddling blocks and `Int16.min`); ~5x faster than the regressed version and ~3x
-   faster than the original mono baseline.
+Proved rather than assumed, because the first meter I used sat on
+`mainMixerNode` - before the hardware - and only showed the mix bus had signal:
 
-3. **`WaveformLevel.scaling(for:)` fully sorted up to 16384 floats on the render path** — once
-   per channel, per clip, per view update, so stereo doubled an already-costly step. Only two
-   sorted values are ever read, so it now uses quickselect for the percentile and `vDSP_maxv`
-   for the peak. **Identical results** (1800 differential cases incl. all-equal / sorted /
-   reversed / duplicate-heavy inputs); 21x faster (584µs → 28µs per call).
+- CoreAudio device query: Lynx Aurora(n)-TB3, id 265, 32 out, 48 kHz, system
+  default, and `IsRunningSomewhere = 1` during playback, so the interface really
+  was receiving IO from Projector.
+- Output node formats logged at every stage: 32 ch / 48 kHz / Float32 from
+  `mainMixerNode` through the AUHAL. Nothing mismatched.
+- With role routing on, the meter read
+  `ch28=0.1611 ch29=0.1611 ch31=0.0063 ch32=0.0063` - the audio was being
+  delivered correctly, to channels no one was listening to.
 
-4. **The superseded lane's full-video decode was orphaned, not cancelled.** `performChannelSplit`
-   now cancels the pre-split clip's in-flight waveform generation — the same full decode the
-   split's `markAwaitingExtraction` gating exists to avoid doing twice.
+Fixed by making the convention name the lanes without moving the audio: left is
+DX/SFX and right is MX, both keeping the output the video's audio already had.
+That is the state the user's own first screenshot shows - two lanes named
+DX/SFX and MX, both on Stereo Out, audible.
 
-5. **`clipsAwaitingExtraction` is not `@Published`.** On the extraction *failure* path nothing
-   else changed, so the lane could stay blank until an unrelated redraw. `mark`/`clear` now send
-   `objectWillChange`.
+**Verified** from a clean import, nothing touched by hand: both lanes on Stereo
+Out, `MatrixMixer configured: input 0/1 only -> outputs 0-1`, meter ch1/ch2 at
+0.12-0.13 RMS, and muting DX/SFX drops it to 0.006 so both stems are in the mix.
 
-Also: one redundant `load(.formatDescriptions)` per clip removed (channel count and sample rate
-now loaded together); `normalize` no longer allocates a throwaway copy of every channel just to
-find a maximum; deleted `samplesUsingAssetReader`, dead since the per-channel read landed.
+### 1b. Changing a lane's output was discarded on a stopped engine
 
-**Files**: `Managers/WaveformCache.swift`, `Models/WaveformData.swift`,
-`Views/ContentView+Timeline.swift`
+Found on the way. `applyOutputMappingIfNeeded` recorded the new mapping and
+wrote matrix crosspoints without checking the engine was running, and
+crosspoints written to a stopped engine are dropped when it starts - so
+re-pointing a lane while paused did nothing on the next play. It now leaves the
+change pending unless the engine is live, and `syncAudioPlayer` starts the
+engine before routing instead of after.
 
-**Next**: user runs the app and verifies — see the checklist in the session transcript. Nothing
-committed.
+**Verified** with no seek to mask it: switch both lanes to Stereo Out while
+paused, press play, meter reads ch1/ch2.
+
+### 2. Beach ball when zooming in (`VideoReelClipView`)
+
+The filmstrip built one cell per 48pt of *zoomed* clip width: 11,612 cells for a
+97-minute reel at max zoom, each decoding a JPEG on the main thread every layout
+pass, all inside a `drawingGroup` over a 557,000pt frame. `sample` showed 84% of
+the main thread in view-graph updates, 63% inside `NSImage(data:)`.
+
+Three fixes: cells are culled to the visible viewport (plumbed through
+`visibleXRange`), decoded images are cached in `ThumbnailCache`, and
+`ThumbnailStrip.index(at:)` is a binary search instead of a linear scan.
+**Verified**: after the fix `sample` at max zoom shows 94% of the main thread
+idle in `mach_msg2_trap`.
+
+### 3. Lane headers scrolled away when zoomed in
+
+Track headers live inside the horizontally scrolling content, so scrolling right
+took every lane's name, mute/solo and output picker off screen. Each header now
+counter-shifts by the scroll offset (published via the
+`timelineHeaderScrollOffset` environment value, because the `AudioLaneView` call
+site is already at the type-checker's limit). **Verified**: at max zoom scrolled
+to 01:22:10 the headers hold at the viewport edge.
+
+### Earlier in the session: timecode entry
+
+Position/Start TC/region dialog parsed digits right-aligned while the field
+displayed them left-aligned, so `01:21:00` seeked to 00:01:21:00 - before the
+timeline start, where it was silently discarded. One shared
+`Utilities/TimecodeEntry.swift` now formats and parses consistently, and
+rejected entries beep. **Verified** in the app: typing `01:21:00` lands on
+01:21:00:00.
+
+## Files changed
+
+- `Projector/Utilities/TimecodeEntry.swift` (new, registered in project.pbxproj)
+- `Projector/Views/TimelineAccordionView.swift`
+- `Projector/Views/Timeline/MultiTrackTimelineView.swift`
+- `Projector/Views/Timeline/VideoReelClipView.swift`
+- `Projector/Views/Timeline/VideoTrackView.swift`
+- `Projector/Views/Timeline/AudioLaneView.swift`
+- `Projector/Views/ContentView+Timeline.swift`
+- `Projector/Managers/PlaybackEngine.swift`
+- `Projector/Managers/ThumbnailCache.swift`
+- `Projector/Models/Timeline/ThumbnailStrip.swift`
+
+## Open questions for the user
+
+- Which side of `Reel 1.mov` holds which stem is unconfirmed and, per the user,
+  does not need to be: left is DX/SFX and right is MX by convention, and a reel
+  delivered the other way is corrected in the lane menus. No content detection.
+- Sending stems to the DX/SFX and MX *outputs* is deliberately not automatic,
+  because it silences a desk monitored from the first pair. If that routing is
+  wanted it should be an explicit command, not a side effect of import.
+- `VideoInsertSheetView` still has its own right-aligned timecode parser. It is
+  self-consistent and reports errors visibly, so it was left alone.
 
 ---
+
+
 
 ## Previous Task
 
