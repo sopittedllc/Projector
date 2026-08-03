@@ -10,6 +10,12 @@ struct VideoTrackView: View {
     @ObservedObject var thumbnailCache: ThumbnailCache
     @ObservedObject var mediaLibrary: ProjectMediaLibrary
     let pixelsPerFrame: CGFloat
+
+    /// Span of the track the viewport can show, in content points.
+    ///
+    /// Passed to each clip so its filmstrip draws only what is on screen. See
+    /// `VideoReelClipView.visibleXRange` for why that matters.
+    var visibleContentX: ClosedRange<CGFloat>?
     let scrollOffset: CGFloat
     let showThumbnails: Bool
     let clipInteractionsEnabled: Bool
@@ -332,6 +338,7 @@ struct VideoTrackView: View {
                 interactionsEnabled: clipInteractionsEnabled,
                 isOptimized: isReelOptimized(reel),
                 timelineStartTimecode: timelineManager.formatTimecode(forFrame: reel.timelineStartFrame),
+                visibleXRange: visibleXRange(for: reel),
                 onSelect: { modifiers in
                     selectedReelId = reel.id
                     onReelSelected(reel.id, modifiers)
@@ -379,6 +386,19 @@ struct VideoTrackView: View {
                     }
             )
         }
+    }
+
+    /// The viewport's span expressed relative to this reel's leading edge.
+    ///
+    /// - Parameter reel: Reel being drawn.
+    /// - Returns: The visible span in clip-local points, or `nil` when no
+    ///   viewport was supplied.
+    private func visibleXRange(for reel: VideoReel) -> ClosedRange<CGFloat>? {
+        guard let visibleContentX else { return nil }
+        let clipStart = CGFloat(reel.timelineStartFrame) * pixelsPerFrame
+        let lower = visibleContentX.lowerBound - clipStart
+        let upper = visibleContentX.upperBound - clipStart
+        return min(lower, upper)...max(lower, upper)
     }
 
     private func reelOffset(for reel: VideoReel) -> CGFloat {

@@ -75,6 +75,12 @@ final class ThumbnailCache: ObservableObject {
     /// Tasks are removed upon completion or cancellation.
     private var generationTasks: [ThumbnailRequestKey: Task<Void, Never>] = [:]
 
+    /// Thumbnails already turned into images, so no cell decodes twice.
+    ///
+    /// Not `@Published`: it holds nothing a view needs to observe, only the
+    /// decoded form of bytes the atlas already published.
+    private var decodedThumbnails: [DecodedThumbnailKey: CGImage] = [:]
+
     /// Predefined bucket counts for thumbnail resolution levels.
     ///
     /// These values represent the number of thumbnails generated for a reel.
@@ -150,6 +156,39 @@ final class ThumbnailCache: ObservableObject {
         return nil
     }
 
+    /// A decoded thumbnail, ready to draw.
+    ///
+    /// The strip stores JPEG bytes, which is what makes a long reel's atlas fit
+    /// in memory - but a filmstrip cell that decodes its own bytes decodes them
+    /// again on every layout pass, and there is one cell per 48 points of clip.
+    /// Zoomed in on a feature-length reel that was thousands of JPEG decodes per
+    /// pass on the main thread, which is what the beach ball was: 63% of samples
+    /// inside `NSImage(data:)`.
+    ///
+    /// Decoding once and holding the result costs a few megabytes for the levels
+    /// actually looked at, and is dropped wholesale when the reel goes.
+    ///
+    /// - Parameters:
+    ///   - reelId: Reel the strip belongs to.
+    ///   - bucketCount: Resolution level, which identifies the strip.
+    ///   - index: Position within the strip.
+    ///   - strip: Strip holding the bytes, used only on a miss.
+    /// - Returns: The decoded image, or `nil` if the index is out of range or
+    ///   the bytes are not an image.
+    func image(reelId: UUID, bucketCount: Int, index: Int, in strip: ThumbnailStrip) -> CGImage? {
+        let key = DecodedThumbnailKey(reelId: reelId, bucketCount: bucketCount, index: index)
+        if let cached = decodedThumbnails[key] {
+            return cached
+        }
+        guard let data = strip.thumbnail(atIndex: index),
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            return nil
+        }
+        decodedThumbnails[key] = image
+        return image
+    }
+
     /// Pre-generates thumbnails for a reel at the lowest resolution level.
     ///
     /// Call this when a reel is added to the timeline to ensure thumbnails
@@ -183,6 +222,7 @@ final class ThumbnailCache: ObservableObject {
     /// ```
     func remove(reelId: UUID) {
         atlases.removeValue(forKey: reelId)
+        decodedThumbnails = decodedThumbnails.filter { $0.key.reelId != reelId }
 
         for (key, task) in generationTasks where key.reelId == reelId {
             task.cancel()
@@ -386,4 +426,18 @@ private struct ThumbnailRequestKey: Hashable {
 
     /// The target number of thumbnails.
     let bucketCount: Int
+}
+
+// MARK: - DecodedThumbnailKey
+
+/// Identifies one thumbnail within one resolution level of one reel.
+private struct DecodedThumbnailKey: Hashable {
+    /// Reel the thumbnail belongs to.
+    let reelId: UUID
+
+    /// Resolution level, which identifies the strip within the atlas.
+    let bucketCount: Int
+
+    /// Position within that strip.
+    let index: Int
 }

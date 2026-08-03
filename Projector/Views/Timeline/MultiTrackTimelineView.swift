@@ -946,16 +946,7 @@ struct MultiTrackTimelineView: View {
 
     /// Format timecode input as the user types, inserting colons every 2 digits
     private func formatTimecodeInput(_ input: String) -> String {
-        let digits = input.filter { $0.isNumber }
-        let limited = String(digits.prefix(8))
-        var result = ""
-        for (index, char) in limited.enumerated() {
-            if index > 0 && index % 2 == 0 {
-                result += ":"
-            }
-            result.append(char)
-        }
-        return result
+        TimecodeEntry.formatted(input)
     }
 
     private func applyStartTimecode() {
@@ -1026,26 +1017,20 @@ struct MultiTrackTimelineView: View {
     }
 
     private func parseTimecode(_ string: String) -> Timecode? {
-        let digits = string.filter { $0.isNumber }
-        let padded = String(repeating: "0", count: max(0, 8 - digits.count)) + digits
-        let trimmed = String(padded.suffix(8))
-        guard trimmed.count == 8 else { return nil }
-
-        let h = Int(trimmed.prefix(2)) ?? 0
-        let m = Int(trimmed.dropFirst(2).prefix(2)) ?? 0
-        let s = Int(trimmed.dropFirst(4).prefix(2)) ?? 0
-        let f = Int(trimmed.dropFirst(6).prefix(2)) ?? 0
-
-        return Timecode(
-            .components(h: h, m: m, s: s, f: f),
-            at: timeline.config.frameRate,
-            by: .clamping
-        )
+        TimecodeEntry.parse(string, at: timeline.config.frameRate)
     }
 
     // MARK: - Tracks Section
 
     private var tracksSection: some View {
+        tracksSectionCore
+            // Published once for the whole track area: every header shifts by
+            // it to stay against the viewport edge while the clips scroll.
+            .environment(\.timelineHeaderScrollOffset, horizontalScrollOffset)
+    }
+
+    @ViewBuilder
+    private var tracksSectionCore: some View {
         GeometryReader { geometry in
             let debug = TimelineDebugFlags.current
             let contentAreaWidth = geometry.size.width - TimelineLayout.headerWidth
@@ -1107,6 +1092,8 @@ struct MultiTrackTimelineView: View {
 
                 // Scrollable tracks area (horizontal + vertical)
                 ScrollView(scrollAxes, showsIndicators: true) {
+                    // Published once here so every track header can hold its
+                    // column against the viewport edge as the clips scroll.
                     VStack(spacing: 0) {
                         // Invisible helper to capture NSScrollView reference for auto-scroll
                         ScrollViewCaptureHelper(scrollView: $cachedScrollView)
@@ -1115,7 +1102,7 @@ struct MultiTrackTimelineView: View {
                         Spacer().frame(height: Spacing.xs)
 
                         // Video File Track: video + linked audio as one unified track
-                        videoFileTrack(ppf: ppf, totalContentWidth: totalContentWidth)
+                        videoFileTrack(ppf: ppf, totalContentWidth: totalContentWidth, contentAreaWidth: contentAreaWidth)
 
                         Divider()
 
@@ -1547,7 +1534,7 @@ struct MultiTrackTimelineView: View {
     /// drive. Pairing each header with its own content makes alignment
     /// structural and lets one separator span the whole width.
     @ViewBuilder
-    private func videoFileTrack(ppf: CGFloat, totalContentWidth: CGFloat) -> some View {
+    private func videoFileTrack(ppf: CGFloat, totalContentWidth: CGFloat, contentAreaWidth: CGFloat) -> some View {
         let linkedLanes = isVideoAudioExpanded ? timeline.videoAudioLanes : []
         let contentWidth = totalContentWidth - TimelineLayout.headerWidth
         let totalHeight = TimelineLayout.videoTrackHeight
@@ -1558,8 +1545,12 @@ struct MultiTrackTimelineView: View {
                 videoInfoBlock
                     .frame(width: TimelineLayout.headerWidth, height: TimelineLayout.videoTrackHeight)
                     .background(headerColumnBackground)
+                    // Held against the viewport edge while the track scrolls
+                    // under it. Visual only - the row still reserves the column.
+                    .offset(x: horizontalScrollOffset)
+                    .zIndex(1)
 
-                videoRowContent(ppf: ppf, width: contentWidth)
+                videoRowContent(ppf: ppf, width: contentWidth, contentAreaWidth: contentAreaWidth)
             }
 
             ForEach(linkedLanes) { linked in
@@ -1573,6 +1564,8 @@ struct MultiTrackTimelineView: View {
                                 height: TimelineLayout.linkedAudioStripHeight
                             )
                             .background(headerColumnBackground)
+                            .offset(x: horizontalScrollOffset)
+                            .zIndex(1)
 
                         linkedAudioContent(
                             lane: linked,
@@ -1596,13 +1589,14 @@ struct MultiTrackTimelineView: View {
     }
 
     /// The video reels themselves, with the lane header suppressed.
-    private func videoRowContent(ppf: CGFloat, width: CGFloat) -> some View {
+    private func videoRowContent(ppf: CGFloat, width: CGFloat, contentAreaWidth: CGFloat) -> some View {
         VideoTrackView(
             timelineManager: timelineManager,
             playbackEngine: playbackEngine,
             thumbnailCache: thumbnailCache,
             mediaLibrary: mediaLibrary,
             pixelsPerFrame: ppf,
+            visibleContentX: visibleContentX(contentAreaWidth: contentAreaWidth),
             scrollOffset: 0,
             showThumbnails: !TimelineDebugFlags.current.disableThumbnails,
             clipInteractionsEnabled: !TimelineDebugFlags.current.disableClipInteractions,
@@ -1823,7 +1817,40 @@ struct MultiTrackTimelineView: View {
     }
 
     /// Video reels content (no header, just the clips).
-    private func videoFileTrackContent(ppf: CGFloat, width: CGFloat) -> some View {
+    /// Span of timeline content the viewport can show, in content points.
+    ///
+    /// - Parameter contentAreaWidth: Width of the track area, headers excluded.
+    /// - Returns: The visible span, measured from the start of the content.
+    private func visibleContentX(contentAreaWidth: CGFloat) -> ClosedRange<CGFloat> {
+        let start = max(0, horizontalScrollOffset)
+        return start...(start + max(1, contentAreaWidth))
+    }
+
+    /// That span expressed relative to a clip's leading edge.
+    ///
+    /// Clips draw only the part of themselves the window can reach; without
+    /// this a zoomed-in reel builds a filmstrip cell for every 48 points of its
+    /// full width, which at feature length is thousands of JPEG decodes per
+    /// layout pass.
+    ///
+    /// - Parameters:
+    ///   - startFrame: The clip's first timeline frame.
+    ///   - ppf: Points per frame at the current zoom.
+    ///   - contentAreaWidth: Width of the track area, headers excluded.
+    /// - Returns: The visible span in clip-local points.
+    private func visibleXRange(
+        forReelStartingAt startFrame: Int,
+        ppf: CGFloat,
+        contentAreaWidth: CGFloat
+    ) -> ClosedRange<CGFloat> {
+        let visible = visibleContentX(contentAreaWidth: contentAreaWidth)
+        let clipStart = CGFloat(startFrame) * ppf
+        let lower = visible.lowerBound - clipStart
+        let upper = visible.upperBound - clipStart
+        return min(lower, upper)...max(lower, upper)
+    }
+
+    private func videoFileTrackContent(ppf: CGFloat, width: CGFloat, contentAreaWidth: CGFloat) -> some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 DustyBackground()
@@ -1839,6 +1866,7 @@ struct MultiTrackTimelineView: View {
                         interactionsEnabled: !TimelineDebugFlags.current.disableClipInteractions,
                         isOptimized: mediaLibrary.items.first { $0.url == reel.sourceURL }?.isOptimized ?? false,
                         timelineStartTimecode: timelineManager.formatTimecode(forFrame: reel.timelineStartFrame),
+                        visibleXRange: visibleXRange(forReelStartingAt: reel.timelineStartFrame, ppf: ppf, contentAreaWidth: contentAreaWidth),
                         onSelect: { modifiers in
                             handleReelSelection(reelId: reel.id, modifiers: modifiers)
                         },

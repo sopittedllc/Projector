@@ -61,23 +61,44 @@ struct ThumbnailStrip {
         thumbnails.sort { $0.sourceTime < $1.sourceTime }
     }
 
-    /// Get the best thumbnail for a given source time (finds nearest match)
-    func thumbnail(at sourceTime: Double) -> Data? {
+    /// Index of the thumbnail nearest a source time.
+    ///
+    /// Binary search rather than a scan. The filmstrip asks once per cell it
+    /// draws, so a linear pass made the cost of a frame quadratic in the strip:
+    /// at 800 thumbnails and a few hundred visible cells that was hundreds of
+    /// thousands of comparisons per layout pass, before a single pixel was
+    /// drawn.
+    ///
+    /// - Parameter sourceTime: Time in seconds from the source start.
+    /// - Returns: Index into ``thumbnails``, or `nil` when the strip is empty.
+    func index(at sourceTime: Double) -> Int? {
         guard !thumbnails.isEmpty else { return nil }
 
-        // Find the thumbnail with the closest time
-        var best = thumbnails[0]
-        var bestDiff = abs(best.sourceTime - sourceTime)
-
-        for thumb in thumbnails {
-            let diff = abs(thumb.sourceTime - sourceTime)
-            if diff < bestDiff {
-                best = thumb
-                bestDiff = diff
+        var low = 0
+        var high = thumbnails.count - 1
+        while low < high {
+            let mid = (low + high) / 2
+            if thumbnails[mid].sourceTime < sourceTime {
+                low = mid + 1
+            } else {
+                high = mid
             }
         }
 
-        return best.imageData
+        // `low` is the first entry at or after the time; its predecessor may
+        // still be the nearer of the two.
+        if low > 0 {
+            let after = abs(thumbnails[low].sourceTime - sourceTime)
+            let before = abs(thumbnails[low - 1].sourceTime - sourceTime)
+            if before <= after { return low - 1 }
+        }
+        return low
+    }
+
+    /// Get the best thumbnail for a given source time (finds nearest match)
+    func thumbnail(at sourceTime: Double) -> Data? {
+        guard let index = index(at: sourceTime) else { return nil }
+        return thumbnails[index].imageData
     }
 
     /// Get thumbnail by index (for sequential access)

@@ -57,6 +57,13 @@ struct AudioLaneView: View {
     /// Off for the video file's audio: its controls live in the combined Video
     /// File track header above it, so a second header would duplicate them.
     var showsHeader: Bool = true
+
+    /// How far the tracks have scrolled horizontally, in points.
+    ///
+    /// Read from the environment rather than passed in: this view's call site
+    /// is already at the type-checker's limit, and every track needs the same
+    /// value from the same scroll view.
+    @Environment(\.timelineHeaderScrollOffset) private var headerScrollOffset
     /// Called when a video-linked clip is dragged vertically to change lanes
     /// Parameters: clipId, laneOffset (+1 = next lane down, -1 = previous lane up)
     let onClipLaneChangeRequested: ((UUID, Int) -> Void)?
@@ -101,6 +108,10 @@ struct AudioLaneView: View {
         HStack(spacing: 0) {
             if showsHeader {
                 laneHeader
+                    // Visual only: the row still reserves the column, so the
+                    // clips beside it keep their positions.
+                    .offset(x: headerScrollOffset)
+                    .zIndex(1)
             } else {
                 // Keep the clips aligned with every other lane even when the
                 // header column is not drawn. Transparent to blend with the
@@ -1352,5 +1363,27 @@ struct AudioLaneControls: View {
     /// What the button reads: the chosen output, or NONE when routed nowhere.
     private var outputPickerLabel: String {
         hasNoOutput ? "NONE" : (resolvedOutputName ?? "NONE")
+    }
+}
+
+// MARK: - Header Scroll Offset
+
+/// How far the timeline's tracks have scrolled horizontally, in points.
+///
+/// Track headers live inside the same scroll view as the clips, so without a
+/// counter-shift they slide off the left edge the moment the timeline is zoomed
+/// in far enough to scroll - taking each lane's name, its mute and solo, and its
+/// output routing with it, at exactly the zoom where a long reel needs them.
+/// The timeline publishes its scroll offset here and every header shifts by it,
+/// which holds the column against the viewport edge while the clips move under.
+private struct TimelineHeaderScrollOffsetKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    /// Horizontal scroll offset the track headers counter-shift by.
+    var timelineHeaderScrollOffset: CGFloat {
+        get { self[TimelineHeaderScrollOffsetKey.self] }
+        set { self[TimelineHeaderScrollOffsetKey.self] = newValue }
     }
 }

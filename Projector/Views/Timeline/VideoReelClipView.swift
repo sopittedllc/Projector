@@ -28,6 +28,20 @@ struct VideoReelClipView: View {
     let interactionsEnabled: Bool
     let isOptimized: Bool
     let timelineStartTimecode: String?
+
+    /// Part of this clip the viewport can actually show, in clip-local points.
+    ///
+    /// The filmstrip draws one cell per ``thumbnailWidth`` of clip, so its cost
+    /// tracked the clip's *zoomed* width rather than the window's: a
+    /// feature-length reel at full zoom is over half a million points wide and
+    /// asked for eleven thousand cells, each decoding a JPEG, on every layout
+    /// pass. That is the beach ball. Given the visible span, the strip draws the
+    /// cells inside it and nothing else, so the cost is bounded by the window.
+    ///
+    /// `nil` means "no viewport known" - previews and tests - and falls back to
+    /// the whole clip, which is safe at the widths those run at.
+    let visibleXRange: ClosedRange<CGFloat>?
+
     let onSelect: (SelectionModifiers) -> Void
     let onDoubleClick: () -> Void
     let onSetTimelineStart: () -> Void
@@ -165,32 +179,56 @@ struct VideoReelClipView: View {
     @ViewBuilder
     private var thumbnailFilmstrip: some View {
         GeometryReader { geometry in
-            HStack(spacing: 0) {
-                let thumbnailCount = max(1, Int(ceil(geometry.size.width / thumbnailWidth)))
+            let clipWidth = max(1, geometry.size.width)
+            let totalCells = max(1, Int(ceil(clipWidth / thumbnailWidth)))
+
+            // Cells the window can reach, and only those. Widened by one cell
+            // each way so a scroll of less than a cell does not expose a gap
+            // before the next layout pass fills it.
+            let visible = visibleXRange ?? 0...clipWidth
+            let firstCell = max(0, Int(floor(visible.lowerBound / thumbnailWidth)) - 1)
+            let lastCell = min(totalCells - 1, Int(ceil(visible.upperBound / thumbnailWidth)) + 1)
+
+            if firstCell <= lastCell {
                 let clipDuration = Double(reel.durationFrames) / reel.sourceFrameRate.fps
-                let strip = thumbnailCache.strip(for: reel, targetCount: thumbnailCount)
 
-                ForEach(0..<thumbnailCount, id: \.self) { index in
-                    // Calculate the source time for this thumbnail cell
-                    let cellStartX = CGFloat(index) * thumbnailWidth
-                    let cellCenterX = cellStartX + thumbnailWidth / 2
-                    let fractionThrough = cellCenterX / geometry.size.width
-                    let sourceTimeOffset = clipDuration * fractionThrough
-                    let sourceTime = Double(reel.sourceStartFrame) / reel.sourceFrameRate.fps + sourceTimeOffset
+                // Resolution follows the whole clip, not the drawn slice, so
+                // panning does not re-request a different level on every scroll.
+                let strip = thumbnailCache.strip(for: reel, targetCount: totalCells)
 
-                    thumbnailCell(at: sourceTime, strip: strip)
-                        .frame(width: thumbnailWidth, height: geometry.size.height)
+                HStack(spacing: 0) {
+                    ForEach(firstCell...lastCell, id: \.self) { index in
+                        // Calculate the source time for this thumbnail cell
+                        let cellStartX = CGFloat(index) * thumbnailWidth
+                        let cellCenterX = cellStartX + thumbnailWidth / 2
+                        let fractionThrough = cellCenterX / clipWidth
+                        let sourceTimeOffset = clipDuration * fractionThrough
+                        let sourceTime = Double(reel.sourceStartFrame) / reel.sourceFrameRate.fps + sourceTimeOffset
+
+                        thumbnailCell(at: sourceTime, strip: strip)
+                            .frame(width: thumbnailWidth, height: geometry.size.height)
+                    }
                 }
+                // Rasterized after the slice is taken, never before: a
+                // drawingGroup over the full zoomed clip is a request for a
+                // half-million-point texture.
+                .drawingGroup()
+                .offset(x: CGFloat(firstCell) * thumbnailWidth)
             }
         }
-        .drawingGroup() // Rasterize thumbnails to Metal for better zoom/scroll performance
     }
 
     @ViewBuilder
     private func thumbnailCell(at sourceTime: Double, strip: ThumbnailStrip?) -> some View {
-        if let data = strip?.thumbnail(at: sourceTime),
-           let nsImage = NSImage(data: data) {
-            Image(nsImage: nsImage)
+        if let strip,
+           let index = strip.index(at: sourceTime),
+           let image = thumbnailCache.image(
+               reelId: reel.id,
+               bucketCount: strip.count,
+               index: index,
+               in: strip
+           ) {
+            Image(decorative: image, scale: 1)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
         } else {
@@ -251,6 +289,7 @@ struct VideoReelClipView: View {
             interactionsEnabled: true,
             isOptimized: true,
             timelineStartTimecode: "01:00:00:00",
+            visibleXRange: nil,
             onSelect: { _ in },
             onDoubleClick: {},
             onSetTimelineStart: {}
@@ -272,6 +311,7 @@ struct VideoReelClipView: View {
             interactionsEnabled: true,
             isOptimized: false,
             timelineStartTimecode: "01:02:00:00",
+            visibleXRange: nil,
             onSelect: { _ in },
             onDoubleClick: {},
             onSetTimelineStart: {}
