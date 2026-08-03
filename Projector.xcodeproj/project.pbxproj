@@ -71,6 +71,7 @@
 		BRVM01VIEWMODEL002 /* BugReportViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BRVM01VIEWMODEL001 /* BugReportViewModel.swift */; };
 		BRVW01VIEW00000002 /* BugReportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BRVW01VIEW00000001 /* BugReportView.swift */; };
 		DEBUGLOG00000002 /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBUGLOG00000001 /* DebugLog.swift */; };
+		TIMECODEENTRY0002 /* TimecodeEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = TIMECODEENTRY0001 /* TimecodeEntry.swift */; };
 		B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */; };
 		B19B58BD2F088AEA00FA33EC /* MIDISyncActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */; };
 		B19B58BF2F088BFF00FA33EC /* TimelineViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */; };
@@ -223,6 +224,7 @@
 		BRVM01VIEWMODEL001 /* BugReportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugReportViewModel.swift; sourceTree = "<group>"; };
 		BRVW01VIEW00000001 /* BugReportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugReportView.swift; sourceTree = "<group>"; };
 		DEBUGLOG00000001 /* DebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLog.swift; sourceTree = "<group>"; };
+		TIMECODEENTRY0001 /* TimecodeEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeEntry.swift; sourceTree = "<group>"; };
 		B19B58B62F0889F200FA33EC /* MIDISyncViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncViewModel.swift; sourceTree = "<group>"; };
 		B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncActor.swift; sourceTree = "<group>"; };
 		B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineViewModel.swift; sourceTree = "<group>"; };
@@ -537,6 +539,7 @@
 				OCC001COMPAT00001 /* OnChangeCompat.swift */,
 				KPC001COMPAT00001 /* KeyPressCompat.swift */,
 				DEBUGLOG00000001 /* DebugLog.swift */,
+				TIMECODEENTRY0001 /* TimecodeEntry.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -816,6 +819,7 @@
 		BRVM01VIEWMODEL002 /* BugReportViewModel.swift in Sources */,
 		BRVW01VIEW00000002 /* BugReportView.swift in Sources */,
 		DEBUGLOG00000002 /* DebugLog.swift in Sources */,
+		TIMECODEENTRY0002 /* TimecodeEntry.swift in Sources */,
 				B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */,
 				BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */,
 				67053C082F0B787BAEF7B06D /* EmbeddedTimecodeService.swift in Sources */,

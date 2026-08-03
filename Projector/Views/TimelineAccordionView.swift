@@ -431,16 +431,7 @@ struct TimelinePositionControl: View {
     // MARK: - Helpers
 
     private func formatTimecodeInput(_ input: String) -> String {
-        let digits = input.filter { $0.isNumber }
-        let limited = String(digits.prefix(8))
-        var result = ""
-        for (index, char) in limited.enumerated() {
-            if index > 0 && index % 2 == 0 {
-                result += ":"
-            }
-            result.append(char)
-        }
-        return result
+        TimecodeEntry.formatted(input)
     }
 
     /// The timecode of the playhead the timeline is actually drawing.
@@ -453,13 +444,12 @@ struct TimelinePositionControl: View {
     }
 
     private func applyPosition() {
-        guard let newTC = parseTimecode(editingPositionText) else {
-            editingPositionText = playheadTimecodeString()
-            isPositionFocused = false
+        let config = timelineManager.timeline.config
+        guard let newTC = TimecodeEntry.parse(editingPositionText, at: config.frameRate) else {
+            rejectPositionEntry()
             return
         }
 
-        let config = timelineManager.timeline.config
         let startFrames = config.startTimecode.frameCount.wholeFrames
         let targetFrames = newTC.frameCount.wholeFrames
         let targetFrame = targetFrames - startFrames
@@ -468,7 +458,9 @@ struct TimelinePositionControl: View {
             pendingSeekFrame = targetFrame
             showExtendConfirmation = true
         } else if targetFrame < 0 {
-            editingPositionText = playheadTimecodeString()
+            // Before the timeline starts. There is nowhere to go, so say so
+            // rather than seeking somewhere the user did not ask for.
+            rejectPositionEntry()
         } else {
             // Use playbackEngine.seekToFrame which updates both playback and UI
             playbackEngine.seekToFrame(targetFrame)
@@ -496,22 +488,17 @@ struct TimelinePositionControl: View {
         pendingSeekFrame = nil
     }
 
-    private func parseTimecode(_ string: String) -> Timecode? {
-        let digits = string.filter { $0.isNumber }
-        let padded = String(repeating: "0", count: max(0, 8 - digits.count)) + digits
-        let trimmed = String(padded.suffix(8))
-        guard trimmed.count == 8 else { return nil }
-
-        let h = Int(trimmed.prefix(2)) ?? 0
-        let m = Int(trimmed.dropFirst(2).prefix(2)) ?? 0
-        let s = Int(trimmed.dropFirst(4).prefix(2)) ?? 0
-        let f = Int(trimmed.dropFirst(6).prefix(2)) ?? 0
-
-        return Timecode(
-            .components(h: h, m: m, s: s, f: f),
-            at: timelineManager.timeline.config.frameRate,
-            by: .clamping
-        )
+    /// Put the playhead's own timecode back, and make the rejection audible.
+    ///
+    /// Both refusals - an entry with no digits in it, and one landing before the
+    /// timeline start - used to restore the text and return. That is
+    /// indistinguishable from the field ignoring Return altogether, which is
+    /// how it read to anyone typing a position that turned out to be
+    /// out of range.
+    private func rejectPositionEntry() {
+        NSSound.beep()
+        editingPositionText = playheadTimecodeString()
+        isPositionFocused = false
     }
 }
 
@@ -634,26 +621,17 @@ struct TimelineTimecodeControls: View {
     // MARK: - Helpers
 
     private func formatTimecodeInput(_ input: String) -> String {
-        let digits = input.filter { $0.isNumber }
-        let limited = String(digits.prefix(8))
-        var result = ""
-        for (index, char) in limited.enumerated() {
-            if index > 0 && index % 2 == 0 {
-                result += ":"
-            }
-            result.append(char)
-        }
-        return result
+        TimecodeEntry.formatted(input)
     }
 
     private func applyStartTimecode() {
-        guard let newTC = parseTimecode(editingStartTCText) else {
-            editingStartTCText = timelineManager.timeline.config.startTimecode.stringValue()
+        let config = timelineManager.timeline.config
+        guard let newTC = TimecodeEntry.parse(editingStartTCText, at: config.frameRate) else {
+            NSSound.beep()
+            editingStartTCText = config.startTimecode.stringValue()
             isStartTCFocused = false
             return
         }
-
-        let config = timelineManager.timeline.config
 
         // Refuse a start that would fall after existing content: the content's
         // timecode is derived from the start, so this would silently renumber it.
@@ -692,24 +670,6 @@ struct TimelineTimecodeControls: View {
             }
         }
         return earliest
-    }
-
-    private func parseTimecode(_ string: String) -> Timecode? {
-        let digits = string.filter { $0.isNumber }
-        let padded = String(repeating: "0", count: max(0, 8 - digits.count)) + digits
-        let trimmed = String(padded.suffix(8))
-        guard trimmed.count == 8 else { return nil }
-
-        return Timecode(
-            .components(
-                h: Int(trimmed.prefix(2)) ?? 0,
-                m: Int(trimmed.dropFirst(2).prefix(2)) ?? 0,
-                s: Int(trimmed.dropFirst(4).prefix(2)) ?? 0,
-                f: Int(trimmed.dropFirst(6).prefix(2)) ?? 0
-            ),
-            at: timelineManager.timeline.config.frameRate,
-            by: .clamping
-        )
     }
 }
 
