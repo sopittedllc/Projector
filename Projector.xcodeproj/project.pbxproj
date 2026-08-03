@@ -48,6 +48,7 @@
 		B1294F5C2F7C9F1600783FA8 /* TimelineManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1294F582F7C9F1600783FA8 /* TimelineManagerTests.swift */; };
 		HPS001SPLITTEST0002 /* HardPannedSplitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */; };
 		APA001PANTEST000002 /* AudioPanningAnalyzerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */; };
+		TCFRTEST0000002 /* TimecodeFrameRateNearestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCFRTEST0000001 /* TimecodeFrameRateNearestTests.swift */; };
 		ALC001QUEUETEST0002 /* AlertCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ALC001QUEUETEST0001 /* AlertCoordinatorTests.swift */; };
 		TAF002TESTS000002 /* TemporaryAudioFilesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TAF002TESTS000001 /* TemporaryAudioFilesTests.swift */; };
 		SOC002TESTS000002 /* SplitOfferCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SOC002TESTS000001 /* SplitOfferCoordinatorTests.swift */; };
@@ -72,6 +73,7 @@
 		BRVW01VIEW00000002 /* BugReportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BRVW01VIEW00000001 /* BugReportView.swift */; };
 		DEBUGLOG00000002 /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBUGLOG00000001 /* DebugLog.swift */; };
 		TIMECODEENTRY0002 /* TimecodeEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = TIMECODEENTRY0001 /* TimecodeEntry.swift */; };
+		TCFRNEAREST00002 /* TimecodeFrameRate+Nearest.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCFRNEAREST00001 /* TimecodeFrameRate+Nearest.swift */; };
 		B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */; };
 		B19B58BD2F088AEA00FA33EC /* MIDISyncActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */; };
 		B19B58BF2F088BFF00FA33EC /* TimelineViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */; };
@@ -205,6 +207,7 @@
 		B1294F582F7C9F1600783FA8 /* TimelineManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineManagerTests.swift; sourceTree = "<group>"; };
 		HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardPannedSplitTests.swift; sourceTree = "<group>"; };
 		APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPanningAnalyzerTests.swift; sourceTree = "<group>"; };
+		TCFRTEST0000001 /* TimecodeFrameRateNearestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeFrameRateNearestTests.swift; sourceTree = "<group>"; };
 		ALC001QUEUETEST0001 /* AlertCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertCoordinatorTests.swift; sourceTree = "<group>"; };
 		TAF002TESTS000001 /* TemporaryAudioFilesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporaryAudioFilesTests.swift; sourceTree = "<group>"; };
 		SOC002TESTS000001 /* SplitOfferCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitOfferCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -225,6 +228,7 @@
 		BRVW01VIEW00000001 /* BugReportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugReportView.swift; sourceTree = "<group>"; };
 		DEBUGLOG00000001 /* DebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLog.swift; sourceTree = "<group>"; };
 		TIMECODEENTRY0001 /* TimecodeEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeEntry.swift; sourceTree = "<group>"; };
+		TCFRNEAREST00001 /* TimecodeFrameRate+Nearest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TimecodeFrameRate+Nearest.swift"; sourceTree = "<group>"; };
 		B19B58B62F0889F200FA33EC /* MIDISyncViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncViewModel.swift; sourceTree = "<group>"; };
 		B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncActor.swift; sourceTree = "<group>"; };
 		B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineViewModel.swift; sourceTree = "<group>"; };
@@ -339,6 +343,7 @@
 				B1294F582F7C9F1600783FA8 /* TimelineManagerTests.swift */,
 				HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */,
 				APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */,
+				TCFRTEST0000001 /* TimecodeFrameRateNearestTests.swift */,
 				ALC001QUEUETEST0001 /* AlertCoordinatorTests.swift */,
 				TAF002TESTS000001 /* TemporaryAudioFilesTests.swift */,
 				SOC002TESTS000001 /* SplitOfferCoordinatorTests.swift */,
@@ -540,6 +545,7 @@
 				KPC001COMPAT00001 /* KeyPressCompat.swift */,
 				DEBUGLOG00000001 /* DebugLog.swift */,
 				TIMECODEENTRY0001 /* TimecodeEntry.swift */,
+				TCFRNEAREST00001 /* TimecodeFrameRate+Nearest.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -778,6 +784,7 @@
 				B1294F5C2F7C9F1600783FA8 /* TimelineManagerTests.swift in Sources */,
 				HPS001SPLITTEST0002 /* HardPannedSplitTests.swift in Sources */,
 				APA001PANTEST000002 /* AudioPanningAnalyzerTests.swift in Sources */,
+		TCFRTEST0000002 /* TimecodeFrameRateNearestTests.swift in Sources */,
 				ALC001QUEUETEST0002 /* AlertCoordinatorTests.swift in Sources */,
 				TAF002TESTS000002 /* TemporaryAudioFilesTests.swift in Sources */,
 				SOC002TESTS000002 /* SplitOfferCoordinatorTests.swift in Sources */,
@@ -820,6 +827,7 @@
 		BRVW01VIEW00000002 /* BugReportView.swift in Sources */,
 		DEBUGLOG00000002 /* DebugLog.swift in Sources */,
 		TIMECODEENTRY0002 /* TimecodeEntry.swift in Sources */,
+		TCFRNEAREST00002 /* TimecodeFrameRate+Nearest.swift in Sources */,
 				B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */,
 				BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */,
 				67053C082F0B787BAEF7B06D /* EmbeddedTimecodeService.swift in Sources */,

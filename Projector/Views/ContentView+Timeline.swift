@@ -548,29 +548,17 @@ extension ContentView {
         }
     }
 
-    /// Convert video frame rate to closest TimecodeFrameRate
+    /// Convert a measured video frame rate to the closest timecode rate.
+    ///
+    /// Delegates to ``TimecodeFrameRate/nearest(to:tolerance:)`` so this and
+    /// the import path cannot disagree. This copy searched a hardcoded five
+    /// rates, which silently had no answer for 48, 50 or 60 fps media.
+    ///
+    /// - Parameter fps: Measured frame rate.
+    /// - Returns: The nearest timecode rate, defaulting to 24 fps when the
+    ///   measurement is not close to any of them.
     func closestTimecodeFrameRate(to fps: Double) -> TimecodeFrameRate {
-        // Common frame rates and their nominal values
-        let rates: [(TimecodeFrameRate, Double)] = [
-            (.fps23_976, 23.976),
-            (.fps24, 24.0),
-            (.fps25, 25.0),
-            (.fps29_97, 29.97),
-            (.fps30, 30.0),
-        ]
-
-        var closest = TimecodeFrameRate.fps24
-        var minDiff = Double.infinity
-
-        for (rate, nominal) in rates {
-            let diff = abs(fps - nominal)
-            if diff < minDiff {
-                minDiff = diff
-                closest = rate
-            }
-        }
-
-        return closest
+        TimecodeFrameRate.nearest(to: fps) ?? .fps24
     }
 
     // MARK: - Audio Timeline Operations

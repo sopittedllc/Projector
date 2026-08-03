@@ -360,13 +360,16 @@ final class TimelineManager: ObservableObject {
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         debugPrint("addVideoReel: Video tracks loaded [T+\(elapsed())]")
 
-        // Determine frame rate from video
+        // Determine frame rate from video.
+        //
+        // Nearest match, not the first within a tolerance: `allCases` leads with
+        // each NTSC rate, so a first-match search read every integer rate as its
+        // cousin - 24 as 23.976, 25 as 24.98, 30 as 29.97 - and put a 1000/1001
+        // error into every frame-to-seconds conversion the reel takes part in.
         var frameRate = timeline.config.frameRate
         if let videoTrack = videoTracks.first {
             let nominalFrameRate = try await videoTrack.load(.nominalFrameRate)
-            if let detectedRate = TimecodeFrameRate.allCases.first(where: {
-                abs($0.fps - Double(nominalFrameRate)) < 0.5
-            }) {
+            if let detectedRate = TimecodeFrameRate.nearest(to: Double(nominalFrameRate)) {
                 frameRate = detectedRate
             }
         }
