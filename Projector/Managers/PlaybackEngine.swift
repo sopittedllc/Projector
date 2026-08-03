@@ -1187,6 +1187,14 @@ final class PlaybackEngine: ObservableObject {
     }
 
     private func syncAudioPlayer(_ playback: AudioClipPlayback, for clip: AudioClip, lane: AudioLane, shouldPlay: Bool) {
+        // Before the routing below, not after: matrix crosspoints written to a
+        // stopped engine are discarded when it starts. Starting here means a
+        // lane whose output changed while paused is routed correctly on the
+        // first buffer, instead of playing its first frames to wherever it was
+        // pointed before.
+        if shouldPlay {
+            ensureAudioEngineRunning()
+        }
         applyOutputMappingIfNeeded(playback, lane: lane)
         playback.player.volume = clip.volume * lane.volume
         guard let sourceTime = clip.sourceTime(at: currentFrame, masterFrameRate: frameRate) else { return }
@@ -1434,6 +1442,11 @@ final class PlaybackEngine: ObservableObject {
             || playback.outputChannelCount != lane.outputChannelCount
 
         guard mappingChanged else { return }
+
+        // A stopped engine drops whatever is written to its crosspoints, so the
+        // change is left un-applied rather than recorded as done - the next sync
+        // sees it as still pending and routes it once the engine is live.
+        guard audioEngine.isRunning else { return }
 
         playback.outputMappingId = lane.outputMappingId
         playback.outputChannelOffset = lane.outputChannelOffset

@@ -850,7 +850,7 @@ extension ContentView {
         performChannelSplits(for: batch)
     }
 
-    /// Route each split lane to the output configured for its side.
+    /// Name the output each split lane is already feeding.
     ///
     /// A lane with no mapping is not silent - the engine falls back to the
     /// channel offset and count the lane carries, which is the first stereo pair
@@ -858,15 +858,27 @@ extension ContentView {
     /// output the user was never told about, so a lane always ends up naming
     /// something.
     ///
-    /// Where the user has configured DX/SFX and MX outputs, each side goes to
-    /// its own. That is the point of splitting: two stems that were stuck in one
-    /// file can now be monitored separately. Matching on the channel span
-    /// instead sent both lanes to the same output, since a split pair shares one.
+    /// ## The convention names the lanes; it does not move the audio
     ///
-    /// Without those roles configured, both sides keep the output the video's
-    /// audio was already using. Assigning them anywhere else would move the
-    /// sound off whatever is being monitored, which is indistinguishable from
-    /// playback having broken.
+    /// Left is DX/SFX and right is MX, by channel and never by content - the
+    /// content cannot be identified reliably, and a reel delivered the other way
+    /// round is two clicks to swap. That naming is the whole of the convention.
+    ///
+    /// Sending each side to the *output* configured for its role reads like the
+    /// obvious next step and is not. On a 32-channel interface with DX/SFX
+    /// mapped to channels 28-29 and MX to 31-32, it moved both stems there the
+    /// instant a hard-panned reel imported, while the desk was monitored from
+    /// channels 1-2. The engine metered correctly and the interface was
+    /// confirmed running; there was simply nothing on the speakers. Measured on
+    /// this rig: `ch28=0.1611 ch29=0.1611 ch31=0.0063 ch32=0.0063`, and silence
+    /// where anyone was listening.
+    ///
+    /// So both sides keep the output the video's audio was already using, which
+    /// is the state a working session actually has: two lanes named DX/SFX and
+    /// MX, both on Stereo Out, both audible. Moving either one is a deliberate
+    /// act in its own output menu - and that now takes effect immediately, which
+    /// it did not before (see `PlaybackEngine.applyOutputMappingIfNeeded`:
+    /// crosspoints written to a stopped engine were discarded on start).
     ///
     /// - Parameter lanes: Lanes produced by the split.
     @MainActor
@@ -875,19 +887,9 @@ extension ContentView {
         guard !outputs.isEmpty else { return }
 
         for lane in lanes where !lane.isOutputDisabled {
-            // The output standing for this side's role, if one exists.
-            let roleOutput = lane.splitChannel.flatMap { channel in
-                outputs.first { $0.roleId == channel.conventionalRoleId }
-            }
-
-            if let roleOutput {
-                timelineManager.setLaneOutputMapping(id: lane.id, mapping: roleOutput)
-                continue
-            }
-
-            // No role for this side. Keep an inherited assignment, and otherwise
-            // name the output the engine is already feeding - the one covering
-            // the lane's channel span.
+            // Keep an inherited assignment, and otherwise name the output the
+            // engine is already feeding - the one covering the lane's channel
+            // span.
             guard lane.outputMappingId == nil else { continue }
             let current = outputs.first {
                 $0.channelStart == lane.outputChannelOffset
