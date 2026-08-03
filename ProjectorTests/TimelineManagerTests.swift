@@ -153,12 +153,15 @@ final class TimelineManagerTests: XCTestCase {
 
     /// The delivery convention this feature was built for, as it arrives on disk.
     ///
-    /// Taken from a real preview delivery (a preview delivery): five reels,
-    /// each a picture file plus Dx/Fx/Mx stems. Real names are the test data
-    /// because the risks are all in real names - mixed case (`_Dx` not `_DX`), an
-    /// eight-digit date that must not read as a word, and a picture file whose
-    /// name says "Splt Audio" and must match nothing at all.
-    func testRealDeliveryNamesMatchTheirRoles() {
+    /// A preview delivery is a run of reels, each a picture file plus Dx/Fx/Mx
+    /// stems. The names carry the risks, so the fixtures reproduce their shape
+    /// exactly - mixed case (`_Dx`, not `_DX`), an eight-digit date that must
+    /// not read as a word, a space before a suffix, and a picture file whose
+    /// name says "Splt Audio" and must match no role at all.
+    ///
+    /// The show name is a placeholder on purpose: fixtures never carry a real
+    /// title or a real delivery filename.
+    func testDeliveryNamesMatchTheirRoles() {
         let expected: [(name: String, role: OutputRole?)] = [
             ("SHOW_PREV1_R1_COMPOSER_20260701_Dx.wav", .dialogueEffects),
             ("SHOW_PREV1_R1_COMPOSER_20260701_Fx.wav", .dialogueEffects),

@@ -119,6 +119,28 @@ Agents are located in `.claude/agents/`:
 
 ---
 
+## Never Reference Client Material
+
+**This repository is public. Nothing in it may identify a client.**
+
+No project or film titles, no real delivery filenames, no studio names, no
+watermarked frames — not in code, tests, fixtures, comments, documentation, or
+commit messages.
+
+Test fixtures were once built from a real preview delivery, with a comment
+saying so. That was invisible while the repository was private and became a
+disclosure the moment publishing came up: it named an unreleased title, its reel
+count, and its delivery convention.
+
+Use neutral fixtures that reproduce the *shape* being tested rather than the
+source — mixed case (`_Dx` not `_DX`), spaces in names, eight-digit dates, reel
+numbering. The shape is what the tests are for; the title never was.
+
+When real media has to be discussed to diagnose something, keep it in the
+conversation and out of anything committed.
+
+---
+
 ## Anti-Hallucination Protocol
 
 **ALL agents and contributors MUST follow this protocol:**
