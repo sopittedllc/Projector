@@ -1,95 +1,96 @@
 # Session State
 
 > **Last Updated**: 2026-08-03
-> **Status**: PAUSED BY USER — resume with the 90-minute drift test
-> **Branch**: main (clean, pushed)
+> **Status**: TIMING RESOLVED — verified frame-exact across 90 minutes
+> **Branch**: main (clean, pushed through 81d1d7e)
 
 ---
 
-## Resume here: timecode drift over a 90-minute reel
+## Timing: resolved and verified
 
-The user wants drift tested at feature length, up to 90 minutes, before
-trusting this. Everything needed is in place:
+The 90-minute drift test the user asked for is done, along with the
+rolling-playback check that was left unfinished.
 
-1. **Generator**: `scripts/make-reference-reel.swift` (untracked - commit it if
-   you want it kept). Builds a reel that cannot disagree with itself: true
-   23.976 (frame duration 1001/24000), a timecode track, and every frame's
-   timecode drawn into the picture from the *same* number the track starts
-   from. Change `frameCount` for length. Requires
-   `videoIn.mediaTimeScale = 24000` and `writer.movieTimeScale = 24000` -
-   without them AVAssetWriter quantises to a 600 timescale, where an NTSC frame
-   boundary is not representable, and the "reference" silently becomes 24 fps
-   content wearing a 23.976 label.
+### Method
 
-   ```bash
-   xcrun swiftc -O scripts/make-reference-reel.swift -o /tmp/makeref
-   /tmp/makeref ~/Desktop/ProjectorRefReel_90min.mov
-   ```
+`scripts/make-reference-reel.swift` builds a reel that cannot disagree with
+itself: true 23.976 (frame duration 1001/24000), a real timecode track, and
+every frame's timecode drawn into the picture from the same number the track
+starts from. A 90-minute one - 129,600 frames, tmcd 01:00:00:00, ending
+02:29:59:23 - lives at `~/Desktop/ProjectorRefReel_90min.mov` (160 MB; delete
+when done).
 
-   90 minutes of timecode = 129,600 frames = 5405.4 s of real time at 23.976.
+Testing against a generated reel rather than a delivery is the whole point: it
+is the only way to tell an app bug from a file that drifts against its own
+burn-in, and both were happening.
 
-2. **Current reference**: `~/Desktop/ProjectorRefReel_23976.mov`, 2400 frames
-   (100.1 s), tmcd 01:00:00:00.
+### Result: zero drift across 90 minutes
 
-3. **Probe method**: import, type a timecode into Position, screenshot the
-   preview, compare the burned-in number and the `frame N` line against the
-   readout. The burn-in and the frame index are both drawn, so a discrepancy
-   says which of the two mappings is wrong.
+Seeked to seven positions, comparing the readout against the burned-in timecode
+and the drawn frame index:
 
-**Also unfinished**: the rolling-playback check. Seeks are proven exact; what
-was never cleanly measured is whether the readout and the displayed frame agree
-*after a pause*. The attempt was invalid - the Position field keeps keyboard
-focus after a seek, so the space presses were typed into the text field and the
-transport never paused. Press Escape and click a neutral area first, then
-verify the frame is static across two screenshots before reading anything.
+| Position | Burn-in | Frame | Expected |
+|---|---|---|---|
+| 01:00:00:00 | 01:00:00:00 | 0 | 0 |
+| 01:15:00:00 | 01:15:00:00 | 21600 | 21600 |
+| 01:30:00:00 | 01:30:00:00 | 43200 | 43200 |
+| 01:45:00:00 | 01:45:00:00 | 64800 | 64800 |
+| 02:00:00:00 | 02:00:00:00 | 86400 | 86400 |
+| 02:15:00:00 | 02:15:00:00 | 108000 | 108000 |
+| 02:29:59:23 | 02:29:59:23 | 129599 | 129599 |
 
-## What was fixed today (committed and pushed)
+Play/stop also agrees exactly now, tested at two run lengths (01:30:20:01 and
+02:00:14:06).
 
-- `5df0c65` frame rate matched to the *nearest* timecode rate, not the first
-  within a tolerance. `allCases` leads with each NTSC rate, so every integer
-  rate was read as its cousin - 24 as 23.976, 25 as 24.98, 30 as 29.97.
-- `73e98a4` a detected timecode is carried by its counting **grid**, not by the
-  ratio of real frame rates. 23.976 and 24 count the same labels, so an address
-  crosses between them unchanged; rescaling put a reel 101 frames late.
-- `c0795a4` seeks are built from the rate's frame duration as a rational, so
-  they land on a real frame boundary. A 600-tick CMTime cannot express one
-  (a 23.976 frame is 25.025 ticks), which left every seek accurate to about a
-  frame either way.
+## Fixed today
 
-## Verified, with ground truth
+- `73e98a4` a detected timecode is carried by its counting **grid**, not the
+  ratio of real rates. 23.976 and 24 count the same labels, so an address
+  crosses unchanged. Rescaling put a reel 101 frames late.
+- `c0795a4` seeks built from the rate's frame duration as a rational. A 600-tick
+  CMTime cannot express a 23.976 frame boundary (25.025 ticks), which left every
+  seek about a frame either way.
+- `018b62a` a reel's duration counted in labels. Dividing by the real rate and
+  taking the frames digit modulo `Int(23.976)` - which is 23 - displayed a
+  90-minute reel as 1:30:05:18.
+- `81d1d7e` readout and picture park on the same frame when stopped. Pausing now
+  settles the picture onto the reported frame, and the periodic observer only
+  drives the frame while playing - the player's clock is quantised to the item's
+  timescale, and a parked 23.976 frame sits just under its own boundary in a 600
+  timescale, so truncation named the frame before.
 
-On the self-consistent reference reel the app is **frame-exact** at every seek
-tested - 01:00:00:00, 01:00:41:16, 01:01:00:00, 01:01:39:23 - with the drawn
-frame index confirming the source frame each time (0, 1000, 1440, 2399).
+All four have unit tests. Full suite green: 133 cases.
 
-## The client reel is internally inconsistent
+## The remaining discrepancy is in the delivery, not the app
 
-Measured **outside the app** with AVAssetImageGenerator at exact frame times
-(`actual == requested`), so this is a property of the delivery:
+The reel the user was testing drifts against **its own** burned-in window -
+measured outside the app with AVAssetImageGenerator at exact frame times, so it
+is a property of the file:
 
-| source frame | its timecode track says | its burned-in window shows |
+| source frame | its timecode track | its burn-in |
 |---|---|---|
 | 0 | 01:10:12:03 | 01:10:12:03 |
 | 1149 | 01:11:00:00 | 01:11:00:01 |
-| 2589 | 01:12:00:00 | 01:12:00:02 |
 | 2787 (last) | 01:12:08:06 | 01:12:08:08 |
 
-They agree at the head and separate at about one frame per 1001 - the 1000/1001
-NTSC ratio. The burn-in was rendered on a 24 fps clock while the media runs
-23.976. Projector follows the timecode track, so it reads "wrong" against the
-burn-in by up to 2 frames on that reel. **This is the open product question**:
-whether Projector should detect and surface that disagreement (it would need to
-OCR the burn-in - Vision can, but it is a new feature, not a bug fix), and which
-of the two a spotting session should trust.
+They agree at the head and separate at one frame per 1001 - the burn-in was
+rendered on a 24 fps clock while the media runs 23.976. Projector follows the
+timecode track, so it reads up to 2 frames "wrong" against those numbers on a
+1:56 reel, and would be worse on a full one.
+
+**Open product question for the user**: should Projector detect this and say so?
+It needs OCR of the burn-in (Vision can do it) compared against the timecode
+track at two distant frames. That is a new feature, not a bug fix, so it was not
+built.
 
 ## Housekeeping
 
-- A Debug build is running with the reference reel loaded and the Position field
-  in a half-edited state. Quit it whenever.
-- Repo is public, MIT, no client material. `backup/pre-rewrite-main` is a local
-  branch, checked clean.
+- `~/Desktop/ProjectorRefReel_90min.mov` (160 MB) and
+  `ProjectorRefReel_23976.mov` (3 MB) are test assets - delete when finished.
+- No app instance left running.
 
 ---
+
 
 
 
