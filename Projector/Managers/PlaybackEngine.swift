@@ -457,6 +457,28 @@ final class PlaybackEngine: ObservableObject {
         resetSeekState()
         stopGapPlayback()
         stopAllAudioClips()
+        parkOnCurrentFrame()
+    }
+
+    /// Settle the picture onto the frame the position readout names.
+    ///
+    /// Stopping leaves the two a frame apart. The readout comes from sampling
+    /// the player's clock and truncating to a frame; the picture is whatever
+    /// the video output last presented, and the two are not quite simultaneous
+    /// - measured on a 23.976 reel, a stop at 01:30:20:02 left frame 43683
+    /// (01:30:20:03) on screen.
+    ///
+    /// A frame of disagreement between what the transport says and what is on
+    /// the monitor is exactly the thing this app must not do: a spotting
+    /// session writes hit points off that number. Seeking to the reported frame
+    /// makes them identical by construction, and seeks land exactly - see
+    /// ``VideoReel/sourceCMTime(at:)``.
+    ///
+    /// Only when parked. During playback the two are expected to differ by
+    /// roughly the display latency, and correcting that would fight the player.
+    private func parkOnCurrentFrame() {
+        guard !isPlaying, let reel = activeReel else { return }
+        seekWithinReel(reel, timelineFrame: currentFrame, resumeAfterSeek: false) {}
     }
 
     /// Toggles between play and pause states.
@@ -2093,7 +2115,14 @@ final class PlaybackEngine: ObservableObject {
         )
         let videoFrame = (sourceFrame - reel.sourceStartFrame) + reel.timelineStartFrame
 
-        if videoFrame != currentFrame {
+        // Only while rolling. Stopped, the transport's own frame is the truth:
+        // it was put there by an exact seek or a typed position, whereas this
+        // re-derives it from the player's clock, which is quantised to the
+        // item's timescale. A parked frame at 23.976 lands 0.07 ticks below its
+        // boundary in a 600 timescale, so truncation reports the frame before -
+        // the readout would drift a frame behind the picture every time the
+        // transport stopped.
+        if videoFrame != currentFrame, isPlaying {
             let previousFrame = currentFrame
             currentFrame = max(0, videoFrame)
             updateCurrentTimecode()
