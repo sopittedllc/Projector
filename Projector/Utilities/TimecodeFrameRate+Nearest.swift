@@ -57,4 +57,40 @@ extension TimecodeFrameRate {
                 return !lhs.isDrop && rhs.isDrop
             }
     }
+
+    /// Timecode labels in one second at this rate: 23.976 counts 24, 29.97 counts 30.
+    ///
+    /// The number to divide a frame count by when turning it into an address or
+    /// a duration. Dividing by ``fps`` instead measures *elapsed time*, which is
+    /// a different quantity and 1000/1001 away on every NTSC rate - the reason a
+    /// 90-minute reel once displayed a duration of 1:30:05:18.
+    var labelsPerSecond: Int {
+        Int(fps.rounded())
+    }
+
+    /// A frame count rendered as HH:MM:SS:FF at this rate.
+    ///
+    /// Counts labels, so it is exact for NTSC rates. Used for durations and any
+    /// other span measured in frames.
+    ///
+    /// - Parameters:
+    ///   - frameCount: Number of frames.
+    ///   - forceHours: Show the hours field even when zero.
+    /// - Returns: The formatted span.
+    func timecodeString(forFrameCount frameCount: Int, forceHours: Bool = false) -> String {
+        let perSecond = max(1, labelsPerSecond)
+        let perMinute = perSecond * 60
+        let perHour = perMinute * 60
+        let frames = max(0, frameCount)
+
+        let hours = frames / perHour
+        let minutes = (frames % perHour) / perMinute
+        let seconds = (frames % perMinute) / perSecond
+        let remainder = frames % perSecond
+
+        if hours > 0 || forceHours {
+            return String(format: "%d:%02d:%02d:%02d", hours, minutes, seconds, remainder)
+        }
+        return String(format: "%02d:%02d:%02d", minutes, seconds, remainder)
+    }
 }

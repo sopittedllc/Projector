@@ -1,112 +1,96 @@
 # Session State
 
-> **Last Updated**: 2026-08-02
-> **Status**: FIXES VERIFIED IN THE RUNNING APP — awaiting user sign-off
-> **Branch**: main
+> **Last Updated**: 2026-08-03
+> **Status**: PAUSED BY USER — resume with the 90-minute drift test
+> **Branch**: main (clean, pushed)
 
 ---
 
-## Current Task (2026-08-02)
+## Resume here: timecode drift over a 90-minute reel
 
-Four defects found while diagnosing `Reel 1.mov` playback. All fixed, all
-verified by driving the running Debug build (not by code reading).
+The user wants drift tested at feature length, up to 90 minutes, before
+trusting this. Everything needed is in place:
 
-### 1. Split reels were routed to outputs nobody was monitoring
+1. **Generator**: `scripts/make-reference-reel.swift` (untracked - commit it if
+   you want it kept). Builds a reel that cannot disagree with itself: true
+   23.976 (frame duration 1001/24000), a timecode track, and every frame's
+   timecode drawn into the picture from the *same* number the track starts
+   from. Change `frameCount` for length. Requires
+   `videoIn.mediaTimeScale = 24000` and `writer.movieTimeScale = 24000` -
+   without them AVAssetWriter quantises to a 600 timescale, where an NTSC frame
+   boundary is not representable, and the "reference" silently becomes 24 fps
+   content wearing a 23.976 label.
 
-The "no audio" report. `nameOutputOfSplitLanes` sent each split lane to the
-output matching its role. On this rig that is Lynx ch 28-29 (DX/SFX) and 31-32
-(MX), while the desk is monitored from ch 1-2, so every hard-panned import went
-silent on arrival.
+   ```bash
+   xcrun swiftc -O scripts/make-reference-reel.swift -o /tmp/makeref
+   /tmp/makeref ~/Desktop/ProjectorRefReel_90min.mov
+   ```
 
-Proved rather than assumed, because the first meter I used sat on
-`mainMixerNode` - before the hardware - and only showed the mix bus had signal:
+   90 minutes of timecode = 129,600 frames = 5405.4 s of real time at 23.976.
 
-- CoreAudio device query: Lynx Aurora(n)-TB3, id 265, 32 out, 48 kHz, system
-  default, and `IsRunningSomewhere = 1` during playback, so the interface really
-  was receiving IO from Projector.
-- Output node formats logged at every stage: 32 ch / 48 kHz / Float32 from
-  `mainMixerNode` through the AUHAL. Nothing mismatched.
-- With role routing on, the meter read
-  `ch28=0.1611 ch29=0.1611 ch31=0.0063 ch32=0.0063` - the audio was being
-  delivered correctly, to channels no one was listening to.
+2. **Current reference**: `~/Desktop/ProjectorRefReel_23976.mov`, 2400 frames
+   (100.1 s), tmcd 01:00:00:00.
 
-Fixed by making the convention name the lanes without moving the audio: left is
-DX/SFX and right is MX, both keeping the output the video's audio already had.
-That is the state the user's own first screenshot shows - two lanes named
-DX/SFX and MX, both on Stereo Out, audible.
+3. **Probe method**: import, type a timecode into Position, screenshot the
+   preview, compare the burned-in number and the `frame N` line against the
+   readout. The burn-in and the frame index are both drawn, so a discrepancy
+   says which of the two mappings is wrong.
 
-**Verified** from a clean import, nothing touched by hand: both lanes on Stereo
-Out, `MatrixMixer configured: input 0/1 only -> outputs 0-1`, meter ch1/ch2 at
-0.12-0.13 RMS, and muting DX/SFX drops it to 0.006 so both stems are in the mix.
+**Also unfinished**: the rolling-playback check. Seeks are proven exact; what
+was never cleanly measured is whether the readout and the displayed frame agree
+*after a pause*. The attempt was invalid - the Position field keeps keyboard
+focus after a seek, so the space presses were typed into the text field and the
+transport never paused. Press Escape and click a neutral area first, then
+verify the frame is static across two screenshots before reading anything.
 
-### 1b. Changing a lane's output was discarded on a stopped engine
+## What was fixed today (committed and pushed)
 
-Found on the way. `applyOutputMappingIfNeeded` recorded the new mapping and
-wrote matrix crosspoints without checking the engine was running, and
-crosspoints written to a stopped engine are dropped when it starts - so
-re-pointing a lane while paused did nothing on the next play. It now leaves the
-change pending unless the engine is live, and `syncAudioPlayer` starts the
-engine before routing instead of after.
+- `5df0c65` frame rate matched to the *nearest* timecode rate, not the first
+  within a tolerance. `allCases` leads with each NTSC rate, so every integer
+  rate was read as its cousin - 24 as 23.976, 25 as 24.98, 30 as 29.97.
+- `73e98a4` a detected timecode is carried by its counting **grid**, not by the
+  ratio of real frame rates. 23.976 and 24 count the same labels, so an address
+  crosses between them unchanged; rescaling put a reel 101 frames late.
+- `c0795a4` seeks are built from the rate's frame duration as a rational, so
+  they land on a real frame boundary. A 600-tick CMTime cannot express one
+  (a 23.976 frame is 25.025 ticks), which left every seek accurate to about a
+  frame either way.
 
-**Verified** with no seek to mask it: switch both lanes to Stereo Out while
-paused, press play, meter reads ch1/ch2.
+## Verified, with ground truth
 
-### 2. Beach ball when zooming in (`VideoReelClipView`)
+On the self-consistent reference reel the app is **frame-exact** at every seek
+tested - 01:00:00:00, 01:00:41:16, 01:01:00:00, 01:01:39:23 - with the drawn
+frame index confirming the source frame each time (0, 1000, 1440, 2399).
 
-The filmstrip built one cell per 48pt of *zoomed* clip width: 11,612 cells for a
-97-minute reel at max zoom, each decoding a JPEG on the main thread every layout
-pass, all inside a `drawingGroup` over a 557,000pt frame. `sample` showed 84% of
-the main thread in view-graph updates, 63% inside `NSImage(data:)`.
+## The client reel is internally inconsistent
 
-Three fixes: cells are culled to the visible viewport (plumbed through
-`visibleXRange`), decoded images are cached in `ThumbnailCache`, and
-`ThumbnailStrip.index(at:)` is a binary search instead of a linear scan.
-**Verified**: after the fix `sample` at max zoom shows 94% of the main thread
-idle in `mach_msg2_trap`.
+Measured **outside the app** with AVAssetImageGenerator at exact frame times
+(`actual == requested`), so this is a property of the delivery:
 
-### 3. Lane headers scrolled away when zoomed in
+| source frame | its timecode track says | its burned-in window shows |
+|---|---|---|
+| 0 | 01:10:12:03 | 01:10:12:03 |
+| 1149 | 01:11:00:00 | 01:11:00:01 |
+| 2589 | 01:12:00:00 | 01:12:00:02 |
+| 2787 (last) | 01:12:08:06 | 01:12:08:08 |
 
-Track headers live inside the horizontally scrolling content, so scrolling right
-took every lane's name, mute/solo and output picker off screen. Each header now
-counter-shifts by the scroll offset (published via the
-`timelineHeaderScrollOffset` environment value, because the `AudioLaneView` call
-site is already at the type-checker's limit). **Verified**: at max zoom scrolled
-to 01:22:10 the headers hold at the viewport edge.
+They agree at the head and separate at about one frame per 1001 - the 1000/1001
+NTSC ratio. The burn-in was rendered on a 24 fps clock while the media runs
+23.976. Projector follows the timecode track, so it reads "wrong" against the
+burn-in by up to 2 frames on that reel. **This is the open product question**:
+whether Projector should detect and surface that disagreement (it would need to
+OCR the burn-in - Vision can, but it is a new feature, not a bug fix), and which
+of the two a spotting session should trust.
 
-### Earlier in the session: timecode entry
+## Housekeeping
 
-Position/Start TC/region dialog parsed digits right-aligned while the field
-displayed them left-aligned, so `01:21:00` seeked to 00:01:21:00 - before the
-timeline start, where it was silently discarded. One shared
-`Utilities/TimecodeEntry.swift` now formats and parses consistently, and
-rejected entries beep. **Verified** in the app: typing `01:21:00` lands on
-01:21:00:00.
-
-## Files changed
-
-- `Projector/Utilities/TimecodeEntry.swift` (new, registered in project.pbxproj)
-- `Projector/Views/TimelineAccordionView.swift`
-- `Projector/Views/Timeline/MultiTrackTimelineView.swift`
-- `Projector/Views/Timeline/VideoReelClipView.swift`
-- `Projector/Views/Timeline/VideoTrackView.swift`
-- `Projector/Views/Timeline/AudioLaneView.swift`
-- `Projector/Views/ContentView+Timeline.swift`
-- `Projector/Managers/PlaybackEngine.swift`
-- `Projector/Managers/ThumbnailCache.swift`
-- `Projector/Models/Timeline/ThumbnailStrip.swift`
-
-## Open questions for the user
-
-- Which side of `Reel 1.mov` holds which stem is unconfirmed and, per the user,
-  does not need to be: left is DX/SFX and right is MX by convention, and a reel
-  delivered the other way is corrected in the lane menus. No content detection.
-- Sending stems to the DX/SFX and MX *outputs* is deliberately not automatic,
-  because it silences a desk monitored from the first pair. If that routing is
-  wanted it should be an explicit command, not a side effect of import.
-- `VideoInsertSheetView` still has its own right-aligned timecode parser. It is
-  self-consistent and reports errors visibly, so it was left alone.
+- A Debug build is running with the reference reel loaded and the Position field
+  in a half-edited state. Quit it whenever.
+- Repo is public, MIT, no client material. `backup/pre-rewrite-main` is a local
+  branch, checked clean.
 
 ---
+
 
 
 

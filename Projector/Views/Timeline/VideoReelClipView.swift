@@ -257,17 +257,15 @@ struct VideoReelClipView: View {
         return .white.opacity(0.15)
     }
 
+    /// The reel's length as HH:MM:SS:FF.
+    ///
+    /// Counted in timecode labels, not elapsed seconds. This divided the frame
+    /// count by the real rate and took the frames digit modulo `Int(23.976)`,
+    /// which is 23 - so a 90-minute reel of 129,600 frames read 1:30:05:18:
+    /// five seconds long from the 1000/1001 ratio, and a frames digit counting
+    /// to 22 before it wrapped.
     private var formattedDuration: String {
-        let totalSeconds = Double(reel.durationFrames) / reel.sourceFrameRate.fps
-        let hours = Int(totalSeconds) / 3600
-        let minutes = (Int(totalSeconds) % 3600) / 60
-        let seconds = Int(totalSeconds) % 60
-        let frames = reel.durationFrames % Int(reel.sourceFrameRate.fps)
-
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d:%02d", hours, minutes, seconds, frames)
-        }
-        return String(format: "%02d:%02d:%02d", minutes, seconds, frames)
+        reel.sourceFrameRate.timecodeString(forFrameCount: reel.durationFrames)
     }
 }
 

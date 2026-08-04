@@ -113,3 +113,64 @@ final class TimecodeFrameRateNearestTests: XCTestCase {
         XCTAssertEqual((wrong - elapsedSeconds) * 24.0, 21.33, accuracy: 0.05)
     }
 }
+
+// MARK: - Counting Grid
+
+/// Tests for rendering a frame count as a span of timecode.
+///
+/// A 90-minute reel of 129,600 frames displayed its duration as 1:30:05:18:
+/// five seconds long because the count was divided by the real rate instead of
+/// the label count, and a frames digit that wrapped at 23 because it was taken
+/// modulo `Int(23.976)`.
+final class TimecodeFrameRateGridTests: XCTestCase {
+
+    func testLabelsPerSecondIsTheIntegerGrid() {
+        XCTAssertEqual(TimecodeFrameRate.fps23_976.labelsPerSecond, 24)
+        XCTAssertEqual(TimecodeFrameRate.fps24.labelsPerSecond, 24)
+        XCTAssertEqual(TimecodeFrameRate.fps25.labelsPerSecond, 25)
+        XCTAssertEqual(TimecodeFrameRate.fps29_97.labelsPerSecond, 30)
+        XCTAssertEqual(TimecodeFrameRate.fps30.labelsPerSecond, 30)
+        XCTAssertEqual(TimecodeFrameRate.fps59_94.labelsPerSecond, 60)
+        XCTAssertEqual(TimecodeFrameRate.fps60.labelsPerSecond, 60)
+    }
+
+    /// Never zero, or the formatter would divide by it.
+    func testEveryRateHasAUsableGrid() {
+        for rate in TimecodeFrameRate.allCases {
+            XCTAssertGreaterThan(rate.labelsPerSecond, 0, "\(rate.rawValue)")
+        }
+    }
+
+    /// The reported case, at both rates that share the grid.
+    func testNinetyMinutesReadsAsNinetyMinutes() {
+        XCTAssertEqual(
+            TimecodeFrameRate.fps23_976.timecodeString(forFrameCount: 129_600),
+            "1:30:00:00"
+        )
+        XCTAssertEqual(
+            TimecodeFrameRate.fps24.timecodeString(forFrameCount: 129_600),
+            "1:30:00:00"
+        )
+    }
+
+    func testShortSpansOmitHoursUnlessForced() {
+        XCTAssertEqual(TimecodeFrameRate.fps23_976.timecodeString(forFrameCount: 24), "00:01:00")
+        XCTAssertEqual(TimecodeFrameRate.fps23_976.timecodeString(forFrameCount: 0), "00:00:00")
+        XCTAssertEqual(
+            TimecodeFrameRate.fps23_976.timecodeString(forFrameCount: 24, forceHours: true),
+            "0:00:01:00"
+        )
+    }
+
+    /// The frames digit must count to one less than the grid, not to 22.
+    func testFramesDigitWrapsAtTheGrid() {
+        XCTAssertEqual(TimecodeFrameRate.fps23_976.timecodeString(forFrameCount: 23), "00:00:23")
+        XCTAssertEqual(TimecodeFrameRate.fps23_976.timecodeString(forFrameCount: 24), "00:01:00")
+        XCTAssertEqual(TimecodeFrameRate.fps29_97.timecodeString(forFrameCount: 29), "00:00:29")
+        XCTAssertEqual(TimecodeFrameRate.fps29_97.timecodeString(forFrameCount: 30), "00:01:00")
+    }
+
+    func testNegativeCountsDoNotProduceGarbage() {
+        XCTAssertEqual(TimecodeFrameRate.fps24.timecodeString(forFrameCount: -5), "00:00:00")
+    }
+}
