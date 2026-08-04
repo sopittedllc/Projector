@@ -14,7 +14,7 @@ If it saves you time, please put money toward [**Altadena Girls**](https://www.a
 
 ## Download
 
-**[⬇︎ Get the latest release](https://github.com/musiquela/Projector/releases/latest)** — a signed and notarized `.dmg`.
+**[⬇︎ Get the latest release](https://github.com/sopittedllc/Projector/releases/latest)** — a signed and notarized `.dmg`.
 
 Drag Projector to your Applications folder and open it. No account, no license key, no trial.
 
@@ -93,7 +93,7 @@ Everything else in the app is in service of those four steps.
 ## Building from source
 
 ```bash
-git clone https://github.com/musiquela/Projector.git
+git clone https://github.com/sopittedllc/Projector.git
 cd Projector
 open Projector.xcodeproj
 ```
