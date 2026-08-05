@@ -128,6 +128,10 @@
 		PVFC0000000000000000000C /* ProVideoFormatsInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC0000000000000000000B /* ProVideoFormatsInstallerTests.swift */; };
 		PVFC0000000000000000000E /* OptimizationStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC0000000000000000000D /* OptimizationStatusTests.swift */; };
 		AGGD00000000000000000002 /* AggregateDeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AGGD00000000000000000001 /* AggregateDeviceManager.swift */; };
+		VAPT00000000000000000002 /* VirtualAudioPorts.swift in Sources */ = {isa = PBXBuildFile; fileRef = VAPT00000000000000000001 /* VirtualAudioPorts.swift */; };
+		BHIN00000000000000000002 /* BlackHoleInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = BHIN00000000000000000001 /* BlackHoleInstaller.swift */; };
+		AGGT00000000000000000002 /* AggregateDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AGGT00000000000000000001 /* AggregateDeviceTests.swift */; };
+		VAPT00000000000000000012 /* VirtualAudioPortsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = VAPT00000000000000000011 /* VirtualAudioPortsTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -294,6 +298,10 @@
 		PVFC0000000000000000000B /* ProVideoFormatsInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProVideoFormatsInstallerTests.swift; sourceTree = "<group>"; };
 		PVFC0000000000000000000D /* OptimizationStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizationStatusTests.swift; sourceTree = "<group>"; };
 		AGGD00000000000000000001 /* AggregateDeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateDeviceManager.swift; sourceTree = "<group>"; };
+		VAPT00000000000000000001 /* VirtualAudioPorts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualAudioPorts.swift; sourceTree = "<group>"; };
+		BHIN00000000000000000001 /* BlackHoleInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlackHoleInstaller.swift; sourceTree = "<group>"; };
+		AGGT00000000000000000001 /* AggregateDeviceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateDeviceTests.swift; sourceTree = "<group>"; };
+		VAPT00000000000000000011 /* VirtualAudioPortsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualAudioPortsTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -353,6 +361,8 @@
 		3BD953EF1BF1714A87337C38 /* ProjectorTests */ = {
 			isa = PBXGroup;
 			children = (
+				VAPT00000000000000000011 /* VirtualAudioPortsTests.swift */,
+				AGGT00000000000000000001 /* AggregateDeviceTests.swift */,
 				PVFC0000000000000000000D /* OptimizationStatusTests.swift */,
 				PVFC0000000000000000000B /* ProVideoFormatsInstallerTests.swift */,
 				PVFC00000000000000000009 /* VideoCodecSupportTests.swift */,
@@ -439,6 +449,8 @@
 		A1000001227D3F0000000023 /* Managers */ = {
 			isa = PBXGroup;
 			children = (
+				BHIN00000000000000000001 /* BlackHoleInstaller.swift */,
+				VAPT00000000000000000001 /* VirtualAudioPorts.swift */,
 				AGGD00000000000000000001 /* AggregateDeviceManager.swift */,
 				PVFC00000000000000000005 /* ProVideoFormatsInstaller.swift */,
 				PVFC00000000000000000003 /* ProVideoFormats.swift */,
@@ -806,6 +818,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				VAPT00000000000000000012 /* VirtualAudioPortsTests.swift in Sources */,
+				AGGT00000000000000000002 /* AggregateDeviceTests.swift in Sources */,
 				PVFC0000000000000000000E /* OptimizationStatusTests.swift in Sources */,
 				PVFC0000000000000000000C /* ProVideoFormatsInstallerTests.swift in Sources */,
 				PVFC0000000000000000000: /* VideoCodecSupportTests.swift in Sources */,
@@ -832,6 +846,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BHIN00000000000000000002 /* BlackHoleInstaller.swift in Sources */,
+				VAPT00000000000000000002 /* VirtualAudioPorts.swift in Sources */,
 				AGGD00000000000000000002 /* AggregateDeviceManager.swift in Sources */,
 				PVFC00000000000000000008 /* ProVideoFormatsInstallSheet.swift in Sources */,
 				PVFC00000000000000000006 /* ProVideoFormatsInstaller.swift in Sources */,
