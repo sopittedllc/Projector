@@ -42,10 +42,17 @@ struct FileManagerView: View {
     }
 
     /// Whether optimizing has anything to offer.
+    ///
+    /// Answered from the media itself, never from whether the project has been saved.
+    /// An unsaved project used to show the button unconditionally, so a project holding
+    /// nothing but already-light files still offered to optimize them - and clicking it
+    /// prompted for a save first, which made saving look like a precondition for a job
+    /// there was no reason to run.
+    ///
+    /// Saving is still required before optimizing can *start* - `startOptimize()`
+    /// handles that - but that is a step in the task, not a reason to advertise it.
     private var showOptimizeButton: Bool {
-        guard !mediaLibrary.items.isEmpty else { return false }
-        if projectDocument.fileURL == nil { return true }
-        return mediaLibrary.items.contains { item in
+        mediaLibrary.items.contains { item in
             if case .needsOptimization = OptimizationStatusHelper.status(for: item) { return true }
             return false
         }
