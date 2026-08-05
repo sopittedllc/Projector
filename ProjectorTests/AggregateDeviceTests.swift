@@ -105,3 +105,118 @@ final class AggregateDeviceTests: XCTestCase {
         XCTAssertEqual(description()[kAudioAggregateDeviceIsStackedKey] as? Int, 0)
     }
 }
+
+// MARK: - Channel Map
+
+/// Where each output lands on the aggregate. An off-by-one here does not fail
+/// loudly - it sends a stem to the wrong pair of channels, so the DAW records
+/// silence or the room hears music it should not.
+final class AggregateChannelMapTests: XCTestCase {
+
+    // MARK: - Which Side Each Output Lands On
+
+    /// Monitoring stays on the interface's first pair whatever its width, so the room
+    /// keeps hearing the reel.
+    func testMonitoringStaysOnTheInterface() {
+        for width in [2, 8, 16, 32, 64] {
+            let map = AggregateChannelMap(interfaceChannelCount: width)
+            XCTAssertEqual(map.stereoOutFirstChannel, 1)
+            XCTAssertFalse(map.reachesDAW(firstChannel: map.stereoOutFirstChannel))
+        }
+    }
+
+    /// The stems must never land on the interface, or they play out of the speakers -
+    /// audible reference audio over the mix, which is worse than silence.
+    func testStemsNeverLandOnTheInterface() {
+        for width in [1, 2, 8, 16, 32, 64] {
+            let map = AggregateChannelMap(interfaceChannelCount: width)
+            XCTAssertGreaterThan(map.dialogueEffectsFirstChannel, width)
+            XCTAssertGreaterThan(map.musicFirstChannel, width)
+            XCTAssertTrue(map.reachesDAW(firstChannel: map.dialogueEffectsFirstChannel))
+            XCTAssertTrue(map.reachesDAW(firstChannel: map.musicFirstChannel))
+        }
+    }
+
+    // MARK: - Layout
+
+    /// The stems begin immediately above the interface, which is where the loopback
+    /// device's own channel 1 lands once CoreAudio concatenates the two.
+    func testStemsStackJustAboveTheInterface() {
+        let map = AggregateChannelMap(interfaceChannelCount: 32)
+        XCTAssertEqual(map.dialogueEffectsFirstChannel, 33)
+        XCTAssertEqual(map.musicFirstChannel, 35)
+    }
+
+    func testStemsDoNotOverlapEachOther() {
+        for width in [2, 8, 16, 32, 64] {
+            let map = AggregateChannelMap(interfaceChannelCount: width)
+            XCTAssertEqual(map.musicFirstChannel - map.dialogueEffectsFirstChannel, 2)
+        }
+    }
+
+    /// The narrow case is the one most likely to be got wrong: a 2-channel interface
+    /// means the stems start at 3, not at some fixed high number.
+    func testNarrowInterfacePullsTheStemsDown() {
+        let map = AggregateChannelMap(interfaceChannelCount: 2)
+        XCTAssertEqual(map.stereoOutFirstChannel, 1)
+        XCTAssertEqual(map.dialogueEffectsFirstChannel, 3)
+        XCTAssertEqual(map.musicFirstChannel, 5)
+    }
+
+    // MARK: - What The DAW Is Told
+
+    /// The aggregate calls it channel 33; a DAW reading the loopback device calls it
+    /// input 1. Getting this conversion wrong sends the user to the wrong input and
+    /// they hear silence with nothing obviously broken.
+    func testLoopbackChannelsAreCountedFromTheLoopbackDevice() {
+        let map = AggregateChannelMap(interfaceChannelCount: 32)
+        XCTAssertEqual(map.loopbackChannel(forAggregateChannel: map.dialogueEffectsFirstChannel), 1)
+        XCTAssertEqual(map.loopbackChannel(forAggregateChannel: map.musicFirstChannel), 3)
+    }
+
+    /// The DAW-facing numbers are the same whatever the interface's width - only the
+    /// aggregate numbering shifts.
+    func testLoopbackChannelsAreIndependentOfInterfaceWidth() {
+        for width in [2, 8, 32, 64] {
+            let map = AggregateChannelMap(interfaceChannelCount: width)
+            XCTAssertEqual(map.loopbackChannel(forAggregateChannel: map.dialogueEffectsFirstChannel), 1)
+            XCTAssertEqual(map.loopbackChannel(forAggregateChannel: map.musicFirstChannel), 3)
+        }
+    }
+
+    // MARK: - Room To Grow
+
+    /// Outputs added later continue up the loopback side rather than dropping back
+    /// onto the interface, so a new port reaches the DAW like the stems do.
+    func testAdditionalOutputsContinueOnTheDAWSide() {
+        let map = AggregateChannelMap(interfaceChannelCount: 32)
+        XCTAssertEqual(map.firstAdditionalChannel, 37)
+        XCTAssertTrue(map.reachesDAW(firstChannel: map.firstAdditionalChannel))
+    }
+
+    /// Two stereo stems, so four loopback channels - exactly the floor
+    /// ``VirtualAudioPorts/minimumChannels`` enforces before offering the feature.
+    /// If these drift apart, setup is offered on a device too narrow to carry it.
+    func testRequiredChannelsMatchTheReadinessFloor() {
+        XCTAssertEqual(AggregateChannelMap.requiredVirtualChannels, 4)
+        XCTAssertEqual(
+            AggregateChannelMap.requiredVirtualChannels,
+            VirtualAudioPorts.minimumChannels
+        )
+    }
+
+    /// The seeded layout has to fit inside the build Projector installs, with room
+    /// left over for the outputs a user adds afterwards.
+    func testSeededLayoutLeavesRoomForMoreOutputs() {
+        let map = AggregateChannelMap(interfaceChannelCount: 32)
+        let highestSeeded = map.loopbackChannel(forAggregateChannel: map.musicFirstChannel + 1)
+        XCTAssertLessThan(highestSeeded, VirtualAudioPorts.preferredChannelCount)
+
+        let firstFree = map.loopbackChannel(forAggregateChannel: map.firstAdditionalChannel)
+        let pairsRemaining = (VirtualAudioPorts.preferredChannelCount - firstFree + 1) / 2
+        XCTAssertGreaterThanOrEqual(
+            pairsRemaining, 5,
+            "A 16-channel build should leave several stereo outputs' worth of room"
+        )
+    }
+}

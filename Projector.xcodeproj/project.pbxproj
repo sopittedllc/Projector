@@ -132,6 +132,9 @@
 		BHIN00000000000000000002 /* BlackHoleInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = BHIN00000000000000000001 /* BlackHoleInstaller.swift */; };
 		AGGT00000000000000000002 /* AggregateDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AGGT00000000000000000001 /* AggregateDeviceTests.swift */; };
 		VAPT00000000000000000012 /* VirtualAudioPortsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = VAPT00000000000000000011 /* VirtualAudioPortsTests.swift */; };
+		DAWR00000000000000000002 /* DAWRoutingSetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAWR00000000000000000001 /* DAWRoutingSetupSheet.swift */; };
+		DAWR00000000000000000004 /* DAWRoutingSetupModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAWR00000000000000000003 /* DAWRoutingSetupModel.swift */; };
+		ARSM00000000000000000002 /* AggregateRoutingSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = ARSM00000000000000000001 /* AggregateRoutingSummary.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -302,6 +305,9 @@
 		BHIN00000000000000000001 /* BlackHoleInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlackHoleInstaller.swift; sourceTree = "<group>"; };
 		AGGT00000000000000000001 /* AggregateDeviceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateDeviceTests.swift; sourceTree = "<group>"; };
 		VAPT00000000000000000011 /* VirtualAudioPortsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualAudioPortsTests.swift; sourceTree = "<group>"; };
+		DAWR00000000000000000001 /* DAWRoutingSetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DAWRoutingSetupSheet.swift; sourceTree = "<group>"; };
+		DAWR00000000000000000003 /* DAWRoutingSetupModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DAWRoutingSetupModel.swift; sourceTree = "<group>"; };
+		ARSM00000000000000000001 /* AggregateRoutingSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateRoutingSummary.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -483,6 +489,9 @@
 		A1000001227D3F0000000024 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				ARSM00000000000000000001 /* AggregateRoutingSummary.swift */,
+				DAWR00000000000000000003 /* DAWRoutingSetupModel.swift */,
+				DAWR00000000000000000001 /* DAWRoutingSetupSheet.swift */,
 				PVFC00000000000000000007 /* ProVideoFormatsInstallSheet.swift */,
 				59F7937C1F65403C8FBC4921 /* Optimization */,
 				A1000001227D3F0000000012 /* ContentView.swift */,
@@ -846,6 +855,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				ARSM00000000000000000002 /* AggregateRoutingSummary.swift in Sources */,
+				DAWR00000000000000000004 /* DAWRoutingSetupModel.swift in Sources */,
+				DAWR00000000000000000002 /* DAWRoutingSetupSheet.swift in Sources */,
 				BHIN00000000000000000002 /* BlackHoleInstaller.swift in Sources */,
 				VAPT00000000000000000002 /* VirtualAudioPorts.swift in Sources */,
 				AGGD00000000000000000002 /* AggregateDeviceManager.swift in Sources */,

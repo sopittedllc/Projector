@@ -8,6 +8,67 @@
 import CoreAudio
 import Foundation
 
+/// Where each of Projector's outputs sits on an aggregate device.
+///
+/// CoreAudio concatenates an aggregate's channels in sub-device order, so the user's
+/// interface occupies the low channels and the loopback device follows.
+///
+/// ## Monitoring stays on the interface; everything else goes to the DAW
+///
+/// Stereo Out sits on the interface's first pair, where a monitor path is normally
+/// wired, so the room still hears the reel. The stems and any outputs added later go
+/// to the loopback half, out of earshot and visible to a DAW set to the same device.
+///
+/// Every channel here is **1-based**, matching what the user is shown and what
+/// `AudioOutputManager.addOrReplaceOutput(name:firstChannelNumber:isStereo:roleId:)`
+/// expects. The 0-based conversion happens there, once, as it always has.
+struct AggregateChannelMap: Equatable {
+
+    /// Output channels on the user's own interface, which come first.
+    let interfaceChannelCount: Int
+
+    /// Channels used by each seeded stereo output.
+    private static let channelsPerOutput = 2
+
+    /// How many seeded outputs live on the loopback half.
+    private static let loopbackOutputCount = 2
+
+    /// Monitoring, on the interface's first pair - where the speakers already are.
+    var stereoOutFirstChannel: Int { 1 }
+
+    /// Dialogue and effects, on the first pair of loopback channels.
+    var dialogueEffectsFirstChannel: Int { interfaceChannelCount + 1 }
+
+    /// Music, on the second pair.
+    var musicFirstChannel: Int { dialogueEffectsFirstChannel + Self.channelsPerOutput }
+
+    /// Where a user-added output would land next, leaving the seeded outputs alone.
+    var firstAdditionalChannel: Int { musicFirstChannel + Self.channelsPerOutput }
+
+    /// The loopback channel an output occupies, counted from the loopback device's
+    /// own channel 1.
+    ///
+    /// This is the number the user types into their DAW: the aggregate calls it
+    /// channel 35, the DAW reading the loopback device calls it input 3.
+    ///
+    /// - Parameter aggregateChannel: A 1-based channel on the aggregate.
+    /// - Returns: The corresponding 1-based channel on the loopback device.
+    func loopbackChannel(forAggregateChannel aggregateChannel: Int) -> Int {
+        aggregateChannel - interfaceChannelCount
+    }
+
+    /// Whether an output sits on the loopback half, and so reaches the DAW.
+    ///
+    /// - Parameter firstChannel: The output's first 1-based channel on the aggregate.
+    /// - Returns: `true` when the channel belongs to the loopback device.
+    func reachesDAW(firstChannel: Int) -> Bool {
+        firstChannel > interfaceChannelCount
+    }
+
+    /// Loopback channels the seeded outputs consume.
+    static var requiredVirtualChannels: Int { channelsPerOutput * loopbackOutputCount }
+}
+
 /// Creates and removes the aggregate device that lets a DAW receive Projector's stems.
 ///
 /// ## Why an aggregate is needed

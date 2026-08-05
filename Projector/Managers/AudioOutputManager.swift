@@ -511,6 +511,42 @@ extension AudioOutputManager {
         saveMappedOutputs(mappedOutputs.filter { $0.id != id }, for: selectedDeviceUID)
     }
 
+    /// Lays out monitoring and stems across an aggregate device.
+    ///
+    /// Mappings are stored per device UID, so selecting a freshly built aggregate
+    /// otherwise arrives with an empty bucket and picks up the lone "Stereo Out" that
+    /// ``seedDefaultOutputIfNeverConfigured()`` seeds for any new device. That would
+    /// leave the whole point of the aggregate - the stems - unrouted, and read to the
+    /// user as though their routing had been lost.
+    ///
+    /// Monitoring stays on the interface's own channels so the speakers keep working;
+    /// the stems go to the loopback channels above them, where a DAW can see them and
+    /// the room cannot hear them.
+    ///
+    /// - Parameter map: Where each output belongs on the aggregate.
+    /// - Important: Applies to the **currently selected** device, so select the
+    ///   aggregate before calling this.
+    func seedOutputsForAggregate(_ map: AggregateChannelMap) {
+        addOrReplaceOutput(
+            name: "Stereo Out",
+            firstChannelNumber: map.stereoOutFirstChannel,
+            isStereo: true,
+            roleId: MappedAudioOutput.stereoOutRoleId
+        )
+        addOrReplaceOutput(
+            name: "DX/SFX",
+            firstChannelNumber: map.dialogueEffectsFirstChannel,
+            isStereo: true,
+            roleId: MappedAudioOutput.dialogueEffectsRoleId
+        )
+        addOrReplaceOutput(
+            name: "MX",
+            firstChannelNumber: map.musicFirstChannel,
+            isStereo: true,
+            roleId: MappedAudioOutput.musicRoleId
+        )
+    }
+
     /// Replace the current outputs with a profile's.
     ///
     /// New identities are minted so the routing authority re-binds lanes by

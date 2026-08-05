@@ -58,15 +58,15 @@ final class VirtualAudioPortsTests: XCTestCase {
     // MARK: - Readiness
 
     func testReadyWhenAWideEnoughBuildIsInstalled() {
-        guard case .ready(let found) = VirtualAudioPorts.readiness(in: [interface, blackHole16]) else {
+        guard case .ready(let found) = VirtualAudioPorts.readiness(in: [interface, blackHole16], driverOnDisk: false) else {
             return XCTFail("Expected .ready")
         }
         XCTAssertEqual(found.uid, "BlackHole16ch_UID")
     }
 
     func testMissingWhenNoBuildIsInstalled() {
-        XCTAssertEqual(VirtualAudioPorts.readiness(in: [interface]), .missing)
-        XCTAssertEqual(VirtualAudioPorts.readiness(in: []), .missing)
+        XCTAssertEqual(VirtualAudioPorts.readiness(in: [interface], driverOnDisk: false), .missing)
+        XCTAssertEqual(VirtualAudioPorts.readiness(in: [], driverOnDisk: false), .missing)
     }
 
     /// The common trap: the 2-channel build carries one stereo stem, not the two
@@ -74,7 +74,7 @@ final class VirtualAudioPortsTests: XCTestCase {
     /// user is not short of software, they have the wrong build.
     func testTwoChannelBuildIsReportedAsTooNarrow() {
         guard case .insufficientChannels(_, let found, let required) =
-                VirtualAudioPorts.readiness(in: [interface, blackHole2]) else {
+                VirtualAudioPorts.readiness(in: [interface, blackHole2], driverOnDisk: false) else {
             return XCTFail("Expected .insufficientChannels")
         }
         XCTAssertEqual(found, 2)
@@ -86,17 +86,69 @@ final class VirtualAudioPortsTests: XCTestCase {
     /// would keep the feature switched off.
     func testPrefersTheWidestBuildWhenSeveralArePresent() {
         guard case .ready(let found) =
-                VirtualAudioPorts.readiness(in: [blackHole2, interface, blackHole16]) else {
+                VirtualAudioPorts.readiness(in: [blackHole2, interface, blackHole16], driverOnDisk: false) else {
             return XCTFail("Expected .ready")
         }
         XCTAssertEqual(found.outputChannelCount, 16)
     }
 
-    func testMinimumCoversTwoStereoStems() {
+    /// The stems live on the loopback device - DX/SFX and MX - so the floor is two
+    /// stereo pairs. Monitoring does not count against it: Stereo Out stays on the
+    /// interface.
+    func testMinimumCoversBothStems() {
         XCTAssertEqual(VirtualAudioPorts.minimumChannels, 4)
         XCTAssertGreaterThanOrEqual(
             VirtualAudioPorts.preferredChannelCount,
             VirtualAudioPorts.minimumChannels
+        )
+    }
+
+    /// Exactly at the floor, which is where an off-by-one would show.
+    func testAFourChannelBuildIsJustEnough() {
+        let fourChannel = device(uid: "BlackHole4ch_UID", name: "BlackHole 4ch", channels: 4)
+        guard case .ready = VirtualAudioPorts.readiness(in: [interface, fourChannel], driverOnDisk: false) else {
+            return XCTFail("Expected .ready at exactly the minimum")
+        }
+    }
+
+    // MARK: - Installed But Not Loaded
+
+    /// A wide enough device always wins, even with the driver sitting on disk -
+    /// which is the normal state once everything works. Otherwise a machine that is
+    /// running perfectly would be told to restart every time.
+    func testAWorkingDeviceIsNeverReportedAsPendingRestart() {
+        guard case .ready = VirtualAudioPorts.readiness(in: [interface, blackHole16], driverOnDisk: true) else {
+            return XCTFail("Expected .ready when a usable device is present")
+        }
+    }
+
+    /// Observed on a real machine: `BlackHole16ch.driver` written to
+    /// `/Library/Audio/Plug-Ins/HAL` while the device list still showed only the
+    /// 2-channel build, because `coreaudiod` had not reloaded its plug-ins. Telling
+    /// that user to install again would be wrong twice over - they already have it,
+    /// and downloading it again will not help.
+    func testNarrowDeviceWithAWideDriverOnDiskAsksForARestart() {
+        XCTAssertEqual(
+            VirtualAudioPorts.readiness(in: [interface, blackHole2], driverOnDisk: true),
+            .installedPendingRestart
+        )
+    }
+
+    /// The same devices, with nothing on disk, are a genuine "wrong build" - so the
+    /// two states really are told apart by the driver rather than by the devices.
+    func testTheSameDevicesWithoutADriverOnDiskAreJustTooNarrow() {
+        guard case .insufficientChannels =
+                VirtualAudioPorts.readiness(in: [interface, blackHole2], driverOnDisk: false) else {
+            return XCTFail("Expected .insufficientChannels with no wide driver on disk")
+        }
+    }
+
+    /// Nothing installed at all, but a driver on disk, is still a restart rather than
+    /// a download - the first boot after installing shows no BlackHole device.
+    func testNoDeviceWithADriverOnDiskAsksForARestart() {
+        XCTAssertEqual(
+            VirtualAudioPorts.readiness(in: [interface], driverOnDisk: true),
+            .installedPendingRestart
         )
     }
 }

@@ -1,8 +1,106 @@
 # Session State
 
 > **Last Updated**: 2026-08-05
-> **Status**: MEDIA OFFERS TIED TO THE MEDIA — awaiting runtime verification
-> **Branch**: main
+> **Status**: DAW ROUTING BUILT — awaiting a restart to verify
+> **Branch**: main (worktree experiment finished; single directory again)
+
+---
+
+## ⚠️ FIRST THING AFTER RESTART — verify the BlackHole install
+
+The machine was restarted specifically so `coreaudiod` would load a newly installed
+driver. **Check this before anything else**, because most of the DAW routing feature
+cannot be exercised until it is true.
+
+### State recorded immediately before the restart
+
+```
+/Library/Audio/Plug-Ins/HAL/BlackHole16ch.driver   PRESENT on disk
+/Library/Audio/Plug-Ins/HAL/BlackHole2ch.driver    PRESENT on disk
+system_profiler SPAudioDataType                    showed "BlackHole 2ch" ONLY
+Projector aggregate device                         none (clean)
+```
+
+The 16-channel driver was installed but **not published as a device** — macOS loads
+audio plug-ins at startup and could not pick it up while audio was in use.
+
+### The check
+
+```bash
+system_profiler SPAudioDataType 2>/dev/null | grep -i blackhole
+```
+
+**Expected after restart:** both `BlackHole 2ch` *and* `BlackHole 16ch`, the latter
+reporting 16 in / 16 out.
+
+- **If 16ch appears** — the install worked. `VirtualAudioPorts.readiness` returns
+  `.ready`, and Settings ▸ Audio ▸ DAW Routing ▸ Set Up… should go straight to
+  "Create Audio Device" with no download.
+- **If 16ch is still missing** — the install did not take. Reinstalling is the wrong
+  move; find out why `coreaudiod` is refusing the bundle first.
+
+### Then run the feature end to end
+
+1. Settings ▸ Audio ▸ **DAW Routing ▸ Set Up…** → Create Audio Device
+2. Audio MIDI Setup: `Projector + 1: Aurora(n)-TB3` exists, Lynx is clock master,
+   drift compensation ticked on **BlackHole only**
+3. Speakers still work (Stereo Out on Lynx 1-2); DX/SFX and MX silent in the room
+4. Pro Tools on the same aggregate: DX/SFX on inputs 1-2, MX on 3-4
+5. **Sync**: play a full reel with both apps running, confirm no drift at the tail
+6. Remove tears the device down and restores the previous selection
+
+---
+
+## DAW routing via an aggregate device (2026-08-05)
+
+Stems can reach a DAW as inputs. macOS cannot loop an output back to an input, and
+Apple does not grant the DriverKit audio entitlement for virtual devices, so Projector
+aggregates the user's interface with BlackHole and installs BlackHole when missing.
+
+**The sandbox permits aggregate creation** — measured in the real signed app with only
+`com.apple.security.device.audio-output`: create returned `noErr`, the device appeared
+in Audio MIDI Setup, destroy returned `noErr`.
+
+### Routing, as settled with the user
+
+| Output | Where | DAW sees |
+|---|---|---|
+| Stereo Out | interface ch 1-2 | — (room monitoring) |
+| DX/SFX | first loopback pair | inputs 1-2 |
+| MX | second loopback pair | inputs 3-4 |
+| added later | continues up loopback | inputs 5+ |
+
+Sub-device order **is** the channel map: interface first as clock master, loopback
+second with drift compensation. This went through two wrong versions first —
+everything on the interface, then everything on the loopback — and the tests caught
+both by failing on exactly the assertions that encoded the old layout.
+
+### Traps paid for
+
+- **A driver on disk is not a device.** `BlackHole16ch.driver` sat in
+  `/Library/Audio/Plug-Ins/HAL` while the device list showed only the 2ch build.
+  `Readiness.installedPendingRestart` exists for this; without it the setup sheet
+  waited forever for a device that could not arrive, having just promised to continue
+  on its own.
+- **CoreAudio publishes its device list asynchronously.** Creation returns `noErr` and
+  the device is plainly there, yet a lookup by UID milliseconds later finds nothing.
+  The identifier from the create call is retained rather than re-derived — re-deriving
+  it orphaned a device on a real machine.
+- **`removeAggregate` returning `Void`** made "nothing to remove" and "removed it"
+  indistinguishable, which is how that orphan survived a cleanup reporting success.
+  It returns `Bool` now.
+- **A readiness check that reads the filesystem is untestable.** `readiness(in:)` grew
+  a `driverOnDisk` parameter defaulting to the real check, so tests pin both branches
+  rather than depending on what the test machine happens to have installed.
+- **Drift-quality constants are macOS 13+.** The keys are plain `#define`s with no
+  availability limit; only the named enum values are annotated. The documented value
+  is spelled out, since the app still supports macOS 12.
+
+### Not built yet
+
+Step 6 — the per-DAW walkthrough. `OnboardingView.DAWType.setupSteps` already covers
+six DAWs and is the place for it. The setup sheet's "How to use this in your DAW" link
+currently opens the generic Setup Guide, which says nothing about any of this.
 
 ---
 

@@ -17,6 +17,9 @@ struct SettingsView: View {
     @State private var displayExpanded = true
 
     @State private var pendingOutputRole: OutputRole?
+
+    /// Whether the DAW routing setup sheet is on screen.
+    @State private var showDAWRoutingSetup = false
     @State private var selectedProfileId: UUID?
     @State private var isNamingProfile = false
     @State private var newProfileName = ""
@@ -159,12 +162,15 @@ struct SettingsView: View {
 
             deviceRow
 
+            dawRoutingRow
+
             if audioManager.selectedDeviceChannelCount == 0 {
                 Text("No output channels detected for this device.")
                     .font(SettingsDesign.caption)
                     .foregroundColor(.secondary)
             } else {
                 outputChoosers
+                dawRoutingSummary
             }
         }
         .sheet(item: $pendingOutputRole) { role in
@@ -180,6 +186,16 @@ struct SettingsView: View {
                         roleId: role.fixedName == nil ? nil : role.id
                     )
                     pendingOutputRole = nil
+                }
+            )
+        }
+        .sheet(isPresented: $showDAWRoutingSetup) {
+            DAWRoutingSetupSheet(
+                audioManager: audioManager,
+                onDismiss: { showDAWRoutingSetup = false },
+                onShowWalkthrough: {
+                    showDAWRoutingSetup = false
+                    NotificationCenter.default.post(name: .showOnboarding, object: nil)
                 }
             )
         }
@@ -219,6 +235,89 @@ struct SettingsView: View {
     ///
     /// Stereo Out leads because it is the one an unconfigured device already
     /// has, and the only one needed to simply hear playback.
+    /// One row for DAW routing, directly under the device it extends.
+    ///
+    /// Deliberately a single row with a single action rather than another device
+    /// picker: the aggregate *is* a device and already appears in `deviceRow`'s menu,
+    /// so a second way to select it would be the third route to the same thing (rule
+    /// in `.claude/rules/ui-composition-first.md`). What this row offers is the one
+    /// thing that menu cannot - building the device in the first place, and taking it
+    /// away again.
+    private var dawRoutingRow: some View {
+        SettingsRow(label: "DAW Routing") {
+            if dawRoutingDeviceExists {
+                SettingsValue(
+                    value: "Set up",
+                    qualifier: "stems to DAW",
+                    clearLabel: "Remove the DAW routing device",
+                    onClear: { removeDAWRouting() }
+                )
+            } else {
+                Button {
+                    showDAWRoutingSetup = true
+                } label: {
+                    Text("Set Up...")
+                }
+                .settingsChooserButton()
+            }
+        }
+    }
+
+    /// Whether Projector's aggregate device is present on the system.
+    private var dawRoutingDeviceExists: Bool {
+        audioManager.availableDevices.contains { $0.uid == AggregateDeviceManager.aggregateUID }
+    }
+
+    /// Two lines under the outputs saying which reach the room and which reach the DAW.
+    ///
+    /// Shown only while the aggregate is the selected device, because the
+    /// speakers/DAW split is a property of *that* device. On an ordinary interface
+    /// every output goes to the same place and the summary would state the obvious.
+    @ViewBuilder
+    private var dawRoutingSummary: some View {
+        if audioManager.selectedDeviceUID == AggregateDeviceManager.aggregateUID,
+           let interfaceChannels = aggregateInterfaceChannelCount {
+            SettingsSubRow {
+                AggregateRoutingSummary(
+                    map: AggregateChannelMap(interfaceChannelCount: interfaceChannels),
+                    outputs: audioManager.mappedOutputs
+                )
+            }
+        }
+    }
+
+    /// How many of the aggregate's channels belong to the user's own interface.
+    ///
+    /// Derived from the device list rather than stored: the aggregate reports its
+    /// full width, and the interface half is whatever the loopback device does not
+    /// account for. Storing it would go stale the moment the aggregate is rebuilt
+    /// against a different interface.
+    private var aggregateInterfaceChannelCount: Int? {
+        guard let aggregate = audioManager.availableDevices.first(where: {
+            $0.uid == AggregateDeviceManager.aggregateUID
+        }) else { return nil }
+
+        guard case .ready(let loopback) =
+                VirtualAudioPorts.readiness(in: audioManager.availableDevices) else { return nil }
+
+        let interfaceChannels = aggregate.outputChannelCount - loopback.outputChannelCount
+        return interfaceChannels > 0 ? interfaceChannels : nil
+    }
+
+    /// Tears the aggregate down and steps off it.
+    ///
+    /// The selection is moved away first: leaving Projector pointed at a device that
+    /// is about to stop existing would silence playback with no explanation.
+    private func removeDAWRouting() {
+        if audioManager.selectedDeviceUID == AggregateDeviceManager.aggregateUID {
+            audioManager.selectedDeviceUID = nil
+        }
+        Task {
+            try? await AggregateDeviceManager().removeAggregate()
+            audioManager.refreshDevices()
+        }
+    }
+
     private var outputChoosers: some View {
         VStack(alignment: .leading, spacing: SettingsDesign.rowSpacing) {
             outputRow(.stereoOut)
@@ -512,8 +611,8 @@ enum OutputRole: Identifiable, Hashable {
     var id: String {
         switch self {
         case .stereoOut:       return MappedAudioOutput.stereoOutRoleId
-        case .dialogueEffects: return "dx-sfx"
-        case .music:           return "mx"
+        case .dialogueEffects: return MappedAudioOutput.dialogueEffectsRoleId
+        case .music:           return MappedAudioOutput.musicRoleId
         case .additional:      return "additional"
         }
     }

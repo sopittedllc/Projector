@@ -212,6 +212,16 @@ struct MappedAudioOutput: Identifiable, Codable, Hashable {
     /// and `Managers` must not reach into `Views` to get it.
     static let stereoOutRoleId = "stereo-out"
 
+    /// Identifier for the dialogue and effects role.
+    ///
+    /// Here rather than only on `OutputRole` for the same reason as
+    /// ``stereoOutRoleId``: seeding an aggregate device's outputs happens in
+    /// `Managers`, which must not reach into `Views` for a string both sides share.
+    static let dialogueEffectsRoleId = "dx-sfx"
+
+    /// Identifier for the music role.
+    static let musicRoleId = "mx"
+
     let id: UUID
     var name: String
     var channelStart: Int

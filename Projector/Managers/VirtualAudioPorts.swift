@@ -23,13 +23,16 @@ enum VirtualAudioPorts {
 
     // MARK: - Requirements
 
-    /// Channels needed to carry the stems Projector routes by default.
+    /// Channels needed to carry everything Projector routes by default.
     ///
-    /// Two stereo outputs - DX/SFX and MX - so four channels. This is a floor, not a
-    /// target: the 2-channel build of BlackHole is common and carries only one stereo
-    /// stem, which is precisely the case worth telling the user about rather than
-    /// silently routing half their audio.
-    static let minimumChannels = 4
+    /// Three stereo outputs - the full mix, DX/SFX and MX - so six channels. All of
+    /// them live on the loopback device, because the interface's own channels belong
+    /// to the DAW; see ``AggregateChannelMap``.
+    ///
+    /// A floor, not a target: the 2-channel build of BlackHole is common and carries
+    /// one stereo pair, which is the case worth telling the user about rather than
+    /// silently routing a third of their audio.
+    static let minimumChannels = AggregateChannelMap.requiredVirtualChannels
 
     /// The build Projector installs when none is present.
     ///
@@ -57,6 +60,24 @@ enum VirtualAudioPorts {
 
     // MARK: - Readiness
 
+    /// Where the installer writes its driver bundles.
+    private static let driverDirectory = "/Library/Audio/Plug-Ins/HAL"
+
+    /// Whether a wide enough driver bundle exists on disk.
+    ///
+    /// Separate from whether a *device* exists, because the two come apart: the
+    /// installer writes the bundle immediately, but CoreAudio only publishes the
+    /// device once `coreaudiod` reloads its plug-ins. If another application is
+    /// holding audio open - a DAW, or Projector itself - that reload can be deferred
+    /// until the machine restarts.
+    ///
+    /// Observed on a real machine: `BlackHole16ch.driver` present in this directory
+    /// while the device list still showed only the 2-channel build.
+    static var driverBundleInstalled: Bool {
+        let bundle = "\(driverDirectory)/BlackHole\(preferredChannelCount)ch.driver"
+        return FileManager.default.fileExists(atPath: bundle)
+    }
+
     /// Whether a usable loopback device is present.
     enum Readiness: Equatable {
         /// A BlackHole build with enough channels is installed.
@@ -69,30 +90,52 @@ enum VirtualAudioPorts {
         /// leaves both in the device list.
         case insufficientChannels(device: AudioDevice, found: Int, required: Int)
 
+        /// The driver is on disk but macOS has not published its device yet.
+        ///
+        /// The remedy is a restart, not another download. Without this case the setup
+        /// flow waits for a device that will never arrive in this boot, having just
+        /// told the user it would continue on its own.
+        case installedPendingRestart
+
         /// No BlackHole build is installed.
         case missing
     }
 
     /// Assesses the loopback devices available.
     ///
-    /// - Parameter devices: Every output device currently known to the system.
+    /// - Parameters:
+    ///   - devices: Every output device currently known to the system.
+    ///   - driverOnDisk: Whether a wide enough driver bundle is installed. Defaults to
+    ///     inspecting the filesystem; passed explicitly by tests so the answer does
+    ///     not depend on what happens to be installed on the machine running them.
     /// - Returns: What is installed and whether it will do.
     /// - Note: Prefers the widest build when several are installed, since a machine
     ///   carrying both 2ch and 16ch should use the one that fits.
-    static func readiness(in devices: [AudioDevice]) -> Readiness {
+    static func readiness(
+        in devices: [AudioDevice],
+        driverOnDisk: Bool = driverBundleInstalled
+    ) -> Readiness {
         let candidates = devices
             .filter(isVirtualPortDevice)
             .sorted { $0.outputChannelCount > $1.outputChannelCount }
 
-        guard let widest = candidates.first else { return .missing }
-
-        guard widest.outputChannelCount >= minimumChannels else {
-            return .insufficientChannels(
-                device: widest,
-                found: widest.outputChannelCount,
-                required: minimumChannels
-            )
+        if let widest = candidates.first, widest.outputChannelCount >= minimumChannels {
+            return .ready(widest)
         }
-        return .ready(widest)
+
+        // Checked before reporting the narrow build or nothing at all: a machine can
+        // hold a freshly installed wide driver and still be showing only the old
+        // narrow device, and telling that user to install again would be wrong twice
+        // over - they already have it, and downloading it again will not help.
+        if driverOnDisk {
+            return .installedPendingRestart
+        }
+
+        guard let widest = candidates.first else { return .missing }
+        return .insufficientChannels(
+            device: widest,
+            found: widest.outputChannelCount,
+            required: minimumChannels
+        )
     }
 }
