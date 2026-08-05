@@ -127,6 +127,7 @@
 		PVFC0000000000000000000: /* VideoCodecSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC00000000000000000009 /* VideoCodecSupportTests.swift */; };
 		PVFC0000000000000000000C /* ProVideoFormatsInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC0000000000000000000B /* ProVideoFormatsInstallerTests.swift */; };
 		PVFC0000000000000000000E /* OptimizationStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC0000000000000000000D /* OptimizationStatusTests.swift */; };
+		AGGD00000000000000000002 /* AggregateDeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AGGD00000000000000000001 /* AggregateDeviceManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -292,6 +293,7 @@
 		PVFC00000000000000000009 /* VideoCodecSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoCodecSupportTests.swift; sourceTree = "<group>"; };
 		PVFC0000000000000000000B /* ProVideoFormatsInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProVideoFormatsInstallerTests.swift; sourceTree = "<group>"; };
 		PVFC0000000000000000000D /* OptimizationStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizationStatusTests.swift; sourceTree = "<group>"; };
+		AGGD00000000000000000001 /* AggregateDeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateDeviceManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -437,6 +439,7 @@
 		A1000001227D3F0000000023 /* Managers */ = {
 			isa = PBXGroup;
 			children = (
+				AGGD00000000000000000001 /* AggregateDeviceManager.swift */,
 				PVFC00000000000000000005 /* ProVideoFormatsInstaller.swift */,
 				PVFC00000000000000000003 /* ProVideoFormats.swift */,
 				PVFC00000000000000000001 /* VideoCodecSupport.swift */,
@@ -829,6 +832,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AGGD00000000000000000002 /* AggregateDeviceManager.swift in Sources */,
 				PVFC00000000000000000008 /* ProVideoFormatsInstallSheet.swift in Sources */,
 				PVFC00000000000000000006 /* ProVideoFormatsInstaller.swift in Sources */,
 				PVFC00000000000000000004 /* ProVideoFormats.swift in Sources */,
