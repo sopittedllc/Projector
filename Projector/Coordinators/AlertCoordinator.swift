@@ -47,6 +47,12 @@ final class AlertCoordinator: ObservableObject {
         case audioAlreadyInTimeline(String)
         case duplicateMedia(String)
 
+        /// A video's codec cannot be decoded on this Mac.
+        ///
+        /// Carries the codec's own name so the alert can say which format is missing
+        /// rather than reporting a generic playback failure.
+        case codecUnavailable(codecName: String, onInstall: () -> Void)
+
         // MARK: Confirmation Alerts
         case missingFile(message: String, onLocate: () -> Void, onSkip: () -> Void, onSkipAll: () -> Void)
         case fpsConflict(message: String, onChangeProjectFPS: () -> Void, onCancel: () -> Void)
@@ -61,17 +67,22 @@ final class AlertCoordinator: ObservableObject {
         case saveProject(content: AnyView)
         case settings(content: AnyView)
 
+        /// Guides the user through installing Apple's Pro Video Formats package.
+        case proVideoFormatsInstall(codecName: String)
+
         var id: String {
             switch self {
             case .error: return "error"
             case .videoAlreadyInTimeline: return "videoAlreadyInTimeline"
             case .audioAlreadyInTimeline: return "audioAlreadyInTimeline"
             case .duplicateMedia: return "duplicateMedia"
+            case .codecUnavailable: return "codecUnavailable"
             case .missingFile: return "missingFile"
             case .fpsConflict: return "fpsConflict"
             case .videoInsert: return "videoInsert"
             case .saveProject: return "saveProject"
             case .settings: return "settings"
+            case .proVideoFormatsInstall: return "proVideoFormatsInstall"
             }
         }
 
@@ -84,9 +95,9 @@ final class AlertCoordinator: ObservableObject {
         var isSheet: Bool {
             switch self {
             case .error, .videoAlreadyInTimeline, .audioAlreadyInTimeline,
-                 .duplicateMedia, .missingFile, .fpsConflict:
+                 .duplicateMedia, .codecUnavailable, .missingFile, .fpsConflict:
                 return false
-            case .videoInsert, .saveProject, .settings:
+            case .videoInsert, .saveProject, .settings, .proVideoFormatsInstall:
                 return true
             }
         }
@@ -214,6 +225,19 @@ private struct AlertCoordinatorModifier: ViewModifier {
                         dismissButton: .default(Text("OK"))
                     )
 
+                case .codecUnavailable(let codecName, let onInstall):
+                    return Alert(
+                        title: Text("Cannot Play \(codecName)"),
+                        message: Text(
+                            "This Mac has no decoder for \(codecName). Apple publishes "
+                            + "a free package, Pro Video Formats, that adds one.\n\n"
+                            + "The reel stays on the timeline with its timecode intact, "
+                            + "so audio can still be placed against it."
+                        ),
+                        primaryButton: .default(Text("Install…"), action: onInstall),
+                        secondaryButton: .cancel(Text("Not Now"))
+                    )
+
                 case .missingFile(let message, let onLocate, let onSkip, _):
                     // Note: SwiftUI Alert only supports 2 buttons, so "Skip All" (4th param) is unused here
                     // and would require a sheet-based approach to implement
@@ -242,7 +266,7 @@ private struct AlertCoordinatorModifier: ViewModifier {
                     // Only return sheet-type alerts (excluding settings, which is handled by ContentView)
                     guard let alert = coordinator.activeAlert else { return nil }
                     switch alert {
-                    case .videoInsert, .saveProject:
+                    case .videoInsert, .saveProject, .proVideoFormatsInstall:
                         return alert
                     case .settings:
                         // Settings sheet is handled separately by ContentView
@@ -281,6 +305,11 @@ private struct AlertCoordinatorModifier: ViewModifier {
 
         case .settings(let content):
             content
+
+        case .proVideoFormatsInstall(let codecName):
+            ProVideoFormatsInstallSheet(codecName: codecName) {
+                coordinator.dismiss()
+            }
 
         default:
             EmptyView()

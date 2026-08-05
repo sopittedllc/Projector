@@ -17,7 +17,10 @@ extension ContentView {
                         await generateThumbnail(for: reel)
                     }
                 } catch {
-                    alerts.show(.error(error.localizedDescription))
+                    // Reopening a project whose reel needs a codec the Mac lacks is
+                    // the same story as importing one: the video area explains it, so
+                    // a generic alert on top would only be noise.
+                    showUnlessMissingDecoder(error)
                 }
             }
         }

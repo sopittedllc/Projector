@@ -29,5 +29,11 @@
 	<!-- MIDI: Access MIDI devices for MTC/MMC synchronization -->
 	<key>com.apple.security.device.midi</key>
 	<true/>
+
+	<!-- Network: Download Apple's Pro Video Formats package when a delivery uses a
+	     codec macOS cannot decode. This is the only outbound network use in the app,
+	     and it only contacts Apple's own support page and software CDN. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
 </dict>
 </plist>

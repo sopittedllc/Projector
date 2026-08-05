@@ -36,6 +36,12 @@ struct VideoContentView: View {
     var overlayPosition: TimecodeOverlayPosition = .bottomCenter
     var overlayOpacity: Double = 0.8
 
+    /// Offers to install the missing codec, when the host view can present it.
+    ///
+    /// Optional so the floating player window can show the explanation without adding
+    /// a second place to start the install - the import alert is the primary one.
+    var onInstallCodec: (() -> Void)?
+
     var body: some View {
         ZStack {
             // Video layer
@@ -44,6 +50,11 @@ struct VideoContentView: View {
                     // Show black during gaps
                     Rectangle()
                         .fill(Color.black)
+                } else if let codecName = playbackEngine.unplayableCodecName {
+                    // A reel whose codec has no decoder. Without this the picture is
+                    // simply black, which reads as a broken app rather than a missing
+                    // system component.
+                    missingCodecPlaceholder(codecName: codecName)
                 } else if let player = playbackEngine.currentPlayer {
                     VideoPlayerView(player: player)
                         .background(Color.black)
@@ -89,6 +100,35 @@ struct VideoContentView: View {
                 )
             }
         }
+    }
+
+    /// Explains that this Mac has no decoder for the current reel's codec.
+    ///
+    /// - Parameter codecName: The codec's own name, e.g. "Avid DNxHD".
+    /// - Returns: A placeholder filling the video area.
+    @ViewBuilder
+    private func missingCodecPlaceholder(codecName: String) -> some View {
+        Rectangle()
+            .fill(Color.black)
+            .overlay {
+                VStack(spacing: Spacing.md) {
+                    Image(systemName: "film.stack")
+                        .font(Typography.iconEmptyState)
+                        .foregroundColor(AppColors.textTertiary)
+                    Text("Cannot decode \(codecName)")
+                        .font(Typography.displaySubtitle)
+                        .foregroundColor(AppColors.textTertiary)
+                    Text("Timecode and duration are still correct")
+                        .font(Typography.caption)
+                        .foregroundColor(AppColors.textMuted)
+                    if let onInstallCodec {
+                        Button("Install Codec Support…", action: onInstallCodec)
+                            .padding(.top, Spacing.xs)
+                    }
+                }
+                .padding(.top, showTimecode && overlayPosition.isTop ? TimecodeOverlayView.reservedHeight : 0)
+                .padding(.bottom, showTimecode && !overlayPosition.isTop ? TimecodeOverlayView.reservedHeight : 0)
+            }
     }
 }
 

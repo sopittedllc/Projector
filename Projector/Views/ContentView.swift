@@ -545,7 +545,12 @@ struct ContentView: View {
             settings: settings,
             playerWindow: PlayerWindowController.shared,
             onDropURLs: { urls in handlePlaybackAreaDrop(urls: urls) },
-            onDropProviders: { providers in mediaImportCoordinator.handleDrop(providers: providers) }
+            onDropProviders: { providers in mediaImportCoordinator.handleDrop(providers: providers) },
+            onInstallCodec: {
+                alerts.show(.proVideoFormatsInstall(
+                    codecName: playbackEngine.unplayableCodecName ?? "this format"
+                ))
+            }
         )
         // Controls are now overlaid on video, so use full height for picture
         .frame(width: sections.video.width, height: sections.video.height)

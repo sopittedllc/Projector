@@ -191,6 +191,25 @@ final class ProjectMediaLibrary: ObservableObject {
         var videoSize: CGSize?
         var channelCount: Int?
         var sampleRate: Double?
+        var codecName: String?
+        var isDecodable: Bool?
+
+        // Identify the codec and whether this Mac can decode it.
+        //
+        // Reading this at import is what lets Projector name a format it cannot play.
+        // Extension checks cannot: a QuickTime file carrying Avid DNxHD is a perfectly
+        // valid .mov, and everything else here - duration, frame rate, timecode -
+        // reads correctly from it whether or not a decoder exists.
+        if type == .video, let support = try? await VideoCodecSupport.inspect(asset) {
+            codecName = support.displayName
+            isDecodable = support.isDecodable
+            if !support.isDecodable {
+                diagnosticLog(
+                    .error, .media,
+                    "No decoder for \(support.displayName) (\(support.fourCC)) in \(url.lastPathComponent)"
+                )
+            }
+        }
 
         // Get video track info
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
@@ -236,7 +255,7 @@ final class ProjectMediaLibrary: ObservableObject {
             }
         }
 
-        let item = MediaItem(
+        var item = MediaItem(
             url: url,
             bookmark: bookmark,
             type: type,
@@ -248,6 +267,8 @@ final class ProjectMediaLibrary: ObservableObject {
             bitrate: bitrate,
             thumbnailData: thumbnailData
         )
+        item.codecName = codecName
+        item.isDecodable = isDecodable
 
         items.append(item)
         markDirty()

@@ -52,6 +52,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     /// Tracks if there are unsaved changes (set by ContentView)
     static var hasUnsavedChanges = false
 
+    /// Whether to start a fresh copy of the app once this one has quit.
+    ///
+    /// Set before asking the app to terminate, and acted on only in
+    /// `applicationWillTerminate`. Launching the replacement *first* and terminating
+    /// afterwards leaves two copies running whenever termination does not go through -
+    /// most obviously when the unsaved-changes prompt appears, which the user never
+    /// sees because the new window is already in front of it.
+    static var shouldRelaunchAfterTermination = false
+
+    /// How long to wait for the replacement instance to start before quitting anyway.
+    private static let relaunchHandoffTimeout: TimeInterval = 10
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         debugPrint("AppDelegate: applicationDidFinishLaunching")
 
@@ -59,6 +71,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         // moment someone first opens a bug report.
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         diagnosticLog(.info, .app, "Launched \(version) at \(SystemFacts.launchDate)")
+
+        // Load Apple's professional video decoders, which macOS does not register on
+        // its own. Without this, formats such as Avid DNxHD cannot be decoded even
+        // when the Pro Video Formats package is installed. Apple's instruction is that
+        // this happens once per process, so it belongs here and nowhere else.
+        ProVideoFormats.registerProfessionalDecoders()
+        diagnosticLog(
+            .info, .app,
+            "Professional video decoders registered (package installed: \(ProVideoFormats.packageAppearsInstalled))"
+        )
 
         // Allow developers to exercise onboarding intentionally without making
         // every Debug launch forget the user's completed setup.
@@ -418,6 +440,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
+    }
+
+    /// Starts a replacement instance, when a relaunch was asked for.
+    ///
+    /// Runs only once termination is actually going ahead, so a user who cancels at
+    /// the unsaved-changes prompt keeps the single running app they already had.
+    ///
+    /// Blocking the main thread here is deliberate and safe: the process is on its way
+    /// out, and the launch has to be handed to the system before it goes. The
+    /// completion arrives on another queue, so the wait cannot deadlock.
+    func applicationWillTerminate(_ notification: Notification) {
+        guard AppDelegate.shouldRelaunchAfterTermination else { return }
+        AppDelegate.shouldRelaunchAfterTermination = false
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+
+        let handoff = DispatchSemaphore(value: 0)
+        NSWorkspace.shared.openApplication(
+            at: Bundle.main.bundleURL,
+            configuration: configuration
+        ) { _, error in
+            if let error {
+                diagnosticLog(.error, .app, "Relaunch failed: \(error.localizedDescription)")
+            }
+            handoff.signal()
+        }
+        _ = handoff.wait(timeout: .now() + AppDelegate.relaunchHandoffTimeout)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

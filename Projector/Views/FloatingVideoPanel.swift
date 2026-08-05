@@ -489,6 +489,13 @@ struct InlineVideoArea: View {
     let onDropURLs: ([URL]) -> Void
     let onDropProviders: ([NSItemProvider]) -> Bool
 
+    /// Offers to install a missing codec.
+    ///
+    /// Only the inline area carries this. The import alert is the primary way in; this
+    /// is the way back for someone who dismissed it, and duplicating it in the popped
+    /// out player as well would make three routes to the same sheet.
+    let onInstallCodec: () -> Void
+
     @EnvironmentObject private var dragContext: DragContext
 
     @State private var isDropTargeted = false
@@ -525,7 +532,8 @@ struct InlineVideoArea: View {
                     playbackEngine: playbackEngine,
                     showTimecode: settings.showTimecodeOverlay,
                     overlayPosition: settings.timecodeOverlayPosition,
-                        overlayOpacity: settings.timecodeOverlayOpacity
+                    overlayOpacity: settings.timecodeOverlayOpacity,
+                    onInstallCodec: onInstallCodec
                 )
             }
 

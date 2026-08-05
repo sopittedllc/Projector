@@ -124,7 +124,46 @@ final class AlertCoordinatorTests: XCTestCase {
     func testSheetCasesAreClassifiedAsSheets() {
         XCTAssertTrue(AlertCoordinator.AlertType.saveProject(content: AnyView(EmptyView())).isSheet)
         XCTAssertTrue(AlertCoordinator.AlertType.settings(content: AnyView(EmptyView())).isSheet)
+        XCTAssertTrue(AlertCoordinator.AlertType.proVideoFormatsInstall(codecName: "Avid DNxHD").isSheet)
         XCTAssertFalse(AlertCoordinator.AlertType.error("x").isSheet)
         XCTAssertFalse(AlertCoordinator.AlertType.duplicateMedia("x").isSheet)
+        XCTAssertFalse(
+            AlertCoordinator.AlertType.codecUnavailable(codecName: "Avid DNxHD", onInstall: {}).isSheet
+        )
+    }
+
+    // MARK: - Missing Codec
+
+    func testCodecAlertAndInstallSheetHaveDistinctIdentities() {
+        // They are raised one after the other - the alert's Install button queues the
+        // sheet - so sharing an id would make the queue treat them as one item.
+        let alert = AlertCoordinator.AlertType.codecUnavailable(codecName: "Avid DNxHD", onInstall: {})
+        let sheet = AlertCoordinator.AlertType.proVideoFormatsInstall(codecName: "Avid DNxHD")
+
+        XCTAssertEqual(alert.id, "codecUnavailable")
+        XCTAssertEqual(sheet.id, "proVideoFormatsInstall")
+        XCTAssertNotEqual(alert.id, sheet.id)
+    }
+
+    func testInstallSheetRaisedFromTheAlertSurvivesTheQueue() async {
+        // Tapping Install runs the action before SwiftUI dismisses the alert, so the
+        // sheet is enqueued behind an alert that is still presenting. If the queue
+        // dropped it, the button would silently do nothing.
+        let coordinator = AlertCoordinator()
+
+        coordinator.show(.codecUnavailable(codecName: "Avid DNxHD") {
+            coordinator.show(.proVideoFormatsInstall(codecName: "Avid DNxHD"))
+        })
+
+        if case .codecUnavailable(_, let onInstall) = coordinator.activeAlert {
+            onInstall()
+        } else {
+            return XCTFail("Expected the codec alert to be presenting")
+        }
+
+        coordinator.dismiss()
+        await settle()
+
+        XCTAssertEqual(coordinator.activeAlert?.id, "proVideoFormatsInstall")
     }
 }

@@ -1,8 +1,83 @@
 # Session State
 
-> **Last Updated**: 2026-08-03
-> **Status**: TIMING RESOLVED — verified frame-exact across 90 minutes
-> **Branch**: main (clean, pushed through 81d1d7e)
+> **Last Updated**: 2026-08-05
+> **Status**: PRO CODEC SUPPORT SHIPPED — DNxHD decodes; DMG for testers
+> **Branch**: main
+
+---
+
+## Professional codec support (2026-08-05)
+
+Projector now plays formats macOS has no decoder for on its own — Avid DNxHD/DNxHR,
+AVC-Intra, DVCPRO HD, HDV, XDCAM, MPEG IMX, Apple Intermediate, Uncompressed 4:2:2.
+
+### The finding
+
+macOS ships decoders for ProRes, H.264, HEVC, AV1, JPEG and MPEG-4 only
+(`/System/Library/Video/Plug-Ins`). Everything else lives in Apple's free **Pro Video
+Formats** package and is unreachable until an app calls
+`VTRegisterProfessionalVideoWorkflowVideoDecoders()` once per process — Apple's
+instruction from WWDC20 session 10090. Projector had no VideoToolbox code at all, so a
+DNxHD reel imported looking healthy (right duration, frame rate, timecode) and played
+black with no explanation.
+
+**The registration call is load-bearing.** Measured on a real DNxHD reel with the
+package installed:
+
+```
+BEFORE registration: VTDecompressionSessionCreate = -12906 (codecNotFound)
+AFTER  registration: status = 0, session = true
+                     isPlayable=true, isDecodable=true, frame decoded 1920x1080
+```
+
+The package alone changes nothing. That one call is the whole feature.
+
+### What shipped
+
+- `Managers/ProVideoFormats.swift` — one-time registration, package detection, Apple URLs
+- `Managers/VideoCodecSupport.swift` — codec identity, decodability, install eligibility
+- `Managers/ProVideoFormatsInstaller.swift` — link discovery, host validation, download
+- `Views/ProVideoFormatsInstallSheet.swift` — progress, installer hand-off, relaunch
+- Registration at launch; codec probe at import; alert naming the codec; a
+  codec-unavailable state replacing the black frame
+- `com.apple.security.network.client` — **first networking in the app**
+
+### Traps paid for
+
+- **The install directory is not named after the package.** The installer is "Pro Video
+  Formats"; its payload lands in `/Library/Video/Professional Video Workflow Plug-Ins`
+  (holding `DNXDecoder.bundle`). Guessing the obvious name made
+  `packageAppearsInstalled` permanently false. Harmless only because decodability is
+  always decided by probing the file, never by looking for a directory.
+- **Apple signs the package, not its disk image.** `ProVideoFormats.dmg` is
+  `not signed at all`; `ProVideoFormats.pkg` is signed *Apple Software Update* and
+  notarized. Trust rests on the download URL being HTTPS on `updates.cdn-apple.com`
+  plus Gatekeeper inside macOS Installer. `SecAssessment` is not in the public SDK, so
+  no local assessment is attempted.
+- **Relaunch order matters.** Launching the replacement before calling
+  `NSApp.terminate` leaves two instances whenever termination is interrupted — the
+  unsaved-changes prompt sits behind the window just handed to the user. The
+  replacement is now started from `applicationWillTerminate`, so it only happens once
+  quitting is actually going ahead.
+- **The generic error drowned the specific one.** `PlaybackEngineError.notPlayable`
+  raised "The video file cannot be played." *first*, so the vague message was the one
+  read. Now filtered by `showUnlessMissingDecoder`; every other error still surfaces.
+
+### Verified / not verified
+
+Verified: decode before-and-after (above); build clean; suite green; the user ran the
+whole flow — alert named the codec, download, macOS installer, relaunch.
+
+**Not runtime-verified**: the removed duplicate alert and the relaunch fix. With the
+package installed neither path is reachable on this machine any more. Both build and
+are covered by unit tests, but nobody has watched them behave.
+
+### Test flake (pre-existing, unrelated)
+
+`MIDISyncActorTests.testMIDISyncStateEmpty` and
+`SplitOfferCoordinatorTests.testABatchWithNothingToOfferReleasesNothing` intermittently
+do not report; the count alternates 154/155 across runs with **zero failures**. Neither
+touches codec code. Matches the flake noted below from the earlier session.
 
 ---
 

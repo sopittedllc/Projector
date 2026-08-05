@@ -142,6 +142,20 @@ struct MediaItem: Identifiable, Codable, Equatable {
     /// Cached thumbnail image (not persisted)
     var thumbnailData: Data?
 
+    /// Human-readable name of the video codec, e.g. "Avid DNxHD" (not persisted).
+    var codecName: String?
+
+    /// Whether this Mac can decode the video track (not persisted).
+    ///
+    /// Deliberately not written to the project file. Whether a codec can be decoded is
+    /// a fact about the machine, not the project: installing Apple's Pro Video Formats
+    /// package changes the answer, and a persisted `false` would outlive the problem
+    /// and keep reporting a file as broken after it had started playing.
+    ///
+    /// `nil` means not yet probed, which is the correct state for audio and for items
+    /// restored from a saved project.
+    var isDecodable: Bool?
+
     /// Display name derived from filename
     var displayName: String {
         url.deletingPathExtension().lastPathComponent

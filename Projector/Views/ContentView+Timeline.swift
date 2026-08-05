@@ -342,6 +342,12 @@ extension ContentView {
                 throw NSError(domain: "Projector", code: 1, userInfo: [NSLocalizedDescriptionKey: "No video track found"])
             }
 
+            // Probed before placement but reported after it. A reel whose codec is
+            // missing still has valid timecode, duration and frame rate, so it is
+            // placed normally and the audio can be laid against it; interrupting here
+            // would cost the user that while changing nothing about the outcome.
+            let codecSupport = try? await VideoCodecSupport.inspect(asset)
+
             let nominalFrameRate = try await videoTrack.load(.nominalFrameRate)
             let videoFPS = closestTimecodeFrameRate(to: Double(nominalFrameRate))
             let duration = try await asset.load(.duration)
@@ -384,12 +390,57 @@ extension ContentView {
 
             await addVideoToTimelineUnchecked(url: url, at: placementFrame)
 
+            if let codecSupport, !codecSupport.isDecodable {
+                presentCodecUnavailable(codecSupport)
+            }
+
         } catch {
             isLoadingMedia = false
             alerts.show(.error(error.localizedDescription))
             // A file that never imported still has to leave the batch.
             splitHardPannedReelsIfBatchComplete(candidate: nil)
         }
+    }
+
+    /// Reports a failure, unless it is simply a codec with no decoder.
+    ///
+    /// A missing decoder is already reported by name, with the fix attached, and the
+    /// video area keeps saying so for as long as the reel is loaded. Adding the generic
+    /// "The video file cannot be played." on top of that told the user strictly less,
+    /// twice - and arrived first, so the vaguer message was the one they read.
+    ///
+    /// Every other error still surfaces: this narrows one case rather than silencing
+    /// the catch.
+    ///
+    /// - Parameter error: The error to report.
+    func showUnlessMissingDecoder(_ error: Error) {
+        if let engineError = error as? PlaybackEngineError,
+           case .notPlayable = engineError {
+            return
+        }
+        alerts.show(.error(error.localizedDescription))
+    }
+
+    /// Tells the user a reel's codec cannot be decoded, and offers the fix when there
+    /// is one.
+    ///
+    /// Apple's Pro Video Formats package is only offered for codecs it actually
+    /// supplies. Anything else gets a plain statement of the problem rather than an
+    /// install that would not help.
+    ///
+    /// - Parameter support: What the codec probe found.
+    func presentCodecUnavailable(_ support: CodecSupport) {
+        guard support.shouldOfferProVideoFormatsInstall else {
+            alerts.show(.error(
+                "This Mac has no decoder for \(support.displayName), so this reel's "
+                + "picture cannot be shown. Its timecode and duration are still correct."
+            ))
+            return
+        }
+
+        alerts.show(.codecUnavailable(codecName: support.displayName) {
+            alerts.show(.proVideoFormatsInstall(codecName: support.displayName))
+        })
     }
 
     /// Find a position for a new video that doesn't overlap with existing reels
@@ -513,7 +564,7 @@ extension ContentView {
         } catch {
             debugPrint("addVideoToTimeline: FAILED [T+\(elapsed())] - \(error)")
             isLoadingMedia = false
-            alerts.show(.error(error.localizedDescription))
+            showUnlessMissingDecoder(error)
             splitHardPannedReelsIfBatchComplete(candidate: nil)
         }
     }

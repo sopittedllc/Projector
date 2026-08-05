@@ -77,6 +77,102 @@ Brief description of what the feature does.
 
 ## Active Features
 
+### Professional Codec Support (Pro Video Formats)
+
+**Status**: Active
+**Added**: 2026-08-05
+
+#### Description
+
+Plays professional video formats that macOS has no decoder for on its own — Avid
+DNxHD/DNxHR, AVC-Intra, DVCPRO HD, HDV, XDCAM, MPEG IMX, Apple Intermediate Codec and
+Uncompressed 4:2:2.
+
+macOS ships decoders only for ProRes, H.264, HEVC, AV1, JPEG and MPEG-4
+(`/System/Library/Video/Plug-Ins`). The rest live in Apple's free Pro Video Formats
+package and are reachable only after calling
+`VTRegisterProfessionalVideoWorkflowVideoDecoders()` once per process — Apple's
+instruction from WWDC20 session 10090. Projector makes that call at launch, and when a
+codec is still missing it names the format and offers to fetch the package.
+
+Previously such a file imported looking healthy — correct duration, frame rate and
+timecode — and then played black with no explanation.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Service | `Managers/ProVideoFormats.swift` | One-time decoder registration; package detection; Apple URLs |
+| Service | `Managers/VideoCodecSupport.swift` | Codec identity, decodability, install-eligibility |
+| Service | `Managers/ProVideoFormatsInstaller.swift` | Link discovery, host validation, download (actor) |
+| View | `Views/ProVideoFormatsInstallSheet.swift` | Install progress, installer hand-off, relaunch |
+
+#### State Properties
+
+| File | Property | Type | Purpose |
+|------|----------|------|---------|
+| `MediaItem.swift` | `codecName` | `String?` | Codec's display name (**not persisted**) |
+| `MediaItem.swift` | `isDecodable` | `Bool?` | Whether this Mac can decode it (**not persisted**) |
+| `PlaybackEngine.swift` | `unplayableCodecName` | `String?` | Published so the video area can explain a black frame |
+| `ProVideoFormatsInstallModel` | `state` | `State` | Idle / working / awaiting installer / failed |
+
+Neither `MediaItem` field is persisted, deliberately: decodability is a fact about the
+machine, not the project. Installing the package changes the answer, and a saved `false`
+would outlive the problem and keep reporting a working file as broken.
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `ProjectorApp.swift` | `applicationDidFinishLaunching` | Decoder registration at launch |
+| `ProjectMediaLibrary.swift` | `importFile(from:)` | Populates codec fields |
+| `ContentView+Timeline.swift` | `addVideoToTimeline`, `presentCodecUnavailable` | Probe + alert after placement |
+| `PlaybackEngine.swift` | `loadReel(_:)` | Names the codec before throwing `.notPlayable` |
+| `AlertCoordinator.swift` | `.codecUnavailable`, `.proVideoFormatsInstall` | Alert case + sheet case |
+| `VideoPlayerView.swift` | `missingCodecPlaceholder` | Replaces the black frame |
+| `FloatingVideoPanel.swift` | `InlineVideoArea.onInstallCodec` | Recovery entry point (inline only) |
+| `MediaOptimizationService.swift` | `fourCCToString` | Delegates to the shared codec table |
+| `Projector.entitlements` | `com.apple.security.network.client` | **First networking in the app** |
+
+#### Behaviour
+
+An undecodable reel still imports. Its timecode, duration and frame rate are correct, so
+stems can be placed against it; only the picture is missing. Once the package is
+installed and the app relaunches, the existing reel plays with no re-import.
+
+The install offer is limited to codecs the package actually supplies. Anything else gets
+a plain error rather than an install that could not help.
+
+#### Security Notes
+
+- Projector **never asks for an administrator password**. It hands the Apple-signed
+  package to macOS Installer, which raises the system's own prompt. A sandboxed app
+  cannot install a system package, and an app collecting admin credentials in its own UI
+  is indistinguishable from one harvesting them.
+- Apple signs the **package**, not its disk image (verified: `ProVideoFormats.dmg` is
+  unsigned; `ProVideoFormats.pkg` is signed *Apple Software Update* and notarized).
+  Trust therefore rests on the download URL being HTTPS on `updates.cdn-apple.com`, plus
+  Gatekeeper's own check inside macOS Installer.
+- No `SecAssessment` check is attempted: that API is not in the public SDK.
+
+#### Dependencies
+- Depends on: Alert/Sheet Coordination, Media Import Coordination
+- Depended by: none
+
+#### Tests
+- `ProjectorTests/VideoCodecSupportTests.swift` — fourCC rendering, display names, install eligibility
+- `ProjectorTests/ProVideoFormatsInstallerTests.swift` — link discovery, host/scheme rejection
+- `ProjectorTests/AlertCoordinatorTests.swift` — new case identities, install sheet surviving the queue
+
+#### Known Limitations
+- Requires a relaunch after installing; decoders bind at process start.
+- The QuickLook extension does **not** register decoders — it previews `.projector`
+  project files only and decodes no media.
+- Auto-opening the package inside the mounted image may be blocked by the sandbox, in
+  which case the user double-clicks it in the Finder window that opened.
+
+---
+
 ### Multi-Track Timeline
 
 **Status**: Active

@@ -345,30 +345,13 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         }
     }
 
+    /// Names a video codec for display.
+    ///
+    /// Delegates to ``VideoCodecSupport`` so there is one codec table in the app rather
+    /// than two that drift apart - this one had no entry for Avid DNxHD or any other
+    /// professional format, and reported them as bare four-character codes.
     private func fourCCToString(_ fourCC: FourCharCode) -> String {
-        // Common video codec mappings
-        switch fourCC {
-        case kCMVideoCodecType_AppleProRes4444XQ: return "ProRes 4444 XQ"
-        case kCMVideoCodecType_AppleProRes4444: return "ProRes 4444"
-        case kCMVideoCodecType_AppleProRes422HQ: return "ProRes 422 HQ"
-        case kCMVideoCodecType_AppleProRes422: return "ProRes 422"
-        case kCMVideoCodecType_AppleProRes422LT: return "ProRes 422 LT"
-        case kCMVideoCodecType_AppleProRes422Proxy: return "ProRes 422 Proxy"
-        case kCMVideoCodecType_H264: return "H.264"
-        case kCMVideoCodecType_HEVC: return "HEVC"
-        case kCMVideoCodecType_JPEG: return "JPEG"
-        case kCMVideoCodecType_MPEG4Video: return "MPEG-4"
-        default:
-            // Convert FourCC to string safely
-            let bytes = [
-                (fourCC >> 24) & 0xFF,
-                (fourCC >> 16) & 0xFF,
-                (fourCC >> 8) & 0xFF,
-                fourCC & 0xFF
-            ]
-            let chars = bytes.compactMap { UnicodeScalar($0) }.map { Character($0) }
-            return chars.count == 4 ? String(chars) : String(format: "0x%08X", fourCC)
-        }
+        VideoCodecSupport.displayName(forFourCC: fourCC)
     }
 
     /// Estimate optimized file size based on target bitrate and duration

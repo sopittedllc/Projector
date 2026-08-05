@@ -81,6 +81,14 @@ final class PlaybackEngine: ObservableObject {
     /// Primary video player (current reel)
     @Published private(set) var currentPlayer: AVPlayer?
 
+    /// Name of the codec blocking playback, when the current reel cannot be decoded.
+    ///
+    /// Set whenever loading a reel fails for want of a decoder, and cleared on any
+    /// successful load. Published because the failure is otherwise invisible: seven of
+    /// the nine callers of ``loadReel(_:)`` cannot surface a thrown error, so without
+    /// this the picture just goes black and nothing says why.
+    @Published private(set) var unplayableCodecName: String?
+
     /// Whether playback is active
     @Published private(set) var isPlaying = false
 
@@ -378,8 +386,17 @@ final class PlaybackEngine: ObservableObject {
         // Check playability
         let isPlayable = try await asset.load(.isPlayable)
         guard isPlayable else {
+            // Name the codec before giving up, so the UI can say which format is
+            // missing rather than showing an unexplained black frame.
+            let support = try? await VideoCodecSupport.inspect(asset)
+            unplayableCodecName = support?.displayName ?? reel.displayName
+            diagnosticLog(
+                .error, .playback,
+                "Cannot decode \(unplayableCodecName ?? "unknown codec") in \(reel.displayName)"
+            )
             throw PlaybackEngineError.notPlayable
         }
+        unplayableCodecName = nil
 
         // Create player
         let playerItem = AVPlayerItem(asset: asset)

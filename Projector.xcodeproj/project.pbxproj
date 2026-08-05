@@ -120,6 +120,12 @@
 		VPOV0001OVERLAYS01 /* VideoPlayerOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */; };
 		CE4A186D19D74C2E987649DC /* CueListExportServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDE3B90C98784B309245A5C5 /* CueListExportServiceProtocol.swift */; };
 		CAD906E175B4492CB21E2857 /* CueListExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC464AD144D744A481F09CC4 /* CueListExportService.swift */; };
+		PVFC00000000000000000002 /* VideoCodecSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC00000000000000000001 /* VideoCodecSupport.swift */; };
+		PVFC00000000000000000004 /* ProVideoFormats.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC00000000000000000003 /* ProVideoFormats.swift */; };
+		PVFC00000000000000000006 /* ProVideoFormatsInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC00000000000000000005 /* ProVideoFormatsInstaller.swift */; };
+		PVFC00000000000000000008 /* ProVideoFormatsInstallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC00000000000000000007 /* ProVideoFormatsInstallSheet.swift */; };
+		PVFC0000000000000000000: /* VideoCodecSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC00000000000000000009 /* VideoCodecSupportTests.swift */; };
+		PVFC0000000000000000000C /* ProVideoFormatsInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC0000000000000000000B /* ProVideoFormatsInstallerTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -278,6 +284,12 @@
 		VPOV0002OVERLAYS02 /* VideoPlayerOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerOverlays.swift; sourceTree = "<group>"; };
 		DDE3B90C98784B309245A5C5 /* CueListExportServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueListExportServiceProtocol.swift; sourceTree = "<group>"; };
 		DC464AD144D744A481F09CC4 /* CueListExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueListExportService.swift; sourceTree = "<group>"; };
+		PVFC00000000000000000001 /* VideoCodecSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoCodecSupport.swift; sourceTree = "<group>"; };
+		PVFC00000000000000000003 /* ProVideoFormats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProVideoFormats.swift; sourceTree = "<group>"; };
+		PVFC00000000000000000005 /* ProVideoFormatsInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProVideoFormatsInstaller.swift; sourceTree = "<group>"; };
+		PVFC00000000000000000007 /* ProVideoFormatsInstallSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProVideoFormatsInstallSheet.swift; sourceTree = "<group>"; };
+		PVFC00000000000000000009 /* VideoCodecSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoCodecSupportTests.swift; sourceTree = "<group>"; };
+		PVFC0000000000000000000B /* ProVideoFormatsInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProVideoFormatsInstallerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -337,6 +349,8 @@
 		3BD953EF1BF1714A87337C38 /* ProjectorTests */ = {
 			isa = PBXGroup;
 			children = (
+				PVFC0000000000000000000B /* ProVideoFormatsInstallerTests.swift */,
+				PVFC00000000000000000009 /* VideoCodecSupportTests.swift */,
 				B1294F532F7C9F1600783FA8 /* AudioOutputManagerTests.swift */,
 				B1294F542F7C9F1600783FA8 /* IntegrationTests.swift */,
 				B1294F552F7C9F1600783FA8 /* MIDISyncActorTests.swift */,
@@ -420,6 +434,9 @@
 		A1000001227D3F0000000023 /* Managers */ = {
 			isa = PBXGroup;
 			children = (
+				PVFC00000000000000000005 /* ProVideoFormatsInstaller.swift */,
+				PVFC00000000000000000003 /* ProVideoFormats.swift */,
+				PVFC00000000000000000001 /* VideoCodecSupport.swift */,
 				B1294F512F7C958C00783FA8 /* TransportActor.swift */,
 				B18F62FE2F7C8B16001132AF /* TimelineActor.swift */,
 				MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */,
@@ -448,6 +465,7 @@
 		A1000001227D3F0000000024 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				PVFC00000000000000000007 /* ProVideoFormatsInstallSheet.swift */,
 				59F7937C1F65403C8FBC4921 /* Optimization */,
 				A1000001227D3F0000000012 /* ContentView.swift */,
 				SETUP001CONTENTVIEW /* ContentView+Setup.swift */,
@@ -782,6 +800,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				PVFC0000000000000000000C /* ProVideoFormatsInstallerTests.swift in Sources */,
+				PVFC0000000000000000000: /* VideoCodecSupportTests.swift in Sources */,
 				B1294F5A2F7C9F1600783FA8 /* TransportActorTests.swift in Sources */,
 				B1294F5B2F7C9F1600783FA8 /* PlaybackEngineTests.swift in Sources */,
 				B1294F5C2F7C9F1600783FA8 /* TimelineManagerTests.swift in Sources */,
@@ -805,6 +825,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				PVFC00000000000000000008 /* ProVideoFormatsInstallSheet.swift in Sources */,
+				PVFC00000000000000000006 /* ProVideoFormatsInstaller.swift in Sources */,
+				PVFC00000000000000000004 /* ProVideoFormats.swift in Sources */,
+				PVFC00000000000000000002 /* VideoCodecSupport.swift in Sources */,
 				AM01AUDIOMETER002 /* AudioMeterView.swift in Sources */,
 				B1294F502F7C94D400783FA8 /* AlertCoordinator.swift in Sources */,
 				SOC001COORD000002 /* SplitOfferCoordinator.swift in Sources */,
