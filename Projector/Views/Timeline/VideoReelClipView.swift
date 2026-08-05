@@ -26,7 +26,6 @@ struct VideoReelClipView: View {
     let showThumbnails: Bool
     let isSelected: Bool
     let interactionsEnabled: Bool
-    let isOptimized: Bool
     let timelineStartTimecode: String?
 
     /// Part of this clip the viewport can actually show, in clip-local points.
@@ -88,21 +87,15 @@ struct VideoReelClipView: View {
                 HStack(spacing: Spacing.xs) {
                     // Reel info
                     VStack(alignment: .leading, spacing: Spacing.xs) {
-                        HStack(spacing: Spacing.xs) {
-                            Text(reel.displayName)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(.white)
-                                .lineLimit(1)
-                                .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 1)
-
-                            // Optimization indicator
-                            if isOptimized {
-                                Image(systemName: "stopwatch.fill")
-                                    .font(Typography.captionSmall)
-                                    .foregroundColor(.green)
-                                    .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 1)
-                            }
-                        }
+                        // Name alone. Optimized reels used to carry a green
+                        // stopwatch beside it for the life of the project,
+                        // marking finished work rather than anything the user
+                        // could act on.
+                        Text(reel.displayName)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                            .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 1)
 
                         Text(formattedDuration)
                             .font(.system(size: 9, weight: .medium, design: .monospaced))
@@ -285,7 +278,6 @@ struct VideoReelClipView: View {
             showThumbnails: true,
             isSelected: false,
             interactionsEnabled: true,
-            isOptimized: true,
             timelineStartTimecode: "01:00:00:00",
             visibleXRange: nil,
             onSelect: { _ in },
@@ -307,7 +299,6 @@ struct VideoReelClipView: View {
             showThumbnails: true,
             isSelected: true,
             interactionsEnabled: true,
-            isOptimized: false,
             timelineStartTimecode: "01:02:00:00",
             visibleXRange: nil,
             onSelect: { _ in },

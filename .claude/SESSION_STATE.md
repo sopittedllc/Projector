@@ -1,8 +1,55 @@
 # Session State
 
 > **Last Updated**: 2026-08-05
-> **Status**: PRO CODEC SUPPORT SHIPPED — DNxHD decodes; DMG for testers
+> **Status**: MEDIA OFFERS TIED TO THE MEDIA — awaiting runtime verification
 > **Branch**: main
+
+---
+
+## Optimize and consolidate only when there is work (2026-08-05)
+
+Both media-housekeeping offers now answer to the media alone, and nothing marks
+work that is already finished.
+
+### What was wrong
+
+- **The banner outlived the work.** It was `@State`, refreshed only when the
+  *number* of media items changed — which optimizing does not do. Optimizing from
+  the header button left it advertising a finished job. Only the banner's own
+  Optimize button cleared it, by hand.
+- **Consolidating reappeared after optimizing.** Optimized output is written to
+  `ProjectFolder/Optimized Media/`, a sibling of the `.projector` package, but
+  `externalMediaItems` tested the package path only. Every optimized file read as
+  external media, so finishing an optimize pass raised the Consolidate button —
+  offering to copy the app's own output back into the project.
+- **Green "done" markers never left.** A checkmark in the media grid and a
+  stopwatch on timeline clips marked completed work rather than anything actionable.
+
+### What shipped
+
+- `ProjectFolders` in `Managers/ProjectMediaLibrary.swift` — the project's folders
+  (package, `Optimized Media`, `Raw Files`) and a component-wise containment test.
+  Matched by folder name, not by claiming the enclosing directory, so a project
+  saved to the Desktop does not consider the Desktop consolidated. String prefixes
+  were wrong twice over: `Cut.projector` prefixes `Cut.projector.backup`, and the
+  same file arrives spelled `/var/…` or `/private/var/…`.
+- `OptimizationViewModel` takes its folder URLs from those constants, so the two
+  spellings cannot drift apart and re-break the containment test.
+- The banner is derived from the library, never stored — it appears when something
+  qualifies and vanishes when nothing does. `evaluateOptimizationSuggestion` and
+  `reevaluateOptimizationSuggestion` (two near-identical copies of the rules) gone.
+- `OptimizationStatusHelper.isProductionCodec` — one rule shared by button, badge
+  and banner.
+- Removed: the optimized checkmark and stopwatch, the `isOptimized` plumbing that
+  fed them, the now-unused `mediaLibrary` dependency of `VideoTrackView` and
+  `AudioLaneView`, the never-used `OptimizationSuggestionManager` and
+  `OptimizationSuggestionCompact`, and the two unreachable suggestion cases
+  (`playbackStutter`, `largeProjectSize`) that only that manager could produce.
+
+### Still to verify at runtime
+
+Import heavy media, optimize from the **header** button (not the banner), and
+confirm the banner clears itself and the Consolidate button does not reappear.
 
 ---
 

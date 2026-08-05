@@ -1129,7 +1129,6 @@ struct MultiTrackTimelineView: View {
                                     availableAudioOutputs: audioOutputManager.mappedOutputs,
                                     linkedDragPreview: linkedDragPreview,
                                     timelineStartFrames: timeline.config.startTimecode.frameCount.wholeFrames,
-                                    mediaLibrary: mediaLibrary,
                                     onMuteToggle: { timelineManager.toggleLaneMute(at: index) },
                                     onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
                                     onVolumeChange: { volume in timelineManager.setLaneVolume(at: index, volume: volume) },
@@ -1594,7 +1593,6 @@ struct MultiTrackTimelineView: View {
             timelineManager: timelineManager,
             playbackEngine: playbackEngine,
             thumbnailCache: thumbnailCache,
-            mediaLibrary: mediaLibrary,
             pixelsPerFrame: ppf,
             visibleContentX: visibleContentX(contentAreaWidth: contentAreaWidth),
             scrollOffset: 0,
@@ -1864,7 +1862,6 @@ struct MultiTrackTimelineView: View {
                         showThumbnails: !TimelineDebugFlags.current.disableThumbnails,
                         isSelected: selectedVideoReelIds.contains(reel.id),
                         interactionsEnabled: !TimelineDebugFlags.current.disableClipInteractions,
-                        isOptimized: mediaLibrary.items.first { $0.url == reel.sourceURL }?.isOptimized ?? false,
                         timelineStartTimecode: timelineManager.formatTimecode(forFrame: reel.timelineStartFrame),
                         visibleXRange: visibleXRange(forReelStartingAt: reel.timelineStartFrame, ppf: ppf, contentAreaWidth: contentAreaWidth),
                         onSelect: { modifiers in
@@ -1905,7 +1902,6 @@ struct MultiTrackTimelineView: View {
                         waveformCache: waveformCache,
                         showWaveform: !TimelineDebugFlags.current.disableWaveforms,
                         interactionsEnabled: !TimelineDebugFlags.current.disableClipInteractions,
-                        isOptimized: mediaLibrary.items.first { $0.url == clip.sourceURL }?.isOptimized ?? false,
                         timelineStartTimecode: nil,
                         onSelect: { modifiers in
                             handleClipSelection(clipId: clip.id, laneId: lane.id, modifiers: modifiers)
@@ -1946,7 +1942,6 @@ struct MultiTrackTimelineView: View {
             availableAudioOutputs: audioOutputManager.mappedOutputs,
             linkedDragPreview: linkedDragPreview,
             timelineStartFrames: timeline.config.startTimecode.frameCount.wholeFrames,
-            mediaLibrary: mediaLibrary,
             onMuteToggle: { timelineManager.toggleLaneMute(at: index) },
             onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
             onVolumeChange: { volume in timelineManager.setLaneVolume(at: index, volume: volume) },

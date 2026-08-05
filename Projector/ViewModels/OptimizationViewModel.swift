@@ -111,14 +111,18 @@ final class OptimizationViewModel: ObservableObject {
 
     /// The "Optimized Media" folder URL (sibling of the .projector file)
     /// Structure: ProjectFolder/Optimized Media/ (not inside .projector package)
+    ///
+    /// Named by ``ProjectFolders`` rather than spelled here, because consolidating
+    /// asks whether a file is already in one of these folders. If the two spellings
+    /// drifted, optimized output would read as external media again.
     var optimizedMediaFolderURL: URL? {
-        projectURL?.deletingLastPathComponent().appendingPathComponent("Optimized Media")
+        ProjectFolders.optimizedMediaFolder(forProjectAt: projectURL)
     }
 
     /// The "Raw Files" folder URL (sibling of the .projector file)
     /// Structure: ProjectFolder/Raw Files/ (not inside .projector package)
     var rawFilesFolderURL: URL? {
-        projectURL?.deletingLastPathComponent().appendingPathComponent("Raw Files")
+        ProjectFolders.rawFilesFolder(forProjectAt: projectURL)
     }
 
     /// Total size of original files that were optimized (for cleanup dialog)

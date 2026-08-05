@@ -20,7 +20,6 @@ struct AudioLaneView: View {
     let availableAudioOutputs: [MappedAudioOutput]
     let linkedDragPreview: LinkedDragPreview?
     let timelineStartFrames: Int
-    @ObservedObject var mediaLibrary: ProjectMediaLibrary
     let onMuteToggle: () -> Void
     let onSoloToggle: () -> Void
     let onVolumeChange: (Float) -> Void
@@ -419,7 +418,6 @@ struct AudioLaneView: View {
                 waveformCache: waveformCache,
                 showWaveform: showWaveforms,
                 interactionsEnabled: clipInteractionsEnabled,
-                isOptimized: isClipOptimized(clip),
                 timelineStartTimecode: formatTimecode(forFrame: clip.timelineStartFrame),
                 onSelect: { modifiers in
                     selectedClipId = clip.id
@@ -570,18 +568,6 @@ struct AudioLaneView: View {
     private var channelCount: Int {
         // Assume stereo for now; could be derived from clips
         2
-    }
-
-    /// Check if an audio clip is optimized based on its mediaItemId or sourceURL
-    private func isClipOptimized(_ clip: AudioClip) -> Bool {
-        // First try to look up by mediaItemId (most reliable)
-        if let mediaItemId = clip.mediaItemId,
-           let item = mediaLibrary.items.first(where: { $0.id == mediaItemId }) {
-            return item.isOptimized
-        }
-        // Fallback to URL lookup
-        let item = mediaLibrary.items.first { $0.url == clip.sourceURL }
-        return item?.isOptimized ?? false
     }
 
     private var laneColor: Color {
@@ -1102,7 +1088,6 @@ private final class AudioLaneDragCaptureNSView: NSView {
 #Preview {
     struct PreviewWrapper: View {
         @StateObject var waveformCache = WaveformCache()
-        @StateObject var mediaLibrary = ProjectMediaLibrary()
 
         var lane: AudioLane {
             var l = AudioLane(name: "Audio 1")
@@ -1140,7 +1125,6 @@ private final class AudioLaneDragCaptureNSView: NSView {
                 availableAudioOutputs: [],
                 linkedDragPreview: nil,
                 timelineStartFrames: 86400,  // 01:00:00:00 at 24fps
-                mediaLibrary: mediaLibrary,
                 onMuteToggle: {},
                 onSoloToggle: {},
                 onVolumeChange: { _ in },

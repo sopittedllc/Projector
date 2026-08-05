@@ -8,7 +8,6 @@ struct VideoTrackView: View {
     @ObservedObject var timelineManager: TimelineManager
     let playbackEngine: PlaybackEngine
     @ObservedObject var thumbnailCache: ThumbnailCache
-    @ObservedObject var mediaLibrary: ProjectMediaLibrary
     let pixelsPerFrame: CGFloat
 
     /// Span of the track the viewport can show, in content points.
@@ -336,7 +335,6 @@ struct VideoTrackView: View {
                 showThumbnails: showThumbnails,
                 isSelected: selectedReelId == reel.id || selectedReelIds.contains(reel.id),
                 interactionsEnabled: clipInteractionsEnabled,
-                isOptimized: isReelOptimized(reel),
                 timelineStartTimecode: timelineManager.formatTimecode(forFrame: reel.timelineStartFrame),
                 visibleXRange: visibleXRange(for: reel),
                 onSelect: { modifiers in
@@ -482,17 +480,6 @@ struct VideoTrackView: View {
         reel.sourceStartFrame == preview.sourceStartFrame &&
         reel.durationFrames == preview.durationFrames &&
         reel.timelineStartFrame == preview.fromFrame
-    }
-
-    private func isReelOptimized(_ reel: VideoReel) -> Bool {
-        // First try to find by mediaItemId (most reliable)
-        if let mediaItemId = reel.mediaItemId,
-           let item = mediaLibrary.items.first(where: { $0.id == mediaItemId }) {
-            return item.isOptimized
-        }
-        // Fall back to URL matching
-        let item = mediaLibrary.items.first { $0.url == reel.sourceURL }
-        return item?.isOptimized ?? false
     }
 
     private func dropFrame(for location: CGPoint) -> Int {
@@ -691,14 +678,12 @@ private final class VideoTrackDragCaptureNSView: NSView {
         @StateObject var timelineManager = TimelineManager()
         @StateObject var playbackEngine = PlaybackEngine()
         @StateObject var thumbnailCache = ThumbnailCache()
-        @StateObject var mediaLibrary = ProjectMediaLibrary()
 
         var body: some View {
             VideoTrackView(
                 timelineManager: timelineManager,
                 playbackEngine: playbackEngine,
                 thumbnailCache: thumbnailCache,
-                mediaLibrary: mediaLibrary,
                 pixelsPerFrame: 0.5,
                 scrollOffset: 0,
                 showThumbnails: true,

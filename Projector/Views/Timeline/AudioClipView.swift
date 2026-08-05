@@ -13,7 +13,6 @@ struct AudioClipView: View {
     let waveformCache: WaveformCache
     let showWaveform: Bool
     let interactionsEnabled: Bool
-    let isOptimized: Bool
     let timelineStartTimecode: String?
     let onSelect: (SelectionModifiers) -> Void
     let onDoubleClick: () -> Void
@@ -59,12 +58,9 @@ struct AudioClipView: View {
                         .foregroundColor(.white)
                         .lineLimit(1)
 
-                    // Optimization indicator
-                    if isOptimized {
-                        Image(systemName: "stopwatch.fill")
-                            .font(Typography.iconTiny)
-                            .foregroundColor(.green)
-                    }
+                    // No optimization indicator: optimized clips used to carry a
+                    // green stopwatch for the life of the project, marking
+                    // finished work rather than anything the user could act on.
 
                     // Timeline start timecode
                     if let tc = timelineStartTimecode, clipWidth > 120 {
@@ -414,7 +410,6 @@ private struct WaveformBarsView: Shape {
             waveformCache: WaveformCache(),
             showWaveform: true,
             interactionsEnabled: true,
-            isOptimized: true,
             timelineStartTimecode: "01:00:00:00",
             onSelect: { _ in },
             onDoubleClick: {},
@@ -440,7 +435,6 @@ private struct WaveformBarsView: Shape {
             waveformCache: WaveformCache(),
             showWaveform: true,
             interactionsEnabled: true,
-            isOptimized: false,
             timelineStartTimecode: "01:01:40:00",
             onSelect: { _ in },
             onDoubleClick: {},

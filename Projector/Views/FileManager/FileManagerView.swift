@@ -58,19 +58,23 @@ struct FileManagerView: View {
         }
     }
 
-    /// Whether there are media files stored outside the project folder
-    private var hasExternalFiles: Bool {
-        guard let projectURL = projectDocument.fileURL else { return false }
-        return !mediaLibrary.externalMediaItems(projectURL: projectURL).isEmpty
-    }
-
-
-    /// True if there are external files OR project isn't saved yet (so user sees button and gets save prompt)
+    /// Whether consolidating has anything to offer.
+    ///
+    /// Answered from the media, the same way ``showOptimizeButton`` is: the button
+    /// appears only when some file is not already in one of the project's own
+    /// folders. Optimized output counts as ours even though it sits beside the
+    /// package rather than inside it - see ``ProjectFolders`` - so finishing an
+    /// optimize pass no longer leaves a Consolidate button offering to copy the
+    /// app's own output back into the project.
+    ///
+    /// An unsaved project has no folders yet, so every file it holds is outside
+    /// them and the button stands. Saving is a step inside the job -
+    /// `startConsolidate()` raises the save sheet - not a reason to advertise it.
     private var showConsolidateButton: Bool {
-        // Show button if there are items and either project isn't saved or there are external files
-        guard !mediaLibrary.items.isEmpty else { return false }
-        if projectDocument.fileURL == nil { return true }
-        return hasExternalFiles
+        guard let projectURL = projectDocument.fileURL else {
+            return !mediaLibrary.items.isEmpty
+        }
+        return !mediaLibrary.externalMediaItems(projectURL: projectURL).isEmpty
     }
 
     /// Height for the optimization banner when visible
@@ -126,11 +130,45 @@ struct FileManagerView: View {
     /// Flag to re-open consolidation sheet after project is saved
     @State private var pendingConsolidationAfterSave = false
 
-    /// Active optimization suggestion to display in banner
-    @State private var activeSuggestion: OptimizationSuggestion?
-
     /// Tracks dismissed suggestion types for this session (prevents re-showing after dismiss)
     @State private var dismissedSuggestionTypes: Set<String> = []
+
+    /// The suggestion worth making about the current media, if any.
+    ///
+    /// Derived, never stored. Held in `@State` it could only be refreshed by
+    /// something remembering to refresh it, and the only trigger wired up was a
+    /// change in the *number* of media items - which optimizing does not change.
+    /// So the banner went on advertising work after that work was done, unless
+    /// the user happened to start the job from the banner itself, which cleared
+    /// it by hand.
+    ///
+    /// Asking the media each time means the banner appears when there is
+    /// something to offer and disappears when there is not, with no bookkeeping.
+    private var activeSuggestion: OptimizationSuggestion? {
+        var productionCodecCount = 0
+        var otherHeavyCount = 0
+
+        for item in mediaLibrary.items {
+            guard case .needsOptimization = OptimizationStatusHelper.status(for: item) else { continue }
+            if OptimizationStatusHelper.isProductionCodec(item) {
+                productionCodecCount += 1
+            } else {
+                otherHeavyCount += 1
+            }
+        }
+
+        if productionCodecCount > 0, !dismissedSuggestionTypes.contains(Self.proResDismissalKey) {
+            return .proResDetected(count: productionCodecCount)
+        }
+        if otherHeavyCount > 0, !dismissedSuggestionTypes.contains(Self.heavyMediaDismissalKey) {
+            return .highBitrateImport(count: otherHeavyCount)
+        }
+        return nil
+    }
+
+    // Keys recording which kinds of suggestion the user has waved off this session.
+    private static let proResDismissalKey = "proRes"
+    private static let heavyMediaDismissalKey = "highBitrate"
 
     // Focus state for keyboard commands
     @FocusState private var isMediaListFocused: Bool
@@ -157,23 +195,20 @@ struct FileManagerView: View {
                     suggestion: suggestion,
                     onOptimize: {
                         // Same destination as the header button - one place to
-                        // reason about media housekeeping.
+                        // reason about media housekeeping. The banner is not
+                        // dismissed here: it stands until the media stops
+                        // qualifying, so cancelling the sheet leaves the
+                        // still-pending work on offer.
                         startOptimize()
-                        activeSuggestion = nil
                     },
                     onDismiss: {
                         // Track dismissed type to prevent re-showing
                         switch suggestion {
                         case .highBitrateImport:
-                            dismissedSuggestionTypes.insert("highBitrate")
+                            dismissedSuggestionTypes.insert(Self.heavyMediaDismissalKey)
                         case .proResDetected:
-                            dismissedSuggestionTypes.insert("proRes")
-                        case .playbackStutter:
-                            dismissedSuggestionTypes.insert("stutter")
-                        case .largeProjectSize:
-                            dismissedSuggestionTypes.insert("projectSize")
+                            dismissedSuggestionTypes.insert(Self.proResDismissalKey)
                         }
-                        activeSuggestion = nil
                     }
                 )
                 .padding(.horizontal, Spacing.sm)
@@ -195,15 +230,9 @@ struct FileManagerView: View {
         .glassPanel()
         .onAppear {
         }
-        .onChangeWithPrevious(of: mediaLibrary.items.count) { oldCount, newCount in
-            // If items were removed, re-check if suggestion is still valid
-            if newCount < oldCount {
-                reevaluateOptimizationSuggestion()
-            } else {
-                // Items added - check for optimization opportunities
-                evaluateOptimizationSuggestion()
-            }
-        }
+        // The banner is derived from the media, so it needs no change trigger -
+        // only something to animate the appearance and disappearance.
+        .animation(AppAnimations.standard, value: activeSuggestion)
         .focusable()
         .focused($isMediaListFocused)
         .onDeleteCommand {
@@ -816,88 +845,6 @@ struct FileManagerView: View {
         }
     }
 
-    // MARK: - Optimization Suggestion Evaluation
-
-    /// Evaluates media items and determines if an optimization suggestion should be shown
-    private func evaluateOptimizationSuggestion() {
-        // Don't show suggestion if already showing one or sheet is open
-        guard activeSuggestion == nil, !showOptimizationSheet else { return }
-
-        // Count items that need optimization
-        var highBitrateCount = 0
-        var proResCount = 0
-
-        for item in mediaLibrary.items {
-            // Skip already optimized items
-            if item.isOptimized { continue }
-
-            // Check for ProRes/production codecs
-            let proResExtensions = ["mov", "mxf"]
-            if proResExtensions.contains(item.fileExtension) {
-                if let bitrate = item.bitrate, bitrate > 50_000_000 {
-                    proResCount += 1
-                    continue
-                }
-            }
-
-            // Check for high bitrate
-            if let bitrate = item.bitrate, bitrate > 10_000_000 {
-                highBitrateCount += 1
-            }
-        }
-
-        // Show suggestion based on what we found (respecting session dismissals)
-        if proResCount > 0 && !dismissedSuggestionTypes.contains("proRes") {
-            withAnimation {
-                activeSuggestion = .proResDetected(count: proResCount)
-            }
-        } else if highBitrateCount > 0 && !dismissedSuggestionTypes.contains("highBitrate") {
-            withAnimation {
-                activeSuggestion = .highBitrateImport(count: highBitrateCount)
-            }
-        }
-    }
-
-    /// Re-evaluates if current suggestion is still valid after items were removed
-    private func reevaluateOptimizationSuggestion() {
-        guard activeSuggestion != nil else { return }
-
-        // Count items that still need optimization
-        var highBitrateCount = 0
-        var proResCount = 0
-
-        for item in mediaLibrary.items {
-            if item.isOptimized { continue }
-
-            let proResExtensions = ["mov", "mxf"]
-            if proResExtensions.contains(item.fileExtension) {
-                if let bitrate = item.bitrate, bitrate > 50_000_000 {
-                    proResCount += 1
-                    continue
-                }
-            }
-
-            if let bitrate = item.bitrate, bitrate > 10_000_000 {
-                highBitrateCount += 1
-            }
-        }
-
-        // Clear suggestion if no items need optimization anymore
-        if proResCount == 0 && highBitrateCount == 0 {
-            withAnimation {
-                activeSuggestion = nil
-            }
-        } else {
-            // Update counts if suggestion type is still valid
-            withAnimation {
-                if proResCount > 0 {
-                    activeSuggestion = .proResDetected(count: proResCount)
-                } else if highBitrateCount > 0 {
-                    activeSuggestion = .highBitrateImport(count: highBitrateCount)
-                }
-            }
-        }
-    }
 }
 
 /// Grid cell for displaying a media item as an icon
@@ -965,19 +912,18 @@ struct MediaGridCell: View {
         .help(item.url.lastPathComponent)
     }
 
+    /// Marks media that still has optimizing to offer.
+    ///
+    /// Only that. Optimized media used to carry a green checkmark for the life of
+    /// the project, which left the grid permanently flagged for a job that was
+    /// finished - a badge earns its place by pointing at work, and there is none
+    /// left on a file that has been optimized.
     @ViewBuilder
     private var optimizationBadge: some View {
         let status = OptimizationStatusHelper.status(for: item)
         switch status {
         case .optimized:
-            Image(systemName: "checkmark.circle.fill")
-                .font(Typography.caption)
-                .foregroundColor(.green)
-                .padding(Spacing.xs)
-                .background(Color.black.opacity(0.6))
-                .clipShape(Circle())
-                .padding(Spacing.xs)
-                .help("Optimized for playback")
+            EmptyView()
         case .needsOptimization(let reason):
             Image(systemName: reason.icon)
                 .font(Typography.caption)
@@ -1085,6 +1031,20 @@ enum OptimizationStatusHelper {
     private enum Thresholds {
         static let highBitrateBps: Int = 10_000_000
         static let highResolutionWidth: CGFloat = 1920
+        static let productionCodecBps: Int = 50_000_000
+    }
+
+    /// Container formats that carry production codecs.
+    private static let productionCodecExtensions = ["mov", "mxf"]
+
+    /// Whether an item is a heavy production-codec file.
+    ///
+    /// The container alone does not settle it - plenty of ordinary deliveries are
+    /// `.mov` - so the bitrate has to agree.
+    static func isProductionCodec(_ item: MediaItem) -> Bool {
+        guard productionCodecExtensions.contains(item.fileExtension) else { return false }
+        guard let bitrate = item.bitrate else { return false }
+        return bitrate > Thresholds.productionCodecBps
     }
 
     static func status(for item: MediaItem) -> Status {
@@ -1093,11 +1053,8 @@ enum OptimizationStatusHelper {
         }
 
         // Check for production codecs
-        let proResExtensions = ["mov", "mxf"]
-        if proResExtensions.contains(item.fileExtension) {
-            if let bitrate = item.bitrate, bitrate > 50_000_000 {
-                return .needsOptimization(reason: .productionCodec)
-            }
+        if isProductionCodec(item) {
+            return .needsOptimization(reason: .productionCodec)
         }
 
         // Check for high resolution video

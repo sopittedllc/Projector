@@ -5,6 +5,80 @@ import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 
+// MARK: - ProjectFolders
+
+/// The folders a project owns on disk, and the test for whether a file is in one.
+///
+/// A project is not just the `.projector` package. Optimizing writes its output
+/// beside the package rather than inside it, so the project on disk is really:
+///
+/// ```
+/// ProjectFolder/
+///   Project.projector/     <- the package, holding Media/
+///   Optimized Media/       <- written by optimizing
+///   Raw Files/             <- originals moved aside after optimizing
+/// ```
+///
+/// Consolidating asks "is this file already ours?", and the answer has to cover
+/// all three. Asking only the package meant every optimized file read as
+/// external media, so finishing an optimize pass *raised* the Consolidate
+/// button - offering to copy the app's own output back into the package.
+///
+/// The sibling folders are matched by name rather than by taking the whole
+/// enclosing directory: a project saved straight to the Desktop would otherwise
+/// claim everything on the Desktop as already consolidated.
+enum ProjectFolders {
+
+    /// Media copied into the package by consolidating.
+    static let mediaFolderName = "Media"
+
+    /// Playback-friendly re-encodes, written beside the package.
+    static let optimizedMediaFolderName = "Optimized Media"
+
+    /// Originals moved aside after optimizing, written beside the package.
+    static let rawFilesFolderName = "Raw Files"
+
+    /// The "Optimized Media" folder for a project, or `nil` if it is unsaved.
+    static func optimizedMediaFolder(forProjectAt projectURL: URL?) -> URL? {
+        projectURL?.deletingLastPathComponent().appendingPathComponent(optimizedMediaFolderName)
+    }
+
+    /// The "Raw Files" folder for a project, or `nil` if it is unsaved.
+    static func rawFilesFolder(forProjectAt projectURL: URL?) -> URL? {
+        projectURL?.deletingLastPathComponent().appendingPathComponent(rawFilesFolderName)
+    }
+
+    /// Whether a file already lives in one of the project's own folders.
+    ///
+    /// - Parameters:
+    ///   - url: The file to test.
+    ///   - projectURL: The `.projector` package.
+    /// - Returns: `true` if the file is inside the package or one of its
+    ///   sibling project folders.
+    static func contains(_ url: URL, projectURL: URL) -> Bool {
+        let enclosing = projectURL.deletingLastPathComponent()
+        let roots = [
+            projectURL,
+            enclosing.appendingPathComponent(optimizedMediaFolderName),
+            enclosing.appendingPathComponent(rawFilesFolderName)
+        ]
+        return roots.contains { isDescendant(url, of: $0) }
+    }
+
+    /// Whether `url` sits inside `folder`, compared a path component at a time.
+    ///
+    /// String prefixes are the wrong tool here twice over: `/Movies/Show` is a
+    /// textual prefix of `/Movies/Showreel/clip.mov`, which is a different
+    /// directory entirely, and the same file arrives spelled `/var/...` or
+    /// `/private/var/...` depending on who resolved it.
+    private static func isDescendant(_ url: URL, of folder: URL) -> Bool {
+        let fileParts = url.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        let folderParts = folder.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        guard fileParts.count > folderParts.count else { return false }
+        return Array(fileParts.prefix(folderParts.count)) == folderParts
+    }
+}
+
 // MARK: - ProjectMediaLibrary
 
 /// Manages the project's media library - importing, organizing, and providing filtered views.
@@ -549,15 +623,18 @@ final class ProjectMediaLibrary: ObservableObject {
         let errors: [String]
     }
 
-    /// Finds media items stored outside the project folder.
+    /// Finds media items stored outside the project's own folders.
     ///
     /// Use this to identify which files need consolidation before sharing a project.
+    /// The Consolidate Media button is shown from exactly this answer, so files the
+    /// app itself wrote beside the package - optimized media, moved originals - must
+    /// not count as external. See ``ProjectFolders``.
     ///
     /// - Parameter projectURL: The URL of the `.projector` package.
     /// - Returns: Array of `MediaItem` objects with external file references.
     func externalMediaItems(projectURL: URL) -> [MediaItem] {
         return items.filter { item in
-            !item.url.path.hasPrefix(projectURL.path)
+            !ProjectFolders.contains(item.url, projectURL: projectURL)
         }
     }
 
@@ -569,7 +646,7 @@ final class ProjectMediaLibrary: ObservableObject {
     /// - Parameter projectURL: The URL of the .projector package
     /// - Returns: A result summarizing what was consolidated
     func consolidateMedia(projectURL: URL) async -> ConsolidationResult {
-        let mediaFolder = projectURL.appendingPathComponent("Media")
+        let mediaFolder = projectURL.appendingPathComponent(ProjectFolders.mediaFolderName)
         let fileManager = FileManager.default
 
         // Create Media folder if needed
@@ -592,8 +669,9 @@ final class ProjectMediaLibrary: ObservableObject {
         var errors: [String] = []
 
         for item in items {
-            // Skip if already inside project
-            if item.url.path.hasPrefix(projectURL.path) {
+            // Skip anything already in one of the project's own folders - the same
+            // test that decides whether this job is offered at all.
+            if ProjectFolders.contains(item.url, projectURL: projectURL) {
                 skippedCount += 1
                 continue
             }
