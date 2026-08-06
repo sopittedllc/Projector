@@ -140,7 +140,8 @@ struct DAWRoutingSetupSheet: View {
                 Label("Audio driver installed", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                 Text("Projector will combine **\(interface.name)** with the loopback "
-                     + "driver into a single device.")
+                     + "driver into a single device called "
+                     + "**\(AggregateDeviceManager.aggregateName)**.")
                     .fixedSize(horizontal: false, vertical: true)
                 Text("Projector sends only to the loopback half, leaving your "
                      + "interface's own outputs free for your DAW to monitor through.")

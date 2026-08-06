@@ -1,45 +1,159 @@
 # Session State
 
 > **Last Updated**: 2026-08-05
-> **Status**: DAW ROUTING BUILT — awaiting a restart to verify
+> **Status**: DAW ROUTING — driver confirmed; naming/help changes built, awaiting user verification
 > **Branch**: main (worktree experiment finished; single directory again)
 
 ---
 
-## ⚠️ FIRST THING AFTER RESTART — verify the BlackHole install
+## Current Task — three DAW routing UI changes (uncommitted)
 
-The machine was restarted specifically so `coreaudiod` would load a newly installed
-driver. **Check this before anything else**, because most of the DAW routing feature
-cannot be exercised until it is true.
+Built and unit-tested; **not yet verified at runtime by the user**.
 
-### State recorded immediately before the restart
+1. **`?` help button** on the DAW Routing row. Tooltip "What is this?", click opens a
+   popover explaining why an aggregate has to exist. New `SettingsHelpButton` component
+   and `SettingsDesign.popoverWidth`.
+2. **Device renamed** to `Projector Aggregate Device`. `aggregateName` went from a
+   function of the interface name to a constant, so the string a user hunts for in their
+   DAW is the same every rebuild. `createAggregate` lost its now-unused `interfaceName:`.
+3. **Channel picker names its origin** — "Aurora(n)-TB3 1-2", "Projector Virtual 1-2"
+   instead of "1-2" and "33-34". New `AggregateChannelOrigin`, fed by
+   `AggregateDeviceManager.subDeviceUIDs()` reading
+   `kAudioAggregateDevicePropertyFullSubDeviceList` (verified against the SDK header:
+   CFArray of CFString, order significant, caller releases). Only applied on the
+   aggregate; an ordinary interface keeps bare numbers.
+
+4. **Origin shown on the Audio page too**, not just in the picker — the assigned-output
+   rows read "Projector Virtual 1-2" instead of "Out 33-34". The "stereo"/"mono"
+   qualifier is dropped when an origin is shown, because the two together overflow the
+   fixed 200pt control; the range says the same thing. `SettingsValue` now truncates
+   rather than pushing its clear button out of the row.
+5. **Every DAW-facing port named** — new `Managers/VirtualPortLabels.swift`. Channels
+   carrying a stem read "DX/SFX L"; every other channel reads its device and number
+   ("1: Aurora(n)-TB3 7", "Projector Virtual 8"), the same string the settings rows use.
+   Published from `AudioOutputManager` on both `saveMappedOutputs` (every change) and
+   `loadMappedOutputs` (launch, device switch, rebuilt aggregate).
+
+Files: `Managers/AggregateDeviceManager.swift`, `Managers/VirtualPortLabels.swift` (new,
+**registered in project.pbxproj by hand** — `Managers/` is an explicit group, not a
+synchronized one, so new files there are not picked up automatically),
+`Managers/AudioOutputManager.swift`, `Views/SettingsView.swift`,
+`Views/DAWRoutingSetupModel.swift`, `Views/DAWRoutingSetupSheet.swift`,
+`ProjectorTests/AggregateDeviceTests.swift`. 224 unit tests pass.
+
+### Measured: channel names can be published to the DAW
+
+`kAudioObjectPropertyElementName` on a device's **input** elements:
+
+| Question | Answer |
+|---|---|
+| Settable on BlackHole? | yes — `AudioObjectIsPropertySettable` true, write returns `noErr` |
+| Visible to other processes? | yes — a second process reads back what the first wrote |
+| Inherited by the aggregate from its sub-devices? | yes |
+| **Settable on the aggregate itself?** | **yes** |
+| Does a name set on the aggregate beat the inherited one? | **yes** |
+| Writable from a sandboxed app? | yes — tested in a signed bundle with Projector's entitlements |
+
+None of that is promised in the headers, which is why it was measured rather than assumed.
+
+**Write on the aggregate, never on the devices underneath it.** The first version wrote
+on BlackHole, which worked but renamed channels system-wide for every other application
+using it. The last two rows above are what made the better version possible: the names
+now live on the device Projector created and die with it, and the user's interface and
+BlackHole are left alone — verified after the fact, both still report empty names.
+
+### The stems now take channels 1-4 (sub-device order reversed)
+
+Cubase ignores CoreAudio channel names outright — proven, not guessed: the aggregate
+carried *two* independent name sources (the Lynx driver's own stream names, present since
+creation, and Projector's element names) and Cubase displayed neither, generating
+"Projector Aggregate Device 1…48" from the device name. A cache would explain ours being
+absent; it cannot explain the Lynx's, which predate everything.
+
+So the fix cannot rely on names at all. The loopback device is now the **first**
+sub-device, which puts the stems on inputs **1-4** in every host, named or not:
 
 ```
-/Library/Audio/Plug-Ins/HAL/BlackHole16ch.driver   PRESENT on disk
-/Library/Audio/Plug-Ins/HAL/BlackHole2ch.driver    PRESENT on disk
-system_profiler SPAudioDataType                    showed "BlackHole 2ch" ONLY
-Projector aggregate device                         none (clean)
+ch 1-4    DX/SFX L/R, MX L/R        ← what the DAW records
+ch 5-16   spare loopback
+ch 17-48  the user's interface       ← "your interface's channels begin at 17"
 ```
 
-The 16-channel driver was installed but **not published as a device** — macOS loads
-audio plug-ins at startup and could not pick it up while audio was in use.
+**Order is not the clock.** `kAudioAggregateDeviceMainSubDeviceKey` still names the
+interface, so it remains the time source wherever it sits in the list. Conflating the two
+is what made this look unchangeable earlier; a test now pins them apart.
 
-### The check
+**Existing devices keep working.** `AggregateChannelOrigin.current(in:)` reads the real
+sub-device order back rather than assuming it, so an aggregate built before this change is
+still described and routed correctly until the user rebuilds it. Verified on the real
+machine: the app labelled the old interface-first device correctly (interface on 1-32,
+stems on 33-36) rather than mislabelling it under the new layout.
 
-```bash
-system_profiler SPAudioDataType 2>/dev/null | grep -i blackhole
+### A DAW lists every port, so every port needs a name
+
+Cubase showed 48 rows reading "Projector Aggregate Device 1…48": the *interface* half
+reports no channel names, and a DAW that finds none generates one from the device. Naming
+only the four stem channels would still have left 32 generic rows above them. Hence
+naming all of them. Confirmed on the real device with the app running:
+
+```
+ch 1-32   "1: Aurora(n)-TB3 1" … "1: Aurora(n)-TB3 32"
+ch 33-36  "DX/SFX L"  "DX/SFX R"  "MX L"  "MX R"
+ch 37-48  "Projector Virtual 5" … "Projector Virtual 16"
 ```
 
-**Expected after restart:** both `BlackHole 2ch` *and* `BlackHole 16ch`, the latter
-reporting 16 in / 16 out.
+Open: the interface's own name carries a "1: " prefix from the Lynx driver, so those read
+"1: Aurora(n)-TB3 7". Accurate, and identical to the Device dropdown, but awkward.
 
-- **If 16ch appears** — the install worked. `VirtualAudioPorts.readiness` returns
-  `.ready`, and Settings ▸ Audio ▸ DAW Routing ▸ Set Up… should go straight to
-  "Create Audio Device" with no download.
-- **If 16ch is still missing** — the install did not take. Reinstalling is the wrong
-  move; find out why `coreaudiod` is refusing the bundle first.
+### The aggregate persists, and needs no code to do so
 
-### Then run the feature end to end
+An earlier note in this file claimed the device was process-scoped. **That was wrong**,
+and it was wrong because it rested on one uncontrolled observation: the device was gone
+after Projector was killed, at a moment the user was also clicking through the Remove
+button he had just been asked to test. Removal was attributed to the kill.
+
+What was actually measured afterwards, twice, with a throwaway aggregate:
+
+| Condition | Result |
+|---|---|
+| Public aggregate, unsandboxed creator exits | **survives** |
+| Public aggregate, sandboxed creator exits (app bundle, same entitlements) | **survives** |
+| `AudioHardwareDestroyAggregateDevice` | removed, config cleaned up |
+
+CoreAudio writes a public aggregate into
+`/Library/Preferences/Audio/com.apple.audio.SystemSettings.plist`, which `coreaudiod`
+reads at startup — so it outlives the process **and** a reboot. The header is explicit
+that only a *private* aggregate is "not persistent across launches of the process that
+created it"; Projector already passes `kAudioAggregateDeviceIsPrivateKey: 0`.
+
+So a crash or an accidental quit leaves the user's DAW untouched. The only teardown path
+is `removeAggregate()`, reached solely from the ✕ on the DAW Routing row.
+
+The earlier claim also implied the setup had to be re-run every session. It does not.
+
+### Also noticed, not changed
+
+- `FEATURES.md` has no DAW routing entry at all, though CLAUDE.md requires one.
+- Pre-existing warning at `SettingsView.swift:396` — `result of 'try?' is unused` in
+  `removeDAWRouting()`.
+
+---
+
+## ✅ BlackHole install verified (2026-08-05, post-restart)
+
+The restart did what it was for. `coreaudiod` now publishes both drivers:
+
+```
+BlackHole 16ch    16 in / 16 out, 48000 Hz, Virtual
+BlackHole 2ch      2 in /  2 out, 44100 Hz, Virtual
+```
+
+No Projector aggregate device exists yet (only Pro Tools' own `Pro Tools Aggregate
+I/O`), so the setup flow starts from a clean state. `VirtualAudioPorts.readiness`
+should return `.ready` and Settings ▸ Audio ▸ DAW Routing ▸ Set Up… should go
+straight to "Create Audio Device" with no download.
+
+### Still to do — run the feature end to end
 
 1. Settings ▸ Audio ▸ **DAW Routing ▸ Set Up…** → Create Audio Device
 2. Audio MIDI Setup: `Projector + 1: Aurora(n)-TB3` exists, Lynx is clock master,

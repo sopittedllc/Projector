@@ -175,11 +175,10 @@ final class DAWRoutingSetupModel: ObservableObject {
             do {
                 _ = try await aggregates.createAggregate(
                     interfaceUID: interface.uid,
-                    interfaceName: interface.name,
                     virtualUID: virtual.uid
                 )
                 guard !Task.isCancelled else { return }
-                self.finishSetup(interface: interface)
+                self.finishSetup(interface: interface, virtual: virtual)
             } catch {
                 guard !Task.isCancelled else { return }
                 self.state = .failed(error.localizedDescription)
@@ -192,15 +191,22 @@ final class DAWRoutingSetupModel: ObservableObject {
     /// The order matters: mappings are stored per device UID, so the aggregate has to
     /// be the selected device before its outputs are written, or they would be saved
     /// against whatever was selected before.
-    private func finishSetup(interface: AudioDevice) {
+    private func finishSetup(interface: AudioDevice, virtual: AudioDevice) {
         audioManager.refreshDevices()
         audioManager.selectedDeviceUID = AggregateDeviceManager.aggregateUID
 
-        let map = AggregateChannelMap(interfaceChannelCount: interface.outputChannelCount)
+        // Stated rather than read back: the device list is published asynchronously, so
+        // the composition cannot be re-derived reliably this soon after creating it. This
+        // is the layout that was just built.
+        let map = AggregateChannelMap(
+            virtualChannelCount: virtual.outputChannelCount,
+            interfaceChannelCount: interface.outputChannelCount,
+            virtualComesFirst: true
+        )
         audioManager.seedOutputsForAggregate(map)
 
         state = .done(
-            deviceName: AggregateDeviceManager.aggregateName(interfaceName: interface.name),
+            deviceName: AggregateDeviceManager.aggregateName,
             map: map
         )
     }

@@ -129,6 +129,7 @@
 		PVFC0000000000000000000E /* OptimizationStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC0000000000000000000D /* OptimizationStatusTests.swift */; };
 		AGGD00000000000000000002 /* AggregateDeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AGGD00000000000000000001 /* AggregateDeviceManager.swift */; };
 		VAPT00000000000000000002 /* VirtualAudioPorts.swift in Sources */ = {isa = PBXBuildFile; fileRef = VAPT00000000000000000001 /* VirtualAudioPorts.swift */; };
+		VPLB00000000000000000002 /* VirtualPortLabels.swift in Sources */ = {isa = PBXBuildFile; fileRef = VPLB00000000000000000001 /* VirtualPortLabels.swift */; };
 		BHIN00000000000000000002 /* BlackHoleInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = BHIN00000000000000000001 /* BlackHoleInstaller.swift */; };
 		AGGT00000000000000000002 /* AggregateDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AGGT00000000000000000001 /* AggregateDeviceTests.swift */; };
 		VAPT00000000000000000012 /* VirtualAudioPortsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = VAPT00000000000000000011 /* VirtualAudioPortsTests.swift */; };
@@ -302,6 +303,7 @@
 		PVFC0000000000000000000D /* OptimizationStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptimizationStatusTests.swift; sourceTree = "<group>"; };
 		AGGD00000000000000000001 /* AggregateDeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateDeviceManager.swift; sourceTree = "<group>"; };
 		VAPT00000000000000000001 /* VirtualAudioPorts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualAudioPorts.swift; sourceTree = "<group>"; };
+		VPLB00000000000000000001 /* VirtualPortLabels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualPortLabels.swift; sourceTree = "<group>"; };
 		BHIN00000000000000000001 /* BlackHoleInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlackHoleInstaller.swift; sourceTree = "<group>"; };
 		AGGT00000000000000000001 /* AggregateDeviceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateDeviceTests.swift; sourceTree = "<group>"; };
 		VAPT00000000000000000011 /* VirtualAudioPortsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualAudioPortsTests.swift; sourceTree = "<group>"; };
@@ -457,6 +459,7 @@
 			children = (
 				BHIN00000000000000000001 /* BlackHoleInstaller.swift */,
 				VAPT00000000000000000001 /* VirtualAudioPorts.swift */,
+				VPLB00000000000000000001 /* VirtualPortLabels.swift */,
 				AGGD00000000000000000001 /* AggregateDeviceManager.swift */,
 				PVFC00000000000000000005 /* ProVideoFormatsInstaller.swift */,
 				PVFC00000000000000000003 /* ProVideoFormats.swift */,
@@ -860,6 +863,7 @@
 				DAWR00000000000000000002 /* DAWRoutingSetupSheet.swift in Sources */,
 				BHIN00000000000000000002 /* BlackHoleInstaller.swift in Sources */,
 				VAPT00000000000000000002 /* VirtualAudioPorts.swift in Sources */,
+				VPLB00000000000000000002 /* VirtualPortLabels.swift in Sources */,
 				AGGD00000000000000000002 /* AggregateDeviceManager.swift in Sources */,
 				PVFC00000000000000000008 /* ProVideoFormatsInstallSheet.swift in Sources */,
 				PVFC00000000000000000006 /* ProVideoFormatsInstaller.swift in Sources */,

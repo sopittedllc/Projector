@@ -51,6 +51,23 @@ struct AggregateRoutingSummary: View {
                 outputs: outputs.filter(reachesDAW),
                 emptyNote: "nothing yet"
             )
+            interfaceStartNote
+        }
+    }
+
+    /// Where the user's own hardware begins on the combined device.
+    ///
+    /// The stems take the low channels so a DAW finds them first, which pushes the
+    /// interface's own channels up by the width of the loopback device. That offset is
+    /// invisible and would otherwise be discovered by patching the wrong input: the
+    /// interface's channel 1 is no longer the device's channel 1.
+    @ViewBuilder
+    private var interfaceStartNote: some View {
+        if map.interfaceFirstChannel > 1 {
+            Text("Your interface's own channels begin at \(map.interfaceFirstChannel).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

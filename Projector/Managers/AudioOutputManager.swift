@@ -328,6 +328,12 @@ final class AudioOutputManager: ObservableObject {
     private func loadMappedOutputs() {
         seedDefaultOutputIfNeverConfigured()
         mappedOutputs = settings.mappedOutputs(for: selectedDeviceUID)
+
+        // Republished on load, not only on change. The names live on the aggregate, so a
+        // device rebuilt against a different interface comes back with none - and a
+        // launch that changes no output would otherwise leave the DAW showing the
+        // generated "Device 1…48" until the user happened to edit something.
+        publishVirtualPortLabels(mappedOutputs, for: selectedDeviceUID)
     }
 
     /// Persist the default stereo output for a device seen for the first time.
@@ -370,6 +376,27 @@ final class AudioOutputManager: ObservableObject {
         if deviceUID == selectedDeviceUID || (deviceUID == nil && selectedDeviceUID == nil) {
             mappedOutputs = outputs
         }
+        publishVirtualPortLabels(outputs, for: deviceUID)
+    }
+
+    /// Republishes the channel names a DAW sees, whenever the outputs behind them change.
+    ///
+    /// Hooked to `saveMappedOutputs` rather than to each caller because that is the one
+    /// funnel every add, replace, remove and reseed already passes through - the names
+    /// cannot drift from the mapping they describe if there is nowhere else to change it.
+    ///
+    /// Does nothing unless the outputs being saved belong to Projector's aggregate. On an
+    /// ordinary interface the channels are the user's own hardware, and renaming them
+    /// would be Projector writing on equipment it does not own.
+    private func publishVirtualPortLabels(
+        _ outputs: [MappedAudioOutput],
+        for deviceUID: String?
+    ) {
+        guard deviceUID == AggregateDeviceManager.aggregateUID,
+              let origin = AggregateChannelOrigin.current(in: availableDevices)
+        else { return }
+
+        VirtualPortLabels.apply(outputs: outputs, origin: origin)
     }
 
     private func getDeviceName(deviceID: AudioDeviceID) -> String? {

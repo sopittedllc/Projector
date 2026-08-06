@@ -10,22 +10,46 @@ import Foundation
 
 /// Where each of Projector's outputs sits on an aggregate device.
 ///
-/// CoreAudio concatenates an aggregate's channels in sub-device order, so the user's
-/// interface occupies the low channels and the loopback device follows.
+/// CoreAudio concatenates an aggregate's channels in sub-device order, and that order is
+/// the only thing deciding which half starts at channel 1.
 ///
-/// ## Monitoring stays on the interface; everything else goes to the DAW
+/// ## The loopback half comes first
 ///
-/// Stereo Out sits on the interface's first pair, where a monitor path is normally
-/// wired, so the room still hears the reel. The stems and any outputs added later go
-/// to the loopback half, out of earshot and visible to a DAW set to the same device.
+/// The stems are what a DAW has to find, so they occupy channels 1-4 and the user's
+/// interface follows above them. The alternative was tried and failed in practice: with a
+/// 32-channel interface first, the stems landed on inputs 33-36, and a DAW listing
+/// forty-eight ports gave no clue which four mattered. Cubase compounded it by ignoring
+/// channel names entirely and generating "Projector Aggregate Device 1…48", so the only
+/// reliable way to say *which* ports carry the stems is for them to be the first ones.
+///
+/// Sub-device order is independent of the clock: the interface stays the clock master
+/// through `kAudioAggregateDeviceMainSubDeviceKey`, whatever position it holds in the
+/// list. Conflating the two is what previously made this look unchangeable.
+///
+/// ## Monitoring stays on the interface
+///
+/// Stereo Out sits on the interface's first pair, where a monitor path is normally wired,
+/// so the room still hears the reel - now at aggregate channel 17 rather than 1, because
+/// the loopback half precedes it.
 ///
 /// Every channel here is **1-based**, matching what the user is shown and what
 /// `AudioOutputManager.addOrReplaceOutput(name:firstChannelNumber:isStereo:roleId:)`
 /// expects. The 0-based conversion happens there, once, as it always has.
 struct AggregateChannelMap: Equatable {
 
-    /// Output channels on the user's own interface, which come first.
+    /// Output channels on the loopback device.
+    let virtualChannelCount: Int
+
+    /// Output channels on the user's own interface.
     let interfaceChannelCount: Int
+
+    /// Whether the loopback half holds the low channels.
+    ///
+    /// True for every device Projector builds now. False describes one built before the
+    /// stems were moved down, which still exists on machines that set up earlier - the
+    /// order is read back from the device rather than assumed, so those keep working and
+    /// keep being described correctly until they are rebuilt.
+    let virtualComesFirst: Bool
 
     /// Channels used by each seeded stereo output.
     private static let channelsPerOutput = 2
@@ -33,11 +57,25 @@ struct AggregateChannelMap: Equatable {
     /// How many seeded outputs live on the loopback half.
     private static let loopbackOutputCount = 2
 
+    init(virtualChannelCount: Int, interfaceChannelCount: Int, virtualComesFirst: Bool = true) {
+        self.virtualChannelCount = virtualChannelCount
+        self.interfaceChannelCount = interfaceChannelCount
+        self.virtualComesFirst = virtualComesFirst
+    }
+
+    /// First aggregate channel belonging to the loopback half.
+    var virtualFirstChannel: Int { virtualComesFirst ? 1 : interfaceChannelCount + 1 }
+
+    /// First aggregate channel belonging to the user's interface.
+    ///
+    /// The number to quote when telling someone where their own inputs and outputs start.
+    var interfaceFirstChannel: Int { virtualComesFirst ? virtualChannelCount + 1 : 1 }
+
     /// Monitoring, on the interface's first pair - where the speakers already are.
-    var stereoOutFirstChannel: Int { 1 }
+    var stereoOutFirstChannel: Int { interfaceFirstChannel }
 
     /// Dialogue and effects, on the first pair of loopback channels.
-    var dialogueEffectsFirstChannel: Int { interfaceChannelCount + 1 }
+    var dialogueEffectsFirstChannel: Int { virtualFirstChannel }
 
     /// Music, on the second pair.
     var musicFirstChannel: Int { dialogueEffectsFirstChannel + Self.channelsPerOutput }
@@ -48,13 +86,22 @@ struct AggregateChannelMap: Equatable {
     /// The loopback channel an output occupies, counted from the loopback device's
     /// own channel 1.
     ///
-    /// This is the number the user types into their DAW: the aggregate calls it
-    /// channel 35, the DAW reading the loopback device calls it input 3.
+    /// Identical to the aggregate channel while the loopback half comes first, which is
+    /// the point of putting it there: the number Projector quotes is the number the DAW
+    /// lists.
     ///
     /// - Parameter aggregateChannel: A 1-based channel on the aggregate.
     /// - Returns: The corresponding 1-based channel on the loopback device.
     func loopbackChannel(forAggregateChannel aggregateChannel: Int) -> Int {
-        aggregateChannel - interfaceChannelCount
+        aggregateChannel - virtualFirstChannel + 1
+    }
+
+    /// The channel an output occupies, counted from the interface's own channel 1.
+    ///
+    /// - Parameter aggregateChannel: A 1-based channel on the aggregate.
+    /// - Returns: The corresponding 1-based channel on the interface.
+    func interfaceChannel(forAggregateChannel aggregateChannel: Int) -> Int {
+        aggregateChannel - interfaceFirstChannel + 1
     }
 
     /// Whether an output sits on the loopback half, and so reaches the DAW.
@@ -62,11 +109,104 @@ struct AggregateChannelMap: Equatable {
     /// - Parameter firstChannel: The output's first 1-based channel on the aggregate.
     /// - Returns: `true` when the channel belongs to the loopback device.
     func reachesDAW(firstChannel: Int) -> Bool {
-        firstChannel > interfaceChannelCount
+        firstChannel >= virtualFirstChannel
+            && firstChannel < virtualFirstChannel + virtualChannelCount
     }
 
     /// Loopback channels the seeded outputs consume.
     static var requiredVirtualChannels: Int { channelsPerOutput * loopbackOutputCount }
+}
+
+/// Names an aggregate's channels after the device that actually carries them.
+///
+/// An aggregate presents one flat run of channels, so "33-34" is all the user is
+/// offered when picking where an output goes - a number that appears nowhere in their
+/// DAW and belongs to no device they own. Naming the half it lands on, and numbering it
+/// the way that half counts, turns the choice back into one about equipment: the
+/// interface's outputs 1-2 go to the room, and the virtual device's inputs 1-2 arrive in
+/// the DAW.
+///
+/// Only meaningful for Projector's own aggregate. An ordinary interface has a single
+/// origin, where repeating its name against every channel would say nothing.
+struct AggregateChannelOrigin: Equatable {
+
+    /// Where the two halves meet.
+    let map: AggregateChannelMap
+
+    /// The user's own interface, which owns the low channels.
+    let interfaceName: String
+
+    /// The loopback half, which owns the high channels and reaches the DAW.
+    let virtualName: String
+
+    /// How many channels the aggregate has in total, across both halves.
+    let totalChannelCount: Int
+
+    /// Shown in place of the interface's name when its sub-device cannot be resolved.
+    ///
+    /// Reachable when the aggregate exists but its first sub-device is not in the
+    /// current device list - an interface unplugged since the device was built.
+    static let unknownInterfaceName = "Your interface"
+
+    /// Reads the current composition of Projector's aggregate, if it has one.
+    ///
+    /// The single place this is worked out. Both the settings rows and the channel
+    /// names published to the DAW have to agree about which device owns which channel,
+    /// and they can only disagree if they each derive it.
+    ///
+    /// - Parameter devices: Every output device currently known to the system.
+    /// - Returns: How the aggregate's channels divide, or `nil` when Projector has no
+    ///   aggregate or its halves cannot be told apart.
+    static func current(in devices: [AudioDevice]) -> AggregateChannelOrigin? {
+        guard let aggregate = devices.first(where: {
+            $0.uid == AggregateDeviceManager.aggregateUID
+        }) else { return nil }
+
+        guard case .ready(let virtual) = VirtualAudioPorts.readiness(in: devices) else {
+            return nil
+        }
+
+        let interfaceChannels = aggregate.outputChannelCount - virtual.outputChannelCount
+        guard interfaceChannels > 0 else { return nil }
+
+        // Read the order back rather than assuming it. A device built before the stems
+        // moved to the low channels is still interface-first, and describing it by the
+        // current layout would put every label and every route in the wrong half.
+        let subDevices = AggregateDeviceManager.subDeviceUIDs()
+        let virtualComesFirst = subDevices.first == virtual.uid
+
+        let interfaceUID = virtualComesFirst ? subDevices.dropFirst().first : subDevices.first
+        let interfaceName = interfaceUID
+            .flatMap { uid in devices.first { $0.uid == uid }?.name }
+
+        return AggregateChannelOrigin(
+            map: AggregateChannelMap(
+                virtualChannelCount: virtual.outputChannelCount,
+                interfaceChannelCount: interfaceChannels,
+                virtualComesFirst: virtualComesFirst
+            ),
+            interfaceName: interfaceName ?? unknownInterfaceName,
+            virtualName: AggregateDeviceManager.virtualHalfName,
+            totalChannelCount: aggregate.outputChannelCount
+        )
+    }
+
+    /// Describes a run of channels as the device carrying it would.
+    ///
+    /// - Parameters:
+    ///   - firstChannel: First 1-based channel on the aggregate.
+    ///   - channelCount: How many channels the run covers.
+    /// - Returns: The owning device's name followed by its own channel numbering.
+    func label(firstChannel: Int, channelCount: Int) -> String {
+        let reachesDAW = map.reachesDAW(firstChannel: firstChannel)
+        let first = reachesDAW
+            ? map.loopbackChannel(forAggregateChannel: firstChannel)
+            : map.interfaceChannel(forAggregateChannel: firstChannel)
+        let name = reachesDAW ? virtualName : interfaceName
+
+        guard channelCount > 1 else { return "\(name) \(first)" }
+        return "\(name) \(first)-\(first + channelCount - 1)"
+    }
 }
 
 /// Creates and removes the aggregate device that lets a DAW receive Projector's stems.
@@ -105,11 +245,19 @@ actor AggregateDeviceManager {
 
     /// Name shown in Audio MIDI Setup and in every app's device list.
     ///
-    /// - Parameter interfaceName: Name of the user's own interface.
-    /// - Returns: A name that says what the device is and what it is built from.
-    static func aggregateName(interfaceName: String) -> String {
-        "Projector + \(interfaceName)"
-    }
+    /// Fixed rather than built from the interface it wraps. The device is addressed by
+    /// ``aggregateUID`` everywhere it matters, so the name's only job is to be
+    /// recognisable in another application's device menu - and a name that changes with
+    /// the interface makes the user hunt for a different string each time it is rebuilt.
+    static let aggregateName = "Projector Aggregate Device"
+
+    /// How the loopback half is named to the user.
+    ///
+    /// The user chose Projector's routing, not a third-party driver, so the half that
+    /// carries stems to the DAW is presented as Projector's own. The underlying device
+    /// is still BlackHole and still says so in Audio MIDI Setup; this name appears only
+    /// where Projector is explaining its own channel layout.
+    static let virtualHalfName = "Projector Virtual"
 
     // MARK: - Errors
 
@@ -169,18 +317,21 @@ actor AggregateDeviceManager {
         interfaceUID: String,
         virtualUID: String
     ) -> [String: Any] {
-        // Order matters: this array is the channel map.
+        // Order matters: this array is the channel map. The loopback device leads so the
+        // stems are the DAW's first inputs rather than its thirty-third - see
+        // ``AggregateChannelMap``. This says nothing about the clock; the interface is
+        // still the main sub-device below.
         let subDevices: [[String: Any]] = [
-            [
-                kAudioSubDeviceUIDKey: interfaceUID,
-                kAudioSubDeviceDriftCompensationKey: 0
-            ],
             [
                 kAudioSubDeviceUIDKey: virtualUID,
                 // The virtual device follows the interface's clock. Quality is set
                 // high because a sync application cannot trade accuracy for CPU here.
                 kAudioSubDeviceDriftCompensationKey: 1,
                 kAudioSubDeviceDriftCompensationQualityKey: driftCompensationHighQuality
+            ],
+            [
+                kAudioSubDeviceUIDKey: interfaceUID,
+                kAudioSubDeviceDriftCompensationKey: 0
             ]
         ]
 
@@ -205,13 +356,11 @@ actor AggregateDeviceManager {
     ///
     /// - Parameters:
     ///   - interfaceUID: UID of the user's interface.
-    ///   - interfaceName: Its name, used to build the aggregate's own name.
     ///   - virtualUID: UID of the loopback device.
     /// - Returns: The UID of the created device.
     /// - Throws: ``AggregateError/creationFailed(_:)`` if CoreAudio refuses.
     func createAggregate(
         interfaceUID: String,
-        interfaceName: String,
         virtualUID: String
     ) throws -> String {
         // Rebuild rather than duplicate. A stale aggregate built against a different
@@ -219,7 +368,7 @@ actor AggregateDeviceManager {
         _ = try? removeAggregate()
 
         let description = Self.description(
-            name: Self.aggregateName(interfaceName: interfaceName),
+            name: Self.aggregateName,
             interfaceUID: interfaceUID,
             virtualUID: virtualUID
         )
@@ -279,6 +428,45 @@ actor AggregateDeviceManager {
     /// - Returns: Its `AudioObjectID`, or `nil` when it does not exist.
     static func findAggregate() -> AudioObjectID? {
         deviceID(forUID: aggregateUID)
+    }
+
+    /// Reads the UIDs of the devices an aggregate is built from, in channel order.
+    ///
+    /// The order is the channel map: CoreAudio documents this array's order as
+    /// significant and uses it to lay out the aggregate's streams, so the first entry
+    /// owns the low channels and the second follows on from it.
+    ///
+    /// Read from the device rather than remembered, because the aggregate outlives the
+    /// session that built it - after a relaunch this is the only account of which
+    /// interface its low channels belong to.
+    ///
+    /// - Parameter uid: UID of the aggregate to inspect. Defaults to Projector's own.
+    /// - Returns: Sub-device UIDs in channel order, or an empty array if the device does
+    ///   not exist or carries no sub-device list.
+    static func subDeviceUIDs(forAggregate uid: String = aggregateUID) -> [String] {
+        guard let deviceID = deviceID(forUID: uid) else { return [] }
+
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioAggregateDevicePropertyFullSubDeviceList,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        // Received unmanaged and retained explicitly: CoreAudio documents the caller as
+        // responsible for releasing this CFArray. Same reasoning as `uidString(for:)`.
+        var size = UInt32(MemoryLayout<Unmanaged<CFArray>>.size)
+        let listPtr = UnsafeMutablePointer<Unmanaged<CFArray>?>.allocate(capacity: 1)
+        listPtr.initialize(to: nil)
+        defer {
+            listPtr.deinitialize(count: 1)
+            listPtr.deallocate()
+        }
+
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, listPtr)
+        guard status == noErr, let list = listPtr.pointee?.takeRetainedValue() else {
+            return []
+        }
+        return (list as? [String]) ?? []
     }
 
     /// Resolves a device UID to its CoreAudio object ID.

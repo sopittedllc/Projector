@@ -17,9 +17,29 @@ final class AggregateDeviceTests: XCTestCase {
 
     private func description() -> [String: Any] {
         AggregateDeviceManager.description(
-            name: "Projector + Interface",
+            name: AggregateDeviceManager.aggregateName,
             interfaceUID: interfaceUID,
             virtualUID: virtualUID
+        )
+    }
+
+    /// A 16-channel loopback device with a 32-channel interface above it.
+    private let map = AggregateChannelMap(virtualChannelCount: 16, interfaceChannelCount: 32)
+
+    /// The layout Projector built before the stems moved to the low channels. Still on
+    /// machines that set up early, and still has to be described correctly.
+    private let legacyMap = AggregateChannelMap(
+        virtualChannelCount: 16,
+        interfaceChannelCount: 32,
+        virtualComesFirst: false
+    )
+
+    private func origin() -> AggregateChannelOrigin {
+        AggregateChannelOrigin(
+            map: map,
+            interfaceName: "Aurora(n)-TB3",
+            virtualName: AggregateDeviceManager.virtualHalfName,
+            totalChannelCount: 48
         )
     }
 
@@ -38,23 +58,162 @@ final class AggregateDeviceTests: XCTestCase {
         )
     }
 
-    func testNameSaysWhatItIsBuiltFrom() {
+    /// Fixed rather than built from the interface: the user hunts for one string in
+    /// their DAW's device menu, and it has to be the same string every time.
+    func testNameIsStableAcrossRebuilds() {
+        XCTAssertEqual(AggregateDeviceManager.aggregateName, "Projector Aggregate Device")
         XCTAssertEqual(
-            AggregateDeviceManager.aggregateName(interfaceName: "Aurora(n)-TB3"),
-            "Projector + Aurora(n)-TB3"
+            description()[kAudioAggregateDeviceNameKey] as? String,
+            AggregateDeviceManager.aggregateName
         )
+    }
+
+    // MARK: - Channel Origin
+
+    /// The low channels are the interface's own, so they keep its numbering - what is
+    /// printed on the box is what the menu offers.
+    func testInterfaceChannelsAreNamedAfterTheInterface() {
+        XCTAssertEqual(
+            origin().label(firstChannel: 17, channelCount: 2),
+            "Aurora(n)-TB3 1-2"
+        )
+    }
+
+    /// The high channels restart at 1 against the virtual device, because that is the
+    /// number the DAW shows. Aggregate channel 33 is the DAW's input 1.
+    func testVirtualChannelsRestartAtTheLoopbackDevice() {
+        XCTAssertEqual(
+            origin().label(firstChannel: 1, channelCount: 2),
+            "Projector Virtual 1-2"
+        )
+        XCTAssertEqual(
+            origin().label(firstChannel: 3, channelCount: 2),
+            "Projector Virtual 3-4"
+        )
+    }
+
+    /// A mono output names one channel, not a range of one.
+    func testMonoChannelIsNamedSingly() {
+        XCTAssertEqual(origin().label(firstChannel: 17, channelCount: 1), "Aurora(n)-TB3 1")
+        XCTAssertEqual(origin().label(firstChannel: 1, channelCount: 1), "Projector Virtual 1")
+    }
+
+    /// The boundary: the last interface channel still belongs to the interface, and the
+    /// first channel above it has crossed over.
+    func testHalvesDivideAtTheInterfaceChannelCount() {
+        XCTAssertEqual(origin().label(firstChannel: 16, channelCount: 1), "Projector Virtual 16")
+        XCTAssertEqual(origin().label(firstChannel: 17, channelCount: 1), "Aurora(n)-TB3 1")
+    }
+
+    // MARK: - Channel Names Shown to the DAW
+
+    private func output(_ name: String, firstChannel: Int, channelCount: Int) -> MappedAudioOutput {
+        MappedAudioOutput(
+            name: name,
+            channelStart: firstChannel - 1,
+            channelCount: channelCount
+        )
+    }
+
+    /// A DAW shows these against a stereo pair, where L and R are the distinction that
+    /// matters and a number is not.
+    func testStereoOutputIsNamedLeftAndRight() {
+        let stem = output("DX/SFX", firstChannel: 1, channelCount: 2)
+        XCTAssertEqual(VirtualPortLabels.name(for: stem, channelOffset: 0), "DX/SFX L")
+        XCTAssertEqual(VirtualPortLabels.name(for: stem, channelOffset: 1), "DX/SFX R")
+    }
+
+    /// A mono output is just its name - there is no side to disambiguate.
+    func testMonoOutputCarriesItsNameAlone() {
+        let stem = output("Cue", firstChannel: 1, channelCount: 1)
+        XCTAssertEqual(VirtualPortLabels.name(for: stem, channelOffset: 0), "Cue")
+    }
+
+    /// Wider than stereo: numbered, because L/R stops meaning anything.
+    func testWideOutputIsNumbered() {
+        let stem = output("Stems", firstChannel: 1, channelCount: 4)
+        XCTAssertEqual(VirtualPortLabels.name(for: stem, channelOffset: 0), "Stems 1")
+        XCTAssertEqual(VirtualPortLabels.name(for: stem, channelOffset: 3), "Stems 4")
+    }
+
+    /// No port is left generic. A channel carrying nothing still says which device it
+    /// belongs to, in the same words the settings rows use — a DAW that finds no name
+    /// invents one from the device, which is how forty-eight identical rows happen.
+    func testUnassignedChannelsStillNameTheirDevice() {
+        XCTAssertEqual(origin().label(firstChannel: 23, channelCount: 1), "Aurora(n)-TB3 7")
+        XCTAssertEqual(origin().label(firstChannel: 8, channelCount: 1), "Projector Virtual 8")
+    }
+
+    /// The interface half is described by the interface, never by what Projector sends
+    /// there. Those channels are the user's own hardware and reach the room, not the DAW.
+    func testInterfaceOutputsAreNotLabelledAsStems() {
+        let map = origin().map
+        XCTAssertTrue(map.reachesDAW(firstChannel: 1))
+        XCTAssertFalse(map.reachesDAW(firstChannel: 17))
     }
 
     // MARK: - Channel Map
 
     /// Sub-device order *is* the channel map: CoreAudio concatenates channels in list
-    /// order. The interface has to come first so its channels stay where the user's
-    /// speakers already are, with the virtual device above them.
-    func testInterfaceComesFirstAndVirtualSecond() {
+    /// order. The loopback device leads so the stems are a DAW's first inputs - with a
+    /// 32-channel interface ahead of them they landed on 33-36, which no host made
+    /// findable and Cubase actively obscured by ignoring channel names.
+    func testVirtualComesFirstSoStemsAreTheLowChannels() {
         let devices = subDevices()
         XCTAssertEqual(devices.count, 2)
-        XCTAssertEqual(devices.first?[kAudioSubDeviceUIDKey] as? String, interfaceUID)
-        XCTAssertEqual(devices.last?[kAudioSubDeviceUIDKey] as? String, virtualUID)
+        XCTAssertEqual(devices.first?[kAudioSubDeviceUIDKey] as? String, virtualUID)
+        XCTAssertEqual(devices.last?[kAudioSubDeviceUIDKey] as? String, interfaceUID)
+    }
+
+    /// Order is not the clock. The interface stays the time source wherever it sits in
+    /// the list - conflating the two is what made the order look fixed.
+    func testOrderDoesNotChangeTheClockMaster() {
+        XCTAssertEqual(
+            description()[kAudioAggregateDeviceMainSubDeviceKey] as? String,
+            interfaceUID
+        )
+        XCTAssertNotEqual(
+            subDevices().first?[kAudioSubDeviceUIDKey] as? String,
+            description()[kAudioAggregateDeviceMainSubDeviceKey] as? String
+        )
+    }
+
+    // MARK: - Where Things Land
+
+    func testStemsStartAtChannelOne() {
+        XCTAssertEqual(map.dialogueEffectsFirstChannel, 1)
+        XCTAssertEqual(map.musicFirstChannel, 3)
+        XCTAssertEqual(map.firstAdditionalChannel, 5)
+    }
+
+    /// The number to quote when telling someone where their own hardware begins.
+    func testInterfaceBeginsAboveTheLoopbackHalf() {
+        XCTAssertEqual(map.interfaceFirstChannel, 17)
+        XCTAssertEqual(map.stereoOutFirstChannel, 17)
+    }
+
+    /// What Projector quotes is what the DAW lists, now that the stems lead.
+    func testLoopbackNumberingMatchesTheAggregate() {
+        XCTAssertEqual(map.loopbackChannel(forAggregateChannel: 1), 1)
+        XCTAssertEqual(map.loopbackChannel(forAggregateChannel: 3), 3)
+    }
+
+    /// A device built before the stems moved is still described correctly, because the
+    /// order is read back from it rather than assumed.
+    func testLegacyLayoutIsStillDescribedCorrectly() {
+        XCTAssertEqual(legacyMap.interfaceFirstChannel, 1)
+        XCTAssertEqual(legacyMap.stereoOutFirstChannel, 1)
+        XCTAssertEqual(legacyMap.dialogueEffectsFirstChannel, 33)
+        XCTAssertEqual(legacyMap.loopbackChannel(forAggregateChannel: 33), 1)
+        XCTAssertTrue(legacyMap.reachesDAW(firstChannel: 33))
+        XCTAssertFalse(legacyMap.reachesDAW(firstChannel: 1))
+    }
+
+    /// The interface half never counts as reaching the DAW, at either end of its range.
+    func testInterfaceChannelsNeverReachTheDAW() {
+        XCTAssertTrue(map.reachesDAW(firstChannel: 16))
+        XCTAssertFalse(map.reachesDAW(firstChannel: 17))
+        XCTAssertFalse(map.reachesDAW(firstChannel: 48))
     }
 
     // MARK: - Clock
@@ -115,12 +274,17 @@ final class AggregateChannelMapTests: XCTestCase {
 
     // MARK: - Which Side Each Output Lands On
 
-    /// Monitoring stays on the interface's first pair whatever its width, so the room
-    /// keeps hearing the reel.
+    /// A map for a loopback device of the given width, with a 32-channel interface.
+    private func map(virtualChannels: Int) -> AggregateChannelMap {
+        AggregateChannelMap(virtualChannelCount: virtualChannels, interfaceChannelCount: 32)
+    }
+
+    /// Monitoring stays on the interface's first pair whatever the loopback width, so
+    /// the room keeps hearing the reel - it just no longer sits at channel 1.
     func testMonitoringStaysOnTheInterface() {
-        for width in [2, 8, 16, 32, 64] {
-            let map = AggregateChannelMap(interfaceChannelCount: width)
-            XCTAssertEqual(map.stereoOutFirstChannel, 1)
+        for width in [4, 8, 16, 64] {
+            let map = map(virtualChannels: width)
+            XCTAssertEqual(map.stereoOutFirstChannel, width + 1)
             XCTAssertFalse(map.reachesDAW(firstChannel: map.stereoOutFirstChannel))
         }
     }
@@ -128,10 +292,10 @@ final class AggregateChannelMapTests: XCTestCase {
     /// The stems must never land on the interface, or they play out of the speakers -
     /// audible reference audio over the mix, which is worse than silence.
     func testStemsNeverLandOnTheInterface() {
-        for width in [1, 2, 8, 16, 32, 64] {
-            let map = AggregateChannelMap(interfaceChannelCount: width)
-            XCTAssertGreaterThan(map.dialogueEffectsFirstChannel, width)
-            XCTAssertGreaterThan(map.musicFirstChannel, width)
+        for width in [4, 8, 16, 64] {
+            let map = map(virtualChannels: width)
+            XCTAssertLessThan(map.dialogueEffectsFirstChannel, map.interfaceFirstChannel)
+            XCTAssertLessThan(map.musicFirstChannel, map.interfaceFirstChannel)
             XCTAssertTrue(map.reachesDAW(firstChannel: map.dialogueEffectsFirstChannel))
             XCTAssertTrue(map.reachesDAW(firstChannel: map.musicFirstChannel))
         }
@@ -139,49 +303,67 @@ final class AggregateChannelMapTests: XCTestCase {
 
     // MARK: - Layout
 
-    /// The stems begin immediately above the interface, which is where the loopback
-    /// device's own channel 1 lands once CoreAudio concatenates the two.
-    func testStemsStackJustAboveTheInterface() {
-        let map = AggregateChannelMap(interfaceChannelCount: 32)
-        XCTAssertEqual(map.dialogueEffectsFirstChannel, 33)
-        XCTAssertEqual(map.musicFirstChannel, 35)
+    /// The whole point of the loopback half leading: a DAW opening the device finds the
+    /// stems on its first inputs instead of hunting past the interface for them.
+    func testStemsStartAtTheFirstChannel() {
+        let map = map(virtualChannels: 16)
+        XCTAssertEqual(map.dialogueEffectsFirstChannel, 1)
+        XCTAssertEqual(map.musicFirstChannel, 3)
     }
 
     func testStemsDoNotOverlapEachOther() {
-        for width in [2, 8, 16, 32, 64] {
-            let map = AggregateChannelMap(interfaceChannelCount: width)
+        for width in [4, 8, 16, 64] {
+            let map = map(virtualChannels: width)
             XCTAssertEqual(map.musicFirstChannel - map.dialogueEffectsFirstChannel, 2)
         }
     }
 
-    /// The narrow case is the one most likely to be got wrong: a 2-channel interface
-    /// means the stems start at 3, not at some fixed high number.
-    func testNarrowInterfacePullsTheStemsDown() {
-        let map = AggregateChannelMap(interfaceChannelCount: 2)
-        XCTAssertEqual(map.stereoOutFirstChannel, 1)
-        XCTAssertEqual(map.dialogueEffectsFirstChannel, 3)
-        XCTAssertEqual(map.musicFirstChannel, 5)
+    /// The stems keep the same channels whatever the interface's width. That is what
+    /// makes "assign to inputs 1-4" a sentence Projector can print for everybody.
+    func testStemChannelsDoNotDependOnTheInterface() {
+        for interfaceWidth in [2, 8, 32, 64] {
+            let map = AggregateChannelMap(
+                virtualChannelCount: 16,
+                interfaceChannelCount: interfaceWidth
+            )
+            XCTAssertEqual(map.dialogueEffectsFirstChannel, 1)
+            XCTAssertEqual(map.musicFirstChannel, 3)
+        }
+    }
+
+    /// Where the user's own hardware begins - the number Projector quotes so nobody
+    /// patches their interface's channel 1 expecting the device's channel 1.
+    func testInterfaceBeginsAboveTheLoopbackHalf() {
+        XCTAssertEqual(map(virtualChannels: 16).interfaceFirstChannel, 17)
+        XCTAssertEqual(map(virtualChannels: 4).interfaceFirstChannel, 5)
     }
 
     // MARK: - What The DAW Is Told
 
-    /// The aggregate calls it channel 33; a DAW reading the loopback device calls it
-    /// input 1. Getting this conversion wrong sends the user to the wrong input and
-    /// they hear silence with nothing obviously broken.
-    func testLoopbackChannelsAreCountedFromTheLoopbackDevice() {
-        let map = AggregateChannelMap(interfaceChannelCount: 32)
+    /// Now an identity, and deliberately so: the number Projector shows is the number
+    /// the DAW lists. Before the reorder these differed by the interface's width, which
+    /// is precisely how a user ended up patching the wrong input.
+    func testLoopbackNumbersMatchTheAggregateNumbers() {
+        let map = map(virtualChannels: 16)
         XCTAssertEqual(map.loopbackChannel(forAggregateChannel: map.dialogueEffectsFirstChannel), 1)
         XCTAssertEqual(map.loopbackChannel(forAggregateChannel: map.musicFirstChannel), 3)
     }
 
-    /// The DAW-facing numbers are the same whatever the interface's width - only the
-    /// aggregate numbering shifts.
+    /// The DAW-facing numbers are the same whatever the interface's width.
     func testLoopbackChannelsAreIndependentOfInterfaceWidth() {
         for width in [2, 8, 32, 64] {
-            let map = AggregateChannelMap(interfaceChannelCount: width)
+            let map = AggregateChannelMap(virtualChannelCount: 16, interfaceChannelCount: width)
             XCTAssertEqual(map.loopbackChannel(forAggregateChannel: map.dialogueEffectsFirstChannel), 1)
             XCTAssertEqual(map.loopbackChannel(forAggregateChannel: map.musicFirstChannel), 3)
         }
+    }
+
+    /// The interface's own channel 1 is the aggregate's channel 17, and saying so is the
+    /// only way a user finds their own inputs again.
+    func testInterfaceChannelsAreCountedFromTheInterface() {
+        let map = map(virtualChannels: 16)
+        XCTAssertEqual(map.interfaceChannel(forAggregateChannel: 17), 1)
+        XCTAssertEqual(map.interfaceChannel(forAggregateChannel: 48), 32)
     }
 
     // MARK: - Room To Grow
@@ -189,8 +371,8 @@ final class AggregateChannelMapTests: XCTestCase {
     /// Outputs added later continue up the loopback side rather than dropping back
     /// onto the interface, so a new port reaches the DAW like the stems do.
     func testAdditionalOutputsContinueOnTheDAWSide() {
-        let map = AggregateChannelMap(interfaceChannelCount: 32)
-        XCTAssertEqual(map.firstAdditionalChannel, 37)
+        let map = map(virtualChannels: 16)
+        XCTAssertEqual(map.firstAdditionalChannel, 5)
         XCTAssertTrue(map.reachesDAW(firstChannel: map.firstAdditionalChannel))
     }
 
@@ -208,7 +390,7 @@ final class AggregateChannelMapTests: XCTestCase {
     /// The seeded layout has to fit inside the build Projector installs, with room
     /// left over for the outputs a user adds afterwards.
     func testSeededLayoutLeavesRoomForMoreOutputs() {
-        let map = AggregateChannelMap(interfaceChannelCount: 32)
+        let map = map(virtualChannels: 16)
         let highestSeeded = map.loopbackChannel(forAggregateChannel: map.musicFirstChannel + 1)
         XCTAssertLessThan(highestSeeded, VirtualAudioPorts.preferredChannelCount)
 

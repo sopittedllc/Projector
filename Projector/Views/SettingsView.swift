@@ -20,6 +20,17 @@ struct SettingsView: View {
 
     /// Whether the DAW routing setup sheet is on screen.
     @State private var showDAWRoutingSetup = false
+
+    /// Whether the DAW routing explanation popover is on screen.
+    @State private var showDAWRoutingHelp = false
+
+    /// How to name the selected device's channels, when it is Projector's aggregate.
+    ///
+    /// Held rather than computed on demand because deriving it reads the aggregate's
+    /// sub-device list from CoreAudio, which a view body must not do on every pass.
+    /// Refreshed from the two things that can invalidate it: which device is selected,
+    /// and what the machine currently has.
+    @State private var channelOrigin: AggregateChannelOrigin?
     @State private var selectedProfileId: UUID?
     @State private var isNamingProfile = false
     @State private var newProfileName = ""
@@ -173,10 +184,14 @@ struct SettingsView: View {
                 dawRoutingSummary
             }
         }
+        .onAppear { refreshChannelOrigin() }
+        .onChangeCompat(of: audioManager.selectedDeviceUID) { _ in refreshChannelOrigin() }
+        .onChangeCompat(of: audioManager.availableDevices.count) { _ in refreshChannelOrigin() }
         .sheet(item: $pendingOutputRole) { role in
             ChooseOutputSheet(
                 role: role,
                 audioManager: audioManager,
+                channelOrigin: channelOrigin,
                 onCancel: { pendingOutputRole = nil },
                 onChoose: { name, firstChannel, isStereo in
                     audioManager.addOrReplaceOutput(
@@ -260,7 +275,44 @@ struct SettingsView: View {
                 }
                 .settingsChooserButton()
             }
+
+            SettingsHelpButton(isPresented: $showDAWRoutingHelp) {
+                dawRoutingExplanation
+            }
         }
+    }
+
+    /// What DAW routing is, for the reader who has never needed an aggregate device.
+    ///
+    /// Answers the question the row cannot: not how to switch it on, but why an extra
+    /// device has to exist at all. Kept in a popover rather than under the row because
+    /// it is read once and never again, and the Audio section is already the densest
+    /// part of this window.
+    private var dawRoutingExplanation: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("Sending stems to a DAW")
+                .font(SettingsDesign.sectionTitle)
+
+            Text("Projector plays your outputs to one audio device. For a DAW to "
+                 + "receive them they have to arrive as *inputs*, and macOS cannot "
+                 + "loop an output back to an input on its own.")
+            Text("Setting this up builds a single device, "
+                 + "**\(AggregateDeviceManager.aggregateName)**, that combines your "
+                 + "audio interface with a virtual one. Your speakers keep playing "
+                 + "from the interface's own outputs; the stems travel on the virtual "
+                 + "half, where a DAW set to the same device sees them as inputs.")
+            Text("Your interface stays the clock master and the virtual half is "
+                 + "drift-compensated, so the two cannot slide apart over the length "
+                 + "of a reel.")
+
+            Text("Point your DAW at the same device to receive them.")
+                .font(SettingsDesign.caption)
+                .foregroundColor(.secondary)
+        }
+        .font(SettingsDesign.value)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(Spacing.md)
+        .frame(width: SettingsDesign.popoverWidth, alignment: .leading)
     }
 
     /// Whether Projector's aggregate device is present on the system.
@@ -275,33 +327,27 @@ struct SettingsView: View {
     /// every output goes to the same place and the summary would state the obvious.
     @ViewBuilder
     private var dawRoutingSummary: some View {
-        if audioManager.selectedDeviceUID == AggregateDeviceManager.aggregateUID,
-           let interfaceChannels = aggregateInterfaceChannelCount {
+        if let channelOrigin {
             SettingsSubRow {
                 AggregateRoutingSummary(
-                    map: AggregateChannelMap(interfaceChannelCount: interfaceChannels),
+                    map: channelOrigin.map,
                     outputs: audioManager.mappedOutputs
                 )
             }
         }
     }
 
-    /// How many of the aggregate's channels belong to the user's own interface.
+    /// Recomputes how the selected device's channels should be named.
     ///
-    /// Derived from the device list rather than stored: the aggregate reports its
-    /// full width, and the interface half is whatever the loopback device does not
-    /// account for. Storing it would go stale the moment the aggregate is rebuilt
-    /// against a different interface.
-    private var aggregateInterfaceChannelCount: Int? {
-        guard let aggregate = audioManager.availableDevices.first(where: {
-            $0.uid == AggregateDeviceManager.aggregateUID
-        }) else { return nil }
-
-        guard case .ready(let loopback) =
-                VirtualAudioPorts.readiness(in: audioManager.availableDevices) else { return nil }
-
-        let interfaceChannels = aggregate.outputChannelCount - loopback.outputChannelCount
-        return interfaceChannels > 0 ? interfaceChannels : nil
+    /// Called rather than computed so the CoreAudio read stays out of the view body.
+    /// Only while the aggregate is the selected device: on an ordinary interface the
+    /// channels are the user's own hardware, named once by the row above.
+    private func refreshChannelOrigin() {
+        guard audioManager.selectedDeviceUID == AggregateDeviceManager.aggregateUID else {
+            channelOrigin = nil
+            return
+        }
+        channelOrigin = AggregateChannelOrigin.current(in: audioManager.availableDevices)
     }
 
     /// Tears the aggregate down and steps off it.
@@ -312,8 +358,11 @@ struct SettingsView: View {
         if audioManager.selectedDeviceUID == AggregateDeviceManager.aggregateUID {
             audioManager.selectedDeviceUID = nil
         }
+
+        // The channel names need no clearing: they live on the aggregate itself and are
+        // destroyed with it. Nothing Projector wrote touches the user's own devices.
         Task {
-            try? await AggregateDeviceManager().removeAggregate()
+            _ = try? await AggregateDeviceManager().removeAggregate()
             audioManager.refreshDevices()
         }
     }
@@ -365,8 +414,13 @@ struct SettingsView: View {
 
     private func assignmentValue(_ output: MappedAudioOutput) -> some View {
         SettingsValue(
+            // Dropped once the device name is in the value: the row is one fixed width,
+            // and "Projector Virtual 1-2" plus "stereo" plus the clear button does not
+            // fit in it. The range is the same fact anyway - a pair is stereo.
             value: outputChannelLabel(output),
-            qualifier: output.channelCount == 2 ? "stereo" : "mono",
+            qualifier: channelOrigin == nil
+                ? (output.channelCount == 2 ? "stereo" : "mono")
+                : nil,
             clearLabel: "Clear \(output.name)",
             onClear: { audioManager.removeOutput(id: output.id) }
         )
@@ -538,8 +592,22 @@ struct SettingsView: View {
     /// `channelStart` is a 0-based buffer offset, so printing it raw labelled
     /// the first stereo pair "Out 0-1" while the chooser that set it offered
     /// "1-2".
+    /// Where an assigned output goes, as the row shows it.
+    ///
+    /// On the aggregate this names the device carrying the channels rather than saying
+    /// "Out": the row's own label already says which stem it is, so the useful half of
+    /// the answer is whether it reaches the room or the DAW - which "Out 33-34" does not
+    /// say and "Projector Virtual 1-2" does.
     private func outputChannelLabel(_ output: MappedAudioOutput) -> String {
         let first = output.channelStart + 1
+
+        if let channelOrigin {
+            return channelOrigin.label(
+                firstChannel: first,
+                channelCount: output.channelCount
+            )
+        }
+
         if output.channelCount <= 1 {
             return "Out \(first)"
         }
@@ -723,6 +791,13 @@ extension OutputRole {
 struct ChooseOutputSheet: View {
     let role: OutputRole
     @ObservedObject var audioManager: AudioOutputManager
+
+    /// Which device carries each channel, when the selected one is built from several.
+    ///
+    /// `nil` for an ordinary interface, where every channel comes from the device
+    /// already named in the row above and repeating it would only add noise.
+    var channelOrigin: AggregateChannelOrigin?
+
     let onCancel: () -> Void
     let onChoose: (_ name: String, _ firstChannel: Int, _ isStereo: Bool) -> Void
 
@@ -816,9 +891,24 @@ struct ChooseOutputSheet: View {
         }
     }
 
+    /// How a channel is offered in the menu.
+    ///
+    /// On Projector's aggregate the bare number is unusable: "33-34" names no device the
+    /// user owns and appears nowhere in their DAW. There it is replaced by the device
+    /// that actually carries the channel, numbered the way that device counts - which is
+    /// the number the DAW shows for the loopback half, and the number printed on the
+    /// interface for the other.
     private func channelLabel(_ channel: Int) -> String {
-        isStereo ? "\(channel)-\(channel + 1)" : "\(channel)"
+        let count = isStereo ? Self.stereoChannelCount : 1
+
+        if let channelOrigin {
+            return channelOrigin.label(firstChannel: channel, channelCount: count)
+        }
+        return isStereo ? "\(channel)-\(channel + 1)" : "\(channel)"
     }
+
+    /// Channels a stereo output occupies.
+    private static let stereoChannelCount = 2
 }
 
 // MARK: - Settings Design System
@@ -868,6 +958,12 @@ enum SettingsDesign {
     /// Inset of text inside a control. Matches the label inset AppKit gives a
     /// bordered button, so a chosen value lines up with the chooser it replaced.
     static let controlTextInset: CGFloat = 10
+
+    /// Width of an explanatory popover.
+    ///
+    /// Narrower than the window it opens over, so it reads as an aside rather than a
+    /// second panel, and wide enough to keep prose off single-word lines.
+    static let popoverWidth: CGFloat = 320
 
     /// Fill and border for a setting still waiting to be answered.
     ///
@@ -941,6 +1037,42 @@ struct SettingsClearButton: View {
     }
 }
 
+/// The one "what is this?" affordance: a help button that explains its row.
+///
+/// Deliberately the same shape as ``SettingsClearButton`` - a bare SF Symbol at the end
+/// of the control column, no bezel - so a row can carry either without changing height
+/// or gaining a second button weight (rule 6).
+///
+/// The tooltip says what the button is for; the popover answers it. Both, because a
+/// question mark alone does not say whether it opens documentation, a sheet or a web
+/// page, and a tooltip cannot hold an explanation worth reading.
+struct SettingsHelpButton<Content: View>: View {
+
+    /// Whether the explanation is on screen.
+    @Binding var isPresented: Bool
+
+    /// The explanation itself.
+    @ViewBuilder var content: () -> Content
+
+    /// Prompt shown on hover, and the button's accessibility label.
+    private static var prompt: String { "What is this?" }
+
+    var body: some View {
+        Button {
+            isPresented = true
+        } label: {
+            Image(systemName: "questionmark.circle")
+                .foregroundColor(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help(Self.prompt)
+        .accessibilityLabel(Self.prompt)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            content()
+        }
+    }
+}
+
 /// A value with its clear button, for a row whose setting is filled (rule 5).
 ///
 /// Drawn as a filled, outlined field rather than bare text. A chosen setting
@@ -958,6 +1090,11 @@ struct SettingsValue: View {
             Text(value)
                 .font(SettingsDesign.value)
                 .foregroundColor(.primary)
+                // The row is a fixed width and device names are not. Truncating is the
+                // lesser failure: overflowing pushes the clear button out of the row.
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(value)
 
             Spacer(minLength: Spacing.sm)
 
