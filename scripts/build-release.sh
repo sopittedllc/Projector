@@ -7,8 +7,13 @@
 #   1. Developer ID Application certificate installed
 #   2. Notarization credentials stored (run setup-notarization.sh first)
 #
-# Usage: ./scripts/build-release.sh [version]
-#   version: Optional version string (e.g., "1.0.0"). If not provided, uses current date.
+# Usage: ./scripts/build-release.sh [version] [--no-publish]
+#   version:      Optional version string (e.g., "1.0.0"). Defaults to the current date.
+#   --no-publish: Build the DMG but do not create a GitHub release for it.
+#
+# On success the DMG is attached to a GitHub release tagged v<version>, which is
+# where the download link comes from. The DMG itself is never committed: it is
+# ~11MB, git keeps every version forever, and `release-build/` is ignored.
 
 set -e
 
@@ -25,8 +30,22 @@ TEAM_ID="G398H44H6X"
 DEVELOPER_ID="Developer ID Application: Keegan DeWitt (${TEAM_ID})"
 NOTARY_PROFILE="notary"
 
-# Version
-VERSION="${1:-$(date +%Y.%m.%d)}"
+# Arguments
+#
+# Order-independent, and --no-publish is never mistaken for a version: reading it
+# as one would build a DMG called "Projector---no-publish.dmg" and tag a release
+# to match.
+PUBLISH=1
+VERSION=""
+for arg in "$@"; do
+    case "$arg" in
+        --no-publish) PUBLISH=0 ;;
+        -*) echo "Unknown option: $arg" >&2; exit 1 ;;
+        *) VERSION="$arg" ;;
+    esac
+done
+
+VERSION="${VERSION:-$(date +%Y.%m.%d)}"
 DMG_FILENAME="${DMG_NAME}-${VERSION}.dmg"
 
 echo "========================================"
@@ -170,6 +189,51 @@ spctl --assess --type open --context context:primary-signature --verbose "${DMG_
 # Cleanup
 rm -f "${BUILD_DIR}/Projector-notarize.zip"
 
+# Publish as a GitHub release
+#
+# A release asset, not a committed file: the DMG is ~11MB and git keeps every
+# version of it forever, so committing one per build grows the repository
+# permanently and cannot be undone without rewriting history. A release gives the
+# same thing the commit was wanted for - a stable download link tied to a commit -
+# and `release-build/` stays ignored.
+#
+# Skipped with --no-publish, or when gh is missing or not logged in.
+DOWNLOAD_URL=""
+if [ "${PUBLISH}" -eq 0 ]; then
+    echo ""
+    echo "[publish] Skipped (--no-publish)."
+elif ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
+    echo ""
+    echo "[publish] Skipped: gh is not installed or not logged in."
+    echo "          Publish later with:"
+    echo "          gh release create v${VERSION} \"${DMG_PATH}\" --title \"Projector ${VERSION}\""
+else
+    echo ""
+    echo "[publish] Creating GitHub release v${VERSION}..."
+    COMMIT="$(git -C "${PROJECT_DIR}" rev-parse --short HEAD)"
+
+    # Uncommitted work would ship a DMG that no commit describes.
+    if ! git -C "${PROJECT_DIR}" diff --quiet HEAD 2>/dev/null; then
+        echo "[publish] WARNING: uncommitted changes - this DMG does not match ${COMMIT}."
+    fi
+
+    if gh release view "v${VERSION}" >/dev/null 2>&1; then
+        # Same-day rebuild: replace the asset rather than fail on the existing tag.
+        echo "[publish] Release v${VERSION} exists; replacing its asset."
+        gh release upload "v${VERSION}" "${DMG_PATH}" --clobber
+    else
+        gh release create "v${VERSION}" "${DMG_PATH}" \
+            --title "Projector ${VERSION}" \
+            --target "$(git -C "${PROJECT_DIR}" rev-parse --abbrev-ref HEAD)" \
+            --notes "Signed, notarized, universal (x86_64 + arm64). Requires macOS 12.0 or later.
+
+Built from \`${COMMIT}\`."
+    fi
+
+    DOWNLOAD_URL="$(gh release view "v${VERSION}" \
+        --json assets --jq '.assets[0].url' 2>/dev/null || true)"
+fi
+
 # Done
 echo ""
 echo "========================================"
@@ -178,6 +242,9 @@ echo "========================================"
 echo ""
 echo "DMG location: ${DMG_PATH}"
 echo "DMG size: $(du -h "${DMG_PATH}" | cut -f1)"
+if [ -n "${DOWNLOAD_URL}" ]; then
+    echo "Download:     ${DOWNLOAD_URL}"
+fi
 echo ""
 echo "To test Gatekeeper acceptance:"
 echo "  1. Copy DMG to another Mac or create a new user"
