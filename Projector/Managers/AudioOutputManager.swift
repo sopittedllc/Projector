@@ -158,6 +158,18 @@ final class AudioOutputManager: ObservableObject {
 
     init() {
         refreshDevices()
+
+        // Restored here rather than by the first view that appears. Doing it on
+        // appearance meant the manager spent the opening frames reporting the system
+        // default, so Settings opened on the wrong device with the wrong mappings
+        // beneath it and corrected itself a moment later - the panel briefly asserting
+        // something untrue. Assigning through the property runs its `didSet`, which
+        // reloads the mappings for the restored device.
+        let saved = settings.selectedAudioOutput
+        if !saved.isEmpty, availableDevices.contains(where: { $0.uid == saved }) {
+            selectedDeviceUID = saved
+        }
+
         setupDeviceChangeListener()
         loadMappedOutputs()
         updateSelectedDeviceChannelCount()

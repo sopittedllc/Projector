@@ -43,24 +43,33 @@ mkdir -p "${BUILD_DIR}"
 # Archive
 echo ""
 echo "[2/8] Archiving..."
-xcodebuild archive \
-    -project "${PROJECT_DIR}/Projector.xcodeproj" \
-    -scheme "${SCHEME}" \
-    -archivePath "${ARCHIVE_PATH}" \
-    -configuration Release \
-    CODE_SIGN_IDENTITY="${DEVELOPER_ID}" \
-    DEVELOPMENT_TEAM="${TEAM_ID}" \
-    CODE_SIGN_STYLE=Manual \
-    OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime" \
-    | xcpretty || xcodebuild archive \
-    -project "${PROJECT_DIR}/Projector.xcodeproj" \
-    -scheme "${SCHEME}" \
-    -archivePath "${ARCHIVE_PATH}" \
-    -configuration Release \
-    CODE_SIGN_IDENTITY="${DEVELOPER_ID}" \
-    DEVELOPMENT_TEAM="${TEAM_ID}" \
-    CODE_SIGN_STYLE=Manual \
-    OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime"
+
+# Prettify only when the formatter is actually installed.
+#
+# This used to be `xcodebuild … | xcpretty || xcodebuild …`, which on a machine
+# without xcpretty ran the whole archive into a broken pipe, failed, and then ran
+# the entire archive a second time - doubling the longest step of the build to
+# recover from a missing formatter. Checking first costs nothing and archives once.
+archive() {
+    xcodebuild archive \
+        -project "${PROJECT_DIR}/Projector.xcodeproj" \
+        -scheme "${SCHEME}" \
+        -archivePath "${ARCHIVE_PATH}" \
+        -configuration Release \
+        CODE_SIGN_IDENTITY="${DEVELOPER_ID}" \
+        DEVELOPMENT_TEAM="${TEAM_ID}" \
+        CODE_SIGN_STYLE=Manual \
+        OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime"
+}
+
+if command -v xcpretty >/dev/null 2>&1; then
+    # Fail on xcodebuild's status, not the formatter's.
+    set -o pipefail
+    archive | xcpretty
+    set +o pipefail
+else
+    archive
+fi
 
 # Export
 echo ""

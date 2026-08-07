@@ -1928,58 +1928,6 @@ struct MultiTrackTimelineView: View {
     /// Reuses `AudioLaneView` at a third height with its header suppressed, so
     /// clips, waveforms and selection behave exactly as they do on any lane -
     /// only the chrome differs.
-    private func linkedAudioStrip(lane: AudioLane, index: Int, ppf: CGFloat, width: CGFloat) -> some View {
-        AudioLaneView(
-            lane: lane,
-            laneIndex: index,
-            activeClipIds: activeAudioClipIds,
-            waveformCache: waveformCache,
-            pixelsPerFrame: ppf,
-            frameRate: timeline.config.frameRate,
-            scrollOffset: 0,
-            visibleContentX: visibleContentX(contentAreaWidth: width),
-            timelineDurationFrames: timeline.config.durationFrames,
-            showWaveforms: !TimelineDebugFlags.current.disableWaveforms,
-            clipInteractionsEnabled: !TimelineDebugFlags.current.disableClipInteractions,
-            availableAudioOutputs: audioOutputManager.mappedOutputs,
-            linkedDragPreview: linkedDragPreview,
-            timelineStartFrames: timeline.config.startTimecode.frameCount.wholeFrames,
-            onMuteToggle: { timelineManager.toggleLaneMute(at: index) },
-            onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
-            onVolumeChange: { volume in timelineManager.setLaneVolume(at: index, volume: volume) },
-            onOutputMappingChange: { output in
-                timelineManager.setLaneOutputMapping(id: lane.id, mapping: output)
-            },
-            onOutputNone: { timelineManager.disableLaneOutput(id: lane.id) },
-            // Nothing may be dropped here: this lane is the video file's own
-            // audio, one clip per reel, and anything else landing on it would
-            // stop it being that.
-            onDropMedia: { _, _, _ in },
-            onDropMixedMedia: nil,
-            onClipSelected: { clipId, modifiers in
-                handleClipSelection(clipId: clipId, laneId: lane.id, modifiers: modifiers)
-            },
-            onClipDoubleClick: { _ in },
-            onClipSetTimelineStart: { clip in
-                timelineManager.setTimelineStart(toFrame: clip.timelineStartFrame)
-            },
-            onClipMove: { _, _ in },
-            onClipDragPreview: { _, _ in },
-            onLaneRename: { _ in },
-            // Deleting the audio deletes the video it came from: they are one
-            // file, so removing half would leave picture with no sound or the
-            // reverse, which the timeline has no way to represent.
-            onDeleteLane: { deleteVideoFileTrack() },
-            laneHeight: TimelineLayout.linkedAudioStripHeight,
-            showsHeader: false,
-            onClipLaneChangeRequested: nil,
-            onClipLaneChangePreview: nil,
-            laneChangePreview: nil,
-            selectedClipIds: selectedAudioClipIds
-        )
-        .frame(width: width, height: TimelineLayout.linkedAudioStripHeight)
-    }
-
     /// Remove the video reels and the audio baked into them, together.
     private func deleteVideoFileTrack() {
         registerTimelineUndo(actionName: "Delete Video File")

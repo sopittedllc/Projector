@@ -12,7 +12,7 @@ Execute the release build script to create a signed, notarized DMG for distribut
 1. Run the build-release.sh script (uses current date as version automatically):
 
 ```bash
-cd /Users/keegandewitt/Projector && ./scripts/build-release.sh
+cd /Users/keegandewitt/Developer/Projector && ./scripts/build-release.sh
 ```
 
 2. After the build completes, run the verification script to confirm all checks pass:

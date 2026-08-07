@@ -323,6 +323,80 @@ Per-lane audio output routing with multi-channel support (up to 6 channels). Use
 
 ---
 
+### DAW Routing (Aggregate Device)
+
+**Status**: Active
+**Added**: 2026-08-05
+
+#### Description
+Carries Projector's stems into a DAW as *inputs*. macOS cannot loop an output back to an
+input and Apple does not grant the DriverKit audio entitlement for virtual devices, so
+Projector builds a CoreAudio aggregate combining the user's interface with a loopback
+device (BlackHole), installing BlackHole when absent.
+
+Sub-device order is the channel map, and the loopback half comes **first**: the stems are
+inputs 1-4 in every DAW, with the interface above them. Order is independent of the
+clock - the interface remains `kAudioAggregateDeviceMainSubDeviceKey` and the loopback
+half is drift-compensated, so the two cannot slide apart over a reel.
+
+Every input channel of the aggregate is named, so no DAW shows a generic port list: stems
+by output and side ("DX/SFX L"), everything else by its device and port number. Written on
+the aggregate itself, never on the user's devices.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Manager | `Managers/AggregateDeviceManager.swift` | Creates/removes the device; `AggregateChannelMap`, `AggregateChannelOrigin` |
+| Manager | `Managers/VirtualAudioPorts.swift` | Finds the loopback device, reports readiness |
+| Manager | `Managers/BlackHoleInstaller.swift` | Downloads and installs the driver |
+| Manager | `Managers/VirtualPortLabels.swift` | Names the aggregate's input channels |
+| View | `Views/DAWRoutingSetupSheet.swift` | Setup flow |
+| View | `Views/DAWRoutingSetupModel.swift` | Its state machine |
+| View | `Views/AggregateRoutingSummary.swift` | The port list, as the DAW shows it |
+
+#### State Properties
+
+| View | Property | Purpose |
+|------|----------|---------|
+| `SettingsView` | `showDAWRoutingSetup` | Setup sheet presentation |
+| `SettingsView` | `showDAWRoutingHelp` | Explanation popover |
+| `SettingsView` | `isRemovingDAWRouting` | Suppresses the stale device during teardown |
+| `SettingsView` | `showRemoveDAWRoutingConfirmation` | Guards a destructive removal |
+| `SettingsView` | `channelOrigin` | Cached composition; a CoreAudio read kept out of the view body |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `SettingsView.swift` | `deviceRow` | Remove + help, only while the aggregate is selected |
+| `SettingsView.swift` | `dawRoutingRow` | Set up / switch to, only while not selected |
+| `AudioOutputManager.swift` | `saveMappedOutputs`, `loadMappedOutputs` | Publishes channel names on every change and at launch |
+| `AppSettings.swift` | `selectedAudioOutput`, `audioOutputMappings` | Selection and per-device mappings |
+
+#### Constants
+
+| Name | Value | Where |
+|------|-------|-------|
+| `aggregateUID` | `com.keegandewitt.projector.aggregate` | `AggregateDeviceManager` |
+| `aggregateName` | `Projector Aggregate Device` | `AggregateDeviceManager` |
+| `virtualHalfName` | `Projector Virtual` | `AggregateDeviceManager` |
+| `requiredVirtualChannels` | 4 | `AggregateChannelMap` |
+
+#### Dependencies
+- Depends on: CoreAudio, Audio Routing, `VirtualAudioPorts`, BlackHole (third-party driver)
+- Depended by: nothing yet
+
+#### Notes
+- The device is **public**, so it persists across app quits and reboots; only the ✕ on the
+  Device row destroys it.
+- `AggregateChannelOrigin.current(in:)` reads the real sub-device order back, so aggregates
+  built before the loopback half was moved first are still described correctly.
+- Cubase ignores CoreAudio channel names entirely and generates its own from the device
+  name; the channel ordering is what makes the stems findable there.
+
+---
+
 ### Output Matching from File Names
 
 **Status**: Active

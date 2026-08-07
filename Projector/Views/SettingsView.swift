@@ -27,6 +27,9 @@ struct SettingsView: View {
     /// Whether the routing device is being torn down right now.
     @State private var isRemovingDAWRouting = false
 
+    /// Whether the confirmation for removing the routing device is on screen.
+    @State private var showRemoveDAWRoutingConfirmation = false
+
     /// How to name the selected device's channels, when it is Projector's aggregate.
     ///
     /// Held rather than computed on demand because deriving it reads the aggregate's
@@ -213,6 +216,14 @@ struct SettingsView: View {
                 onDismiss: { showDAWRoutingSetup = false }
             )
         }
+        .alert("Remove \(AggregateDeviceManager.aggregateName)?",
+               isPresented: $showRemoveDAWRoutingConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Remove", role: .destructive) { removeDAWRouting() }
+        } message: {
+            Text("Any DAW currently set to this device will lose its inputs. "
+                 + "Projector will go back to your previous output.")
+        }
         .alert("Profile built for another device", isPresented: $showProfileDeviceWarning) {
             Button("Apply Anyway") { applyPendingProfile() }
             Button("Cancel", role: .cancel) { pendingProfile = nil }
@@ -238,7 +249,11 @@ struct SettingsView: View {
             // Routing row to say - the menu above already names it.
             if isUsingDAWRouting {
                 SettingsClearButton(label: "Remove the DAW routing device") {
-                    removeDAWRouting()
+                    // Confirmed, unlike every other clear button in this window. The
+                    // others drop a mapping the user can re-pick in a second; this one
+                    // destroys a system audio device, and any DAW currently set to it
+                    // loses its inputs mid-session with no undo.
+                    showRemoveDAWRoutingConfirmation = true
                 }
                 SettingsHelpButton(isPresented: $showDAWRoutingHelp) {
                     dawRoutingExplanation
@@ -316,9 +331,9 @@ struct SettingsView: View {
                 .font(SettingsDesign.sectionTitle)
 
             Text("Projector will create a custom Audio Device that stacks virtual "
-                 + "inputs for your stem audio lanes on top of your interface's "
-                 + "physical inputs. This will allow you to set up your Projector "
-                 + "Audio lanes inside your DAW.")
+                 + "inputs for your stem audio lanes on top of your interface's own "
+                 + "channels. This will allow you to set up your Projector Audio "
+                 + "lanes inside your DAW.")
 
             Text("Projector will put your virtual inputs first, then your interface.")
                 .font(SettingsDesign.caption)
@@ -394,9 +409,9 @@ struct SettingsView: View {
 
     private var outputChoosers: some View {
         VStack(alignment: .leading, spacing: SettingsDesign.rowSpacing) {
-            outputRow(.stereoOut)
-            outputRow(.music)
-            outputRow(.dialogueEffects)
+            ForEach(orderedRoles, id: \.id) { role in
+                outputRow(role)
+            }
 
             // Extras are the same row shape, labelled with their own name.
             ForEach(additionalOutputs) { output in
@@ -453,6 +468,25 @@ struct SettingsView: View {
 
     private func assignedOutput(for role: OutputRole) -> MappedAudioOutput? {
         audioManager.mappedOutputs.first { role.matches($0) }
+    }
+
+    /// The named roles in the order their channels appear on the device.
+    ///
+    /// Sorted rather than fixed because the rows now show channel numbers, and a fixed
+    /// order made that column read 17-18, 3-4, 1-2 on the aggregate - descending, for no
+    /// reason a user could see. Sorting matches the port list below, which is in port
+    /// order, so the two agree.
+    ///
+    /// Unassigned roles keep their canonical order at the end: they have no channel to
+    /// sort by, and the alternative is a row that jumps the moment it is filled in.
+    private var orderedRoles: [OutputRole] {
+        let canonical: [OutputRole] = [.stereoOut, .music, .dialogueEffects]
+        let assigned = canonical.compactMap { role -> (OutputRole, Int)? in
+            guard let output = assignedOutput(for: role) else { return nil }
+            return (role, output.channelStart)
+        }
+        let unassigned = canonical.filter { assignedOutput(for: $0) == nil }
+        return assigned.sorted { $0.1 < $1.1 }.map(\.0) + unassigned
     }
 
     /// Outputs that fill no named role.
