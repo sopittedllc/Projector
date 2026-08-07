@@ -61,6 +61,38 @@
 	<string>Projector uses Apple Events to communicate with other applications for automation workflows.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Projector requires local network access for MIDI device discovery and synchronization.</string>
+
+	<!-- Software update (Sparkle).
+
+	     SUFeedURL is the appcast the app reads on launch. It is served from the
+	     repository's main branch rather than a release asset, because the feed
+	     has to live at one unchanging URL while the builds it lists do not.
+
+	     SUPublicEDKey is the public half of the EdDSA key pair whose private
+	     half signs each DMG. An update whose signature does not verify against
+	     this key is refused, so the key must match the one used by
+	     scripts/build-release.sh. See docs/software-update.md.
+
+	     SUEnableInstallerLauncherService is what makes updates possible at all
+	     in a sandboxed app: the installer runs as an XPC service outside the
+	     sandbox, because nothing inside it may write to /Applications.
+
+	     Checks are on by default (no permission prompt), at most hourly - the
+	     shortest interval Sparkle honours - so a launch finds a new version
+	     without nagging on every relaunch. Downloads are never silent:
+	     SUAutomaticallyUpdate stays NO so the user is asked first. -->
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/sopittedllc/Projector/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>FCjCBoWG0dAo2KZKbc4rGQ9G05ywaxrLkrOCWUMNI3c=</string>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>3600</integer>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

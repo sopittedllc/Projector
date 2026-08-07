@@ -102,6 +102,13 @@ final class TimelineViewModel: ObservableObject {
     /// Currently selected audio lane ID, if any
     @Published var selectedLaneId: UUID?
 
+    /// Bumped whenever something asks the timeline to frame its content.
+    ///
+    /// Carries no value of its own - the zoom that frames the content depends
+    /// on the width of the track area, which only the view knows. This is the
+    /// request; `MultiTrackTimelineView` does the measuring.
+    @Published private(set) var zoomToFitContentRequest: Int = 0
+
     // MARK: - Constants
 
     /// Minimum zoom level (fit to view)
@@ -206,6 +213,16 @@ final class TimelineViewModel: ObservableObject {
         if !isExpanded {
             isExpanded = true
         }
+    }
+
+    /// Ask the timeline to zoom and scroll so all of its content is visible.
+    ///
+    /// Called after an import: media dropped onto a two-hour timeline occupies
+    /// a few percent of it, so fit-to-timeline zoom shows a sliver of a reel
+    /// against a blank field. Framing the content instead means a drop always
+    /// lands somewhere you can see it.
+    func requestZoomToFitContent() {
+        zoomToFitContentRequest += 1
     }
 
     /// Reset zoom to default level

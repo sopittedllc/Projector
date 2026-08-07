@@ -31,9 +31,29 @@
 	<true/>
 
 	<!-- Network: Download Apple's Pro Video Formats package when a delivery uses a
-	     codec macOS cannot decode. This is the only outbound network use in the app,
-	     and it only contacts Apple's own support page and software CDN. -->
+	     codec macOS cannot decode, and fetch the software update appcast and DMG
+	     from this project's own GitHub releases. -->
 	<key>com.apple.security.network.client</key>
 	<true/>
+
+	<!-- Software update: talk to Sparkle's installer XPC services.
+
+	     A sandboxed app cannot replace itself in /Applications - that is outside
+	     its container and no ordinary entitlement reaches it. Sparkle's answer is
+	     to do the install from XPC services that live outside the sandbox, and
+	     these two names are how the app reaches them (-spks launcher, -spki
+	     installer). Sparkle will not install anything without them.
+
+	     KNOWN CONSEQUENCE: temporary-exception entitlements are not accepted on
+	     the Mac App Store. While these keys are present, Projector cannot ship
+	     there. That is the trade for updating itself; a future App Store build
+	     would need its own configuration with these keys and Sparkle removed,
+	     which is why update behaviour is reached through UpdateServiceProtocol
+	     rather than by calling Sparkle directly. -->
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spks</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spki</string>
+	</array>
 </dict>
 </plist>

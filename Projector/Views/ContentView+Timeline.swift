@@ -44,6 +44,7 @@ extension ContentView {
             if newURLs.count == 1 {
                 debugPrint("handleVideoDropOnTimeline: SINGLE FILE PATH - calling addVideoToTimeline")
                 await addVideoToTimeline(url: newURLs[0], atFrame: atFrame)
+                timelineViewModel.requestZoomToFitContent()
                 return
             }
 
@@ -52,6 +53,7 @@ extension ContentView {
             // timecode, so this only needs to handle the ones without.
             debugPrint("handleVideoDropOnTimeline: BATCH PATH - \(newURLs.count) files")
             await addVideoFilesSequentially(urls: newURLs, startFrame: atFrame)
+            timelineViewModel.requestZoomToFitContent()
         }
     }
 
@@ -86,12 +88,14 @@ extension ContentView {
                         let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * self.timelineManager.timeline.config.frameRate.fps)
                         self.timelineManager.extendTimeline(toEndFrame: clip.timelineEndFrame + paddingFrames)
                     }
+                    self.timelineViewModel.requestZoomToFitContent()
                     return
                 }
 
                 // Each file goes to its own timecode, or after the last one.
                 let items = await self.detectTimecodeForBatch(urls: urls, mediaType: .audio)
                 await self.addAudioFilesAtEmbeddedTimecode(items: items, laneId: lane.id, fallbackFrame: atFrame)
+                self.timelineViewModel.requestZoomToFitContent()
 
                 // Cleared, not discarded. The lanes this path creates are the
                 // ones between the last existing lane and the one dropped on -
@@ -190,6 +194,7 @@ extension ContentView {
             // For single video + no audio, use existing single-file flow
             if newVideoURLs.count == 1 && newAudioURLs.isEmpty {
                 await addVideoToTimeline(url: newVideoURLs[0], atFrame: atFrame)
+                timelineViewModel.requestZoomToFitContent()
                 return
             }
 
@@ -202,6 +207,7 @@ extension ContentView {
                     let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
                     timelineManager.extendTimeline(toEndFrame: clip.timelineEndFrame + paddingFrames)
                 }
+                timelineViewModel.requestZoomToFitContent()
                 return
             }
 
@@ -267,6 +273,8 @@ extension ContentView {
             if let lastReel = timelineManager.timeline.videoReels.last {
                 timelineManager.extendTimeline(toEndFrame: lastReel.timelineEndFrame + paddingFrames)
             }
+
+            timelineViewModel.requestZoomToFitContent()
         }
     }
 
@@ -302,6 +310,7 @@ extension ContentView {
 
             // Auto-expand timeline so user can see the new lane
             timelineViewModel.expandIfNeeded()
+            timelineViewModel.requestZoomToFitContent()
         }
     }
 
@@ -1390,6 +1399,7 @@ extension ContentView {
                 Task { @MainActor in
                     await self.addVideoToTimelineUnchecked(url: confirmedURL, at: insertFrame)
                     self.videoInsertURL = nil
+                    self.timelineViewModel.requestZoomToFitContent()
                 }
             }
         ))

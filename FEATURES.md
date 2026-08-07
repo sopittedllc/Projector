@@ -480,6 +480,119 @@ timeline's duration is unchanged. Disabled for a region already at the start.
 
 ---
 
+### Software Update (Sparkle)
+
+**Status**: Active (unverified - see Verification below)
+**Added**: 2026-08-07
+
+#### Description
+On launch the app reads a signed appcast, and if a newer build has been
+published it offers to download and install it, then relaunches. Updates are
+never silent: the user is asked first. Also reachable from **Projector → Check
+for Updates...** and **Settings → Updates**.
+
+A sandboxed app cannot replace itself in `/Applications`, so the install runs in
+Sparkle's XPC service outside the sandbox, reached via two temporary-exception
+entitlements. **Those entitlements are not accepted on the Mac App Store** - see
+`docs/software-update.md` and `docs/app-store/entitlements-audit-checklist.md`.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Protocol | `Contracts/UpdateServiceProtocol.swift` | The seam that lets an App Store build swap Sparkle out |
+| Manager | `Managers/SparkleUpdateService.swift` | Sparkle-backed implementation, logs each check |
+| View | `Views/SettingsView.swift` | Updates section: installed version, toggle, Check Now |
+| App | `ProjectorApp.swift` | Owns the service; adds the app-menu item |
+| Config | `Projector/Info.plist` | `SUFeedURL`, `SUPublicEDKey`, `SUEnableInstallerLauncherService`, check interval |
+| Config | `Projector/Projector.entitlements` | `-spks` / `-spki` mach-lookup exceptions |
+| Feed | `appcast.xml` | The published version list, served from main |
+| Script | `scripts/appcast.py` | Adds a release to the appcast |
+| Script | `scripts/build-release.sh` | Stamps `MARKETING_VERSION`, signs the DMG, publishes the appcast |
+| Docs | `docs/software-update.md` | Key generation, release flow, App Store consequence |
+
+#### State Properties
+
+| File | Property | Type | Purpose |
+|------|----------|------|---------|
+| `ProjectorApp.swift` | `let updateService` | `any UpdateServiceProtocol` | Owned by the delegate; outlives every window |
+| `SettingsView.swift` | `var updateService` | `(any UpdateServiceProtocol)?` | Passed in; `nil` hides the section |
+| `SettingsView.swift` | `@State var checksAutomatically` | `Bool` | Mirror of the updater's own preference |
+| `SettingsView.swift` | `@State var updatesExpanded` | `Bool` | Accordion state |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `ProjectorApp.swift` | `setupMenus()` | Inserts "Check for Updates..." below About |
+| `ProjectorApp.swift` | `validateMenuItem` | Greys the item out while a check runs |
+| `ContentView.swift` | Settings sheet | Passes the delegate's service to `SettingsView` |
+| `Projector.xcodeproj` | SPM | Sparkle 2.9.5, `upToNextMajorVersion` |
+
+#### Verification
+
+Builds clean. Verified in the built bundle: `Installer.xpc` and `Downloader.xpc`
+present in the embedded framework, both mach-lookup exceptions expanded to
+`com.projector.app-spks`/`-spki`, all six `SU*` keys in `Info.plist`. Launched:
+takes the inert path and logs
+`Update service inert: no SUPublicEDKey in Info.plist`, with no error dialog.
+
+**Still unexercised: an actual update.** That needs the EdDSA key pair generated
+(`SUPublicEDKey` is empty), and a release published through
+`scripts/build-release.sh` so there is an appcast entry to find. Installing also
+needs a Developer ID-signed build - the local Debug build is ad-hoc signed.
+
+#### Dependencies
+- Depends on: Sparkle 2.9.5 (SPM), the GitHub release pipeline in `build-release.sh`
+- Depended by: none
+
+---
+
+### Frame Content on Import
+
+**Status**: Active
+**Added**: 2026-08-07
+
+#### Description
+After media is imported, the timeline zooms and scrolls so every reel and clip
+is on screen. The timeline is at least two hours long whatever is on it, so
+fit-to-timeline zoom drew an imported reel as a sliver against an empty field,
+and content placed at its own timecode could sit off screen entirely. The fit
+solves the zoom curve for the scale that makes the content span the track area,
+leaves a 3% margin either side, and scrolls that span into view. Content too
+short to fill the track area at maximum zoom is centred instead of pinned left.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| ViewModel | `ViewModels/TimelineViewModel.swift` | `requestZoomToFitContent()`, `zoomToFitContentRequest` |
+| View | `Views/Timeline/MultiTrackTimelineView.swift` | `zoomToFitContent()`, `contentFrameRange()`, `scrollFramedContentIntoView(offsetX:expectedDocumentWidth:attempt:)` |
+
+#### State Properties
+
+| File | Property | Type | Purpose |
+|------|----------|------|---------|
+| `TimelineViewModel.swift` | `@Published private(set) var zoomToFitContentRequest` | `Int` | Counter; each new value is one request |
+| `MultiTrackTimelineView.swift` | `var zoomToFitContentRequest` | `Int` | Request passed in, observed via `onChangeCompat` |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `TimelineAccordionView.swift` | `timelineContent` | Passes the request to the timeline |
+| `ContentView+Timeline.swift` | `handleVideoDropOnTimeline` | Requests fit after single and batch imports |
+| `ContentView+Timeline.swift` | `handleAudioDropOnTimeline` | Requests fit after single and batch imports |
+| `ContentView+Timeline.swift` | `handleMixedBatchDrop` | Requests fit after each placement path |
+| `ContentView+Timeline.swift` | `handleAddToAudioLane` | Requests fit after adding from the media panel |
+| `ContentView+Timeline.swift` | `showVideoInsertSheetViaCoordinator` | Requests fit after a confirmed insert |
+
+#### Dependencies
+- Depends on: Multi-Track Timeline
+- Depended by: none
+
+---
+
 ### No Output ("None") on a Lane
 
 **Status**: Active

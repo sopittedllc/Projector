@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <title>Projector</title>
+    <link>https://raw.githubusercontent.com/sopittedllc/Projector/main/appcast.xml</link>
+    <description>Updates for Projector</description>
+    <language>en</language>
+  </channel>
+</rss>

@@ -90,6 +90,9 @@ struct MultiTrackTimelineView: View {
     let onSettingsPressed: () -> Void
     var showHeader: Bool = true
     @Binding var zoomLevel: CGFloat
+    /// Counter that asks the timeline to frame its content. Each new value is
+    /// one request; see `TimelineViewModel.requestZoomToFitContent()`.
+    var zoomToFitContentRequest: Int = 0
 
     // MARK: - State
 
@@ -375,6 +378,9 @@ struct MultiTrackTimelineView: View {
             .onChangeCompat(of: cachedScrollView) { scrollView in
                 scrollView?.contentView.postsBoundsChangedNotifications = true
                 horizontalScrollOffset = scrollView?.contentView.bounds.origin.x ?? 0
+            }
+            .onChangeCompat(of: zoomToFitContentRequest) { _ in
+                zoomToFitContent()
             }
     }
 
@@ -2616,6 +2622,129 @@ struct MultiTrackTimelineView: View {
     private func resetZoom() {
         withAnimation(AppAnimations.standard) {
             zoomLevel = minZoom
+        }
+    }
+
+    // MARK: - Zoom to Fit Content
+
+    /// Blank space left on each side when framing content, as a fraction of the
+    /// content's own span. Keeps the outermost reels off the viewport edges.
+    private static let fitContentMarginFraction: CGFloat = 0.03
+
+    /// How many run-loop turns the fit scroll waits for the new zoom to be laid
+    /// out before scrolling anyway.
+    private static let maxFitScrollAttempts = 20
+
+    /// The frame range occupied by every reel and clip on the timeline.
+    ///
+    /// - Returns: The first and last content frames, or `nil` when the timeline
+    ///   is empty or its content has no length.
+    private func contentFrameRange() -> (start: Int, end: Int)? {
+        var starts: [Int] = timeline.videoReels.map { $0.timelineStartFrame }
+        var ends: [Int] = timeline.videoReels.map { $0.timelineEndFrame }
+
+        for lane in timeline.audioLanes {
+            starts.append(contentsOf: lane.clips.map { $0.timelineStartFrame })
+            ends.append(contentsOf: lane.clips.map { $0.timelineEndFrame })
+        }
+
+        guard let start = starts.min(), let end = ends.max(), end > start else { return nil }
+        return (max(0, start), end)
+    }
+
+    /// Zoom and scroll so every reel and clip on the timeline is on screen.
+    ///
+    /// The timeline is at least two hours long whatever is on it, so fit-to-
+    /// timeline zoom renders an imported reel as a sliver against an empty
+    /// field. This solves for the zoom that makes the *content* span the track
+    /// area instead, then scrolls that span into view.
+    ///
+    /// Both halves are needed: content sitting at an hour into the timeline is
+    /// off screen at any zoom that makes it legible, so zooming without
+    /// scrolling would leave the viewport parked on empty timeline.
+    private func zoomToFitContent() {
+        guard let scrollView = cachedScrollView,
+              let content = contentFrameRange() else { return }
+
+        let viewportWidth = scrollView.contentView.bounds.width
+        let contentAreaWidth = viewportWidth - TimelineLayout.headerWidth
+        let durationFrames = CGFloat(max(1, timeline.config.durationFrames))
+        guard contentAreaWidth > 0 else { return }
+
+        // Margin comes out of the span on both sides, clamped to the timeline
+        // so a reel starting at frame 0 is not asked to scroll to a negative
+        // offset.
+        let span = CGFloat(content.end - content.start)
+        let margin = span * Self.fitContentMarginFraction
+        let framedStart = max(0, CGFloat(content.start) - margin)
+        let framedEnd = min(durationFrames, CGFloat(content.end) + margin)
+        let framedSpan = max(1, framedEnd - framedStart)
+
+        // Invert the geometric zoom curve `pixelsPerFrame(for:)` applies: given
+        // the scale that makes the framed span exactly fill the track area,
+        // solve for the slider position that produces it.
+        let fitPixelsPerFrame = contentAreaWidth / durationFrames
+        let desiredPixelsPerFrame = contentAreaWidth / framedSpan
+        let multiplier = maxZoomMultiplier(fitPixelsPerFrame: fitPixelsPerFrame)
+        guard fitPixelsPerFrame > 0, multiplier > 1 else { return }
+
+        let solvedZoom = log(desiredPixelsPerFrame / fitPixelsPerFrame) / log(multiplier)
+        let targetZoom = min(max(solvedZoom, minZoom), maxZoom)
+        zoomLevel = targetZoom
+
+        // Recomputed from the clamped zoom rather than reused from the solve:
+        // content shorter than the zoom ceiling can express lands at maxZoom,
+        // where the actual scale is smaller than the one asked for and a scroll
+        // offset derived from the latter would overshoot.
+        let actualPixelsPerFrame = fitPixelsPerFrame * pow(multiplier, targetZoom)
+        let documentWidth = durationFrames * actualPixelsPerFrame + TimelineLayout.headerWidth
+
+        // Content too short to fill the track area even at maximum zoom is
+        // centred rather than pinned left, so the blank space it cannot help
+        // leaving sits on both sides instead of all trailing off to the right.
+        let framedWidth = framedSpan * actualPixelsPerFrame
+        let centringOffset = max(0, contentAreaWidth - framedWidth) / 2
+
+        scrollFramedContentIntoView(
+            offsetX: framedStart * actualPixelsPerFrame - centringOffset,
+            expectedDocumentWidth: documentWidth
+        )
+    }
+
+    /// Scroll the track area to `offsetX` once the new zoom has been laid out.
+    ///
+    /// Deferred, and retried until the document view is as wide as the new zoom
+    /// implies: scrolling in the same run-loop turn as the zoom change clamps
+    /// the offset against the old, narrower document and lands short of the
+    /// content.
+    ///
+    /// - Parameters:
+    ///   - offsetX: Target horizontal scroll origin, in document points.
+    ///   - expectedDocumentWidth: Width the document reaches at the new zoom.
+    ///   - attempt: Number of turns already waited.
+    private func scrollFramedContentIntoView(
+        offsetX: CGFloat,
+        expectedDocumentWidth: CGFloat,
+        attempt: Int = 0
+    ) {
+        DispatchQueue.main.async {
+            guard let scrollView = cachedScrollView else { return }
+
+            let documentWidth = scrollView.documentView?.frame.width ?? 0
+            if documentWidth + 1 < expectedDocumentWidth, attempt < Self.maxFitScrollAttempts {
+                scrollFramedContentIntoView(
+                    offsetX: offsetX,
+                    expectedDocumentWidth: expectedDocumentWidth,
+                    attempt: attempt + 1
+                )
+                return
+            }
+
+            let clipView = scrollView.contentView
+            var origin = clipView.bounds.origin
+            origin.x = max(0, min(offsetX, documentWidth - clipView.bounds.width))
+            clipView.setBoundsOrigin(origin)
+            scrollView.reflectScrolledClipView(clipView)
         }
     }
 

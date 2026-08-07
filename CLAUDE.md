@@ -77,6 +77,39 @@ All goals must serve the broader plan and the user's actual workflow needs. This
 
 ---
 
+## "Ship It"
+
+**"Ship"** is one word for the whole release sequence. When the user says *ship*,
+*ship it*, or *let's ship this*, do all of it, in this order, without asking
+between steps:
+
+1. **Commit** everything outstanding, with a real message.
+2. **Push** to the remote.
+3. **Build the DMG** — `./scripts/build-release.sh`, which signs, notarizes and
+   verifies it.
+4. **Update the download links** — GitHub release (tagged `v<version>`) and the
+   Google Drive copy. Both, not either.
+5. **Publish the appcast** so installed copies are offered the update.
+6. **Replace `/Applications/Projector.app`** with the new build.
+
+Steps 3-6 are all `build-release.sh`; it is one command and it prints what it
+skipped. **Read that output and report anything it skipped** — a release that
+did not reach the feed, the release page or Drive is a release nobody gets, and
+the script warns rather than failing so the parts that did work are kept.
+
+Ship does not mean "commit". Committing without shipping is fine and normal;
+shipping without a commit is not possible.
+
+### What Ship does NOT do
+
+- It does not decide the version. That defaults to today's date; pass one
+  explicitly to override (`./scripts/build-release.sh 1.5`).
+- It does not skip QA on the user's behalf. If UI changed and has not been
+  verified at runtime, say so before shipping - once, then ship anyway if the
+  user has already asked for it.
+
+---
+
 ## Multi-Agent System
 
 Agents are located in `.claude/agents/`:

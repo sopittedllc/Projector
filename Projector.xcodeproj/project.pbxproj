@@ -104,6 +104,7 @@
 		C1TIMELINE0000003B /* ThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000003A /* ThumbnailCache.swift */; };
 		C1WAVEFORM000003 /* DSWaveformImageViews in Frameworks */ = {isa = PBXBuildFile; productRef = C1WAVEFORM000002 /* DSWaveformImageViews */; };
 		C1WAVEFORM000005 /* DSWaveformImage in Frameworks */ = {isa = PBXBuildFile; productRef = C1WAVEFORM000004 /* DSWaveformImage */; };
+		C1SPARKLE000003 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = C1SPARKLE000002 /* Sparkle */; };
 		CBA9B198D87A4901A984348F /* OptimizationSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF52682FA9954FFD8CCAD64E /* OptimizationSheetView.swift */; };
 		OPTSUGG01SUGGESTION01 /* OptimizationSuggestionBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = OPTSUGG02SUGGESTION02 /* OptimizationSuggestionBanner.swift */; };
 		F587047D294B4B08BD7B94B1 /* OptimizationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE90E852077C43F9AE6F40DF /* OptimizationViewModel.swift */; };
@@ -123,6 +124,8 @@
 		PVFC00000000000000000002 /* VideoCodecSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC00000000000000000001 /* VideoCodecSupport.swift */; };
 		PVFC00000000000000000004 /* ProVideoFormats.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC00000000000000000003 /* ProVideoFormats.swift */; };
 		PVFC00000000000000000006 /* ProVideoFormatsInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC00000000000000000005 /* ProVideoFormatsInstaller.swift */; };
+		SPKL00000000000000000002 /* SparkleUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKL00000000000000000001 /* SparkleUpdateService.swift */; };
+		SPKL00000000000000000004 /* UpdateServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPKL00000000000000000003 /* UpdateServiceProtocol.swift */; };
 		PVFC00000000000000000008 /* ProVideoFormatsInstallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC00000000000000000007 /* ProVideoFormatsInstallSheet.swift */; };
 		PVFC0000000000000000000: /* VideoCodecSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC00000000000000000009 /* VideoCodecSupportTests.swift */; };
 		PVFC0000000000000000000C /* ProVideoFormatsInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVFC0000000000000000000B /* ProVideoFormatsInstallerTests.swift */; };
@@ -297,6 +300,8 @@
 		PVFC00000000000000000001 /* VideoCodecSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoCodecSupport.swift; sourceTree = "<group>"; };
 		PVFC00000000000000000003 /* ProVideoFormats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProVideoFormats.swift; sourceTree = "<group>"; };
 		PVFC00000000000000000005 /* ProVideoFormatsInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProVideoFormatsInstaller.swift; sourceTree = "<group>"; };
+		SPKL00000000000000000001 /* SparkleUpdateService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkleUpdateService.swift; sourceTree = "<group>"; };
+		SPKL00000000000000000003 /* UpdateServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateServiceProtocol.swift; sourceTree = "<group>"; };
 		PVFC00000000000000000007 /* ProVideoFormatsInstallSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProVideoFormatsInstallSheet.swift; sourceTree = "<group>"; };
 		PVFC00000000000000000009 /* VideoCodecSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoCodecSupportTests.swift; sourceTree = "<group>"; };
 		PVFC0000000000000000000B /* ProVideoFormatsInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProVideoFormatsInstallerTests.swift; sourceTree = "<group>"; };
@@ -352,6 +357,7 @@
 				A1000001227D3F0000000068 /* SwiftTimecodeUI in Frameworks */,
 				C1WAVEFORM000003 /* DSWaveformImageViews in Frameworks */,
 				C1WAVEFORM000005 /* DSWaveformImage in Frameworks */,
+				C1SPARKLE000003 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -462,6 +468,7 @@
 				VPLB00000000000000000001 /* VirtualPortLabels.swift */,
 				AGGD00000000000000000001 /* AggregateDeviceManager.swift */,
 				PVFC00000000000000000005 /* ProVideoFormatsInstaller.swift */,
+				SPKL00000000000000000001 /* SparkleUpdateService.swift */,
 				PVFC00000000000000000003 /* ProVideoFormats.swift */,
 				PVFC00000000000000000001 /* VideoCodecSupport.swift */,
 				B1294F512F7C958C00783FA8 /* TransportActor.swift */,
@@ -577,6 +584,7 @@
 			isa = PBXGroup;
 			children = (
 				B18F62FC2F7C8B00001132AF /* TimelineServiceProtocol.swift */,
+				SPKL00000000000000000003 /* UpdateServiceProtocol.swift */,
 				D2403C06D2294027B9140EB4 /* MediaOptimizationServiceProtocol.swift */,
 				B19B58B12F0889F200FA33EC /* MIDISyncServiceProtocol.swift */,
 				B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */,
@@ -684,6 +692,7 @@
 				A1000001227D3F0000000067 /* SwiftTimecodeUI */,
 				C1WAVEFORM000002 /* DSWaveformImageViews */,
 				C1WAVEFORM000004 /* DSWaveformImage */,
+				C1SPARKLE000002 /* Sparkle */,
 			);
 			productName = Projector;
 			productReference = A1000001227D3F0000000010 /* Projector.app */;
@@ -768,6 +777,7 @@
 				A1000001227D3F000000005D /* XCRemoteSwiftPackageReference "MIDIKit" */,
 				A1000001227D3F000000005E /* XCRemoteSwiftPackageReference "swift-timecode" */,
 				C1WAVEFORM000001 /* XCRemoteSwiftPackageReference "DSWaveformImage" */,
+				C1SPARKLE000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			productRefGroup = A1000001227D3F000000002F /* Products */;
 			projectDirPath = "";
@@ -867,6 +877,8 @@
 				AGGD00000000000000000002 /* AggregateDeviceManager.swift in Sources */,
 				PVFC00000000000000000008 /* ProVideoFormatsInstallSheet.swift in Sources */,
 				PVFC00000000000000000006 /* ProVideoFormatsInstaller.swift in Sources */,
+				SPKL00000000000000000002 /* SparkleUpdateService.swift in Sources */,
+				SPKL00000000000000000004 /* UpdateServiceProtocol.swift in Sources */,
 				PVFC00000000000000000004 /* ProVideoFormats.swift in Sources */,
 				PVFC00000000000000000002 /* VideoCodecSupport.swift in Sources */,
 				AM01AUDIOMETER002 /* AudioMeterView.swift in Sources */,
@@ -1388,6 +1400,14 @@
 				minimumVersion = 14.0.0;
 			};
 		};
+		C1SPARKLE000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.5;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1425,6 +1445,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C1WAVEFORM000001 /* XCRemoteSwiftPackageReference "DSWaveformImage" */;
 			productName = DSWaveformImage;
+		};
+		C1SPARKLE000002 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C1SPARKLE000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

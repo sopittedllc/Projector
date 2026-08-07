@@ -10,11 +10,23 @@ struct SettingsView: View {
     @ObservedObject var audioManager: AudioOutputManager
     @ObservedObject var settings = AppSettings.shared
 
+    /// The updater, or `nil` when there is none to offer.
+    ///
+    /// Passed in rather than reached for through `NSApp.delegate`, so a preview
+    /// or an App Store build can hand over nothing and the section simply does
+    /// not appear.
+    var updateService: (any UpdateServiceProtocol)?
+
     @Binding var isPresented: Bool
 
     // Accordion section states - default to expanded
     @State private var audioExpanded = true
     @State private var displayExpanded = true
+    @State private var updatesExpanded = true
+
+    /// Mirror of the updater's preference, because a `Toggle` needs a binding
+    /// and the updater stores this itself rather than in ``AppSettings``.
+    @State private var checksAutomatically = false
 
     @State private var pendingOutputRole: OutputRole?
 
@@ -80,6 +92,16 @@ struct SettingsView: View {
                         isExpanded: $displayExpanded
                     ) {
                         displaySectionContent
+                    }
+
+                    if updateService?.isEnabled == true {
+                        accordionSection(
+                            title: "Updates",
+                            icon: "arrow.down.circle",
+                            isExpanded: $updatesExpanded
+                        ) {
+                            updatesSectionContent
+                        }
                     }
                 }
                 .padding()
@@ -710,6 +732,71 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Updates Section
+
+    /// Which version is running, whether the app looks for new ones, and a way
+    /// to look right now.
+    ///
+    /// The installed version is shown because it is the first thing anyone is
+    /// asked for when reporting a problem, and until now it appeared only
+    /// inside a submitted bug report.
+    @ViewBuilder
+    private var updatesSectionContent: some View {
+        VStack(alignment: .leading, spacing: SettingsDesign.rowSpacing) {
+            SettingsRow(label: "Installed") {
+                Text(Self.installedVersionDescription)
+                    .font(SettingsDesign.value)
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            SettingsRow(label: "Automatic") {
+                Toggle("Check for updates on launch", isOn: Binding(
+                    get: { checksAutomatically },
+                    set: { newValue in
+                        checksAutomatically = newValue
+                        updateService?.automaticallyChecksForUpdates = newValue
+                    }
+                ))
+                .font(SettingsDesign.value)
+                .toggleStyle(.checkbox)
+            }
+
+            SettingsSubRow {
+                Button("Check Now") {
+                    updateService?.checkForUpdates()
+                }
+                .controlSize(.small)
+                .disabled(!(updateService?.canCheckForUpdates ?? false))
+
+                if let lastChecked = updateService?.lastUpdateCheckDate {
+                    Text("Last checked \(lastChecked.formatted(.relative(presentation: .named)))")
+                        .font(SettingsDesign.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Not checked yet")
+                        .font(SettingsDesign.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .onAppear {
+            checksAutomatically = updateService?.automaticallyChecksForUpdates ?? false
+        }
+    }
+
+    /// The running version, as "1.4 (20260807.1652)".
+    ///
+    /// Short version first because that is the one releases are named after;
+    /// the build number distinguishes two builds cut on the same day, which is
+    /// the normal case while chasing a bug.
+    private static var installedVersionDescription: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(short) (\(build))"
     }
 
 }

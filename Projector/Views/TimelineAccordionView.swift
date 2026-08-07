@@ -311,7 +311,8 @@ struct TimelineAccordionView: View {
             onSeek: onSeek,
             onSettingsPressed: onSettingsPressed,
             showHeader: false,
-            zoomLevel: $timelineViewModel.zoomLevel
+            zoomLevel: $timelineViewModel.zoomLevel,
+            zoomToFitContentRequest: timelineViewModel.zoomToFitContentRequest
         )
     }
 }

@@ -60,7 +60,13 @@ DMG_FILENAME="${DMG_NAME}-${VERSION}.dmg"
 
 # Build number, stamped into the app so builds can be told apart.
 #
-# MARKETING_VERSION is the product version and stays where the project sets it.
+# Both version fields are stamped from this run. MARKETING_VERSION used to be
+# left at whatever the project file said - 1.4 - while the release, the tag and
+# the DMG were all named after the date, so a build published as 2026.08.07
+# called itself 1.4 everywhere it introduced itself. Harmless while nothing read
+# it; not harmless once the app compares its own version against the appcast,
+# where it would offer "1.4" as the upgrade from "1.4".
+#
 # CURRENT_PROJECT_VERSION was pinned too, so every build called itself "1.4 (4)"
 # whatever day it was cut - which is why four crash reports from a tester all
 # claimed the same version, and why an installed copy could not be identified.
@@ -101,6 +107,7 @@ archive() {
         CODE_SIGN_IDENTITY="${DEVELOPER_ID}" \
         DEVELOPMENT_TEAM="${TEAM_ID}" \
         CODE_SIGN_STYLE=Manual \
+        MARKETING_VERSION="${VERSION}" \
         CURRENT_PROJECT_VERSION="${BUILD_NUMBER}" \
         OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime"
 }
@@ -315,6 +322,100 @@ Built from \`${COMMIT}\`."
         --json assets --jq '.assets[0].url' 2>/dev/null || true)"
 fi
 
+# Add this build to the appcast
+#
+# The appcast is the list of versions the app reads on launch to decide whether
+# it is out of date. Until an entry lands here, a build is published but
+# invisible to every copy already installed - so this runs on every publish, not
+# as a separate remembered step.
+#
+# Signed with the EdDSA key in this machine's keychain, which is the only thing
+# standing between a tampered feed and an installed update: Sparkle verifies the
+# signature against SUPublicEDKey in Info.plist and refuses anything that does
+# not match. The signature covers the notarized, stapled DMG exactly as
+# uploaded, which is why this runs after the release rather than before it.
+#
+# Skipped without a release to point at - an entry whose enclosure URL 404s is
+# worse than no entry, because Sparkle would offer an update it cannot fetch.
+APPCAST_PATH="${PROJECT_DIR}/appcast.xml"
+APPCAST_UPDATED=0
+if [ -z "${DOWNLOAD_URL}" ]; then
+    echo ""
+    echo "[appcast] Skipped: no published release to point at."
+    echo "          Existing installs will not see ${VERSION}."
+else
+    # sign_update ships inside Sparkle's SPM artifact, which lands in DerivedData,
+    # or in the Homebrew cask. Neither path is guaranteed, so both are tried.
+    SIGN_UPDATE=""
+    for candidate in \
+        "$(find "${HOME}/Library/Developer/Xcode/DerivedData" \
+            -maxdepth 6 -type f -name sign_update -path '*Sparkle*' 2>/dev/null | head -1)" \
+        "/opt/homebrew/Caskroom/sparkle/*/bin/sign_update" \
+        "/Applications/Sparkle/bin/sign_update"; do
+        # shellcheck disable=SC2086
+        expanded="$(ls -1 ${candidate} 2>/dev/null | head -1)"
+        if [ -n "${expanded}" ] && [ -x "${expanded}" ]; then
+            SIGN_UPDATE="${expanded}"
+            break
+        fi
+    done
+
+    if [ -z "${SIGN_UPDATE}" ]; then
+        echo ""
+        echo "[appcast] Skipped: sign_update not found."
+        echo "          Build once in Xcode so the Sparkle package resolves, or:"
+        echo "          brew install --cask sparkle"
+        echo "          Existing installs will not see ${VERSION}."
+    else
+        echo ""
+        echo "[appcast] Signing ${DMG_FILENAME}..."
+
+        # Prints: sparkle:edSignature="..." length="..."
+        SIGNATURE_OUTPUT="$("${SIGN_UPDATE}" "${DMG_PATH}" 2>/dev/null || true)"
+        SIGNATURE="$(printf '%s' "${SIGNATURE_OUTPUT}" \
+            | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')"
+        DMG_BYTES="$(stat -f%z "${DMG_PATH}")"
+
+        if [ -z "${SIGNATURE}" ]; then
+            echo "[appcast] WARNING: sign_update produced no signature."
+            echo "          The private key may not be in this keychain. Generate one once with"
+            echo "          Sparkle's generate_keys, then put the public half in Info.plist."
+            echo "          Existing installs will not see ${VERSION}."
+        else
+            python3 "${SCRIPTS_DIR}/appcast.py" \
+                --appcast "${APPCAST_PATH}" \
+                --version "${VERSION}" \
+                --build "${BUILD_NUMBER}" \
+                --url "${DOWNLOAD_URL}" \
+                --length "${DMG_BYTES}" \
+                --signature "${SIGNATURE}" \
+                --min-system "12.0" \
+                --link "https://github.com/sopittedllc/Projector/releases/tag/v${VERSION}" \
+                --notes "Signed, notarized, universal (x86_64 + arm64). Requires macOS 12.0 or later."
+
+            # Committed on its own, by path: the working tree may hold unrelated
+            # work in progress, and a release must never sweep that into a commit
+            # nobody reviewed.
+            #
+            # Staged first because `git commit <path>` refuses a path git has
+            # never seen - which is exactly the state on the first release after
+            # this feature landed, so the one release that most needed to
+            # publish a feed would have been the one that could not.
+            if git -C "${PROJECT_DIR}" add "${APPCAST_PATH}" >/dev/null 2>&1 \
+               && git -C "${PROJECT_DIR}" commit "${APPCAST_PATH}" \
+                 -m "release: add ${VERSION} to the appcast" >/dev/null 2>&1 \
+               && git -C "${PROJECT_DIR}" push >/dev/null 2>&1; then
+                APPCAST_UPDATED=1
+                echo "[appcast] Published ${VERSION}; installed copies will offer it."
+            else
+                echo "[appcast] WARNING: appcast.xml was updated but not pushed."
+                echo "          Existing installs will not see ${VERSION} until you run:"
+                echo "          git add appcast.xml && git commit -m 'release: add ${VERSION}' && git push"
+            fi
+        fi
+    fi
+fi
+
 # Upload to Google Drive
 #
 # Alongside the GitHub release rather than instead of it: two links cost nothing
@@ -360,6 +461,11 @@ if [ -n "${DOWNLOAD_URL}" ]; then
 fi
 if [ -n "${DRIVE_URL}" ]; then
     echo "Drive:        ${DRIVE_URL}"
+fi
+if [ "${APPCAST_UPDATED}" -eq 1 ]; then
+    echo "Appcast:      published (installed copies will offer ${VERSION})"
+else
+    echo "Appcast:      NOT published - installed copies will not see ${VERSION}"
 fi
 echo ""
 echo "To test Gatekeeper acceptance:"

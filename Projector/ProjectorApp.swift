@@ -46,6 +46,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     private var activationAttempt = 0
     private let maxActivationAttempts = 6
 
+    /// Checks for and installs new versions.
+    ///
+    /// Owned by the app delegate rather than a view: it has to outlive every
+    /// window, and Sparkle's scheduled check runs whether or not anything is on
+    /// screen. Exposed so the settings window can offer the same controls
+    /// without building a second updater.
+    ///
+    /// Typed as the protocol, not as ``SparkleUpdateService``, so an App Store
+    /// build can supply a different one - see ``UpdateServiceProtocol``.
+    ///
+    /// The updater is main-actor isolated because Sparkle has to be driven from
+    /// the main thread, while this class is not - so every use of it below goes
+    /// through `MainActor.assumeIsolated`, as the pin-state observer above
+    /// already does. The assumption holds: AppKit creates the delegate on the
+    /// main thread, and every caller here is a menu action or a main-queue
+    /// callback.
+    let updateService: any UpdateServiceProtocol = MainActor.assumeIsolated {
+        SparkleUpdateService()
+    }
+
     /// URL to open when the app finishes launching (for file double-click)
     static var pendingOpenURL: URL?
 
@@ -427,11 +447,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
             helpMenu.addItem(reportBugItem)
         }
 
+        // Projector > Check for Updates.
+        //
+        // Same treatment as Help, and for the same reason: the application menu
+        // is built by macOS from the bundle name and already holds About,
+        // Services, Hide and Quit. This slots one item in below About - where
+        // every Mac app puts it - rather than rebuilding a menu the system owns.
+        // Omitted entirely when this build cannot update itself, rather than
+        // offered and permanently greyed out - a disabled item invites the
+        // question of what would enable it.
+        if MainActor.assumeIsolated({ updateService.isEnabled }),
+           let appMenu = mainMenu.items.first?.submenu,
+           !appMenu.items.contains(where: { $0.title == Self.checkForUpdatesMenuTitle }) {
+            let updatesItem = NSMenuItem(
+                title: Self.checkForUpdatesMenuTitle,
+                action: #selector(checkForUpdates(_:)),
+                keyEquivalent: ""
+            )
+            updatesItem.target = self
+
+            // Below About when there is one, otherwise at the top. Falling back
+            // to the top rather than skipping the item keeps the menu useful on
+            // a system that ever stops adding About for us.
+            let aboutIndex = appMenu.items.firstIndex { $0.title.hasPrefix("About") }
+            let insertionIndex = aboutIndex.map { $0 + 1 } ?? 0
+            appMenu.insertItem(updatesItem, at: insertionIndex)
+            appMenu.insertItem(NSMenuItem.separator(), at: insertionIndex + 1)
+        }
+
         debugPrint("setupMenus: DONE. Added Edit, View and Help menus")
     }
 
     /// Title of the Help menu item, also used to avoid adding it twice.
     private static let reportBugMenuTitle = "Report a Bug..."
+
+    /// Title of the application menu's update item, also used to avoid adding it twice.
+    private static let checkForUpdatesMenuTitle = "Check for Updates..."
+
+    /// Checks because the user asked, and reports the answer either way.
+    @objc private func checkForUpdates(_ sender: Any?) {
+        MainActor.assumeIsolated { updateService.checkForUpdates() }
+    }
 
     /// Asks the main view to open the bug report sheet.
     @objc private func reportBug(_ sender: Any?) {
@@ -644,6 +700,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         if menuItem.action == #selector(saveProject(_:)) ||
            menuItem.action == #selector(saveProjectAs(_:)) {
             return true
+        }
+        // Greyed out while a check or install is already running, so the item
+        // cannot start a second one on top of the first.
+        if menuItem.action == #selector(checkForUpdates(_:)) {
+            return MainActor.assumeIsolated { updateService.canCheckForUpdates }
         }
         return true
     }

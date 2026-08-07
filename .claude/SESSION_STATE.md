@@ -6,6 +6,88 @@
 
 ---
 
+## Software update via Sparkle (2026-08-07, uncommitted, builds + launches clean)
+
+The app checks a signed appcast on launch and offers to install a newer build.
+
+**Remaining human step: generate the EdDSA key pair** (`generate_keys`) and paste the
+public half into `Info.plist` as `SUPublicEDKey`, which is still empty. Back the private
+key up; losing it strands every installed copy.
+
+Until that key exists the service is **inert by design**: no menu item, no Settings
+section, one warning line. Confirmed at runtime -
+`Update service inert: no SUPublicEDKey in Info.plist`, no dialog, app launches normally.
+Verified from Sparkle's source that the naive alternative is much worse: `startUpdater`
+*fails* without a key and `SPUStandardUpdaterController` answers that with a modal
+"Unable to Check For Updates" alert - an error dialog at every launch.
+
+Package resolution was blocked for a while on a keychain prompt for github.com
+credentials (`BinaryArtifactsManager.download → KeychainAuthorizationProvider.get`),
+which the user cleared by approving it. If it recurs on another machine, that is the
+cause - not the network.
+
+Design: `UpdateServiceProtocol` (Contracts) ← `SparkleUpdateService` (Managers). The
+protocol exists for one reason - the two `-spks`/`-spki` temporary-exception entitlements
+a sandboxed app needs to replace itself are **not accepted on the Mac App Store**, so a
+future MAS build swaps the implementation rather than unpicking call sites. Flagged in
+`docs/app-store/entitlements-audit-checklist.md` so an audit cannot pass a build carrying
+a disqualifying entitlement without seeing it.
+
+Release pipeline now also: stamps `MARKETING_VERSION` (every build called itself 1.4
+while being published as a date - the update dialog would have offered 1.4 over 1.4),
+signs the notarized DMG with `sign_update`, adds an entry to `appcast.xml` via
+`scripts/appcast.py`, and commits+pushes that file by path. Prints
+`Appcast: NOT published` whenever any of that is skipped.
+
+Checks are on by default, hourly at most (Sparkle's floor), never silent
+(`SUAutomaticallyUpdate` NO). No launch-time check racing Sparkle's own scheduler.
+
+Verified: builds clean; `Installer.xpc` + `Downloader.xpc` present in the embedded
+framework; entitlements expanded to `com.projector.app-spks`/`-spki` in the signed
+bundle; all six `SU*` keys in the built Info.plist; launch takes the inert path with no
+dialog; `appcast.py` round-trips including same-version rebuild dedupe and XML escaping;
+`bash -n` on the release script.
+
+Reading Sparkle's headers caught two bugs before they shipped: `SPUUpdater` has **no
+settable delegate** (init-only, so the controller is built after `super.init()`), and the
+missing-key alert above. Three main-actor isolation errors also had to be fixed -
+`AppDelegate` is not inferred `@MainActor`, so all four uses of the service go through
+`MainActor.assumeIsolated`, matching the pin-observer already in that file.
+
+**Not yet exercised: an actual update.** Needs the key, a published release, and a
+Developer ID-signed build (the Debug build is ad-hoc signed).
+
+Files: `Contracts/UpdateServiceProtocol.swift` (new), `Managers/SparkleUpdateService.swift`
+(new), `ProjectorApp.swift`, `Views/SettingsView.swift`, `Views/ContentView.swift`,
+`Projector/Info.plist`, `Projector/Projector.entitlements`, `Projector.xcodeproj`,
+`appcast.xml` (new), `scripts/appcast.py` (new), `scripts/build-release.sh`,
+`docs/software-update.md` (new), `docs/app-store/entitlements-audit-checklist.md`,
+`FEATURES.md`.
+
+## Timeline frames its content on import (2026-08-07, uncommitted, awaiting user verification)
+
+An import now zooms and scrolls the timeline so every reel and clip is on screen,
+replacing the fit-to-timeline zoom that drew one reel as a sliver of a two-hour field.
+
+- `TimelineViewModel.requestZoomToFitContent()` bumps `zoomToFitContentRequest`. The
+  viewmodel cannot compute the zoom — it depends on the track area's width — so the
+  counter is the request and `MultiTrackTimelineView` does the measuring.
+- `MultiTrackTimelineView.zoomToFitContent()` inverts the geometric zoom curve in
+  `pixelsPerFrame(for:)`: solve for the slider position whose scale makes the content
+  span fill the track area, 3% margin either side, clamped to 0…1.
+- `scrollFramedContentIntoView` defers the scroll and retries (max 20 run-loop turns)
+  until the document view is as wide as the new zoom implies — scrolling in the same
+  turn clamps against the old, narrower document and lands short.
+- Content too short to fill the viewport at max zoom (4pt/frame) is centred.
+
+Requested from every import path in `ContentView+Timeline.swift`: video drop (single and
+batch), audio drop (single and batch), mixed batch, add-to-lane from the media panel, and
+the video insert sheet. **Not** on project open — deliberate, not yet asked for.
+
+Files: `ViewModels/TimelineViewModel.swift`, `Views/Timeline/MultiTrackTimelineView.swift`,
+`Views/TimelineAccordionView.swift`, `Views/ContentView+Timeline.swift`, `FEATURES.md`.
+Builds clean. No clare review yet; no runtime verification yet.
+
 ## Crash on zoom, Intel — diagnosed and fixed (2026-08-06, uncommitted)
 
 Four crash reports from a tester on a **Mac Pro 7,1, macOS 12.6.8, AMD GPU**, app 1.4.

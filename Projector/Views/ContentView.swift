@@ -218,6 +218,7 @@ struct ContentView: View {
             )) {
                 SettingsView(
                     audioManager: audioManager,
+                    updateService: (NSApp.delegate as? AppDelegate)?.updateService,
                     isPresented: Binding(
                         get: { alerts.activeAlert?.id == "settings" },
                         set: { if !$0, alerts.activeAlert?.id == "settings" { alerts.dismiss() } }

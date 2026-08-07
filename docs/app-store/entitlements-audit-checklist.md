@@ -66,10 +66,21 @@ Comprehensive checklist for verifying entitlements and sandbox compliance before
 ### Temporary Exceptions (ONLY if absolutely necessary)
 
 - [ ] **`com.apple.security.temporary-exception.mach-lookup.global-name`**
-  - **Status**: _____ (Present / Missing)
-  - **Services Listed**: _________________________________
-  - **Why Needed**: (e.g., "CoreAudio daemon access for MIDI")
+  - **Status**: **PRESENT** as of 2026-08-07
+  - **Services Listed**: `$(PRODUCT_BUNDLE_IDENTIFIER)-spks`, `$(PRODUCT_BUNDLE_IDENTIFIER)-spki`
+  - **Why Needed**: Sparkle's installer XPC services. A sandboxed app cannot
+    replace itself in `/Applications`, so software update is impossible without
+    them. See `docs/software-update.md`.
   - **Justification**: Must be documented in App Review Notes
+
+  > **🚫 THIS BUILD CANNOT BE SUBMITTED.** Temporary-exception entitlements are
+  > not accepted on the Mac App Store, and this one exists to let the app update
+  > itself outside the store — which the store would not want even if it were
+  > allowed. An App Store submission needs its own build configuration with
+  > these two keys removed, Sparkle removed from the target, and an
+  > `UpdateServiceProtocol` implementation that reports nothing to update.
+  > Do not "fix" this by deleting the keys from the shipping configuration:
+  > that produces a Developer ID build that silently cannot update itself.
 
 ---
 
