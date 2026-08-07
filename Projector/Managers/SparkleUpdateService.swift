@@ -185,13 +185,24 @@ extension SparkleUpdateService: SPUUpdaterDelegate {
         didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
         error: (any Error)?
     ) {
-        if let error {
-            // Includes the ordinary "no network" case, so this is not an error
-            // level: a laptop opened on a plane should not file a fault.
-            diagnosticLog(.warning, .app, "Update check ended with: \(error.localizedDescription)")
-        } else {
+        guard let error else {
             diagnosticLog(.info, .app, "Update check finished")
+            return
         }
+
+        // Sparkle reports "you are already up to date" as an error object, so
+        // taking the error branch at face value filed the most ordinary outcome
+        // there is as a warning reading "Update check ended with: You're up to
+        // date!" - which is the sort of line that sends someone hunting for a
+        // fault that was never there.
+        if (error as NSError).code == Int(SUError.noUpdateError.rawValue) {
+            diagnosticLog(.info, .app, "Update check found nothing newer")
+            return
+        }
+
+        // Everything else, including the ordinary no-network case. Still not an
+        // error level: a laptop opened on a plane should not file a fault.
+        diagnosticLog(.warning, .app, "Update check ended with: \(error.localizedDescription)")
     }
 
     nonisolated func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
