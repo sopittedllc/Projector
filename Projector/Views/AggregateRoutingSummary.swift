@@ -2,27 +2,25 @@
 //  AggregateRoutingSummary.swift
 //  Projector
 //
-//  Two lines that say which outputs reach the room and which reach the DAW.
+//  The port list, as the DAW will show it.
 //
 
 import SwiftUI
 
-/// A compact picture of where an aggregate device sends each output.
+/// Every port on the aggregate, in the order a DAW lists them.
 ///
-/// The thing users get wrong is not the channel numbers, it is the *sides*: which
-/// outputs come out of the speakers and which travel to the DAW. So the summary is
-/// organised by destination rather than by output, and each side is one line however
-/// many outputs it holds.
+/// One row per output rather than one row per destination. Grouped by destination it
+/// read as a summary of Projector's intent; what the user needs while patching is the
+/// port list itself, in port order, so the panel and the DAW can be compared line by
+/// line without translating between them.
 ///
-/// Two numbering systems appear because the user meets both. An output on the loopback
-/// half is channel 35 of the aggregate and input 3 of the loopback device; the DAW
-/// only knows the second. Loopback outputs are therefore labelled with the DAW's
-/// numbering, which is the number the user has to type.
+/// One numbering system, the aggregate's, because that is the only one the user can act
+/// on - it is what their DAW prints beside each port. An earlier version showed loopback
+/// numbering for the stems and aggregate numbering for the interface, so the same pair
+/// appeared as "1-2" in one row and "17-18" in another.
 ///
-/// Deliberately small - two lines, no borders around each entry, no diagram. It sits
-/// under a device picker in a fixed-size settings window, so it earns its place by
-/// being glanceable rather than complete; the per-output rows below it carry the
-/// detail.
+/// Deliberately small - no borders around each entry, no diagram. It sits under a device
+/// picker in a fixed-size settings window, so it earns its place by being glanceable.
 struct AggregateRoutingSummary: View {
 
     /// Where the outputs sit on the aggregate.
@@ -31,28 +29,73 @@ struct AggregateRoutingSummary: View {
     /// The outputs currently mapped on the device.
     let outputs: [MappedAudioOutput]
 
-    /// Width of the destination label column, so both rows align.
+    /// Width of the destination column, so every row's channels line up.
     private static let destinationWidth: CGFloat = 74
 
-    /// Most chips shown before the rest are summarised as a count.
-    private static let maximumChips = 3
+    /// How the interface's destination is named, since a stem names itself.
+    private static let speakersTitle = "Speakers"
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
-            destinationRow(
-                icon: "hifispeaker",
-                title: "Speakers",
-                outputs: outputs.filter { !reachesDAW($0) },
-                emptyNote: "nothing"
-            )
-            destinationRow(
-                icon: "slider.horizontal.3",
-                title: "Your DAW",
-                outputs: outputs.filter(reachesDAW),
-                emptyNote: "nothing yet"
-            )
+            instruction
+            ForEach(orderedOutputs) { output in
+                portRow(output)
+            }
             interfaceStartNote
         }
+    }
+
+    /// What to do with the list that follows.
+    ///
+    /// The rows are only useful to someone who knows they describe ports in *another*
+    /// application, and which device to open there. Naming the device here is the whole
+    /// instruction - everything below it is the answer to "set them how?".
+    private var instruction: some View {
+        Text("Select \u{201C}\(AggregateDeviceManager.aggregateName)\u{201D} in your DAW "
+             + "and set the in/outs as follows:")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.bottom, Spacing.xs)
+    }
+
+    /// The outputs in the order a DAW lists their ports.
+    ///
+    /// Sorted by channel rather than by destination, so this reads as the port list it
+    /// describes. Grouping by destination put the stems in a different order here than
+    /// in the DAW, which is the confusion the whole panel exists to remove.
+    private var orderedOutputs: [MappedAudioOutput] {
+        outputs.sorted { $0.channelStart < $1.channelStart }
+    }
+
+    /// One port: where it goes, what it carries, and the channels a DAW will show.
+    ///
+    /// Outputs on the interface name their destination ("Speakers") and then the output,
+    /// because "Speakers" is the fact worth reading first and the output's own name is
+    /// the detail. A stem is its own destination, so it is named once.
+    private func portRow(_ output: MappedAudioOutput) -> some View {
+        let toDAW = reachesDAW(output)
+
+        return HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+            Label(
+                toDAW ? output.name : Self.speakersTitle,
+                systemImage: toDAW ? "slider.horizontal.3" : "hifispeaker"
+            )
+            .labelStyle(.titleAndIcon)
+            .frame(width: Self.destinationWidth, alignment: .leading)
+
+            // Only when it says something the destination has not: a stem row would
+            // otherwise print its own name twice.
+            Text(toDAW ? "" : output.name)
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: Spacing.sm)
+
+            Text(channelRange(from: output.channelStart + 1, count: output.channelCount))
+                .monospacedDigit()
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 
     /// Where the user's own hardware begins on the combined device.
@@ -69,60 +112,6 @@ struct AggregateRoutingSummary: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-
-    // MARK: - Rows
-
-    private func destinationRow(
-        icon: String,
-        title: String,
-        outputs: [MappedAudioOutput],
-        emptyNote: String
-    ) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
-            Label(title, systemImage: icon)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .labelStyle(.titleAndIcon)
-                .frame(width: Self.destinationWidth, alignment: .leading)
-
-            if outputs.isEmpty {
-                Text(emptyNote)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            } else {
-                HStack(spacing: Spacing.xs) {
-                    ForEach(outputs.prefix(Self.maximumChips)) { output in
-                        chip(for: output)
-                    }
-                    if outputs.count > Self.maximumChips {
-                        Text("+\(outputs.count - Self.maximumChips)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-    }
-
-    /// One output, named and numbered the way its destination counts channels.
-    private func chip(for output: MappedAudioOutput) -> some View {
-        let firstChannel = output.channelStart + 1
-        let label: String
-        if reachesDAW(output) {
-            let firstInput = map.loopbackChannel(forAggregateChannel: firstChannel)
-            label = "\(output.name) in \(channelRange(from: firstInput, count: output.channelCount))"
-        } else {
-            label = "\(output.name) out \(channelRange(from: firstChannel, count: output.channelCount))"
-        }
-
-        return Text(label)
-            .font(.caption2)
-            .monospacedDigit()
-            .padding(.horizontal, Spacing.xs)
-            .padding(.vertical, 1)
-            .background(Color.secondary.opacity(0.12))
-            .cornerRadius(Spacing.xs)
     }
 
     // MARK: - Helpers

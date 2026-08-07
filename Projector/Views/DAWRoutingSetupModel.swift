@@ -84,6 +84,14 @@ final class DAWRoutingSetupModel: ObservableObject {
         // is being built, and re-entering here would restart the flow mid-step.
         if case .working = state { return }
 
+        // Success is terminal until the sheet is dismissed. Creating the aggregate is
+        // itself a change to the device list, so the listener that lets this sheet
+        // continue by itself fires on the new device - and re-reading the machine here
+        // finds a loopback device, an interface, and no work done, which is
+        // indistinguishable from the state before the button was pressed. The sheet
+        // then offered to build the device it had just built.
+        if case .done = state { return }
+
         audioManager.refreshDevices()
 
         switch VirtualAudioPorts.readiness(in: audioManager.availableDevices) {

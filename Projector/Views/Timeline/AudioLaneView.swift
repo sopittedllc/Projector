@@ -14,6 +14,12 @@ struct AudioLaneView: View {
     let pixelsPerFrame: CGFloat
     let frameRate: TimecodeFrameRate
     let scrollOffset: CGFloat
+
+    /// Span of the track area the window can reach, in content points.
+    ///
+    /// Passed down so each clip can draw only the part of itself on screen. See
+    /// ``AudioClipView/visibleXRange``. `nil` falls back to drawing whole clips.
+    var visibleContentX: ClosedRange<CGFloat>?
     let timelineDurationFrames: Int
     let showWaveforms: Bool
     let clipInteractionsEnabled: Bool
@@ -429,7 +435,8 @@ struct AudioLaneView: View {
                 onSetTimelineStart: {
                     onClipSetTimelineStart(clip)
                 },
-                clipHeight: TimelineLayout.audioClipHeight
+                clipHeight: TimelineLayout.audioClipHeight,
+                visibleXRange: visibleXRange(for: clip)
             )
             .offset(x: clipOffset(for: clip), y: (laneHeight - TimelineLayout.audioClipHeight) / 2)
             .simultaneousGesture(
@@ -508,6 +515,23 @@ struct AudioLaneView: View {
                     }
             )
         }
+    }
+
+    /// The viewport's span expressed relative to this clip's leading edge.
+    ///
+    /// Mirrors `VideoTrackView.visibleXRange(for:)`. Uses the clip's settled position
+    /// rather than any drag offset: a clip being dragged is redrawn continuously anyway,
+    /// and a span that moved with the drag would keep invalidating the rasterized slice.
+    ///
+    /// - Parameter clip: Clip being drawn.
+    /// - Returns: The visible span in clip-local points, or `nil` when no viewport was
+    ///   supplied.
+    private func visibleXRange(for clip: AudioClip) -> ClosedRange<CGFloat>? {
+        guard let visibleContentX else { return nil }
+        let clipStart = CGFloat(clip.timelineStartFrame) * pixelsPerFrame
+        let lower = visibleContentX.lowerBound - clipStart
+        let upper = visibleContentX.upperBound - clipStart
+        return min(lower, upper)...max(lower, upper)
     }
 
     private func clipOffset(for clip: AudioClip) -> CGFloat {

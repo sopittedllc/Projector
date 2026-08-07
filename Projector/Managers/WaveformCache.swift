@@ -125,6 +125,22 @@ final class WaveformCache: ObservableObject {
     /// Higher counts provide more detail for zoomed-in views.
     private let atlasBucketCounts: [Int] = [256, 512, 1024, 2048, 4096, 8192, 16384]
 
+    /// A target width the atlas can actually satisfy.
+    ///
+    /// Callers size their request from a clip's zoomed width, which is unbounded: a reel
+    /// at full zoom is hundreds of thousands of points across. Anything past the widest
+    /// bucket resolves to that bucket regardless, so the excess buys nothing - and
+    /// converting an unbounded `CGFloat` to `Int` traps outright if it is ever
+    /// non-finite, which is a crash rather than a coarse waveform.
+    ///
+    /// - Parameter pointWidth: Width the caller would like, in points.
+    /// - Returns: A usable bucket-sized target width, never below 1.
+    func clampedTargetWidth(_ pointWidth: CGFloat) -> Int {
+        guard pointWidth.isFinite, pointWidth > 1 else { return 1 }
+        let ceiling = CGFloat(atlasBucketCounts.max() ?? 16384)
+        return Int(min(pointWidth, ceiling))
+    }
+
     /// Channel count that gets its sides drawn apart rather than summed.
     ///
     /// Only stereo. Beyond two channels there is no settled way to stack traces

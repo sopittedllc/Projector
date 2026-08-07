@@ -191,21 +191,22 @@ struct AggregateChannelOrigin: Equatable {
         )
     }
 
-    /// Describes a run of channels as the device carrying it would.
+    /// Describes a run of channels: which device carries it, and where a DAW lists it.
+    ///
+    /// The number is the **aggregate's**, not the sub-device's, because that is the port
+    /// number the DAW shows and the only number the user can act on. Quoting the
+    /// sub-device's own count instead meant Projector said "1-2" for a pair its DAW
+    /// called 17-18, and the two halves of the settings panel disagreed with each other.
     ///
     /// - Parameters:
     ///   - firstChannel: First 1-based channel on the aggregate.
     ///   - channelCount: How many channels the run covers.
-    /// - Returns: The owning device's name followed by its own channel numbering.
+    /// - Returns: The owning device's name followed by its aggregate channel numbers.
     func label(firstChannel: Int, channelCount: Int) -> String {
-        let reachesDAW = map.reachesDAW(firstChannel: firstChannel)
-        let first = reachesDAW
-            ? map.loopbackChannel(forAggregateChannel: firstChannel)
-            : map.interfaceChannel(forAggregateChannel: firstChannel)
-        let name = reachesDAW ? virtualName : interfaceName
+        let name = map.reachesDAW(firstChannel: firstChannel) ? virtualName : interfaceName
 
-        guard channelCount > 1 else { return "\(name) \(first)" }
-        return "\(name) \(first)-\(first + channelCount - 1)"
+        guard channelCount > 1 else { return "\(name) \(firstChannel)" }
+        return "\(name) \(firstChannel)-\(firstChannel + channelCount - 1)"
     }
 }
 

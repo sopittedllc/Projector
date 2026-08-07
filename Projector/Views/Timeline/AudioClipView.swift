@@ -21,6 +21,27 @@ struct AudioClipView: View {
     /// Optional override for clip height (uses audioClipHeight if nil)
     var clipHeight: CGFloat?
 
+    /// Part of this clip the viewport can actually show, in clip-local points.
+    ///
+    /// The waveform used to be drawn, and rasterized, across the clip's whole *zoomed*
+    /// width. At four points per frame a reel is hundreds of thousands of points wide,
+    /// and `drawingGroup()` asked Metal for a texture that size - which is not a slow
+    /// draw but a rejected allocation, and an `abort()`. Given the visible span, the
+    /// waveform draws the part inside it and nothing else, so the texture is bounded by
+    /// the window however far the user zooms in.
+    ///
+    /// `nil` means "no viewport known" - previews and tests - and falls back to the whole
+    /// clip, which is safe at the widths those run at. Mirrors
+    /// ``VideoReelClipView/visibleXRange``.
+    var visibleXRange: ClosedRange<CGFloat>?
+
+    /// Points-to-pixels ratio of the screen this clip is drawn on.
+    ///
+    /// Needed because ``rasterized(_:pointWidth:)`` reasons about the *texture*
+    /// `drawingGroup()` allocates, which is measured in pixels: the same clip asks for
+    /// twice the texture on a Retina display as on a 1x one.
+    @Environment(\.displayScale) private var displayScale
+
     /// Track height for audio clips
     private var trackHeight: CGFloat {
         clipHeight ?? TimelineLayout.audioClipHeight
@@ -146,6 +167,55 @@ struct AudioClipView: View {
         max(TimelineLayout.minimumClipWidth, CGFloat(clip.durationFrames) * pixelsPerFrame)
     }
 
+    /// Widest texture Projector will ask Metal for, in pixels.
+    ///
+    /// `drawingGroup()` rasterizes into one texture, and a texture wider than the GPU
+    /// allows is not a slow draw - it is a failed allocation, which surfaces as a crash
+    /// rather than a missing waveform.
+    ///
+    /// The limit is 16384 on Apple Silicon and current Intel Macs, and 8192 on older
+    /// Intel integrated GPUs. Zoom tops out at four points per frame, so at 24fps a clip
+    /// crosses 16384 pixels after about 85 seconds on a Retina display and 8192 after
+    /// about 43 - both ordinary lengths for a reel, which is why this had to be bounded
+    /// rather than assumed safe.
+    ///
+    /// 4096 sits under every limit with room for the frame to be over-committed, and
+    /// costs nothing when exceeded: rasterizing is an optimisation, so the fallback is
+    /// simply to draw the waveform directly.
+    static let maximumRasterizedPixelWidth: CGFloat = 4096
+
+    /// The part of the clip actually drawn, in clip-local points.
+    ///
+    /// Widened by a little either side so a scroll of a few points does not expose a gap
+    /// before the next layout pass fills it - the same reason the filmstrip widens by a
+    /// cell. Always inside `0...clipWidth`, so the offset it produces cannot push the
+    /// waveform outside its own clip.
+    private var drawnSpan: ClosedRange<CGFloat> {
+        let full: CGFloat = max(clipWidth, 1)
+        guard let visibleXRange else { return 0...full }
+
+        let lower = max(0, min(visibleXRange.lowerBound - Self.spanOvershoot, full))
+        let upper = min(full, max(visibleXRange.upperBound + Self.spanOvershoot, 0))
+
+        // No overlap - the clip is entirely off one side of the window. Collapse where
+        // the window is rather than at the clip's start, so the empty span cannot place
+        // a sliver of the opening waveform under a viewport showing the tail.
+        guard upper > lower else { return lower...lower }
+        return lower...upper
+    }
+
+    /// ``drawnSpan`` as a fraction of the clip's width, for slicing the levels.
+    private var drawnFraction: ClosedRange<Double> {
+        let full = Double(max(clipWidth, 1))
+        let span = drawnSpan
+        let lower = min(1, max(0, Double(span.lowerBound) / full))
+        let upper = min(1, max(lower, Double(span.upperBound) / full))
+        return lower...upper
+    }
+
+    /// Drawn either side of the viewport, in points.
+    private static let spanOvershoot: CGFloat = 64
+
     private var clipDurationSeconds: Double {
         Double(clip.durationFrames) / frameRate.fps
     }
@@ -198,19 +268,36 @@ struct AudioClipView: View {
 
             if showWaveform {
                 GeometryReader { geometry in
-                    let targetCount = max(1, Int(clipWidth))
+                    // Resolution follows the whole clip, not the drawn slice, so panning
+                    // does not re-request a different level on every scroll. Clamped
+                    // because the cache tops out anyway, and because an unclamped
+                    // `Int(clipWidth)` is a trap waiting for a non-finite width.
+                    let targetCount = waveformCache.clampedTargetWidth(clipWidth)
                     if let renderData = waveformCache.renderData(for: clip, targetWidth: targetCount) {
                         let showChannels = renderData.isStereo
                             && geometry.size.height >= WaveformLayout.minimumStereoHeight
+                        let span = drawnSpan
+                        let spanWidth = max(1, span.upperBound - span.lowerBound)
                         Group {
                             if showChannels {
-                                stereoWaveform(renderData, height: geometry.size.height)
+                                stereoWaveform(
+                                    renderData,
+                                    height: geometry.size.height,
+                                    fraction: drawnFraction
+                                )
                             } else {
-                                monoWaveform(renderData, height: geometry.size.height)
+                                monoWaveform(
+                                    renderData,
+                                    height: geometry.size.height,
+                                    fraction: drawnFraction
+                                )
                             }
                         }
-                        .drawingGroup()
-                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .frame(width: spanWidth, height: geometry.size.height)
+                        .rasterized(pointWidth: spanWidth, scale: displayScale)
+                        .offset(x: span.lowerBound)
+                        .frame(width: geometry.size.width, height: geometry.size.height,
+                               alignment: .leading)
                         .accessibilityIdentifier("audio-waveform")
                     } else if waveformCache.isLoading(for: clip) {
                         ProgressView()
@@ -226,8 +313,12 @@ struct AudioClipView: View {
     }
 
     /// The single summed trace, centred in the clip.
-    private func monoWaveform(_ data: WaveformRenderData, height: CGFloat) -> some View {
-        let sliced = slice(level: data.level, duration: data.duration)
+    private func monoWaveform(
+        _ data: WaveformRenderData,
+        height: CGFloat,
+        fraction: ClosedRange<Double>
+    ) -> some View {
+        let sliced = slice(level: data.level, duration: data.duration, fraction: fraction)
         return ZStack {
             centerLine
             WaveformBarsView(level: sliced, mode: .rms)
@@ -241,11 +332,15 @@ struct AudioClipView: View {
     /// shape the moment they differ, which is precisely when the difference
     /// matters. The two levels already share a scale, so a side carrying
     /// nothing draws flat next to a side that is working.
-    private func stereoWaveform(_ data: WaveformRenderData, height: CGFloat) -> some View {
+    private func stereoWaveform(
+        _ data: WaveformRenderData,
+        height: CGFloat,
+        fraction: ClosedRange<Double>
+    ) -> some View {
         let halfHeight = height / 2
 
         return VStack(spacing: 0) {
-            ForEach(Array(slicedChannels(data).enumerated()), id: \.offset) { _, level in
+            ForEach(Array(slicedChannels(data, fraction: fraction).enumerated()), id: \.offset) { _, level in
                 ZStack {
                     centerLine
                     WaveformBarsView(level: level, mode: .rms, amplitudeBoost: WaveformLayout.stereoAmplitudeBoost)
@@ -276,17 +371,35 @@ struct AudioClipView: View {
     /// the shared normalization done during analysis. Re-sharing here keeps the
     /// per-clip contrast that makes a quiet passage readable *and* the level
     /// difference between the sides.
-    private func slicedChannels(_ data: WaveformRenderData) -> [WaveformLevel] {
-        let sliced = data.channelLevels.prefix(2).map { slice(level: $0, duration: data.duration) }
+    private func slicedChannels(
+        _ data: WaveformRenderData,
+        fraction: ClosedRange<Double>
+    ) -> [WaveformLevel] {
+        let sliced = data.channelLevels.prefix(2).map {
+            slice(level: $0, duration: data.duration, fraction: fraction)
+        }
         let floor = sliced.map(\.rmsFloor).min() ?? 0
         let peak = sliced.map(\.rmsPeak).max() ?? 0
         return sliced.map { $0.rescaled(floor: floor, peak: peak) }
     }
 
-    private func slice(level: WaveformLevel, duration: Double) -> WaveformLevel {
+    /// The part of the source this clip uses, narrowed to the part on screen.
+    ///
+    /// - Parameters:
+    ///   - level: Levels covering the whole source file.
+    ///   - duration: The source's duration in seconds.
+    ///   - fraction: Portion of the *clip* to keep, 0...1 across its own width.
+    /// - Returns: Levels covering only that portion.
+    private func slice(
+        level: WaveformLevel,
+        duration: Double,
+        fraction: ClosedRange<Double>
+    ) -> WaveformLevel {
         guard duration > 0, level.count > 0 else { return level }
-        let startRatio = max(0, min(1, clipStartSeconds / duration))
-        let endRatio = max(0, min(1, (clipStartSeconds + clipDurationSeconds) / duration))
+        let visibleStart = clipStartSeconds + clipDurationSeconds * fraction.lowerBound
+        let visibleEnd = clipStartSeconds + clipDurationSeconds * fraction.upperBound
+        let startRatio = max(0, min(1, visibleStart / duration))
+        let endRatio = max(0, min(1, visibleEnd / duration))
 
         let startIndex = Int(Double(level.count) * startRatio)
         let endIndex = max(startIndex + 1, Int(Double(level.count) * endRatio))
@@ -493,5 +606,39 @@ struct BottomRoundedRectangle: Shape {
         )
         path.closeSubpath()
         return path
+    }
+}
+
+// MARK: - Bounded Rasterization
+
+extension View {
+
+    /// Rasterizes with `drawingGroup()`, but only while the result fits in one texture.
+    ///
+    /// `drawingGroup()` is an optimisation with a hard edge: it flattens the view into a
+    /// single Metal texture, and a texture wider than the GPU's maximum dimension cannot
+    /// be allocated at all. A timeline clip is as wide as its duration times the zoom, so
+    /// zooming in far enough on an ordinary reel will cross that limit - the failure
+    /// arrives as a crash while zooming, on whichever machine has the lower limit.
+    ///
+    /// Above the bound the view draws unrasterized, which is slower and correct, rather
+    /// than faster and impossible.
+    ///
+    /// - Parameters:
+    ///   - pointWidth: Width the view will occupy, in points.
+    ///   - scale: Points-to-pixels ratio of the target screen.
+    ///   - limit: Widest texture to allow, in pixels.
+    /// - Returns: The view, rasterized only when that is safe.
+    @ViewBuilder
+    func rasterized(
+        pointWidth: CGFloat,
+        scale: CGFloat,
+        limit: CGFloat = AudioClipView.maximumRasterizedPixelWidth
+    ) -> some View {
+        if pointWidth * max(scale, 1) <= limit {
+            drawingGroup()
+        } else {
+            self
+        }
     }
 }

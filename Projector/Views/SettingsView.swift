@@ -24,6 +24,9 @@ struct SettingsView: View {
     /// Whether the DAW routing explanation popover is on screen.
     @State private var showDAWRoutingHelp = false
 
+    /// Whether the routing device is being torn down right now.
+    @State private var isRemovingDAWRouting = false
+
     /// How to name the selected device's channels, when it is Projector's aggregate.
     ///
     /// Held rather than computed on demand because deriving it reads the aggregate's
@@ -207,11 +210,7 @@ struct SettingsView: View {
         .sheet(isPresented: $showDAWRoutingSetup) {
             DAWRoutingSetupSheet(
                 audioManager: audioManager,
-                onDismiss: { showDAWRoutingSetup = false },
-                onShowWalkthrough: {
-                    showDAWRoutingSetup = false
-                    NotificationCenter.default.post(name: .showOnboarding, object: nil)
-                }
+                onDismiss: { showDAWRoutingSetup = false }
             )
         }
         .alert("Profile built for another device", isPresented: $showProfileDeviceWarning) {
@@ -234,10 +233,27 @@ struct SettingsView: View {
             }
             .accessibilityLabel("Audio output device")
 
+            // Tearing the routing down belongs to the device it built, so once that
+            // device is the one selected there is nothing left for a separate DAW
+            // Routing row to say - the menu above already names it.
+            if isUsingDAWRouting {
+                SettingsClearButton(label: "Remove the DAW routing device") {
+                    removeDAWRouting()
+                }
+                SettingsHelpButton(isPresented: $showDAWRoutingHelp) {
+                    dawRoutingExplanation
+                }
+            }
+
             RefreshIconButton(helpText: "Refresh Devices") {
                 audioManager.refreshDevices()
             }
         }
+    }
+
+    /// Whether Projector is currently playing through the device it built.
+    private var isUsingDAWRouting: Bool {
+        audioManager.selectedDeviceUID == AggregateDeviceManager.aggregateUID
     }
 
     // MARK: - Output Choosers
@@ -258,26 +274,32 @@ struct SettingsView: View {
     /// in `.claude/rules/ui-composition-first.md`). What this row offers is the one
     /// thing that menu cannot - building the device in the first place, and taking it
     /// away again.
+    @ViewBuilder
     private var dawRoutingRow: some View {
-        SettingsRow(label: "DAW Routing") {
-            if dawRoutingDeviceExists {
-                SettingsValue(
-                    value: "Set up",
-                    qualifier: "stems to DAW",
-                    clearLabel: "Remove the DAW routing device",
-                    onClear: { removeDAWRouting() }
-                )
-            } else {
+        // Only while there is an offer to make. Once the device exists and is selected,
+        // the row's whole content was a value restating the Device row above it and a
+        // clear button that now lives there - three lines saying one thing.
+        if !isUsingDAWRouting {
+            SettingsRow(label: "DAW Routing") {
                 Button {
-                    showDAWRoutingSetup = true
+                    // Already built, just not in use: select it rather than reopening
+                    // setup, which would tear the device down and rebuild it under a
+                    // DAW that is very likely already listening to it.
+                    if dawRoutingDeviceExists {
+                        audioManager.selectedDeviceUID = AggregateDeviceManager.aggregateUID
+                    } else {
+                        showDAWRoutingSetup = true
+                    }
                 } label: {
-                    Text("Set Up...")
+                    Text(dawRoutingDeviceExists
+                         ? "Switch To Them"
+                         : "Set Up Virtual Stem Tracks")
                 }
                 .settingsChooserButton()
-            }
 
-            SettingsHelpButton(isPresented: $showDAWRoutingHelp) {
-                dawRoutingExplanation
+                SettingsHelpButton(isPresented: $showDAWRoutingHelp) {
+                    dawRoutingExplanation
+                }
             }
         }
     }
@@ -293,19 +315,12 @@ struct SettingsView: View {
             Text("Sending stems to a DAW")
                 .font(SettingsDesign.sectionTitle)
 
-            Text("Projector plays your outputs to one audio device. For a DAW to "
-                 + "receive them they have to arrive as *inputs*, and macOS cannot "
-                 + "loop an output back to an input on its own.")
-            Text("Setting this up builds a single device, "
-                 + "**\(AggregateDeviceManager.aggregateName)**, that combines your "
-                 + "audio interface with a virtual one. Your speakers keep playing "
-                 + "from the interface's own outputs; the stems travel on the virtual "
-                 + "half, where a DAW set to the same device sees them as inputs.")
-            Text("Your interface stays the clock master and the virtual half is "
-                 + "drift-compensated, so the two cannot slide apart over the length "
-                 + "of a reel.")
+            Text("Projector will create a custom Audio Device that stacks virtual "
+                 + "inputs for your stem audio lanes on top of your interface's "
+                 + "physical inputs. This will allow you to set up your Projector "
+                 + "Audio lanes inside your DAW.")
 
-            Text("Point your DAW at the same device to receive them.")
+            Text("Projector will put your virtual inputs first, then your interface.")
                 .font(SettingsDesign.caption)
                 .foregroundColor(.secondary)
         }
@@ -316,8 +331,16 @@ struct SettingsView: View {
     }
 
     /// Whether Projector's aggregate device is present on the system.
+    ///
+    /// False the moment removal starts, rather than when the device list catches up.
+    /// Destroying the device and re-enumerating happen in a task, so for a frame or two
+    /// afterwards the list still holds it - long enough for the row to offer to switch
+    /// to a device the user has just deleted, then change its own mind.
     private var dawRoutingDeviceExists: Bool {
-        audioManager.availableDevices.contains { $0.uid == AggregateDeviceManager.aggregateUID }
+        guard !isRemovingDAWRouting else { return false }
+        return audioManager.availableDevices.contains {
+            $0.uid == AggregateDeviceManager.aggregateUID
+        }
     }
 
     /// Two lines under the outputs saying which reach the room and which reach the DAW.
@@ -358,12 +381,14 @@ struct SettingsView: View {
         if audioManager.selectedDeviceUID == AggregateDeviceManager.aggregateUID {
             audioManager.selectedDeviceUID = nil
         }
+        isRemovingDAWRouting = true
 
         // The channel names need no clearing: they live on the aggregate itself and are
         // destroyed with it. Nothing Projector wrote touches the user's own devices.
         Task {
             _ = try? await AggregateDeviceManager().removeAggregate()
             audioManager.refreshDevices()
+            isRemovingDAWRouting = false
         }
     }
 

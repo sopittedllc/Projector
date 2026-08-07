@@ -70,17 +70,17 @@ final class AggregateDeviceTests: XCTestCase {
 
     // MARK: - Channel Origin
 
-    /// The low channels are the interface's own, so they keep its numbering - what is
-    /// printed on the box is what the menu offers.
+    /// Numbered as the DAW numbers them. The interface's own channel 1 is the
+    /// aggregate's 17, and 17 is what the user has to type.
     func testInterfaceChannelsAreNamedAfterTheInterface() {
         XCTAssertEqual(
             origin().label(firstChannel: 17, channelCount: 2),
-            "Aurora(n)-TB3 1-2"
+            "Aurora(n)-TB3 17-18"
         )
     }
 
-    /// The high channels restart at 1 against the virtual device, because that is the
-    /// number the DAW shows. Aggregate channel 33 is the DAW's input 1.
+    /// The stems lead, so their aggregate numbers are their DAW port numbers - the
+    /// point of the reorder, and why no conversion appears here any more.
     func testVirtualChannelsRestartAtTheLoopbackDevice() {
         XCTAssertEqual(
             origin().label(firstChannel: 1, channelCount: 2),
@@ -94,7 +94,7 @@ final class AggregateDeviceTests: XCTestCase {
 
     /// A mono output names one channel, not a range of one.
     func testMonoChannelIsNamedSingly() {
-        XCTAssertEqual(origin().label(firstChannel: 17, channelCount: 1), "Aurora(n)-TB3 1")
+        XCTAssertEqual(origin().label(firstChannel: 17, channelCount: 1), "Aurora(n)-TB3 17")
         XCTAssertEqual(origin().label(firstChannel: 1, channelCount: 1), "Projector Virtual 1")
     }
 
@@ -102,7 +102,7 @@ final class AggregateDeviceTests: XCTestCase {
     /// first channel above it has crossed over.
     func testHalvesDivideAtTheInterfaceChannelCount() {
         XCTAssertEqual(origin().label(firstChannel: 16, channelCount: 1), "Projector Virtual 16")
-        XCTAssertEqual(origin().label(firstChannel: 17, channelCount: 1), "Aurora(n)-TB3 1")
+        XCTAssertEqual(origin().label(firstChannel: 17, channelCount: 1), "Aurora(n)-TB3 17")
     }
 
     // MARK: - Channel Names Shown to the DAW
@@ -140,7 +140,7 @@ final class AggregateDeviceTests: XCTestCase {
     /// belongs to, in the same words the settings rows use — a DAW that finds no name
     /// invents one from the device, which is how forty-eight identical rows happen.
     func testUnassignedChannelsStillNameTheirDevice() {
-        XCTAssertEqual(origin().label(firstChannel: 23, channelCount: 1), "Aurora(n)-TB3 7")
+        XCTAssertEqual(origin().label(firstChannel: 23, channelCount: 1), "Aurora(n)-TB3 23")
         XCTAssertEqual(origin().label(firstChannel: 8, channelCount: 1), "Projector Virtual 8")
     }
 

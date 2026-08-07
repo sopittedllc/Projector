@@ -6,7 +6,75 @@
 
 ---
 
-## Current Task — three DAW routing UI changes (uncommitted)
+## Crash on zoom, Intel — diagnosed and fixed (2026-08-06, uncommitted)
+
+Four crash reports from a tester on a **Mac Pro 7,1, macOS 12.6.8, AMD GPU**, app 1.4.
+All four identical:
+
+```
+Metal  -[MTLTextureDescriptorInternal validateWithDevice:]   ← descriptor rejected
+Metal  MTLReportFailure → __assert_rtn → abort → SIGABRT
+RenderBox  RB::DisplayList::RootTexture::make_texture(…)     ← SwiftUI drawingGroup
+AMDMTLBronzeDriver  -[BronzeMtlDevice newTextureWithDescriptor:iosurface:plane:]
+```
+
+`AudioClipView` rasterized its waveform with `.drawingGroup()` across the **whole clip**,
+whose width is duration × zoom. Zoom tops out at 4 points per frame, so at 24fps a clip
+crosses 16384 pixels after ~85 seconds on a Retina display, and 8192 after ~43. Metal
+rejects the descriptor and `abort()`s — a crash, not a dropped frame.
+
+`VideoReelClipView` had already solved this: it slices to `visibleXRange` *before*
+rasterizing, with a comment reading "a drawingGroup over the full zoomed clip is a request
+for a half-million-point texture". The audio path never got the same treatment. Checked:
+`VideoTrackView` always receives a real `visibleContentX` in production, so the video half
+was never exposed — audio was the only unbounded rasterization.
+
+**Fix**: `View.rasterized(pointWidth:scale:limit:)` in `AudioClipView.swift` applies
+`drawingGroup()` only while the texture would be within 4096 pixels, and draws
+unrasterized above that. Bound is in pixels, not points, because a Retina display doubles
+the texture for the same clip.
+
+**Viewport slicing, done 2026-08-07**: `visibleXRange` now runs
+`MultiTrackTimelineView → AudioLaneView → AudioClipView`, mirroring the video path. The
+waveform draws only the visible span (widened 64pt either side so a small scroll cannot
+expose a gap), sliced from the levels by fraction and offset into place, so the rasterized
+width is the window rather than the clip. Rasterization therefore stays *on* at every
+zoom, and the 4096 bound became a safety net rather than the mechanism.
+
+`WaveformCache.clampedTargetWidth(_:)` added: requests were `Int(clipWidth)` on an
+unbounded CGFloat, which resolves to the widest bucket anyway and traps outright if the
+width is ever non-finite. Resolution still follows the whole clip, not the drawn slice, so
+panning does not re-request a different level on every scroll.
+
+`linkedAudioStrip(lane:index:ppf:width:)` in `MultiTrackTimelineView` is **dead code** —
+defined, never called. Wired anyway so it stays correct if revived.
+
+**Unverifiable here**: no Intel Mac. Rosetta would not settle it either — it translates the
+CPU and keeps this machine's GPU and its higher limit.
+
+## Audio settings panel, tightened (2026-08-06, uncommitted)
+
+Verified on screen, not just built:
+
+- **DAW Routing row is gone once the aggregate is the selected device.** Its content was
+  a value restating the Device row and a clear button; both now live on the Device row as
+  a ✕ and the ?. The row still appears when there is an offer to make — "Set Up…" when no
+  device exists, "Switch To It" when one does but is not selected (which selects it rather
+  than rebuilding it under a DAW that is already listening).
+- **One numbering system, the aggregate's.** `AggregateChannelOrigin.label` no longer
+  converts to sub-device numbering, so Stereo Out reads "1: Aurora(n)-TB3 17-18" — the
+  port number Cubase prints. Previously the row said 1-2 and the summary said 17-18 for
+  the same pair.
+- **`AggregateRoutingSummary` is a port list**, one row per output sorted by channel:
+  icon, destination, output name, channels. "Your DAW" as a grouping label is gone; each
+  stem names itself. Shared with the setup sheet, so both read alike.
+- **"How to use this in your DAW" removed** — it opened the generic Setup Guide, which
+  says nothing about any of this. `onShowWalkthrough` plumbing deleted with it.
+
+Not done, worth raising: the output rows are ordered Stereo Out, MX, DX/SFX, so the
+channel column now reads 17-18, 3-4, 1-2. Pre-existing order, newly visible.
+
+## Earlier — three DAW routing UI changes (committed in 43ba270)
 
 Built and unit-tested; **not yet verified at runtime by the user**.
 

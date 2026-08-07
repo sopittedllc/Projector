@@ -24,7 +24,7 @@ import Foundation
 /// | Channel | Name |
 /// |---|---|
 /// | Carrying one of Projector's outputs | The output, per channel - "DX/SFX L" |
-/// | Anything else | Its device and its own number - "Aurora(n)-TB3 7" |
+/// | Anything else | Its device and its port number - "Aurora(n)-TB3 23" |
 ///
 /// The second form is deliberately the same string ``AggregateChannelOrigin/label(firstChannel:channelCount:)``
 /// puts in the settings rows, so the port list in the DAW and the rows in Projector read

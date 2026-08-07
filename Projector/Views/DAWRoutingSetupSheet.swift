@@ -25,9 +25,6 @@ struct DAWRoutingSetupSheet: View {
     /// Dismisses the sheet.
     let onDismiss: () -> Void
 
-    /// Opens the per-DAW instructions for using the finished device.
-    let onShowWalkthrough: () -> Void
-
     @StateObject private var model: DAWRoutingSetupModel
 
     /// Wide enough for the channel table to breathe without becoming a wall of text.
@@ -35,12 +32,10 @@ struct DAWRoutingSetupSheet: View {
 
     init(
         audioManager: AudioOutputManager,
-        onDismiss: @escaping () -> Void,
-        onShowWalkthrough: @escaping () -> Void
+        onDismiss: @escaping () -> Void
     ) {
         self.audioManager = audioManager
         self.onDismiss = onDismiss
-        self.onShowWalkthrough = onShowWalkthrough
         _model = StateObject(wrappedValue: DAWRoutingSetupModel(audioManager: audioManager))
     }
 
@@ -154,11 +149,10 @@ struct DAWRoutingSetupSheet: View {
             VStack(alignment: .leading, spacing: Spacing.md) {
                 Label("\(deviceName) is ready", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
+                // The summary opens by naming the device to select in the DAW, so a
+                // separate line saying the same thing would be the second instruction
+                // on one screen telling the user to do one thing.
                 AggregateRoutingSummary(map: map, outputs: audioManager.mappedOutputs)
-                Text("Set your DAW to the same device to receive these inputs.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
         case .failed(let message):
@@ -175,11 +169,6 @@ struct DAWRoutingSetupSheet: View {
     @ViewBuilder
     private var buttons: some View {
         HStack {
-            if case .done = model.state {
-                Button("How to use this in your DAW", action: onShowWalkthrough)
-                    .buttonStyle(.link)
-            }
-
             Spacer()
 
             switch model.state {
