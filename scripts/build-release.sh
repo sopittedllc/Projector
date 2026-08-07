@@ -7,13 +7,14 @@
 #   1. Developer ID Application certificate installed
 #   2. Notarization credentials stored (run setup-notarization.sh first)
 #
-# Usage: ./scripts/build-release.sh [version] [--no-publish]
+# Usage: ./scripts/build-release.sh [version] [--no-publish] [--no-upload]
 #   version:      Optional version string (e.g., "1.0.0"). Defaults to the current date.
-#   --no-publish: Build the DMG but do not create a GitHub release for it.
+#   --no-publish: Do not create a GitHub release.
+#   --no-upload:  Do not upload to Google Drive.
 #
-# On success the DMG is attached to a GitHub release tagged v<version>, which is
-# where the download link comes from. The DMG itself is never committed: it is
-# ~11MB, git keeps every version forever, and `release-build/` is ignored.
+# On success the DMG is attached to a GitHub release tagged v<version> and copied
+# to Google Drive, and both links are printed. The DMG itself is never committed:
+# it is ~11MB, git keeps every version forever, and `release-build/` is ignored.
 
 set -e
 
@@ -29,6 +30,8 @@ DMG_NAME="Projector"
 TEAM_ID="G398H44H6X"
 DEVELOPER_ID="Developer ID Application: Keegan DeWitt (${TEAM_ID})"
 NOTARY_PROFILE="notary"
+DRIVE_REMOTE="gdrive"
+DRIVE_FOLDER="Projector Builds"
 
 # Arguments
 #
@@ -36,10 +39,12 @@ NOTARY_PROFILE="notary"
 # as one would build a DMG called "Projector---no-publish.dmg" and tag a release
 # to match.
 PUBLISH=1
+UPLOAD=1
 VERSION=""
 for arg in "$@"; do
     case "$arg" in
         --no-publish) PUBLISH=0 ;;
+        --no-upload)  UPLOAD=0 ;;
         -*) echo "Unknown option: $arg" >&2; exit 1 ;;
         *) VERSION="$arg" ;;
     esac
@@ -234,6 +239,35 @@ Built from \`${COMMIT}\`."
         --json assets --jq '.assets[0].url' 2>/dev/null || true)"
 fi
 
+# Upload to Google Drive
+#
+# Alongside the GitHub release rather than instead of it: two links cost nothing
+# and either one surviving is better than a single point of failure. The Drive
+# link is "anyone with the link" - unlisted, not private.
+#
+# Skipped with --no-upload, or when the rclone remote is not configured.
+DRIVE_URL=""
+if [ "${UPLOAD}" -eq 0 ]; then
+    echo ""
+    echo "[upload] Skipped (--no-upload)."
+elif ! command -v rclone >/dev/null 2>&1 \
+     || ! rclone listremotes 2>/dev/null | grep -q "^${DRIVE_REMOTE}:$"; then
+    echo ""
+    echo "[upload] Skipped: rclone remote '${DRIVE_REMOTE}' is not configured."
+    echo "          Set one up with: rclone config create ${DRIVE_REMOTE} drive scope=drive"
+else
+    echo ""
+    echo "[upload] Uploading to Google Drive (${DRIVE_FOLDER})..."
+    rclone mkdir "${DRIVE_REMOTE}:${DRIVE_FOLDER}" 2>/dev/null || true
+
+    if rclone copy "${DMG_PATH}" "${DRIVE_REMOTE}:${DRIVE_FOLDER}" --stats-one-line; then
+        DRIVE_URL="$(rclone link \
+            "${DRIVE_REMOTE}:${DRIVE_FOLDER}/${DMG_FILENAME}" 2>/dev/null || true)"
+    else
+        echo "[upload] WARNING: upload failed. The DMG and any release link are still good."
+    fi
+fi
+
 # Done
 echo ""
 echo "========================================"
@@ -243,7 +277,10 @@ echo ""
 echo "DMG location: ${DMG_PATH}"
 echo "DMG size: $(du -h "${DMG_PATH}" | cut -f1)"
 if [ -n "${DOWNLOAD_URL}" ]; then
-    echo "Download:     ${DOWNLOAD_URL}"
+    echo "GitHub:       ${DOWNLOAD_URL}"
+fi
+if [ -n "${DRIVE_URL}" ]; then
+    echo "Drive:        ${DRIVE_URL}"
 fi
 echo ""
 echo "To test Gatekeeper acceptance:"
