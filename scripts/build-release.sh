@@ -7,14 +7,16 @@
 #   1. Developer ID Application certificate installed
 #   2. Notarization credentials stored (run setup-notarization.sh first)
 #
-# Usage: ./scripts/build-release.sh [version] [--no-publish] [--no-upload]
+# Usage: ./scripts/build-release.sh [version] [--no-publish] [--no-upload] [--no-install]
 #   version:      Optional version string (e.g., "1.0.0"). Defaults to the current date.
 #   --no-publish: Do not create a GitHub release.
 #   --no-upload:  Do not upload to Google Drive.
+#   --no-install: Do not replace /Applications/Projector.app.
 #
-# On success the DMG is attached to a GitHub release tagged v<version> and copied
-# to Google Drive, and both links are printed. The DMG itself is never committed:
-# it is ~11MB, git keeps every version forever, and `release-build/` is ignored.
+# On success the DMG replaces the copy in /Applications, is attached to a GitHub
+# release tagged v<version>, and is copied to Google Drive - so the machine and
+# both links move together. The DMG itself is never committed: it is ~11MB, git
+# keeps every version forever, and `release-build/` is ignored.
 
 set -e
 
@@ -32,6 +34,7 @@ DEVELOPER_ID="Developer ID Application: Keegan DeWitt (${TEAM_ID})"
 NOTARY_PROFILE="notary"
 DRIVE_REMOTE="gdrive"
 DRIVE_FOLDER="Projector Builds"
+INSTALL_PATH="/Applications/${APP_NAME}"
 
 # Arguments
 #
@@ -40,11 +43,13 @@ DRIVE_FOLDER="Projector Builds"
 # to match.
 PUBLISH=1
 UPLOAD=1
+INSTALL=1
 VERSION=""
 for arg in "$@"; do
     case "$arg" in
         --no-publish) PUBLISH=0 ;;
         --no-upload)  UPLOAD=0 ;;
+        --no-install) INSTALL=0 ;;
         -*) echo "Unknown option: $arg" >&2; exit 1 ;;
         *) VERSION="$arg" ;;
     esac
@@ -53,9 +58,22 @@ done
 VERSION="${VERSION:-$(date +%Y.%m.%d)}"
 DMG_FILENAME="${DMG_NAME}-${VERSION}.dmg"
 
+# Build number, stamped into the app so builds can be told apart.
+#
+# MARKETING_VERSION is the product version and stays where the project sets it.
+# CURRENT_PROJECT_VERSION was pinned too, so every build called itself "1.4 (4)"
+# whatever day it was cut - which is why four crash reports from a tester all
+# claimed the same version, and why an installed copy could not be identified.
+#
+# Always the clock, never the version argument: deriving it from the version made
+# `build-release.sh 1.0.0` produce build 100, going *backwards* from a dated build.
+# Date plus time so two builds on one day are still distinguishable, which is the
+# normal case while chasing a bug.
+BUILD_NUMBER="$(date +%Y%m%d.%H%M)"
+
 echo "========================================"
 echo "Projector Release Build"
-echo "Version: ${VERSION}"
+echo "Version: ${VERSION} (build ${BUILD_NUMBER})"
 echo "========================================"
 
 # Clean previous build
@@ -83,6 +101,7 @@ archive() {
         CODE_SIGN_IDENTITY="${DEVELOPER_ID}" \
         DEVELOPMENT_TEAM="${TEAM_ID}" \
         CODE_SIGN_STYLE=Manual \
+        CURRENT_PROJECT_VERSION="${BUILD_NUMBER}" \
         OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime"
 }
 
@@ -194,6 +213,63 @@ spctl --assess --type open --context context:primary-signature --verbose "${DMG_
 # Cleanup
 rm -f "${BUILD_DIR}/Projector-notarize.zip"
 
+# Install into /Applications
+#
+# Before publishing, so a network problem cannot cost the local install. The app
+# copied in is the same notarized, stapled bundle that goes into the DMG.
+#
+# Never removes the installed copy until a verified replacement is standing beside
+# it: a failed copy that had already deleted the old app would leave the machine
+# with no Projector at all, which is a worse outcome than a stale one.
+#
+# Skipped with --no-install.
+INSTALLED=0
+if [ "${INSTALL}" -eq 0 ]; then
+    echo ""
+    echo "[install] Skipped (--no-install)."
+else
+    echo ""
+    echo "[install] Replacing ${INSTALL_PATH}..."
+
+    # A running copy cannot be replaced cleanly. Asked to quit rather than killed,
+    # so the app's own unsaved-changes prompt still gets to interrupt - and if the
+    # user cancels that prompt, the install is skipped rather than forced.
+    if pgrep -x "${DMG_NAME}" >/dev/null 2>&1; then
+        echo "[install] Projector is running - asking it to quit..."
+        osascript -e "tell application \"${DMG_NAME}\" to quit" >/dev/null 2>&1 || true
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+            pgrep -x "${DMG_NAME}" >/dev/null 2>&1 || break
+            sleep 1
+        done
+    fi
+
+    if pgrep -x "${DMG_NAME}" >/dev/null 2>&1; then
+        echo "[install] WARNING: Projector is still running. Skipped."
+        echo "          Quit it and re-run, or install from the DMG by hand."
+    else
+        STAGED="/Applications/.${DMG_NAME}-incoming.app"
+        rm -rf "${STAGED}"
+
+        if cp -a "${EXPORT_PATH}/${APP_NAME}" "${STAGED}" \
+           && codesign --verify --strict "${STAGED}" 2>/dev/null; then
+            rm -rf "${INSTALL_PATH}"
+            mv "${STAGED}" "${INSTALL_PATH}"
+
+            # Launch Services still holds the old bundle's record - document icons
+            # and the .projector file association come from it.
+            /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister \
+                -f "${INSTALL_PATH}" >/dev/null 2>&1 || true
+
+            INSTALLED=1
+            echo "[install] Installed ${VERSION} to ${INSTALL_PATH}"
+        else
+            rm -rf "${STAGED}"
+            echo "[install] WARNING: copy or signature check failed."
+            echo "          The existing ${INSTALL_PATH} was left untouched."
+        fi
+    fi
+fi
+
 # Publish as a GitHub release
 #
 # A release asset, not a committed file: the DMG is ~11MB and git keeps every
@@ -276,6 +352,9 @@ echo "========================================"
 echo ""
 echo "DMG location: ${DMG_PATH}"
 echo "DMG size: $(du -h "${DMG_PATH}" | cut -f1)"
+if [ "${INSTALLED}" -eq 1 ]; then
+    echo "Installed:    ${INSTALL_PATH}"
+fi
 if [ -n "${DOWNLOAD_URL}" ]; then
     echo "GitHub:       ${DOWNLOAD_URL}"
 fi
