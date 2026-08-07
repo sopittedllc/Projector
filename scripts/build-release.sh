@@ -346,10 +346,22 @@ if [ -z "${DOWNLOAD_URL}" ]; then
 else
     # sign_update ships inside Sparkle's SPM artifact, which lands in DerivedData,
     # or in the Homebrew cask. Neither path is guaranteed, so both are tried.
+    #
+    # The artifact path is seven levels down
+    # (<project>/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update), and
+    # this search was originally capped at six - so it silently found nothing
+    # and the first release after the updater landed published no appcast at
+    # all. Capped rather than unbounded because DerivedData is deep and full of
+    # build products, but the cap has to clear the thing being looked for.
+    #
+    # The checkout also carries bin/old_dsa_scripts/sign_update, which signs
+    # with the retired DSA algorithm. -path pins the search to the artifact's
+    # bin directory so the wrong one cannot win a race of directory order.
     SIGN_UPDATE=""
     for candidate in \
         "$(find "${HOME}/Library/Developer/Xcode/DerivedData" \
-            -maxdepth 6 -type f -name sign_update -path '*Sparkle*' 2>/dev/null | head -1)" \
+            -maxdepth 8 -type f -name sign_update \
+            -path '*artifacts/sparkle/Sparkle/bin/*' 2>/dev/null | head -1)" \
         "/opt/homebrew/Caskroom/sparkle/*/bin/sign_update" \
         "/Applications/Sparkle/bin/sign_update"; do
         # shellcheck disable=SC2086
