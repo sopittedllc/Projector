@@ -2499,11 +2499,20 @@ final class MeterLevelStore: @unchecked Sendable {
 ///
 /// So this block runs **on the render thread**, up to ~82 times a second here.
 /// Anything it does must be real-time safe, which rules out the obvious
-/// implementations: no `os_unfair_lock` (a lock can invert priority), no
-/// `Task`, no logging, no `self` - a weak load alone takes the runtime's
-/// side-table lock. It increments one `Int64` through a pointer and returns.
-/// Instrumenting this the naive way would add 82 hazards per second to the very
-/// thread under investigation.
+/// implementations: no `Task`, no logging, no `self` - a weak load alone takes
+/// the runtime's side-table lock. It increments one `Int64` through a pointer
+/// and returns. Instrumenting this the naive way would add 82 hazards per second
+/// to the very thread under investigation.
+///
+/// It takes **no lock either**, which is a stricter rule than the meter tap
+/// follows: `MeterLevelStore` (above) does take an `os_unfair_lock` per buffer.
+/// That is a deliberate difference, not an inconsistency. The meter's lock is
+/// uncontended in practice and guards two `Float`s that must be written
+/// together, so the trade buys atomicity for a pair. Here there is a single
+/// `Int64` and a rate that tolerates a lost increment, so a lock would buy
+/// nothing and `os_unfair_lock` is not documented as real-time safe - it can
+/// still invert priority against a lower-priority thread holding it. When the
+/// cheaper option is also the safer one, take it.
 ///
 /// The count is deliberately **not** atomic. There is one writer and one reader,
 /// the value is used to compute a rate, and a lost increment is worth less than a

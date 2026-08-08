@@ -1,7 +1,7 @@
 # Session State
 
 > **Last Updated**: 2026-08-08
-> **Status**: ACTIVE — coreaudiod leak RESOLVED and attributed; lane-reorder regression fixed, awaiting eyeball
+> **Status**: IDLE — 2026.08.08.2 shipped; dead drop subsystem removed; nothing blocking
 > **Branch**: main
 
 ---
@@ -127,6 +127,34 @@ threshold, then held. Instrumentation since removed.
 because the symptom looked like target flip-flop. It never was. Any future "feels
 jumpy" report here should trace the raw gesture input *before* touching the rule —
 the rule was correct all along and was being fed a corrupted signal.
+
+---
+
+## Shipped 2026.08.08.2, and the dead drop subsystem is gone
+
+`2026.08.08.2` is on the feed, on the GitHub release (correctly marked Latest),
+on Drive and in `/Applications`. It carries the lane-reorder fix, the drag-shake
+fix, the mixed-drop fix and the Debug-only overload monitor.
+
+**Version trap, for next time**: `build-release.sh` defaults to today's date and
+does *not* auto-increment past a version already used today. `2026.08.08` and
+`2026.08.08.1` had already shipped, so the default collided and replaced the
+`v2026.08.08` asset before being re-released correctly as `2026.08.08.2`. **Pass
+the version explicitly whenever anything has already shipped that day.** Residue:
+the `v2026.08.08` release and its appcast entry now point at a newer build than
+their label claims. Harmless — outranked by `.1530` — and deliberately left.
+
+**Dead code removed** (~290 lines, 3 files): the entire orphaned NSItemProvider
+drop subsystem, plus the write-only `emptyAudioDropLocation` and the then-unused
+`mediaLibrary` dependency of `MultiTrackTimelineView`/`TimelineAccordionView`.
+The live `DragCaptureView`/`NSDraggingInfo` path is untouched and is now the only
+one. Swift does not warn on unused private methods, so every boundary was
+asserted before cutting and the compiler used as the check.
+
+**The `os_unfair_lock` contradiction is reconciled** in `PlaybackEngine.swift`:
+the overload monitor takes no lock while `MeterLevelStore` takes one per buffer,
+and the comment now explains why that difference is deliberate rather than
+reading as an inconsistency.
 
 ---
 

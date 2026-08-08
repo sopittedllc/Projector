@@ -1,0 +1,2 @@
+- [Dual drop paths in MultiTrackTimelineView](multitracktimelineview_dual_drop_paths.md) — always confirm DragCaptureView actually calls the function you're reviewing; a whole NSItemProvider subsystem is dead code
+- [Mixed-drop fix targeted dead code (2026-08-08)](projector_mixed_drop_fix_targeted_dead_code.md) — handleEmptyAudioDrop fix is unreachable; real bug lives in audioCandidate(from:)/handleNewLanePerformDrop

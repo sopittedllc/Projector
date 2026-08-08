@@ -23,7 +23,6 @@ struct TimelineAccordionView: View {
     @ObservedObject var waveformCache: WaveformCache
     @ObservedObject var audioOutputManager: AudioOutputManager
     @ObservedObject var timelineViewModel: TimelineViewModel
-    @ObservedObject var mediaLibrary: ProjectMediaLibrary
     /// Live MIDI input state, for the incoming-timecode readout in the header.
     @ObservedObject var midiSyncViewModel: MIDISyncViewModel
 
@@ -325,7 +324,6 @@ struct TimelineAccordionView: View {
             waveformCache: waveformCache,
             audioOutputManager: audioOutputManager,
             thumbnailCache: thumbnailCache,
-            mediaLibrary: mediaLibrary,
             onDropVideoMedia: onDropVideoMedia,
             onDropAudioMedia: onDropAudioMedia,
             onDropMixedMedia: onDropMixedMedia,

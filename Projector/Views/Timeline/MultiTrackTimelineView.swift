@@ -79,7 +79,6 @@ struct MultiTrackTimelineView: View {
     @ObservedObject var waveformCache: WaveformCache
     @ObservedObject var audioOutputManager: AudioOutputManager
     @ObservedObject var thumbnailCache: ThumbnailCache
-    @ObservedObject var mediaLibrary: ProjectMediaLibrary
     @EnvironmentObject private var dragContext: DragContext
     @Environment(\.undoManager) private var undoManager
     let onDropVideoMedia: ([URL], Int, Bool) -> Void
@@ -108,7 +107,6 @@ struct MultiTrackTimelineView: View {
     @State private var isEmptyAudioDropLoading = false
     @State private var emptyAudioDropPreviewFrame: Int?
     @State private var emptyAudioDropPreviewDurationFrames: Int?
-    @State private var emptyAudioDropLocation: CGPoint?
     @State private var emptyAudioDropSourceURL: URL?
 
     // Selection state (single selection for compatibility)
@@ -2319,7 +2317,6 @@ struct MultiTrackTimelineView: View {
         location: CGPoint,
         pixelsPerFrame: CGFloat
     ) -> Bool {
-        emptyAudioDropLocation = location
         emptyAudioDropPreviewFrame = emptyAudioDropFrame(for: location, pixelsPerFrame: pixelsPerFrame)
 
         let candidate = audioCandidate(from: info)
@@ -2403,183 +2400,13 @@ struct MultiTrackTimelineView: View {
         ]) as? [URL] ?? []).filter { ProjectMediaLibrary.mediaType(for: $0) == .video }
     }
 
-    private func beginEmptyAudioDrop(
-        with providers: [NSItemProvider],
-        at location: CGPoint,
-        pixelsPerFrame: CGFloat
-    ) {
-        updateEmptyAudioDropPreview(location: location, pixelsPerFrame: pixelsPerFrame)
-        if emptyAudioDropPreviewDurationFrames != nil || isEmptyAudioDropLoading {
-            return
-        }
-        isEmptyAudioDropAllowed = false
-        isEmptyAudioDropLoading = true
-        emptyAudioDropPreviewDurationFrames = nil
-        let isInternalDrag = providers.contains { provider in
-            provider.hasItemConformingToTypeIdentifier(UTType.projectorMediaItem.identifier)
-        }
-
-        let internalItem = dragContext.mediaItem ?? mediaItem(from: providers)
-
-        if let quickType = quickMediaType(from: providers) {
-            guard quickType == .audio else {
-                isEmptyAudioDropLoading = false
-                clearEmptyAudioDrop()
-                return
-            }
-            isEmptyAudioDropAllowed = true
-            if let internalItem, internalItem.type == .audio {
-                emptyAudioDropPreviewDurationFrames = max(
-                    1,
-                    Int(internalItem.duration * timeline.config.frameRate.fps)
-                )
-            }
-        } else if isInternalDrag {
-            // Internal drags may not expose URL data during hover; try the custom payload.
-            if let provider = providers.first(where: {
-                $0.hasItemConformingToTypeIdentifier(UTType.projectorMediaItem.identifier)
-            }) {
-                provider.loadDataRepresentation(forTypeIdentifier: UTType.projectorMediaItem.identifier) { data, _ in
-                    DispatchQueue.main.async {
-                        let info = extractProjectorMediaInfo(from: data)
-                        if info.type == .audio {
-                            isEmptyAudioDropAllowed = true
-                            if let duration = info.duration {
-                                emptyAudioDropPreviewDurationFrames = max(
-                                    1,
-                                    Int(duration * timeline.config.frameRate.fps)
-                                )
-                            }
-                            if info.url != nil {
-                                updateEmptyAudioDropPreview(location: emptyAudioDropLocation ?? location, pixelsPerFrame: pixelsPerFrame)
-                            }
-                            isEmptyAudioDropLoading = false
-                        } else {
-                            clearEmptyAudioDrop()
-                        }
-                    }
-                }
-                return
-            }
-        }
-
-        loadFirstURL(from: providers) { url in
-            guard let url else {
-                // Keep active for internal drags even if hover data isn't available yet.
-                isEmptyAudioDropLoading = false
-                return
-            }
-            guard ProjectMediaLibrary.mediaType(for: url) == .audio else {
-                isEmptyAudioDropLoading = false
-                clearEmptyAudioDrop()
-                return
-            }
-            isEmptyAudioDropAllowed = true
-            updateEmptyAudioDropPreview(location: emptyAudioDropLocation ?? location, pixelsPerFrame: pixelsPerFrame)
-            Task {
-                let asset = AVAsset(url: url)
-                do {
-                    let duration = try await asset.load(.duration)
-                    let frames = max(1, Int(duration.seconds * timeline.config.frameRate.fps))
-                    emptyAudioDropPreviewDurationFrames = frames
-                } catch {
-                    emptyAudioDropPreviewDurationFrames = nil
-                }
-                isEmptyAudioDropLoading = false
-            }
-        }
-    }
-
     private func clearEmptyAudioDrop() {
         isEmptyAudioDropAllowed = false
         isEmptyAudioDropLoading = false
         emptyAudioDropPreviewFrame = nil
         emptyAudioDropPreviewDurationFrames = nil
-        emptyAudioDropLocation = nil
         emptyAudioDropSourceURL = nil
         // NOTE: Don't reset externalDragItemCount here - only the parent's DragCaptureView onExited should do that
-    }
-
-    /// Load URL from an NSItemProvider (for external Finder drops)
-    private func loadURL(from provider: NSItemProvider) async -> URL? {
-        await withCheckedContinuation { continuation in
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
-                if let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
-                    continuation.resume(returning: url)
-                } else if let url = item as? URL {
-                    continuation.resume(returning: url)
-                } else {
-                    continuation.resume(returning: nil)
-                }
-            }
-        }
-    }
-
-    private func handleEmptyAudioDrop(
-        providers: [NSItemProvider],
-        at location: CGPoint,
-        pixelsPerFrame: CGFloat,
-        laneIndex: Int
-    ) -> Bool {
-        // Provider callbacks fire on arbitrary queues, so each result is written to
-        // its own reserved slot rather than appended. This keeps the collection
-        // race-free without a lock and preserves the order the files were dragged
-        // in - appending would interleave by completion time, scattering a batch
-        // drop across the timeline in arbitrary order.
-        var slots = [URL?](repeating: nil, count: providers.count)
-        let slotsLock = NSLock()
-        let group = DispatchGroup()
-        let isInternalDrag = providers.contains { provider in
-            provider.hasItemConformingToTypeIdentifier(UTType.projectorMediaItem.identifier)
-        }
-        let internalItem = dragContext.mediaItem ?? mediaItem(from: providers)
-
-        for (index, provider) in providers.enumerated() {
-            group.enter()
-            let store: (URL?) -> Void = { url in
-                guard let url else { return }
-                slotsLock.lock()
-                slots[index] = url
-                slotsLock.unlock()
-            }
-
-            if provider.hasItemConformingToTypeIdentifier(UTType.projectorMediaItem.identifier) {
-                provider.loadDataRepresentation(forTypeIdentifier: UTType.projectorMediaItem.identifier) { data, _ in
-                    defer { group.leave() }
-                    let info = extractProjectorMediaInfo(from: data)
-                    if info.type == .audio {
-                        store(info.url)
-                    }
-                }
-            } else {
-                loadURL(from: provider) { url in
-                    defer { group.leave() }
-                    store(url)
-                }
-            }
-        }
-
-        group.notify(queue: .main) {
-            var urls = slots.compactMap { $0 }
-            if urls.isEmpty, let internalItem, internalItem.type == .audio {
-                urls.append(internalItem.url)
-            }
-            let audioURLs = urls
-                .filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
-                .orderedDeduplicated()
-            guard !audioURLs.isEmpty else { return }
-            let targetFrame = max(0, Int(location.x / max(pixelsPerFrame, 0.001)))
-            onDropAudioMedia(laneIndex, audioURLs, targetFrame, isInternalDrag)
-            dragContext.end()
-        }
-
-        clearEmptyAudioDrop()
-        return true
-    }
-
-    private func updateEmptyAudioDropPreview(location: CGPoint, pixelsPerFrame: CGFloat) {
-        emptyAudioDropLocation = location
-        emptyAudioDropPreviewFrame = emptyAudioDropFrame(for: location, pixelsPerFrame: pixelsPerFrame)
     }
 
     private func emptyAudioDropFrame(for location: CGPoint, pixelsPerFrame: CGFloat) -> Int {
@@ -2606,118 +2433,6 @@ struct MultiTrackTimelineView: View {
             .offset(x: xOffset)
             .padding(.vertical, Spacing.xs)
             .allowsHitTesting(false)
-    }
-
-    private func loadFirstURL(from providers: [NSItemProvider], completion: @escaping (URL?) -> Void) {
-        guard let provider = providers.first else {
-            completion(nil)
-            return
-        }
-        loadURL(from: provider, completion: completion)
-    }
-
-    private func loadURL(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {
-        var didFinish = false
-        func finish(_ url: URL?) {
-            guard !didFinish else { return }
-            didFinish = true
-            completion(url)
-        }
-
-        provider.loadObject(ofClass: NSURL.self) { object, _ in
-            if let url = object as? NSURL {
-                finish(url as URL)
-                return
-            }
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                if let url = extractURL(from: item) {
-                    finish(url)
-                    return
-                }
-                provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
-                    if let url = extractURL(from: item) {
-                        finish(url)
-                        return
-                    }
-                    provider.loadDataRepresentation(forTypeIdentifier: UTType.projectorMediaItem.identifier) { data, _ in
-                        finish(extractProjectorMediaURL(from: data))
-                    }
-                }
-            }
-        }
-    }
-
-    private func extractURL(from item: Any?) -> URL? {
-        if let data = item as? Data {
-            return URL(dataRepresentation: data, relativeTo: nil)
-        }
-        if let url = item as? URL {
-            return url
-        }
-        if let url = item as? NSURL {
-            return url as URL
-        }
-        if let string = item as? String {
-            return URL(string: string)
-        }
-        return nil
-    }
-
-    private func extractProjectorMediaURL(from item: Any?) -> URL? {
-        extractProjectorMediaInfo(from: item).url
-    }
-
-    private func extractProjectorMediaInfo(from item: Any?) -> (url: URL?, type: MediaType?, duration: Double?, id: UUID?) {
-        guard let data = item as? Data else { return (nil, nil, nil, nil) }
-        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let urlString = object["url"] as? String {
-            let type = (object["type"] as? String).flatMap { MediaType(rawValue: $0) }
-            let duration = object["duration"] as? Double
-            let id = (object["id"] as? String).flatMap { UUID(uuidString: $0) }
-            if let url = URL(string: urlString) {
-                return (url, type, duration, id)
-            }
-            if urlString.hasPrefix("/") {
-                return (URL(fileURLWithPath: urlString), type, duration, id)
-            }
-        }
-        if let string = String(data: data, encoding: .utf8) {
-            if let url = URL(string: string), url.scheme != nil {
-                return (url, nil, nil, nil)
-            }
-            if string.hasPrefix("/") {
-                return (URL(fileURLWithPath: string), nil, nil, nil)
-            }
-        }
-        return (nil, nil, nil, nil)
-    }
-
-    private func mediaItem(from providers: [NSItemProvider]) -> MediaItem? {
-        for provider in providers {
-            if let name = provider.suggestedName {
-                if let item = mediaLibrary.items.first(where: { $0.url.lastPathComponent == name }) {
-                    return item
-                }
-            }
-        }
-        return nil
-    }
-
-    private func quickMediaType(from providers: [NSItemProvider]) -> MediaType? {
-        for provider in providers {
-            if let name = provider.suggestedName {
-                let url = URL(fileURLWithPath: name)
-                if let type = ProjectMediaLibrary.mediaType(for: url) {
-                    return type
-                }
-            }
-            for typeId in provider.registeredTypeIdentifiers {
-                guard let utType = UTType(typeId) else { continue }
-                if utType.conforms(to: .audio) { return .audio }
-                if utType.conforms(to: .movie) { return .video }
-            }
-        }
-        return nil
     }
 
     // MARK: - Zoom
@@ -3954,7 +3669,6 @@ private struct TransportControlsView: View {
         @StateObject var waveformCache = WaveformCache()
         @StateObject var audioOutputManager = AudioOutputManager()
         @StateObject var thumbnailCache = ThumbnailCache()
-        @StateObject var mediaLibrary = ProjectMediaLibrary()
         @State var zoomLevel: CGFloat = 0.0
 
         var body: some View {
@@ -3964,7 +3678,6 @@ private struct TransportControlsView: View {
                 waveformCache: waveformCache,
                 audioOutputManager: audioOutputManager,
                 thumbnailCache: thumbnailCache,
-                mediaLibrary: mediaLibrary,
                 onDropVideoMedia: { _, _, _ in },
                 onDropAudioMedia: { _, _, _, _ in },
                 onSeek: { _ in },

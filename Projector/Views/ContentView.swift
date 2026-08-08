@@ -707,7 +707,6 @@ struct ContentView: View {
             waveformCache: waveformCache,
             audioOutputManager: audioManager,
             timelineViewModel: timelineViewModel,
-            mediaLibrary: mediaLibrary,
             midiSyncViewModel: midiSyncViewModel,
             thumbnailCache: thumbnailCache,
             onDropVideoMedia: handleVideoDropOnTimeline,
