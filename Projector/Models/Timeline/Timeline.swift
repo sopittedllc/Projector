@@ -314,3 +314,57 @@ extension Timeline {
         return audioLanes.filter { !linkedIds.contains($0.id) }
     }
 }
+
+// MARK: - Lane Reordering
+
+/// Where a dragged lane would land, given how far it has been dragged.
+///
+/// Pure arithmetic in its own type because this rule has been wrong twice and is
+/// impossible to judge by eye: the failures are a few points wide, and "it feels
+/// jumpy" is the only symptom a person can report.
+///
+/// ## The rule
+///
+/// A lane changes place once it has been dragged past the halfway point of its
+/// neighbour - the behaviour of every list with draggable rows - and then has to be
+/// dragged **clear** of that boundary before it changes again.
+///
+/// ## What it replaced
+///
+/// First a fixed threshold: reorder once the drag passed 20pt, then count whole
+/// rows on top of that. The first swap needed 20pt and every later one a full row,
+/// so the gesture was four times more sensitive at the start than after.
+///
+/// Then plain rounding, which fixed the sensitivity but not the shake: sitting on a
+/// midpoint - exactly what a hand does while deciding - flipped the target between
+/// two values, and each flip re-animated every lane being pushed aside. The shake
+/// was those lanes, not the one in hand. Hence the hysteresis.
+struct LaneReorder: Equatable {
+    /// Height of one lane row, including the divider under it.
+    let rowHeight: CGFloat
+
+    /// How far past a boundary the drag must go before the target changes, in rows.
+    let hysteresisRows: CGFloat
+
+    /// - Parameters:
+    ///   - source: Index the lane started at.
+    ///   - held: Target currently chosen, if any. Passing `nil` means none yet.
+    ///   - dragOffset: How far the lane has been dragged vertically, in points.
+    ///   - laneCount: How many lanes there are to land among.
+    /// - Returns: The index the lane would be inserted at.
+    func target(source: Int, held: Int?, dragOffset: CGFloat, laneCount: Int) -> Int {
+        guard laneCount > 0, rowHeight > 0 else { return source }
+
+        let rows = dragOffset / rowHeight
+        let heldRows = CGFloat((held ?? source) - source)
+
+        let movedRows: CGFloat
+        if rows > heldRows + 0.5 + hysteresisRows || rows < heldRows - 0.5 - hysteresisRows {
+            movedRows = rows.rounded()
+        } else {
+            movedRows = heldRows
+        }
+
+        return max(0, min(source + Int(movedRows), laneCount - 1))
+    }
+}

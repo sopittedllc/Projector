@@ -151,6 +151,21 @@ public struct AudioLane: Identifiable, Codable, Equatable, Sendable {
     public var nextAvailableFrame: Int {
         clips.map { $0.timelineEndFrame }.max() ?? 0
     }
+
+    /// Menu wording for deleting this lane, naming what will be lost.
+    ///
+    /// Deleting a lane holding work should not be the same click as deleting an
+    /// empty one. Lives on the model because two views offer the same command -
+    /// the lane itself and the reorder handle laid over its header - and a menu
+    /// that says something different depending on which pixel was clicked would
+    /// be worse than either wording.
+    public var deleteMenuTitle: String {
+        switch clips.count {
+        case 0: return "Delete Lane"
+        case 1: return "Delete Lane and 1 Clip"
+        case let count: return "Delete Lane and \(count) Clips"
+        }
+    }
 }
 
 // MARK: - Codable

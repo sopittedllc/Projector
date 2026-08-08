@@ -175,6 +175,37 @@ final class AudioOutputManager: ObservableObject {
         updateSelectedDeviceChannelCount()
     }
 
+    /// Hand the device-change listener back to CoreAudio.
+    ///
+    /// `deinit` below does the same thing and remains the backstop, but it is not
+    /// a reliable moment: this object is a `@StateObject` owned by the view tree,
+    /// and a process exiting does not have to deinitialise anything. So quitting is
+    /// an explicit call - see `.projectorWillTerminate`.
+    ///
+    /// Idempotent. The block is dropped afterwards, so `deinit` finds nothing left
+    /// to remove and CoreAudio is never asked twice.
+    func cleanup() {
+        removeDeviceChangeListener()
+    }
+
+    private func removeDeviceChangeListener() {
+        guard let listenerBlock = deviceListenerBlock else { return }
+        deviceListenerBlock = nil
+
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        AudioObjectRemovePropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            listenerQueue,
+            listenerBlock
+        )
+    }
+
     deinit {
         // Capture values directly to avoid actor isolation issues
         let listener = deviceListenerBlock

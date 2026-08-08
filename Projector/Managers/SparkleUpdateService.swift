@@ -87,6 +87,32 @@ final class SparkleUpdateService: NSObject, UpdateServiceProtocol {
         return !(key ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Whether this build should offer to replace itself at all.
+    ///
+    /// A development copy must not. `MARKETING_VERSION` is only stamped by the
+    /// release script, so a build from Xcode calls itself whatever the project
+    /// file says - and any published date-version looks newer than that. The
+    /// result is an update offered on every launch from Xcode, aimed at a copy
+    /// living in `DerivedData`.
+    ///
+    /// **And it goes through.** This was first written to test the code signature,
+    /// on the assumption that Sparkle would refuse to replace a development build
+    /// - it does not: the Debug configuration is signed with the same Developer ID
+    /// team as a release, so Sparkle accepted it and installed the release build
+    /// *over the app inside DerivedData*, which is how the assumption came to be
+    /// checked. Measured after the fact: `TeamIdentifier=G398H44H6X` on the copy
+    /// in the build folder, running the release version.
+    ///
+    /// So the discriminator is the build configuration, which is exactly the thing
+    /// that differs, rather than a signature that does not.
+    private static var buildCanUpdateItself: Bool {
+        #if DEBUG
+        return false
+        #else
+        return true
+        #endif
+    }
+
     // MARK: - Initialization
 
     /// Creates the service, starting Sparkle only if this build is signed for it.
@@ -98,6 +124,17 @@ final class SparkleUpdateService: NSObject, UpdateServiceProtocol {
                 .warning, .app,
                 "Update service inert: no SUPublicEDKey in Info.plist. "
                 + "See docs/software-update.md to generate the key pair."
+            )
+            return
+        }
+
+        // A development copy must not replace itself - see
+        // ``buildCanUpdateItself``, which is where the reasoning lives.
+        guard Self.buildCanUpdateItself else {
+            diagnosticLog(
+                .info, .app,
+                "Update service inert: debug build. Updates are offered to release "
+                + "builds only, so a copy in DerivedData is not replaced by one from the feed."
             )
             return
         }
@@ -155,6 +192,32 @@ final class SparkleUpdateService: NSObject, UpdateServiceProtocol {
     }
 }
 
+// MARK: - Relaunch Handoff
+
+/// Carries Sparkle's "now you may install" block from the updater to whoever
+/// clears the way for it.
+///
+/// Idempotent on purpose: the interface calls ``proceed()`` once its modals are
+/// gone, and a timeout calls it too in case nothing was listening. Whichever
+/// arrives first continues the relaunch; the second is a no-op rather than a
+/// second install.
+@MainActor
+final class UpdateRelaunchHandoff {
+    private var installHandler: (() -> Void)?
+
+    init(installHandler: @escaping () -> Void) {
+        self.installHandler = installHandler
+    }
+
+    /// Let the install and relaunch continue.
+    func proceed() {
+        guard let handler = installHandler else { return }
+        installHandler = nil
+        diagnosticLog(.info, .app, "Update install proceeding")
+        handler()
+    }
+}
+
 // MARK: - SPUUpdaterDelegate
 
 /// Logging only.
@@ -208,4 +271,56 @@ extension SparkleUpdateService: SPUUpdaterDelegate {
     nonisolated func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
         diagnosticLog(.info, .app, "Installing update \(item.displayVersionString) (\(item.versionString))")
     }
+
+    /// Clear anything modal out of the way before the app is asked to quit.
+    ///
+    /// **AppKit will not terminate an app with a modal sheet on screen**, and it
+    /// says so and stops - measured, from AppKit's own log while an update was
+    /// being installed with a sheet open:
+    ///
+    /// ```
+    /// Checking whether app should terminate
+    /// App termination blocked by modal sheet
+    /// ```
+    ///
+    /// So "Install and Relaunch" appeared to do nothing at all: the download had
+    /// finished, the install was ready, and the quit request was refused before
+    /// `applicationShouldTerminate` could even be consulted. Nothing was broken
+    /// and nothing was reported, which is the worst of both.
+    ///
+    /// Sparkle offers exactly the hook this needs. Returning `true` holds the
+    /// relaunch open until `installHandler` is invoked, so the sheets can be
+    /// closed first. Sparkle may call this again on a later attempt if the app
+    /// still refuses to quit - the unsaved-changes prompt is entitled to cancel,
+    /// and the update simply stays pending until the next quit.
+    nonisolated func updater(
+        _ updater: SPUUpdater,
+        shouldPostponeRelaunchForUpdate item: SUAppcastItem,
+        untilInvokingBlock installHandler: @escaping () -> Void
+    ) -> Bool {
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                let handoff = UpdateRelaunchHandoff(installHandler: installHandler)
+
+                // The interface closes its own modals - windows and sheets are the
+                // UI layer's business, and this file must not reach for AppKit.
+                NotificationCenter.default.post(
+                    name: .projectorDismissModalsRequested,
+                    object: handoff
+                )
+
+                // Nothing may be listening: no window yet, or a build that does not
+                // observe this. The install must not be stranded either way, and the
+                // handoff only fires once whoever gets there first.
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.modalDismissalTimeout) {
+                    handoff.proceed()
+                }
+            }
+        }
+        return true
+    }
+
+    /// How long to wait for the interface to clear its modals before installing
+    /// regardless.
+    private static let modalDismissalTimeout: TimeInterval = 3
 }

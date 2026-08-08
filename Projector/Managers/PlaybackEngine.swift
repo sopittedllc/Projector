@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import os
 import Combine
 import SwiftTimecodeCore
 import AudioToolbox
@@ -141,6 +142,18 @@ final class PlaybackEngine: ObservableObject {
 
     /// Whether meter tap is installed
     private var meterTapInstalled = false
+
+    /// Latest levels measured on the render thread, waiting to be published.
+    private let meterLevels = MeterLevelStore()
+
+    /// Drains ``meterLevels`` onto the main actor.
+    private var meterPublishTimer: Timer?
+
+    /// How often the published meter levels are refreshed.
+    ///
+    /// 30 per second: smooth to the eye, and an order of magnitude fewer published
+    /// changes than one per audio buffer.
+    private let meterPublishInterval: TimeInterval = 1.0 / 30.0
 
     // MARK: - Timeline Reference
 
@@ -535,15 +548,70 @@ final class PlaybackEngine: ObservableObject {
         guard !isMeteringEnabled else { return }
         isMeteringEnabled = true
         installMeterTap()
+        startMeterPublishing()
     }
 
     /// Disables audio metering and removes the tap.
     func disableMetering() {
         guard isMeteringEnabled else { return }
         isMeteringEnabled = false
+        stopMeterPublishing()
         removeMeterTap()
+        meterLevels.reset()
         meterLevelLeft = 0
         meterLevelRight = 0
+    }
+
+    /// Publish whatever the render thread last measured, and decay from there.
+    ///
+    /// Runs only while metering is on, so nothing ticks for a project sitting idle.
+    private func startMeterPublishing() {
+        stopMeterPublishing()
+
+        let timer = Timer.scheduledTimer(
+            withTimeInterval: meterPublishInterval,
+            repeats: true
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.publishMeterLevels()
+            }
+        }
+        // `.common` so the meters keep moving while a menu is open or the window
+        // is being dragged, matching the gap timer above.
+        RunLoop.main.add(timer, forMode: .common)
+        meterPublishTimer = timer
+    }
+
+    private func stopMeterPublishing() {
+        meterPublishTimer?.invalidate()
+        meterPublishTimer = nil
+    }
+
+    /// Move the newest measurement into the published properties.
+    ///
+    /// Rising levels are taken immediately; falling ones decay, which is what makes
+    /// a meter readable rather than flickering. Only changes worth seeing are
+    /// published, so a silent passage does not invalidate the view thirty times a
+    /// second.
+    private func publishMeterLevels() {
+        guard isMeteringEnabled else { return }
+
+        let measured = meterLevels.take()
+        let meterThreshold: Float = 0.01
+
+        let newLeft = measured.left > meterLevelLeft
+            ? measured.left
+            : max(0, meterLevelLeft * meterDecay)
+        let newRight = measured.right > meterLevelRight
+            ? measured.right
+            : max(0, meterLevelRight * meterDecay)
+
+        if abs(newLeft - meterLevelLeft) > meterThreshold {
+            meterLevelLeft = newLeft
+        }
+        if abs(newRight - meterLevelRight) > meterThreshold {
+            meterLevelRight = newRight
+        }
     }
 
     /// Installs the audio meter tap on the main mixer node.
@@ -569,6 +637,27 @@ final class PlaybackEngine: ObservableObject {
         meterTapInstalled = true
         debugPrint("PlaybackEngine: Meter tap installed (\(format.channelCount) channels, \(format.sampleRate)Hz)")
     }
+
+    // A second, Debug-only tap used to live on this same node and bus, measuring
+    // which output channels carried signal. It is gone, and must not come back in
+    // that form, for two reasons.
+    //
+    // **A node allows one tap per bus.** It targeted `mainMixerNode` bus 0 - the
+    // bus this meter already uses - so the two clobbered each other, and
+    // `removeMeterTap()` cleared only this one's flag while the other stayed
+    // installed behind a `static` of its own.
+    //
+    // **It did forbidden work on the render thread.** Per buffer it looped
+    // channels x frames (32 x 4096 = 131,072 samples on the aggregate device),
+    // then allocated - `String(format:)`, array append - and called `debugPrint`,
+    // which is `NSLog`: a lock and file I/O inside a real-time callback. That is
+    // the textbook cause of the overload CoreAudio was reporting,
+    // `HALS_OverloadMessage: Overload possibly due to client timeout`, and it was
+    // compiled into Debug builds only - which is to say into every build used for
+    // testing.
+    //
+    // If per-channel signal reporting is wanted again: reuse `processMeterBuffer`
+    // below, which copies out and does its work off the audio thread.
 
     /// Removes the audio meter tap from the main mixer node.
     private func removeMeterTap() {
@@ -616,27 +705,19 @@ final class PlaybackEngine: ObservableObject {
         let normalizedLeft = min(1.0, leftRMS * 1.414)
         let normalizedRight = min(1.0, rightRMS * 1.414)
 
-        // Update on main thread with decay for smooth falloff
-        // Only publish changes above threshold to reduce SwiftUI re-renders
-        Task { @MainActor [weak self] in
-            guard let self, self.isMeteringEnabled else { return }
-
-            let meterThreshold: Float = 0.01  // Only publish if change > 1%
-            let oldLeft = self.meterLevelLeft
-            let oldRight = self.meterLevelRight
-
-            // Apply decay: only update if new value is higher, otherwise decay
-            let newLeft: Float = normalizedLeft > oldLeft ? normalizedLeft : max(0, oldLeft * self.meterDecay)
-            let newRight: Float = normalizedRight > oldRight ? normalizedRight : max(0, oldRight * self.meterDecay)
-
-            // Only publish if change is significant (reduces SwiftUI re-renders)
-            if abs(newLeft - oldLeft) > meterThreshold {
-                self.meterLevelLeft = newLeft
-            }
-            if abs(newRight - oldRight) > meterThreshold {
-                self.meterLevelRight = newRight
-            }
-        }
+        // Handed over by writing two floats under a lock, and **not** by starting a
+        // task.
+        //
+        // This runs on the render thread. `Task { @MainActor ... }` allocates and
+        // enqueues, roughly fifty times a second while anything plays, and
+        // allocation is precisely what a real-time callback may not do - the same
+        // mistake, in milder form, as the debug tap that was overloading CoreAudio
+        // from this very node. Two float stores under an uncontended lock allocate
+        // nothing and cannot block for meaningful time.
+        //
+        // The main side drains it on a timer, which also makes the decay a function
+        // of elapsed time rather than of how many buffers happened to arrive.
+        meterLevels.store(left: normalizedLeft, right: normalizedRight)
     }
 
     /// Sets MTC sync mode.
@@ -1642,62 +1723,10 @@ final class PlaybackEngine: ObservableObject {
             try audioEngine.start()
             applyAudioOutputDevice()
             synchronizeOutputFormatIfNeeded()
-            #if DEBUG
-            installOutputMeterTap()
-            #endif
         } catch {
             debugPrint("PlaybackEngine: Failed to start audio engine: \(error)")
         }
     }
-
-    #if DEBUG
-    private static var meterTapInstalled = false
-    private static var meterWasLive = false
-
-    /// Report which output channels actually carry signal.
-    ///
-    /// Diagnostic only. Routing can be configured perfectly and still be
-    /// inaudible if it lands on channels nobody is monitoring, and the logs
-    /// above cannot tell those two cases apart - they say where audio was
-    /// *sent*, not whether anything came out. This measures the engine's real
-    /// output.
-    private func installOutputMeterTap() {
-        guard !Self.meterTapInstalled else { return }
-        Self.meterTapInstalled = true
-
-        let node = audioEngine.mainMixerNode
-        let format = node.outputFormat(forBus: 0)
-        guard format.channelCount > 0 else { return }
-
-        node.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
-            guard let data = buffer.floatChannelData, buffer.frameLength > 0 else { return }
-            var live: [String] = []
-            for channel in 0..<Int(buffer.format.channelCount) {
-                var energy: Float = 0
-                for frame in 0..<Int(buffer.frameLength) {
-                    let sample = data[channel][frame]
-                    energy += sample * sample
-                }
-                let rms = (energy / Float(buffer.frameLength)).squareRoot()
-                if rms > 0.0001 {
-                    live.append(String(format: "ch%d=%.4f", channel + 1, rms))
-                }
-            }
-            if live.isEmpty {
-                // Silent buffers are the normal resting state; logging every one
-                // buries everything else. Only the transitions matter.
-                if Self.meterWasLive {
-                    Self.meterWasLive = false
-                    debugPrint("METER: went silent")
-                }
-            } else {
-                Self.meterWasLive = true
-                debugPrint("METER: signal on \(live.joined(separator: " "))")
-            }
-        }
-        debugPrint("METER: tap installed on mainMixer (\(format.channelCount)ch)")
-    }
-    #endif
 
     private func synchronizeOutputFormatIfNeeded() {
         guard audioPlayers.isEmpty else { return }
@@ -2320,6 +2349,11 @@ final class PlaybackEngine: ObservableObject {
         assetCache.removeAll()
         audioPlayers.removeAll()
         failedClipCooldowns.removeAll()
+
+        // Logged because "did teardown actually run?" is the question a CoreAudio
+        // investigation starts with, and for a long time the answer here was no -
+        // this method had no callers at all.
+        diagnosticLog(.info, .playback, "Audio engine released on teardown")
     }
 
     deinit {
@@ -2366,5 +2400,50 @@ enum PlaybackEngineError: LocalizedError {
         case .audioUnitInstantiationFailed:
             return "Failed to create audio routing unit."
         }
+    }
+}
+
+// MARK: - Meter Level Store
+
+/// The handover point between the render thread and the interface.
+///
+/// A render callback may not allocate, and it may not wait on anything that
+/// could be held for an unbounded time. It can, however, take an uncontended
+/// lock around two float stores - so the audio thread writes here and the main
+/// actor reads on a timer, rather than the audio thread starting a task per
+/// buffer.
+///
+/// `os_unfair_lock` rather than a `DispatchQueue` or an `NSLock`: no allocation,
+/// no priority inversion of the kind a dispatch queue can introduce, and the
+/// critical section is two assignments long.
+///
+/// Not `Sendable`-checked by the compiler - the lock is the guarantee.
+final class MeterLevelStore: @unchecked Sendable {
+    private var lock = os_unfair_lock()
+    private var left: Float = 0
+    private var right: Float = 0
+
+    /// Record the newest measurement. Safe to call from a render callback.
+    func store(left newLeft: Float, right newRight: Float) {
+        os_unfair_lock_lock(&lock)
+        left = newLeft
+        right = newRight
+        os_unfair_lock_unlock(&lock)
+    }
+
+    /// Read the newest measurement.
+    ///
+    /// Deliberately does *not* clear it: a meter that read zero whenever the
+    /// timer happened to tick between buffers would flicker. Decay is the
+    /// reader's job.
+    func take() -> (left: Float, right: Float) {
+        os_unfair_lock_lock(&lock)
+        let values = (left, right)
+        os_unfair_lock_unlock(&lock)
+        return values
+    }
+
+    func reset() {
+        store(left: 0, right: 0)
     }
 }

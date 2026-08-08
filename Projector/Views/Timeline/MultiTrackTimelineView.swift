@@ -435,12 +435,19 @@ struct MultiTrackTimelineView: View {
             .onAppear {
                 updateActiveAudioClipIds()
             }
+            // Deliberately *not* gated on `isTimelineFocused`, unlike Delete and
+            // Select All below.
+            //
+            // Undo is a document-wide command: a drop lands on the timeline
+            // without giving it focus, so requiring focus meant Cmd-Z after an
+            // import did nothing at all - and did it silently, which reads as "the
+            // app has no undo" rather than "click the timeline first". Delete is
+            // different and keeps its gate: which panel has focus decides what
+            // Delete even means.
             .onReceive(NotificationCenter.default.publisher(for: .editUndo)) { _ in
-                guard isTimelineFocused else { return }
                 undoManager?.undo()
             }
             .onReceive(NotificationCenter.default.publisher(for: .editRedo)) { _ in
-                guard isTimelineFocused else { return }
                 undoManager?.redo()
             }
             .onReceive(NotificationCenter.default.publisher(for: .editDelete)) { _ in
@@ -1285,6 +1292,20 @@ struct MultiTrackTimelineView: View {
                                         .contentShape(Rectangle())
                                         .allowsHitTesting(true)
                                         .highPriorityGesture(laneReorderGesture(laneId: lane.id, laneIndex: index))
+                                        // This invisible handle lies over the lane
+                                        // name - the obvious place to right-click a
+                                        // lane - and a transparent Color with no
+                                        // menu of its own swallowed the click, so
+                                        // the lane's own context menu underneath
+                                        // never saw it. Deleting a lane by
+                                        // right-clicking its name simply stopped
+                                        // working when this handle arrived.
+                                        .contextMenu {
+                                            Button(lane.deleteMenuTitle, role: .destructive) {
+                                                registerTimelineUndo(actionName: "Delete Lane")
+                                                timelineManager.removeAudioLane(id: lane.id)
+                                            }
+                                        }
                                 }
                                 .overlay(alignment: .bottom) {
                                     if index == timeline.audioLanes.count - 1 {
@@ -3013,25 +3034,58 @@ struct MultiTrackTimelineView: View {
 
     // MARK: - Lane Reorder
 
-    /// Calculate target lane index based on vertical drag offset.
+    /// Where a lane would land, given how far it has been dragged.
+    ///
+    /// **Rounding, not a threshold.** A lane changes places once it has been
+    /// dragged past the halfway point of its neighbour, which is how every list
+    /// with draggable rows behaves and what makes the movement feel proportional
+    /// to the hand.
+    ///
+    /// The previous version fired at a fixed 20pt and then counted whole rows on
+    /// top of that, so the *first* swap needed 20pt while every later one needed a
+    /// full 81pt row - four times less sensitive after the first step. Worse, at
+    /// exactly 20pt the target flipped between two values on the smallest movement,
+    /// and each flip animated every other lane: the jumpiness was the lanes
+    /// underneath being re-animated, not the lane in hand.
     ///
     /// - Parameters:
-    ///   - sourceLaneIndex: The index of the lane being dragged (in audioLanes array)
-    ///   - dragOffset: The vertical offset of the drag
-    /// - Returns: The target index where the lane should be inserted
+    ///   - sourceLaneIndex: Index of the lane being dragged, in `audioLanes`.
+    ///   - dragOffset: How far it has been dragged vertically, in points.
+    /// - Returns: The index it would be inserted at, clamped to the lane count.
     private func calculateLaneReorderTarget(from sourceLaneIndex: Int, dragOffset: CGFloat) -> Int {
-        let laneHeight = TimelineLayout.audioLaneHeight + 1 // Include divider
-        // Trigger reorder once drag exceeds 25% of lane height (about 20px)
-        let threshold: CGFloat = 20
-        if abs(dragOffset) < threshold {
-            return sourceLaneIndex
-        }
-        // Calculate how many lanes we've moved past
-        let adjustedOffset = dragOffset - (dragOffset > 0 ? threshold : -threshold)
-        let lanesMoved = Int(adjustedOffset / laneHeight) + (dragOffset > 0 ? 1 : -1)
-        let targetIndex = sourceLaneIndex + lanesMoved
-        return max(0, min(targetIndex, timeline.audioLanes.count - 1))
+        // Indices are into `audioLanes` while the rows on screen are
+        // `standaloneAudioLanes` - the video file's own audio is drawn as a strip
+        // under the picture, not as a row here. The two agree because an import
+        // creates a video's lanes before any stems, so the stems are contiguous at
+        // the end of the array. If a video lane ever ends up *between* stems, one
+        // row of movement would stop meaning one index, and this is the place that
+        // has to change.
+        Self.laneReorder.target(
+            source: sourceLaneIndex,
+            held: laneReorderTargetIndex,
+            dragOffset: dragOffset,
+            laneCount: timeline.audioLanes.count
+        )
     }
+
+    /// The reorder rule. See ``LaneReorder`` for why it is a type of its own.
+    ///
+    /// 0.18 of a row is about 15pt at the current height - enough to absorb the
+    /// hand's own movement while holding a lane near the point where it locks in,
+    /// small enough that a deliberate drag does not feel resisted.
+    private static let laneReorder = LaneReorder(rowHeight: laneRowHeight, hysteresisRows: 0.18)
+
+    /// One lane row, including the divider drawn under it.
+    ///
+    /// The reorder maths and the displacement of the lanes being pushed aside must
+    /// use the same number, or the lane you are dragging and the gap it is heading
+    /// for disagree about where a row begins.
+    private static var laneRowHeight: CGFloat {
+        TimelineLayout.audioLaneHeight + laneDividerHeight
+    }
+
+    /// The hairline between two lanes.
+    private static let laneDividerHeight: CGFloat = 1
 
     /// Create a long-press + drag gesture for lane reordering.
     ///
@@ -3103,7 +3157,7 @@ struct MultiTrackTimelineView: View {
             return 0
         }
 
-        let laneHeight = TimelineLayout.audioLaneHeight + 1 // Include divider
+        let laneHeight = Self.laneRowHeight
 
         // Dragging down (source < target): lanes between source and target move UP
         if sourceIndex < targetIndex {

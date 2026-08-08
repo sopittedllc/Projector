@@ -19,6 +19,7 @@ extension ContentView {
 
         // Set flag synchronously before starting async work
         isProcessingTimecodeDetection = true
+        beginImportUndo()
 
         Task { @MainActor in
             defer { isProcessingTimecodeDetection = false }
@@ -60,6 +61,8 @@ extension ContentView {
     /// Handle audio files dropped on a specific audio lane
     func handleAudioDropOnTimeline(_ laneIndex: Int, _ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
         debugPrint("handleAudioDropOnTimeline: ENTRY - laneIndex=\(laneIndex), urls=\(urls.map { $0.lastPathComponent }), atFrame=\(atFrame)")
+
+        beginImportUndo()
 
         // Defer state changes to avoid "Publishing changes from within view updates"
         DispatchQueue.main.async {
@@ -163,6 +166,7 @@ extension ContentView {
 
         // Set flag synchronously before starting async work
         isProcessingTimecodeDetection = true
+        beginImportUndo()
 
         Task { @MainActor in
             defer { isProcessingTimecodeDetection = false }
@@ -300,6 +304,8 @@ extension ContentView {
             alerts.show(.audioAlreadyInTimeline(item.displayName))
             return
         }
+
+        beginImportUndo()
 
         Task {
             // Create a new audio lane for this audio file
@@ -1126,12 +1132,86 @@ extension ContentView {
         }
     }
 
+    // MARK: - Undo for Imports
+
+    /// Remember the timeline as it stands, so the import about to run is undoable.
+    ///
+    /// Called at the top of every drop handler. ``frameImportedContent()`` - which
+    /// every import path already ends with - turns the snapshot into an undo step,
+    /// so a new import route gets undo by using the same ending rather than by
+    /// remembering to register anything.
+    func beginImportUndo() {
+        importUndoSnapshot = timelineManager.timeline
+    }
+
+    /// Turn the snapshot taken by ``beginImportUndo()`` into one undo step.
+    ///
+    /// Snapshot-based, like every other timeline undo here: the timeline is a
+    /// value, so restoring a copy puts back reels, lanes, clips, routing, the start
+    /// timecode and the duration in one move. Reversing the individual placements
+    /// instead would make a batch drop take one press per file.
+    ///
+    /// **Registered only if something actually changed.** A drop of files already
+    /// on the timeline places nothing, and an undo step that restores an identical
+    /// timeline is worse than none: Cmd-Z would look broken while silently
+    /// consuming a press.
+    ///
+    /// **The media panel is left alone.** An import both places media and adds it
+    /// to the project's library; this reverses the placement only. Removing library
+    /// entries would mean deciding what to do about files already copied into the
+    /// project folder, and the panel has its own undoable removal for that.
+    private func registerImportUndoIfNeeded() {
+        guard let before = importUndoSnapshot else { return }
+        importUndoSnapshot = nil
+
+        guard timelineManager.timeline != before else { return }
+
+        undoManager?.registerUndo(withTarget: timelineManager) { manager in
+            manager.timeline = before
+        }
+        undoManager?.setActionName("Import Media")
+    }
+
+    // MARK: - QuickTime Demo
+
+    /// Open the review-QuickTime sheet.
+    ///
+    /// The view model is built here and handed the timeline as it stands, so the
+    /// sheet prints what is on screen rather than following later edits made
+    /// behind it. Presented through the alert coordinator, which already owns
+    /// sheet presentation - `ContentView`'s body is at the type-checker's limit
+    /// and cannot take another modifier.
+    func presentQuickTimeDemo() {
+        let viewModel = QuickTimeDemoViewModel(
+            timeline: timelineManager.timeline,
+            timecodeService: embeddedTimecodeService,
+            formatTimecode: { [timelineManager] frame in
+                timelineManager.formatTimecode(forFrame: frame)
+            }
+        )
+
+        alerts.show(.quickTimeDemo(content: AnyView(
+            QuickTimeDemoSheet(
+                viewModel: viewModel,
+                isPresented: Binding(
+                    get: { self.alerts.activeAlert?.id == "quickTimeDemo" },
+                    set: { isPresented in
+                        if !isPresented, self.alerts.activeAlert?.id == "quickTimeDemo" {
+                            self.alerts.dismiss()
+                        }
+                    }
+                )
+            )
+        )))
+    }
+
     /// Make the timeline begin where its content does, then frame that content.
     ///
     /// Every import path ends here. Two steps that belong together: moving the
     /// start changes what frame the content sits on, so framing has to happen
     /// after it or it frames a span that is about to shift.
     func frameImportedContent() {
+        registerImportUndoIfNeeded()
         snapTimelineStartToContent()
         timelineViewModel.requestZoomToFitContent()
     }
@@ -1503,6 +1583,7 @@ extension ContentView {
             frameRate: config.frameRate,
             startTimecode: config.startTimecode,
             onConfirm: { confirmedURL, insertFrame in
+                self.beginImportUndo()
                 Task { @MainActor in
                     await self.addVideoToTimelineUnchecked(url: confirmedURL, at: insertFrame)
                     self.videoInsertURL = nil

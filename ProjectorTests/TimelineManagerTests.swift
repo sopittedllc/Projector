@@ -462,3 +462,228 @@ final class TimelineManagerTests: XCTestCase {
         XCTAssertEqual(manager.timeline.config.durationFrames, 10000, "Duration should be 10000 frames")
     }
 }
+
+// MARK: - QuickTime Demo
+
+/// The span a review QuickTime covers, and the level conversion that goes with
+/// it. Pure arithmetic, so it is pinned here rather than left to be discovered by
+/// exporting a two-hour reel and watching where the picture starts.
+final class QuickTimeDemoSpanTests: XCTestCase {
+
+    private func spec(
+        wavStartFrame: Int,
+        wavDurationFrames: Int,
+        head: Int = 0,
+        tail: Int = 0
+    ) -> QuickTimeDemoSpec {
+        QuickTimeDemoSpec(
+            wavURL: URL(fileURLWithPath: "/tmp/mix.wav"),
+            wavStartFrame: wavStartFrame,
+            wavDurationFrames: wavDurationFrames,
+            headFrames: head,
+            tailFrames: tail
+        )
+    }
+
+    func testSpanWithNoHandlesIsExactlyTheMix() {
+        let span = QuickTimeDemoSpan(spec: spec(wavStartFrame: 1_000, wavDurationFrames: 480))
+
+        XCTAssertEqual(span.startFrame, 1_000)
+        XCTAssertEqual(span.endFrame, 1_480)
+        XCTAssertEqual(span.durationFrames, 480)
+    }
+
+    func testHandlesExtendBothEnds() {
+        let span = QuickTimeDemoSpan(
+            spec: spec(wavStartFrame: 1_000, wavDurationFrames: 480, head: 48, tail: 96)
+        )
+
+        XCTAssertEqual(span.startFrame, 952)
+        XCTAssertEqual(span.endFrame, 1_576)
+        XCTAssertEqual(span.durationFrames, 624)
+    }
+
+    /// There is no picture before the head of the timeline, and asking a
+    /// composition for a negative time is a crash waiting to happen.
+    func testHeadIsClampedAtTheStartOfTheTimeline() {
+        let span = QuickTimeDemoSpan(
+            spec: spec(wavStartFrame: 24, wavDurationFrames: 480, head: 240)
+        )
+
+        XCTAssertEqual(span.startFrame, 0, "Cannot print picture from before frame 0")
+        XCTAssertEqual(span.endFrame, 504, "The tail end is unaffected by the clamp")
+    }
+
+    /// Deliberately unclamped: a mix may run past the last reel, and black
+    /// picture with the audio continuing is the honest answer.
+    func testTailIsNotClampedToTheTimeline() {
+        let span = QuickTimeDemoSpan(
+            spec: spec(wavStartFrame: 1_000, wavDurationFrames: 480, tail: 100_000)
+        )
+
+        XCTAssertEqual(span.endFrame, 101_480)
+    }
+
+    func testNegativeHandlesAreIgnoredRatherThanShorteningTheDemo() {
+        let span = QuickTimeDemoSpan(
+            spec: spec(wavStartFrame: 1_000, wavDurationFrames: 480, head: -240, tail: -240)
+        )
+
+        XCTAssertEqual(span.startFrame, 1_000)
+        XCTAssertEqual(span.endFrame, 1_480)
+    }
+
+    func testOffsetIsMeasuredFromTheSpanStart() {
+        let span = QuickTimeDemoSpan(
+            spec: spec(wavStartFrame: 1_000, wavDurationFrames: 480, head: 48)
+        )
+
+        XCTAssertEqual(span.offset(ofTimelineFrame: 952), 0)
+        XCTAssertEqual(span.offset(ofTimelineFrame: 1_000), 48, "The mix begins after the head")
+    }
+
+    @MainActor
+    func testDecibelsConvertToLinearVolume() {
+        XCTAssertEqual(QuickTimeDemoBuilder.linearVolume(fromDB: 0), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(QuickTimeDemoBuilder.linearVolume(fromDB: -6), 0.5012, accuracy: 0.001)
+        XCTAssertEqual(QuickTimeDemoBuilder.linearVolume(fromDB: -20), 0.1, accuracy: 0.0001)
+        XCTAssertGreaterThan(QuickTimeDemoBuilder.linearVolume(fromDB: 6), 1.0)
+    }
+}
+
+// MARK: - Undo
+
+/// Every timeline undo in the app restores a snapshot rather than reversing the
+/// individual edit, so what matters is that a snapshot is a faithful inverse -
+/// including the config, which an import changes when it snaps the start.
+final class TimelineSnapshotUndoTests: XCTestCase {
+
+    @MainActor
+    private func makeManager() -> TimelineManager {
+        let rate = TimecodeFrameRate.fps24
+        let config = TimelineConfig(
+            startTimecode: Timecode(.components(h: 0, m: 59, s: 50, f: 0), at: rate, by: .clamping),
+            endTimecode: Timecode(.components(h: 2, m: 59, s: 50, f: 0), at: rate, by: .clamping),
+            frameRate: rate
+        )
+        return TimelineManager(timeline: Timeline(config: config, videoReels: [], audioLanes: []))
+    }
+
+    /// The shape of an import: a reel, a lane, a clip, and a moved start.
+    @MainActor
+    func testRestoringASnapshotReversesAWholeImport() {
+        let manager = makeManager()
+        let before = manager.timeline
+
+        let lane = manager.addAudioLane(name: "MX")
+        manager.timeline.addClip(
+            AudioClip(
+                sourceURL: URL(fileURLWithPath: "/tmp/stem.wav"),
+                timelineStartFrame: 48,
+                durationFrames: 240,
+                sourceStartFrame: 0,
+                sourceType: .audioFile,
+                channelCount: 2,
+                sampleRate: 48_000
+            ),
+            toLane: lane.id
+        )
+        manager.timeline.videoReels = [
+            VideoReel(
+                sourceURL: URL(fileURLWithPath: "/tmp/reel.mov"),
+                timelineStartFrame: 48,
+                durationFrames: 1_440
+            )
+        ]
+        manager.setTimelineStart(toFrame: 48)
+
+        XCTAssertNotEqual(manager.timeline, before, "The import should have changed something")
+
+        // What undo does.
+        manager.timeline = before
+
+        XCTAssertEqual(manager.timeline, before)
+        XCTAssertTrue(manager.timeline.videoReels.isEmpty, "The reel should be gone")
+        XCTAssertTrue(manager.timeline.audioLanes.isEmpty, "The lane the import made should be gone")
+        XCTAssertEqual(
+            manager.timeline.config.startTimecode.frameCount.wholeFrames,
+            before.config.startTimecode.frameCount.wholeFrames,
+            "The start the import snapped should be back where it was"
+        )
+    }
+
+    /// A drop that places nothing must not register a step - `Cmd-Z` consuming a
+    /// press to restore an identical timeline reads as broken undo.
+    @MainActor
+    func testATimelineThatDidNotChangeIsRecognisedAsUnchanged() {
+        let manager = makeManager()
+        let before = manager.timeline
+
+        XCTAssertEqual(manager.timeline, before, "Nothing placed means nothing to undo")
+    }
+}
+
+// MARK: - Lane Reorder
+
+/// The reorder rule, which has been wrong twice and cannot be judged by eye: the
+/// failures are a few points wide and the only symptom a person can report is
+/// "it feels jumpy".
+final class LaneReorderTests: XCTestCase {
+
+    /// The real thing: an 80pt lane, a 1pt divider, 0.18 of a row of stickiness.
+    private let reorder = LaneReorder(rowHeight: 81, hysteresisRows: 0.18)
+
+    func testNoDragKeepsTheLaneWhereItIs() {
+        XCTAssertEqual(reorder.target(source: 2, held: nil, dragOffset: 0, laneCount: 5), 2)
+    }
+
+    /// Short of halfway is not a move - that was the old fixed 20pt trigger.
+    func testShortOfHalfwayDoesNotMove() {
+        XCTAssertEqual(reorder.target(source: 2, held: nil, dragOffset: 30, laneCount: 5), 2)
+        XCTAssertEqual(reorder.target(source: 2, held: nil, dragOffset: -30, laneCount: 5), 2)
+    }
+
+    /// Past halfway plus the sticky margin, it commits - down and up alike.
+    func testPastHalfwayMovesOneLane() {
+        XCTAssertEqual(reorder.target(source: 2, held: nil, dragOffset: 57, laneCount: 5), 3)
+        XCTAssertEqual(reorder.target(source: 2, held: nil, dragOffset: -57, laneCount: 5), 1)
+    }
+
+    /// Every step costs the same, which the fixed-threshold version did not: its
+    /// first swap took 20pt and every later one a full row.
+    func testStepsAreEvenlySpaced() {
+        XCTAssertEqual(reorder.target(source: 0, held: nil, dragOffset: 81, laneCount: 6), 1)
+        XCTAssertEqual(reorder.target(source: 0, held: nil, dragOffset: 162, laneCount: 6), 2)
+        XCTAssertEqual(reorder.target(source: 0, held: nil, dragOffset: 243, laneCount: 6), 3)
+    }
+
+    /// The jumpiness itself: a hand holding a lane on the boundary must not flip
+    /// the target back and forth, because every flip re-animates the other lanes.
+    func testSittingOnTheBoundaryDoesNotFlipTheTarget() {
+        let boundary: CGFloat = 81 * 0.5
+
+        // Not yet committed: hovering either side of halfway holds at the source.
+        XCTAssertEqual(reorder.target(source: 1, held: 1, dragOffset: boundary - 1, laneCount: 4), 1)
+        XCTAssertEqual(reorder.target(source: 1, held: 1, dragOffset: boundary + 1, laneCount: 4), 1)
+
+        // Committed to the next lane, then jittering back across halfway: it stays.
+        XCTAssertEqual(reorder.target(source: 1, held: 2, dragOffset: boundary + 1, laneCount: 4), 2)
+        XCTAssertEqual(reorder.target(source: 1, held: 2, dragOffset: boundary - 1, laneCount: 4), 2)
+    }
+
+    /// Dragged clear of the boundary in the other direction, it does change back.
+    func testDraggingClearOfTheBoundaryChangesBack() {
+        XCTAssertEqual(reorder.target(source: 1, held: 2, dragOffset: 20, laneCount: 4), 1)
+    }
+
+    func testTargetIsClampedToTheLanesThatExist() {
+        XCTAssertEqual(reorder.target(source: 3, held: nil, dragOffset: 900, laneCount: 4), 3)
+        XCTAssertEqual(reorder.target(source: 0, held: nil, dragOffset: -900, laneCount: 4), 0)
+    }
+
+    func testDegenerateInputsAreLeftAlone() {
+        let zeroHeight = LaneReorder(rowHeight: 0, hysteresisRows: 0.18)
+        XCTAssertEqual(zeroHeight.target(source: 2, held: nil, dragOffset: 500, laneCount: 5), 2)
+        XCTAssertEqual(reorder.target(source: 0, held: nil, dragOffset: 500, laneCount: 0), 0)
+    }
+}

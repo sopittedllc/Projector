@@ -176,6 +176,12 @@ struct ContentView: View {
     /// removed again once it finishes.
     @State var batchCreatedLaneIds: Set<UUID> = []
 
+    /// The timeline as it stood before the import now running.
+    ///
+    /// One undo step per drop, however many files it places - see
+    /// `beginImportUndo()`.
+    @State var importUndoSnapshot: Timeline?
+
     /// Flag to prevent concurrent timecode detection from multiple drop events
     @State var isProcessingTimecodeDetection = false
 
@@ -247,6 +253,28 @@ struct ContentView: View {
             ) { _ in
                 presentBugReport()
             }
+            // An update is about to ask the app to quit, and AppKit will not
+            // terminate behind a modal sheet. Dismissing through SwiftUI's own
+            // state - rather than only closing the window - keeps the app from
+            // believing a sheet is still up.
+            // Two app-wide notifications in one modifier. Separately they pushed
+            // this body past the type-checker's limit, which this file has hit
+            // before - see the note in CLAUDE.md.
+            .modifier(AppLifecycleObservers(
+                onWillTerminate: {
+                    // The engine's tap and its device listener are ours to hand
+                    // back, and `cleanup()` is what does it - it had no callers at
+                    // all until now, so teardown happened only by process exit.
+                    playbackEngine.cleanup()
+                    audioManager.cleanup()
+                },
+                onDismissModals: { handoff in
+                    alerts.dismiss()
+                    showBugReport = false
+                    showOnboarding = false
+                    closeRemainingSheets(then: handoff)
+                }
+            ))
             .alert("Export Cue List", isPresented: $showCueListExportError) {
                 Button("OK", role: .cancel) { }
             } message: {
@@ -688,14 +716,20 @@ struct ContentView: View {
             onSettingsPressed: { alerts.show(.settings(content: AnyView(EmptyView()))) },
             onReportBugPressed: { presentBugReport() },
             onAddAudioLane: {
+                let previousTimeline = timelineManager.timeline
                 let laneNumber = timelineManager.timeline.audioLanes.count + 1
                 _ = timelineManager.addAudioLane(name: "Audio \(laneNumber)")
+                undoManager?.registerUndo(withTarget: timelineManager) { manager in
+                    manager.timeline = previousTimeline
+                }
+                undoManager?.setActionName("Add Audio Lane")
                 timelineViewModel.expandIfNeeded()
             },
             onDropMixedMedia: { videoURLs, audioURLs, atFrame in
                 handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: atFrame)
             },
             onExportCueList: { handleExportCueList() },
+            onCreateQTDemo: { presentQuickTimeDemo() },
             height: sections.timeline.height
         )
         .onChangeCompat(of: mediaLibrary.items.count) { newCount in
@@ -770,4 +804,33 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+}
+
+
+// MARK: - App Lifecycle Observers
+
+/// Watches the two app-wide notifications `ContentView` has to act on.
+///
+/// One modifier rather than two `onReceive` calls in the body: `ContentView`'s body
+/// sits at the Swift type-checker's limit, and adding the second one on its own was
+/// enough to fail the build with "unable to type-check this expression in reasonable
+/// time".
+private struct AppLifecycleObservers: ViewModifier {
+
+    /// The app is quitting - release CoreAudio while there is still a process.
+    let onWillTerminate: () -> Void
+
+    /// An update needs the modals out of the way before the app can be asked to
+    /// quit; the handoff continues the install once they are gone.
+    let onDismissModals: (UpdateRelaunchHandoff?) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .projectorWillTerminate)) { _ in
+                onWillTerminate()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .projectorDismissModalsRequested)) { note in
+                onDismissModals(note.object as? UpdateRelaunchHandoff)
+            }
+    }
 }

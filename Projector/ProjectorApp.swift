@@ -328,10 +328,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         editMenu.addItem(undoItem)
 
         // Redo
+        //
+        // Lowercase "z" with Shift in the modifier mask, never uppercase "Z" with
+        // Shift as well: AppKit then wants Shift applied twice and the shortcut
+        // matches nothing, which is why Cmd-Shift-Z did nothing at all while the
+        // menu item looked correct.
         let redoItem = NSMenuItem(
             title: "Redo",
             action: #selector(editRedo(_:)),
-            keyEquivalent: "Z"
+            keyEquivalent: "z"
         )
         redoItem.keyEquivalentModifierMask = [.command, .shift]
         redoItem.target = self
@@ -542,6 +547,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     /// out, and the launch has to be handed to the system before it goes. The
     /// completion arrives on another queue, so the wait cannot deadlock.
     func applicationWillTerminate(_ notification: Notification) {
+        // Hand CoreAudio back first. Nothing here can reach the playback engine,
+        // so the owning view does it - synchronously, because the process is about
+        // to go and a queued cleanup would never run.
+        //
+        // Without this the engine, its tap and its property listener were released
+        // only by process exit, and not at all when a build was killed rather than
+        // quit - which is how a day of testing leaves state behind in coreaudiod.
+        NotificationCenter.default.post(name: .projectorWillTerminate, object: nil)
+
         guard AppDelegate.shouldRelaunchAfterTermination else { return }
         AppDelegate.shouldRelaunchAfterTermination = false
 
@@ -870,6 +884,17 @@ extension Notification.Name {
     /// Posted by Help > Report a Bug. The menu is AppKit and has no path to
     /// `ContentView`'s state, so it asks for the sheet this way.
     static let projectorReportBugRequested = Notification.Name("projectorReportBugRequested")
+
+    /// Asks the interface to close anything modal, because the app is about to be
+    /// asked to quit and AppKit refuses to terminate behind a sheet. Posted by the
+    /// updater; see `SparkleUpdateService`.
+    static let projectorDismissModalsRequested = Notification.Name("projectorDismissModalsRequested")
+
+    /// The app is quitting: release CoreAudio before the process goes.
+    ///
+    /// Posted from `applicationWillTerminate`, which cannot reach the engine - it
+    /// belongs to the view tree - so the view that owns it does the releasing.
+    static let projectorWillTerminate = Notification.Name("projectorWillTerminate")
     static let saveProjectAs = Notification.Name("saveProjectAs")
     static let checkUnsavedChanges = Notification.Name("checkUnsavedChanges")
 

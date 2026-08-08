@@ -56,6 +56,9 @@ struct TimelineAccordionView: View {
     /// Called when user wants to export a cue list from the MX lane
     var onExportCueList: () -> Void
 
+    /// Opens the review-QuickTime sheet.
+    var onCreateQTDemo: () -> Void
+
     // MARK: - Section sizing
 
     /// Height the section authority has given this panel.
@@ -200,12 +203,12 @@ struct TimelineAccordionView: View {
 
                 zoomControls
 
-                // The three buttons sit together, after the readouts and the
-                // zoom. Export Cue List used to lead the row, immediately after
-                // the title, which put one button at the far left of the header
-                // and two at the far right with every numeric readout between
-                // them. Only visible when a lane actually holds clips, so the
-                // group is two buttons wide on an empty project.
+                // The buttons sit together, after the readouts and the zoom.
+                // Export Cue List used to lead the row, immediately after the
+                // title, which put one button at the far left of the header and
+                // two at the far right with every numeric readout between them.
+                // Both media buttons appear only when a lane actually holds
+                // clips, so the group is two buttons wide on an empty project.
                 if timelineManager.timeline.audioLanes.contains(where: { !$0.clips.isEmpty }) {
                     Button(action: onExportCueList) {
                         HStack(spacing: Spacing.xs) {
@@ -219,6 +222,19 @@ struct TimelineAccordionView: View {
                     .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentBlue, help: "Export Cue List from MX lane"))
                     .fixedSize(horizontal: true, vertical: false)
                     .accessibilityLabel("Export Cue List from MX lane")
+
+                    Button(action: onCreateQTDemo) {
+                        HStack(spacing: Spacing.xs) {
+                            Image(systemName: "film.stack")
+                                .frame(width: 12, height: 12)
+                            Text("Create QT Demo")
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                    }
+                    .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentBlue, help: "Print a review QuickTime against a supplied mix"))
+                    .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityLabel("Create QuickTime demo")
                 }
 
                 // Settings button

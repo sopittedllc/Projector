@@ -531,6 +531,60 @@ entitlements. **Those entitlements are not accepted on the Mac App Store** - see
 | `ContentView.swift` | Settings sheet | Passes the environment's service to `SettingsView` |
 | `Projector.xcodeproj` | SPM | Sparkle 2.9.5, `upToNextMajorVersion` |
 
+#### "Install and Relaunch" did nothing (2026-08-08)
+
+**AppKit will not terminate an app with a modal sheet on screen.** It checks,
+refuses, and says so - from AppKit's own log, while an update was being installed
+with the QT Demo sheet open:
+
+```
+Checking whether app should terminate
+App termination blocked by modal sheet
+```
+
+The download had finished and the install was ready, but the quit request was
+refused before `applicationShouldTerminate` was consulted. Nothing broken, nothing
+reported.
+
+Fixed with Sparkle's own hook,
+`updater(_:shouldPostponeRelaunchForUpdate:untilInvokingBlock:)`: return `true`,
+clear the modals, then invoke the handler. `UpdateRelaunchHandoff` carries that
+block and is idempotent, because two things can call it - the interface once its
+sheets are gone, and a 3-second timeout in case nothing is listening (no window
+yet, or a build without the observer). Sparkle may call the hook again on a later
+attempt, which is what makes it safe for the unsaved-changes prompt to cancel: the
+update stays pending until the next quit.
+
+Window work lives in the UI layer (`ContentView.closeRemainingSheets`), not in the
+manager - `NSApp` has no business in `Managers/`. SwiftUI state is dismissed first
+so the app does not go on believing a sheet is up, then an `endSheet` sweep catches
+what SwiftUI does not own, retried until the sheets are actually gone because
+closing one is animated.
+
+**Not yet verified end to end** - it needs a real pending update on a release
+build, so the next actual update is the test.
+
+#### A debug build no longer offers updates (2026-08-08)
+
+`MARKETING_VERSION` is only stamped by the release script, so a build from Xcode
+reports whatever the project file says and any published date-version looks newer.
+Every launch from Xcode therefore offered an update aimed at a copy in
+`DerivedData`.
+
+**And it installed.** This gate was first written to test the code signature,
+assuming Sparkle would refuse a development build - it does not. The Debug
+configuration is signed with the same Developer ID team as a release, so Sparkle
+accepted it and replaced the app *inside DerivedData* with the release build; the
+next `xcodebuild` then failed with "Embedded binary is not signed with the same
+certificate as the parent app" until the stale bundle was deleted. Measured after
+the fact: `TeamIdentifier=G398H44H6X` on the copy in the build folder, running the
+release version.
+
+So the gate is the build configuration, which is the thing that actually differs.
+A Debug build keeps the service object but leaves it disabled, so Settings still
+shows the Updates section with "This build cannot update itself" rather than hiding
+it and looking broken. Verified at runtime: `Update service inert: debug build.`
+
 #### `NSApp.delegate` is not the app delegate (2026-08-07)
 
 The Settings section was **invisible from the day it shipped**, and not because
@@ -693,6 +747,105 @@ no zoom presets. Scoped out on 2026-08-08: fix the anchor only.
 
 #### Dependencies
 - Depends on: Multi-Track Timeline
+- Depended by: none
+
+---
+
+### Create QT Demo (review QuickTime)
+
+**Status**: Active (UI not yet runtime-verified - see below)
+**Added**: 2026-08-08
+
+#### Description
+Prints a review QuickTime: the timeline's picture against a stereo mix the user
+supplies, with a chosen set of lanes underneath it. Reached from **Create QT
+Demo** in the timeline header, next to Export Cue List.
+
+The mix is placed by its own embedded timecode, so the demo lines up with picture
+without the user positioning anything. The demo's length is the mix's length plus
+whatever head and tail handles are asked for.
+
+One `AVMutableComposition` serves as both the preview and the thing that gets
+encoded — a preview built from a different graph would be a preview of something
+else.
+
+**Only the handles rebuild it.** Every lane goes into the composition whether it
+is included or not, and both inclusion and level are expressed in the
+`AVAudioMix` — so ticking a lane or moving a fader swaps the mix on the player
+item already playing and the preview never stops. The first version built only
+the included lanes, which meant the two controls you use *while listening* were
+the ones that restarted the preview from the head.
+
+Encoded with `AVAssetExportPreset1920x1080`: H.264 in a `.mov`, capped at 1080p
+(a preset only ever scales down) at the **source frame rate**. The media
+optimisation preset is deliberately *not* reused - it caps at 30fps, and a 23.976
+reel resampled to 30 is useless for judging sync.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Manager | `Managers/QuickTimeDemoBuilder.swift` | Span maths, composition + mix assembly, export |
+| View | `Views/QuickTimeDemoSheet.swift` | Mix picker, preview player, lane/level rows, handles, export |
+| Coordinator | `Coordinators/AlertCoordinator.swift` | `quickTimeDemo(content:)` sheet case |
+| View | `Views/TimelineAccordionView.swift` | The button, beside Export Cue List |
+| View | `Views/ContentView+Timeline.swift` | `presentQuickTimeDemo()` |
+
+#### Decisions
+
+- **Lanes start excluded.** The mix is the thing being judged; adding lanes is a
+  decision. A default that included everything would double the music under a new
+  cue, which is worse than starting quiet.
+- **A mix with no timecode is refused**, not placed at a guess. The whole point is
+  that it lands where the picture is.
+- **`AudioLane.volume` is deliberately ignored.** There is no control for it
+  anywhere in the app, so folding it in would make the printed level differ from
+  the number on the slider for a reason the user could not see. The number on
+  screen is the number applied.
+- **The mix is the first fader in the same list as the lanes**, with its toggle
+  disabled - balancing it against them is the whole job, so separating it out read
+  as two unrelated controls.
+- **The picker disappears once a mix is chosen.** Its name moves to the header
+  with a Change… button; leaving a picker and a duplicate summary on screen put
+  clutter above the controls actually in use.
+- **A lane with no audio in the span is shown but not toggleable**, marked
+  "nothing in this range" - a toggle that silently does nothing is worse than one
+  that is visibly unavailable.
+- **The tail is not clamped to the timeline.** A mix may run past the last reel,
+  and black picture with the audio continuing is the honest answer.
+- Presented through `AlertCoordinator` rather than a new `.sheet` on
+  `ContentView`, whose body is already at the Swift type-checker's limit.
+
+#### Verified
+
+End to end, headlessly: a 30s reel at 01:00:00:00, an MX stem, and a 10s mix at
+01:00:05:00 with 2s head and 3s tail produced a 15.000s H.264 1280x720 @ 24/1
+`.mov` with AAC stereo. Measured in the output:
+
+| Segment | stem (220 Hz) | mix (880 Hz) |
+|---|---|---|
+| head 0-2s | -27.07 dB | silent |
+| middle 3-11s | -27.07 dB | -21.07 dB |
+| tail 12.2-15s | -27.07 dB | silent |
+
+The mix sits exactly in its timecode window, the handles carry picture and stem
+only, and the stem lands 6.00 dB under the mix - exactly the -6 dB lane gain that
+was set. Re-measured after every lane moved into the composition: the included
+numbers are unchanged, and with the lane excluded the stem reads -142.96 dB
+(silence) while the mix stays at -21.07 dB. Span arithmetic is covered by
+`QuickTimeDemoSpanTests` (7 cases).
+
+**Not verified**: the sheet itself. Nobody has clicked the button, chosen a file
+in the panel, watched the preview, or ridden a fader.
+
+#### Not built (deliberately)
+
+No timecode burn-in, no HEVC option, no per-clip levels, no saved presets, and no
+CRF control - the preset chooses the bitrate. Scoped on 2026-08-08 to per-lane
+gains and H.264 capped at 1080p.
+
+#### Dependencies
+- Depends on: Multi-Track Timeline, Alert/Sheet Coordination, Embedded Timecode
 - Depended by: none
 
 ---

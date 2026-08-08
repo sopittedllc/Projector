@@ -77,6 +77,9 @@ final class AlertCoordinator: ObservableObject {
         case saveProject(content: AnyView)
         case settings(content: AnyView)
 
+        /// Builds a review QuickTime from the timeline and a supplied mix.
+        case quickTimeDemo(content: AnyView)
+
         /// Guides the user through installing Apple's Pro Video Formats package.
         case proVideoFormatsInstall(codecName: String)
 
@@ -93,6 +96,7 @@ final class AlertCoordinator: ObservableObject {
             case .videoInsert: return "videoInsert"
             case .saveProject: return "saveProject"
             case .settings: return "settings"
+            case .quickTimeDemo: return "quickTimeDemo"
             case .proVideoFormatsInstall: return "proVideoFormatsInstall"
             }
         }
@@ -109,7 +113,8 @@ final class AlertCoordinator: ObservableObject {
                  .duplicateMedia, .codecUnavailable, .missingFile, .fpsConflict,
                  .batchFrameRateMismatch:
                 return false
-            case .videoInsert, .saveProject, .settings, .proVideoFormatsInstall:
+            case .videoInsert, .saveProject, .settings, .proVideoFormatsInstall,
+                 .quickTimeDemo:
                 return true
             }
         }
@@ -291,7 +296,7 @@ private struct AlertCoordinatorModifier: ViewModifier {
                     // Only return sheet-type alerts (excluding settings, which is handled by ContentView)
                     guard let alert = coordinator.activeAlert else { return nil }
                     switch alert {
-                    case .videoInsert, .saveProject, .proVideoFormatsInstall:
+                    case .videoInsert, .saveProject, .proVideoFormatsInstall, .quickTimeDemo:
                         return alert
                     case .settings:
                         // Settings sheet is handled separately by ContentView
@@ -326,6 +331,9 @@ private struct AlertCoordinatorModifier: ViewModifier {
             )
 
         case .saveProject(let content):
+            content
+
+        case .quickTimeDemo(let content):
             content
 
         case .settings(let content):

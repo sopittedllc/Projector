@@ -6,6 +6,207 @@
 
 ---
 
+## CoreAudio audit (2026-08-08, uncommitted)
+
+Prompted by the machine crashing under CoreAudio overloads, suspected to be us.
+
+### The system's state, which is not us
+
+`coreaudiod` measured at **114-124% CPU and 2.5-2.7 GB RSS, still climbing, with
+Projector not running at all**. Nine third-party HAL drivers are installed (ARK,
+Audiomovers InjectIO, BlackHole 2ch + 16ch, Jump x2, Parrot, Pro Tools Audio
+Bridge, SoundID) across 18 devices. A wedged `coreaudiod` holding that much memory
+is the likely crash cause, and `sudo killall coreaudiod` is the relief.
+
+**Note on measurement**: `ps -o %cpu` is a *lifetime average*, not current. The
+first reading was taken that way and over-claimed; `top -l 2` gives the
+instantaneous figure. Use `top`.
+
+### Fixed: a real-time thread violation, Debug builds only
+
+`installOutputMeterTap()` in `PlaybackEngine` was a diagnostic tap on
+`mainMixerNode` bus 0 that, per audio buffer, looped channels x frames
+(32 x 4096 = 131,072 samples on the aggregate device), then allocated
+(`String(format:)`, array append) and called `debugPrint` - which is `NSLog`, a
+lock and file I/O - **inside the render callback**. That is the textbook cause of
+the message CoreAudio was logging:
+`HALS_OverloadMessage: Overload possibly due to client timeout`.
+
+It was `#if DEBUG`, so it was in every build used for testing and in none that
+shipped. Deleted, with a comment where it lived saying why it must not return in
+that form.
+
+It also collided with the real meter: **a node allows one tap per bus** and both
+targeted `mainMixerNode` bus 0, so they clobbered each other while
+`removeMeterTap()` cleared only one of two flags.
+
+### Fixed: the surviving meter tap allocated on the audio thread too
+
+It started a `Task { @MainActor }` per buffer, ~50/sec. Now it writes two floats
+into `MeterLevelStore` under an `os_unfair_lock` - no allocation, no hop - and a
+30 Hz timer on the main actor drains and decays it. Side benefit: decay is now a
+function of elapsed time rather than of how many buffers arrived.
+
+### Fixed: teardown never ran
+
+`PlaybackEngine.cleanup()` - which removes the tap, removes the sample-rate
+property listener and stops the engine - had **zero callers**, despite its own doc
+saying to call it before deallocation. `applicationWillTerminate` now posts
+`.projectorWillTerminate`, and `ContentView` calls `playbackEngine.cleanup()` and
+`audioManager.cleanup()`. Verified in the log: `Audio engine released on teardown`.
+
+Adding that observer pushed `ContentView`'s body past the type-checker again, so
+both app-wide notifications now go through one `AppLifecycleObservers` modifier.
+
+### Corrected: the device listener was *not* unbalanced
+
+First reported as a leak. `AudioOutputManager` does remove its
+`kAudioHardwarePropertyDevices` listener - in `deinit`. The real problem is that
+`deinit` on a `@StateObject` is not a reliable moment, since a process exiting need
+not deinitialise anything. It now also has an explicit, idempotent `cleanup()` on
+the terminate path, with `deinit` kept as the backstop.
+
+### Clean
+
+No aggregate device leak (none present on the system; create/destroy balanced), no
+`AudioDeviceCreateIOProcID` anywhere, node `attach`/`detach` balanced,
+`audioPlayers` cleared.
+
+## Undo, lane right-click, lane reorder (2026-08-08, uncommitted, NOT eyeballed)
+
+Three housekeeping items. All three had a specific cause worth keeping.
+
+### 1. Cmd-Z did nothing, even where undo *was* registered
+
+`MultiTrackTimelineView` gated `.editUndo` and `.editRedo` on
+`guard isTimelineFocused`. A drop lands without giving the timeline focus, so
+Cmd-Z after an import did nothing and did it silently - which reads as "no undo"
+rather than "click the timeline first". The gate is gone for undo/redo and kept
+for Delete and Select All, where which panel has focus decides what the key means.
+
+Undo was already registered for: delete clips, delete lane, delete video file,
+move clip, move reel, reorder lane, split hard-panned, remove media item. Now also
+**imports** and **add audio lane**.
+
+Imports use a snapshot pair: `beginImportUndo()` at the top of each drop handler
+records the timeline, and `frameImportedContent()` - which every import path
+already ends with - turns it into one step. A new import route therefore gets undo
+by using the same ending. Registered only when the timeline actually changed, so a
+drop of duplicates does not consume a press. **The media panel is deliberately not
+reversed** - the panel has its own undoable removal, and unpicking files copied
+into the project folder is a different job.
+
+### 2. Right-click to delete a lane
+
+An invisible reorder handle - `Color.white.opacity(0.001)`, 40pt tall, full header
+width, `highPriorityGesture` - lies over the lane *name*, which is exactly where
+you right-click a lane. A transparent Color with no menu swallowed the click and
+the lane's own `.contextMenu` underneath never saw it. It broke when that handle
+arrived. The handle now carries the same menu, and the wording moved to
+`AudioLane.deleteMenuTitle` so both places say the same thing.
+
+### 3b. Cmd-Shift-Z did nothing (second pass)
+
+The Redo menu item had `keyEquivalent: "Z"` **and** `.shift` in the modifier mask.
+AppKit then wants Shift applied twice and the shortcut matches nothing, while the
+menu item looks perfectly correct. Lowercase `"z"` with `[.command, .shift]` is the
+only combination that works.
+
+### 3. Reorder jumpiness
+
+Two passes, because the first fixed the wrong half.
+
+**Pass 1.** `calculateLaneReorderTarget` fired at a fixed 20pt and *then* counted
+whole rows on top of it: the first swap needed 20pt, every later one a full 81pt row
+- four times less sensitive after the first step. Replaced with
+`round(dragOffset / rowHeight)`, and the row height became one named constant shared
+with the displacement maths, which had its own `+ 1 // Include divider`.
+
+**Pass 2 - the actual jumpiness**, still present after pass 1 and reported as worst
+"when a lane is close to being locked in". Rounding alone flips the target the
+instant the drag sits on a midpoint, which is exactly what a hand does while
+deciding, and **every flip re-animates the lanes being pushed aside** - the shake
+was those lanes, not the lane in hand. Fixed with hysteresis: a chosen target has to
+be dragged clear of the boundary (0.18 of a row, ~15pt) before it changes.
+
+The rule now lives in `LaneReorder` in `Models/Timeline/Timeline.swift` - a pure
+value type with 8 unit tests, including one that jitters across the boundary and
+asserts the target holds. It was extracted precisely because this arithmetic has
+been wrong twice and cannot be judged by eye: the failures are a few points wide and
+the only symptom a person can report is "it feels jumpy".
+
+Two new unit tests pin snapshot-restore as a faithful inverse (including the start
+timecode an import snaps). **Not verified on screen**: needs a click. The undo
+probe could not run - screen locked, no window, so `-test-drop-urls` launches and
+does nothing. Whether `@Environment(\.undoManager)` is even non-nil in this app is
+therefore still unconfirmed; if undo does nothing after this, that is the first
+thing to check.
+
+## "Install and Relaunch" did nothing (2026-08-08, uncommitted)
+
+Reported after 2026.08.08 shipped. The user's guess was right, and AppKit says so
+itself:
+
+```
+Checking whether app should terminate
+App termination blocked by modal sheet
+```
+
+**AppKit refuses to terminate behind a modal sheet**, before
+`applicationShouldTerminate` is even consulted - so with the QT Demo sheet open the
+install was ready and the quit request was simply denied, silently. Fixed via
+Sparkle's `shouldPostponeRelaunchForUpdate` hook + `UpdateRelaunchHandoff` (see
+FEATURES.md). **Not verified end to end**: needs a real pending update on a release
+build.
+
+### Two things I got wrong here, recorded so they are not repeated
+
+1. **Sparkle does not refuse a development build.** I asserted it would reject an
+   ad-hoc/Debug copy on signature grounds. It installed the release build straight
+   over the app inside `DerivedData` - the Debug configuration carries the same
+   Developer ID team. Consequence to know: after that happens, `xcodebuild` fails
+   with "Embedded binary is not signed with the same certificate as the parent app"
+   until `Build/Products/Debug/Projector.app` is deleted.
+2. **So the debug gate is `#if DEBUG`, not the code signature.** A signature check
+   was the wrong discriminator because the signature does not differ.
+
+Both now in `SparkleUpdateService`; verified at runtime:
+`Update service inert: debug build.`
+
+Also worth knowing: `diagnosticLog` goes to `os_log`, not NSLog, so it needs
+`log show --info --predicate 'subsystem == "com.keegandewitt.projector"'` - a plain
+`log show` filters info-level messages out and looks empty.
+
+## Create QT Demo (2026-08-08, uncommitted, UI NOT eyeballed)
+
+New feature, built after 2026.08.08 shipped. Prints a review QuickTime: timeline
+picture + a supplied stereo mix (placed by its own BWF timecode) + chosen lanes at
+chosen levels, with head/tail handles. See the FEATURES.md entry for the design
+and the decisions; the essentials:
+
+- One `AVMutableComposition` is both the preview and the encode.
+- Level changes rebuild only the `AVAudioMix` so the preview keeps playing; lane
+  inclusion and handles rebuild the composition.
+- `AVAssetExportPreset1920x1080` - H.264 `.mov`, capped at 1080p, **source frame
+  rate**. Do not reuse the optimisation preset: it caps at 30fps and would wreck
+  a 23.976 sync judgement.
+
+**Verified numerically, headlessly** (see FEATURES.md for the table): 15.000s
+output, mix exactly in its timecode window, handles carrying picture+stem only,
+stem 6.00 dB under the mix matching the -6 dB lane gain. Span maths has 7 unit
+tests. Full suite green.
+
+**Not verified: the sheet.** Nobody has clicked the button, used the file panel,
+watched the preview or moved a fader. The screen kept locking, and a locked
+session never creates the window - so `-test-drop-urls`-style probes launch and do
+nothing. That is why the verification above was moved into a headless probe
+against a synthetic timeline in `AppDelegate` (since removed).
+
+Two new files, registered in `project.pbxproj` **by hand** (Managers/ and Views/
+are explicit groups): `Managers/QuickTimeDemoBuilder.swift`,
+`Views/QuickTimeDemoSheet.swift`. Anchored on the ProVideoFormats/Sparkle entries;
+`plutil -lint` passes.
+
 ## Head of timeline + header grouping (2026-08-08, uncommitted, NOT eyeballed)
 
 1. **The timeline starts where the content starts.** An import snaps the start to

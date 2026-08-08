@@ -330,3 +330,63 @@ extension ContentView {
         }
     }
 }
+
+// MARK: - Clearing Modals for an Update
+
+extension ContentView {
+
+    /// How many run-loop turns to wait for sheets to finish closing.
+    private static var sheetCloseAttempts: Int { 20 }
+
+    /// Close anything still modal, then let the update continue.
+    ///
+    /// **AppKit will not terminate an app with a modal sheet on screen** - it
+    /// checks, refuses, and says so in its own log:
+    ///
+    /// ```
+    /// Checking whether app should terminate
+    /// App termination blocked by modal sheet
+    /// ```
+    ///
+    /// That is why "Install and Relaunch" once appeared to do nothing: the
+    /// download had finished and the install was ready, but the quit request was
+    /// refused before `applicationShouldTerminate` was even consulted, with
+    /// nothing shown to say so.
+    ///
+    /// Dismissing SwiftUI's own state happens first, at the call site, so the app
+    /// does not go on believing a sheet is up. This sweep catches whatever SwiftUI
+    /// does not own, then waits for the sheets to actually be gone - closing one is
+    /// animated, and asking to quit mid-animation lands back where we started.
+    ///
+    /// - Parameter handoff: Sparkle's permission to continue, or `nil` when the
+    ///   notification came from somewhere else.
+    func closeRemainingSheets(then handoff: UpdateRelaunchHandoff?, attempt: Int = 0) {
+        if let modal = NSApp.modalWindow {
+            NSApp.abortModal()
+            modal.close()
+        }
+
+        for window in NSApp.windows {
+            for sheet in window.sheets {
+                window.endSheet(sheet)
+            }
+        }
+
+        let remaining = NSApp.windows.reduce(0) { $0 + $1.sheets.count }
+        guard remaining == 0 || attempt >= Self.sheetCloseAttempts else {
+            DispatchQueue.main.async {
+                closeRemainingSheets(then: handoff, attempt: attempt + 1)
+            }
+            return
+        }
+
+        if remaining > 0 {
+            diagnosticLog(
+                .warning, .app,
+                "\(remaining) sheet(s) would not close; termination may be refused."
+            )
+        }
+
+        handoff?.proceed()
+    }
+}

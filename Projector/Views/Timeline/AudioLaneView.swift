@@ -139,7 +139,7 @@ struct AudioLaneView: View {
         // menu, which takes precedence where one is under the cursor - so
         // right-clicking a clip still offers clip actions, not lane actions.
         .contextMenu {
-            Button(deleteLaneTitle, role: .destructive) {
+            Button(lane.deleteMenuTitle, role: .destructive) {
                 onDeleteLane()
             }
         }
@@ -148,16 +148,6 @@ struct AudioLaneView: View {
         }
         .onChangeCompat(of: availableAudioOutputs) { _ in
             applyDefaultMappingIfNeeded()
-        }
-    }
-
-    /// Names what will be lost, so deleting a lane holding work is a
-    /// deliberate act rather than the same click as deleting an empty one.
-    private var deleteLaneTitle: String {
-        switch lane.clips.count {
-        case 0: return "Delete Lane"
-        case 1: return "Delete Lane and 1 Clip"
-        case let count: return "Delete Lane and \(count) Clips"
         }
     }
 
