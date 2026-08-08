@@ -84,6 +84,33 @@ struct Timeline: Codable, Equatable, Sendable {
         videoReel(at: frame) == nil
     }
 
+    // MARK: - Content Extent
+
+    /// The first frame anything sits on, counting reels and audio clips alike.
+    ///
+    /// `nil` for an empty timeline, which is the case a caller has to handle
+    /// separately rather than treating as frame 0 - there is a difference between
+    /// "the content starts at the beginning" and "there is no content".
+    ///
+    /// Lives on the model rather than being gathered at the call site because
+    /// two features ask the same question - framing an import, and snapping the
+    /// timeline's start to the head of the programme - and they must not be able
+    /// to disagree about what counts as content.
+    var earliestContentFrame: Int? {
+        var earliest: Int?
+
+        for reel in videoReels {
+            earliest = min(earliest ?? reel.timelineStartFrame, reel.timelineStartFrame)
+        }
+        for lane in audioLanes {
+            for clip in lane.clips {
+                earliest = min(earliest ?? clip.timelineStartFrame, clip.timelineStartFrame)
+            }
+        }
+
+        return earliest
+    }
+
     // MARK: - Audio Lane Queries
 
     /// Get all active audio clips at a given timeline frame

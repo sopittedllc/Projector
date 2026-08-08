@@ -57,6 +57,16 @@ final class AlertCoordinator: ObservableObject {
         case missingFile(message: String, onLocate: () -> Void, onSkip: () -> Void, onSkipAll: () -> Void)
         case fpsConflict(message: String, onChangeProjectFPS: () -> Void, onCancel: () -> Void)
 
+        /// Files a multi-file import left behind because their frame rate is not
+        /// the project's.
+        ///
+        /// Reports rather than asks. ``fpsConflict`` offers to change the
+        /// project's rate, which removes every reel already on the timeline -
+        /// destructive and incoherent halfway through a batch that has just
+        /// imported some of those reels. A batch states what it skipped and
+        /// leaves the decision for a later, deliberate import.
+        case batchFrameRateMismatch(names: [String], projectFPS: String)
+
         // MARK: Sheets
         case videoInsert(
             url: Binding<URL?>,
@@ -79,6 +89,7 @@ final class AlertCoordinator: ObservableObject {
             case .codecUnavailable: return "codecUnavailable"
             case .missingFile: return "missingFile"
             case .fpsConflict: return "fpsConflict"
+            case .batchFrameRateMismatch: return "batchFrameRateMismatch"
             case .videoInsert: return "videoInsert"
             case .saveProject: return "saveProject"
             case .settings: return "settings"
@@ -95,7 +106,8 @@ final class AlertCoordinator: ObservableObject {
         var isSheet: Bool {
             switch self {
             case .error, .videoAlreadyInTimeline, .audioAlreadyInTimeline,
-                 .duplicateMedia, .codecUnavailable, .missingFile, .fpsConflict:
+                 .duplicateMedia, .codecUnavailable, .missingFile, .fpsConflict,
+                 .batchFrameRateMismatch:
                 return false
             case .videoInsert, .saveProject, .settings, .proVideoFormatsInstall:
                 return true
@@ -254,6 +266,19 @@ private struct AlertCoordinatorModifier: ViewModifier {
                         message: Text(message),
                         primaryButton: .destructive(Text("Change Project FPS"), action: onChangeProjectFPS),
                         secondaryButton: .cancel(Text("Cancel"), action: onCancel)
+                    )
+
+                case .batchFrameRateMismatch(let names, let projectFPS):
+                    let list: String = names.map { "• \($0)" }.joined(separator: "\n")
+                    let message: String = "This project runs at \(projectFPS), and these files do not:\n\n"
+                        + list
+                        + "\n\nEverything else in the drop was imported. Projector plays one "
+                        + "frame rate at a time, so mixing them on a timeline would put every "
+                        + "timecode out."
+                    return Alert(
+                        title: Text("Not Imported"),
+                        message: Text(message),
+                        dismissButton: .default(Text("OK"))
                     )
 
                 default:

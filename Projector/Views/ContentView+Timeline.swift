@@ -44,7 +44,7 @@ extension ContentView {
             if newURLs.count == 1 {
                 debugPrint("handleVideoDropOnTimeline: SINGLE FILE PATH - calling addVideoToTimeline")
                 await addVideoToTimeline(url: newURLs[0], atFrame: atFrame)
-                timelineViewModel.requestZoomToFitContent()
+                frameImportedContent()
                 return
             }
 
@@ -53,7 +53,7 @@ extension ContentView {
             // timecode, so this only needs to handle the ones without.
             debugPrint("handleVideoDropOnTimeline: BATCH PATH - \(newURLs.count) files")
             await addVideoFilesSequentially(urls: newURLs, startFrame: atFrame)
-            timelineViewModel.requestZoomToFitContent()
+            frameImportedContent()
         }
     }
 
@@ -88,14 +88,14 @@ extension ContentView {
                         let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * self.timelineManager.timeline.config.frameRate.fps)
                         self.timelineManager.extendTimeline(toEndFrame: clip.timelineEndFrame + paddingFrames)
                     }
-                    self.timelineViewModel.requestZoomToFitContent()
+                    self.frameImportedContent()
                     return
                 }
 
                 // Each file goes to its own timecode, or after the last one.
                 let items = await self.detectTimecodeForBatch(urls: urls, mediaType: .audio)
                 await self.addAudioFilesAtEmbeddedTimecode(items: items, laneId: lane.id, fallbackFrame: atFrame)
-                self.timelineViewModel.requestZoomToFitContent()
+                self.frameImportedContent()
 
                 // Cleared, not discarded. The lanes this path creates are the
                 // ones between the last existing lane and the one dropped on -
@@ -194,7 +194,7 @@ extension ContentView {
             // For single video + no audio, use existing single-file flow
             if newVideoURLs.count == 1 && newAudioURLs.isEmpty {
                 await addVideoToTimeline(url: newVideoURLs[0], atFrame: atFrame)
-                timelineViewModel.requestZoomToFitContent()
+                frameImportedContent()
                 return
             }
 
@@ -207,7 +207,7 @@ extension ContentView {
                     let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
                     timelineManager.extendTimeline(toEndFrame: clip.timelineEndFrame + paddingFrames)
                 }
-                timelineViewModel.requestZoomToFitContent()
+                frameImportedContent()
                 return
             }
 
@@ -274,7 +274,7 @@ extension ContentView {
                 timelineManager.extendTimeline(toEndFrame: lastReel.timelineEndFrame + paddingFrames)
             }
 
-            timelineViewModel.requestZoomToFitContent()
+            frameImportedContent()
         }
     }
 
@@ -310,7 +310,7 @@ extension ContentView {
 
             // Auto-expand timeline so user can see the new lane
             timelineViewModel.expandIfNeeded()
-            timelineViewModel.requestZoomToFitContent()
+            frameImportedContent()
         }
     }
 
@@ -1055,12 +1055,35 @@ extension ContentView {
     func addVideoFilesSequentially(urls: [URL], startFrame: Int) async {
         var currentFrame = startFrame
 
+        // Frame rates are settled for the whole batch before anything is
+        // placed, because the per-file conflict dialog cannot work here.
+        //
+        // That dialog is driven by one slot of pending state
+        // (`pendingVideoURL`/`pendingVideoFPS`), and this loop does not wait for
+        // it: a second mismatching file overwrites the first file's URL while
+        // the first file's dialog is still on screen, and a third queues behind
+        // a dialog whose state has since been cleared. Measured on a drop of
+        // three reels at 24, 25 and 30 fps: **one** reel imported, the dialog
+        // named 25 fps while pointing at the 30 fps file, and the third file
+        // vanished with nothing said about it.
+        //
+        // So the rates are read first and only the ones that match the project
+        // are imported. The rest are named in a single report at the end -
+        // nothing is silently lost, and no destructive offer is made in the
+        // middle of a batch.
+        let rates = await frameRates(of: urls)
+        let projectFPS = batchProjectFrameRate(urls: urls, rates: rates)
+        let importable = urls.filter { rates[$0].map { $0 == projectFPS } ?? true }
+        let mismatched = urls.filter { rates[$0].map { $0 != projectFPS } ?? false }
+
         // Declared up front so the whole drop is one batch. Counting as each
         // file starts would let a short reel finish analysing before the next
-        // one began, and close the batch early.
-        splitOffers.expect(urls.count)
+        // one began, and close the batch early. Counts the files that will
+        // actually be imported, so the ones held back do not leave the batch
+        // waiting on reels that are never coming.
+        splitOffers.expect(importable.count)
 
-        for url in urls {
+        for url in importable {
             // Skip duplicates
             if timelineManager.timeline.videoReels.contains(where: { $0.sourceURL == url }) {
                 // Never imported, so it reports out of the batch here instead.
@@ -1092,6 +1115,90 @@ extension ContentView {
         if let lastReel = timelineManager.timeline.videoReels.last {
             timelineManager.extendTimeline(toEndFrame: lastReel.timelineEndFrame + paddingFrames)
         }
+
+        // Last, so it does not sit in front of the reels the user is waiting to
+        // see, and so it reports against the rate the batch settled on.
+        if !mismatched.isEmpty {
+            alerts.show(.batchFrameRateMismatch(
+                names: mismatched.map { $0.lastPathComponent },
+                projectFPS: projectFPS.stringValueVerbose
+            ))
+        }
+    }
+
+    /// Make the timeline begin where its content does, then frame that content.
+    ///
+    /// Every import path ends here. Two steps that belong together: moving the
+    /// start changes what frame the content sits on, so framing has to happen
+    /// after it or it frames a span that is about to shift.
+    func frameImportedContent() {
+        snapTimelineStartToContent()
+        timelineViewModel.requestZoomToFitContent()
+    }
+
+    /// Move the timeline's start to the earliest reel or clip on it.
+    ///
+    /// `TimelineConfig.default` starts at 00:59:50:00 to leave pre-roll before
+    /// the hour mark, and placement never moved it - so a reel delivered at
+    /// 00:59:52:00 sat two seconds into a timeline whose first two seconds were
+    /// dead, and at high zoom that dead space is what you scroll through to
+    /// reach the picture. The head of the timeline should be the head of the
+    /// programme.
+    ///
+    /// Idempotent, which is what makes it safe to call after every import:
+    /// content can never be placed before frame 0 (`placementFrame` clamps
+    /// there), so once the earliest thing is at 0 this does nothing. A later
+    /// import landing further along the timeline therefore leaves the start
+    /// alone rather than dragging the project around under the user.
+    ///
+    /// Uses the same shift as "Set Timeline Start to Region", so content keeps
+    /// its absolute timecode and the duration is preserved.
+    private func snapTimelineStartToContent() {
+        guard let earliest = timelineManager.timeline.earliestContentFrame, earliest > 0 else { return }
+        timelineManager.setTimelineStart(toFrame: earliest)
+    }
+
+    /// Each file's timecode frame rate, for the ones that can be read.
+    ///
+    /// A file that cannot be inspected is absent from the result rather than
+    /// guessed at, so the caller lets it through to the ordinary import path and
+    /// its real error is reported there instead of being recast as a frame rate
+    /// problem.
+    ///
+    /// - Parameter urls: Video files to inspect.
+    /// - Returns: The rate for each file that reported one.
+    private func frameRates(of urls: [URL]) async -> [URL: TimecodeFrameRate] {
+        var rates: [URL: TimecodeFrameRate] = [:]
+
+        for url in urls {
+            let asset = AVAsset(url: url)
+            guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+                  let nominal = try? await track.load(.nominalFrameRate) else { continue }
+            rates[url] = closestTimecodeFrameRate(to: Double(nominal))
+        }
+
+        return rates
+    }
+
+    /// The rate a batch will be imported at.
+    ///
+    /// An empty timeline adopts the first file that reports a rate - the same
+    /// rule ``addVideoToTimeline(url:atFrame:checkTimecode:)`` applies to a
+    /// single import, decided here so the rest of the batch is measured against
+    /// it before any of it is placed. A timeline that already holds reels keeps
+    /// its own rate.
+    ///
+    /// - Parameters:
+    ///   - urls: The batch, in drop order.
+    ///   - rates: Rates read by ``frameRates(of:)``.
+    /// - Returns: The frame rate every imported file in this batch will match.
+    private func batchProjectFrameRate(
+        urls: [URL],
+        rates: [URL: TimecodeFrameRate]
+    ) -> TimecodeFrameRate {
+        let projectFPS = timelineManager.timeline.config.frameRate
+        guard timelineManager.timeline.videoReels.isEmpty else { return projectFPS }
+        return urls.compactMap { rates[$0] }.first ?? projectFPS
     }
 
     /// Add multiple audio files sequentially to a lane (no timecode placement)
@@ -1399,7 +1506,7 @@ extension ContentView {
                 Task { @MainActor in
                     await self.addVideoToTimelineUnchecked(url: confirmedURL, at: insertFrame)
                     self.videoInsertURL = nil
-                    self.timelineViewModel.requestZoomToFitContent()
+                    self.frameImportedContent()
                 }
             }
         ))

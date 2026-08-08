@@ -176,22 +176,6 @@ struct TimelineAccordionView: View {
 
             Spacer()
 
-            // Export Cue List button - only visible when MX lanes have clips
-            if timelineManager.timeline.audioLanes.contains(where: { !$0.clips.isEmpty }) {
-                Button(action: onExportCueList) {
-                    HStack(spacing: Spacing.xs) {
-                        Image(systemName: "list.bullet.rectangle")
-                            .frame(width: 12, height: 12)
-                        Text("Export Cue List")
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
-                .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentBlue, help: "Export Cue List from MX lane"))
-                .fixedSize(horizontal: true, vertical: false)
-                .accessibilityLabel("Export Cue List from MX lane")
-            }
-
             do {
                 // Everything numeric about the timeline in one row: what is
                 // coming in, where the playhead is, and the bounds it runs
@@ -216,7 +200,28 @@ struct TimelineAccordionView: View {
 
                 zoomControls
 
-                // Settings button - far right
+                // The three buttons sit together, after the readouts and the
+                // zoom. Export Cue List used to lead the row, immediately after
+                // the title, which put one button at the far left of the header
+                // and two at the far right with every numeric readout between
+                // them. Only visible when a lane actually holds clips, so the
+                // group is two buttons wide on an empty project.
+                if timelineManager.timeline.audioLanes.contains(where: { !$0.clips.isEmpty }) {
+                    Button(action: onExportCueList) {
+                        HStack(spacing: Spacing.xs) {
+                            Image(systemName: "list.bullet.rectangle")
+                                .frame(width: 12, height: 12)
+                            Text("Export Cue List")
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                    }
+                    .buttonStyle(GlassActionButtonStyle(tint: AppColors.accentBlue, help: "Export Cue List from MX lane"))
+                    .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityLabel("Export Cue List from MX lane")
+                }
+
+                // Settings button
                 Button(action: onSettingsPressed) {
                     HStack(spacing: Spacing.xs) {
                         Image(systemName: "gearshape")

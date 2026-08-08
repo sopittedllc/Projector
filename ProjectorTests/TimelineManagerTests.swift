@@ -323,6 +323,85 @@ final class TimelineManagerTests: XCTestCase {
         XCTAssertEqual(manager.timeline.config.startTimecode.frameCount.wholeFrames, before)
     }
 
+    // MARK: - Earliest Content (timeline start snaps to it on import)
+
+    /// Nothing on the timeline is distinct from content sitting at frame 0 - the
+    /// import snap has to leave an empty timeline's start alone.
+    func testEarliestContentFrameIsNilWhenEmpty() {
+        XCTAssertNil(manager.timeline.earliestContentFrame)
+    }
+
+    func testEarliestContentFrameTakesTheFirstReel() {
+        manager.timeline.videoReels = [
+            Self.makeReel(startFrame: 600),
+            Self.makeReel(startFrame: 48)
+        ]
+
+        XCTAssertEqual(manager.timeline.earliestContentFrame, 48)
+    }
+
+    /// A stem can precede the picture, so audio counts as content too.
+    func testEarliestContentFrameCountsAudioAgainstVideo() {
+        manager.timeline.videoReels = [Self.makeReel(startFrame: 240)]
+        let lane = manager.addAudioLane(name: "DX")
+        manager.timeline.addClip(Self.makeClip(startFrame: 96), toLane: lane.id)
+
+        XCTAssertEqual(
+            manager.timeline.earliestContentFrame, 96,
+            "The earliest thing on the timeline is the stem, not the reel"
+        )
+    }
+
+    /// The whole point: a reel delivered two seconds into the default timeline
+    /// ends up at its head, with its absolute timecode intact.
+    func testSnappingTheStartToTheFirstReelLeavesNoDeadHead() {
+        let originalDuration = manager.timeline.config.durationFrames
+        let startBefore = manager.timeline.config.startTimecode.frameCount.wholeFrames
+        manager.timeline.videoReels = [Self.makeReel(startFrame: 48)]
+
+        guard let earliest = manager.timeline.earliestContentFrame else {
+            return XCTFail("Expected content")
+        }
+        manager.setTimelineStart(toFrame: earliest)
+
+        XCTAssertEqual(
+            manager.timeline.videoReels[0].timelineStartFrame, 0,
+            "The reel should now sit at the head of the timeline"
+        )
+        XCTAssertEqual(
+            manager.timeline.config.startTimecode.frameCount.wholeFrames, startBefore + 48,
+            "The start should have moved to the reel's own timecode"
+        )
+        XCTAssertEqual(manager.timeline.config.durationFrames, originalDuration)
+    }
+
+    /// Idempotent, which is what makes it safe after every import.
+    func testSnappingAgainAfterTheFirstSnapChangesNothing() {
+        manager.timeline.videoReels = [Self.makeReel(startFrame: 48)]
+        manager.setTimelineStart(toFrame: manager.timeline.earliestContentFrame ?? 0)
+        let startAfterFirstSnap = manager.timeline.config.startTimecode.frameCount.wholeFrames
+
+        // A later import lands further along and must not drag the project back.
+        manager.timeline.videoReels.append(Self.makeReel(startFrame: 5_000))
+        let earliest = manager.timeline.earliestContentFrame
+        XCTAssertEqual(earliest, 0, "The head of the programme is still the head")
+        manager.setTimelineStart(toFrame: earliest ?? 0)
+
+        XCTAssertEqual(
+            manager.timeline.config.startTimecode.frameCount.wholeFrames,
+            startAfterFirstSnap
+        )
+        XCTAssertEqual(manager.timeline.videoReels[1].timelineStartFrame, 5_000)
+    }
+
+    private static func makeReel(startFrame: Int) -> VideoReel {
+        VideoReel(
+            sourceURL: URL(fileURLWithPath: "/tmp/reel.mov"),
+            timelineStartFrame: startFrame,
+            durationFrames: 1_440
+        )
+    }
+
     private static func makeClip(startFrame: Int) -> AudioClip {
         AudioClip(
             sourceURL: URL(fileURLWithPath: "/tmp/stem.wav"),

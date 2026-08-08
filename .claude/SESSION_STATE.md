@@ -1,8 +1,153 @@
 # Session State
 
-> **Last Updated**: 2026-08-05
-> **Status**: DAW ROUTING — driver confirmed; naming/help changes built, awaiting user verification
-> **Branch**: main (worktree experiment finished; single directory again)
+> **Last Updated**: 2026-08-08
+> **Status**: IDLE — two reported bugs plus playhead-anchored zoom, verified, uncommitted
+> **Branch**: main
+
+---
+
+## Head of timeline + header grouping (2026-08-08, uncommitted, NOT eyeballed)
+
+1. **The timeline starts where the content starts.** An import snaps the start to
+   the earliest reel or clip (`Timeline.earliestContentFrame` +
+   `setTimelineStart(toFrame:)`, the "Set Timeline Start to Region" shift). The
+   default start is 00:59:50:00 for pre-roll and placement never moved it, so a
+   reel delivered at 00:59:52:00 left two seconds of dead head to scroll through
+   at high zoom. Idempotent — placement clamps at frame 0, so a later import
+   landing further along does not drag the project back.
+   All nine import paths now call `frameImportedContent()`, which snaps *then*
+   frames (order matters: the snap changes what frame content sits on).
+2. **Export Cue List moved** to sit with Settings and Report a Bug, after the
+   zoom controls. It used to lead the header, putting one button far left and two
+   far right with every readout between them.
+
+Five new unit tests cover the snap (empty / reel / audio-before-video / no dead
+head / idempotent). Suite green. **Not verified on screen** - the machine locked,
+and a locked session never creates the window, so `-test-drop-urls` runs launch
+and do nothing (a 4-line log ending at `setupMenus` is that, not a crash).
+
+## Zoom now anchors the playhead (2026-08-08, uncommitted)
+
+User verified the two bug fixes below, then asked for zoom to be brought in line
+with standards. Researched Pro Tools / Premiere / Resolve; the gap that mattered
+was that our zoom anchored to **nothing** — offset held in points while the scale
+changed, so zooming in walked the view back towards frame 0.
+
+Scoped by the user to *the anchor only*: no pinch/⌘-scroll, no keyboard shortcuts,
+no zoom-to-region, no presets. Anchor is the **playhead** (Pro Tools / Resolve
+behaviour, not Premiere's pointer), centring it when it is already off screen.
+
+The trap, measured: a zoom step is animated, so `zoomLevel` arrives as ~32
+interpolated values per click, some out of order. Anchoring per value drifted the
+playhead 629pt → 204pt across one zoom-out, because each value read an offset the
+previous one had not applied yet. Fix: capture the anchor **once per burst**
+(`pendingAnchorX`) and drop superseded scrolls with a token. Verified: six steps
+held the playhead at 655.79pt ± 0.2pt; at fit zoom it clamps, which is the only
+possible answer since the document equals the viewport.
+
+Also refactored: `afterZoomLayout(expectedDocumentWidth:attempt:_:)` and
+`setScrollOriginX(_:in:documentWidth:)` are now shared by framing and anchoring,
+and `pixelsPerFrame(atZoom:)` mirrors `pixelsPerFrame(for:)` — **if one changes the
+other must too**, the anchor is only correct while they agree.
+
+Full unit suite green.
+
+---
+
+## Two bugs from the 2026.08.07 release, both fixed (uncommitted)
+
+Reported as "the upgrade in settings did not work" and "zoom to region on drop
+broke multi file drop ins". Neither cause was what it looked like, and both were
+found by measurement rather than by reading.
+
+### 1. Settings had no Updates section — `NSApp.delegate` is not the app delegate
+
+`ContentView` fetched the updater with `(NSApp.delegate as? AppDelegate)?.updateService`.
+That cast **always** fails: `@NSApplicationDelegateAdaptor` installs SwiftUI's own
+delegate as the application delegate and forwards callbacks to ours. Probed:
+
+```
+runtime=SwiftUI.AppDelegate  expected=Projector.AppDelegate  isKind=false  service=nil
+```
+
+Both classes are named `AppDelegate`, so `type(of:)` prints "AppDelegate" either
+way — which is why this looked right. The section was therefore invisible from
+the day it shipped, and the earlier "it's below the fold" diagnosis (and the
+comment written for it) was wrong. **Check for Updates** in the app menu was
+never affected: it reaches the updater through `self`.
+
+Fixed by publishing the service into the environment from the scene body, where
+the adaptor's property is the real instance:
+`EnvironmentValues.updateService` in `ProjectorApp.swift`.
+
+Verified at runtime: same probe now reports `service=present enabled=true`, and
+the section renders with `Installed 1.4 (4)`, the automatic-check toggle, Check
+Now and "Last checked 7 minutes ago". Kept **first and collapsed** — measured,
+Audio and Display are expanded by default and together overflow the 650pt panel
+(Display's own rows are cut off), so a section below them can only be found by
+scrolling a panel that gives no sign there is more.
+
+### 2. "Only one file lands" — the FPS dialog, not the zoom
+
+Reproduced exactly, and it is **not** the zoom feature. A batch of videos whose
+frame rates differ imports only the first. `addVideoFilesSequentially` did not
+wait for the per-file `fpsConflict` dialog, and that dialog is driven by one slot
+of pending state, so on a 24/25/30 fps drop: one reel imported, the dialog read
+"This video is 25 fps" while pointing at the 30 fps file (its Change Project FPS
+button would have deleted the reel just imported), and the third file vanished
+silently.
+
+Fixed by settling the rate for the whole batch first — read every file's rate,
+decide the project's, import the ones that match, and name the rest in one
+**Not Imported** alert. Single-file imports keep the existing offer. New
+`AlertCoordinator.AlertType.batchFrameRateMismatch`.
+
+Verified: the 24 fps reel imports and the alert names `MixB_25.mov` and
+`MixC_30.mov`. Same-rate batch unaffected — 3 reels + 2 stems all land.
+
+### 3. Framing measured the wrong width (the real "view is wrong")
+
+`zoomToFitContent` used one width for two jobs. The **curve** must be inverted
+with the width `pixelsPerFrame(for:)` was given (the track area's geometry); the
+**target** is what is actually visible, which is less — geometry reported 1416pt
+while the clip view was 1399pt, and an import that adds lanes brings the vertical
+scroller in *after* the fit runs.
+
+Measured before: visible span 176,085 frames against a framed span of 178,355 —
+the entire 3% margin gone, last reel ~21pt from the edge with a 17pt scroller
+over it. After: visible span 178,433, reel ~37pt clear. New `trackAreaWidth`
+state records the curve's width (recorded, never fed back — no sizing loop). The
+scroll offset is now derived after layout from the settled document and clip view
+rather than converted with the pre-layout scale.
+
+### Verification harness used (reusable)
+
+`-ui-testing -test-drop-urls <paths>` drives a real `handleMixedBatchDrop`.
+**Files must live somewhere the sandbox can read** — `~/Movies/...` works via
+`com.apple.security.assets.movies.read-write`; a scratchpad path fails every read
+with "you don't have permission" and makes every import look broken. Neutral
+fixtures built with ffmpeg (test-pattern reels with real timecode tracks, sine
+WAVs) in `~/Movies/ProjectorDropTest` — delete when finished.
+
+`debugPrint` is `NSLog`, so a Debug build launched from the terminal puts the whole
+drop trace on stderr. Screenshots: `scratchpad/winrect.swift` prints the window id
+for `screencapture -l`, because the app opens on a second display and a fixed
+`-R` rect breaks the moment the display arrangement changes. **Do not capture the
+whole screen** — the first attempt caught the user's Messages and a Finder window
+full of client folder names, and was deleted.
+
+### Pre-existing, NOT touched: three red tests
+
+`AggregateDeviceTests.testOnlyTheVirtualDeviceIsDriftCompensated`,
+`testDriftQualityIsSetOnTheVirtualDevice` and `testInterfaceCarriesNoDriftQuality`
+fail on a **clean tree** as well (confirmed by stashing). They still assert the
+old sub-device order — `subDevices().first` as the interface and `.last` as the
+virtual device — but the order was deliberately reversed so the stems land on the
+DAW's inputs 1-4, and `description()` now puts the loopback first. Production is
+right; the assertions are stale. Reported rather than fixed, per no-scope-creep.
+The fix is to swap `first`/`last` in those three.
+
+Rest of the suite green, no new failures.
 
 ---
 

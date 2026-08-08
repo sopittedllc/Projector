@@ -168,6 +168,43 @@ struct MultiTrackTimelineView: View {
     /// this to stay aligned with the content that does scroll.
     @State private var horizontalScrollOffset: CGFloat = 0
 
+    /// Width the track area was last laid out at, including the header column.
+    ///
+    /// The one number the zoom curve is a function of, kept so
+    /// ``zoomToFitContent()`` can invert that curve using **exactly** the width
+    /// `pixelsPerFrame(for:)` was given rather than a second measurement that
+    /// only looks like it. The scroll view's own clip view is not that width -
+    /// measured on the same layout, the geometry reports 1416pt while the clip
+    /// view is 1399pt - and solving with the wrong one lands the zoom about 1.3%
+    /// off, which is enough to spend the whole margin the framing asks for.
+    ///
+    /// Recorded, never fed back: nothing sizes itself from this, so it cannot
+    /// become the measure-and-resize loop `SectionLayout` warns about.
+    @State private var trackAreaWidth: CGFloat = 0
+
+    /// Whether the zoom change now in flight came from framing content.
+    ///
+    /// Framing chooses a scroll offset of its own, so the playhead anchor has to
+    /// stand aside for that one change or the two fight over the offset.
+    @State private var isFramingContent = false
+
+    /// Screen position the playhead is being held at for the zoom change in
+    /// progress, in track-area points.
+    ///
+    /// Captured once, on the first change of a burst, and reused by every change
+    /// until the burst is applied. A zoom step is animated, so `zoomLevel`
+    /// arrives as a stream of interpolated values - measured, 195 of them across
+    /// six clicks, some delivered out of order. Re-reading the playhead's
+    /// position per value drifted it left across the animation (measured: 629pt
+    /// to 204pt over one zoom-out) because each read saw an offset the previous
+    /// value had not finished applying. Holding the *pre-burst* position instead
+    /// makes the whole animation converge on one answer.
+    @State private var pendingAnchorX: CGFloat?
+
+    /// Identifies the newest zoom change, so a superseded one does not scroll to
+    /// a target the user has already zoomed past.
+    @State private var anchorToken = 0
+
     /// Whether the video file's baked-in audio strip is shown.
     ///
     /// Collapsing it leaves the Video File track as a single picture row, for
@@ -381,6 +418,9 @@ struct MultiTrackTimelineView: View {
             }
             .onChangeCompat(of: zoomToFitContentRequest) { _ in
                 zoomToFitContent()
+            }
+            .onChangeWithPrevious(of: zoomLevel) { oldZoom, newZoom in
+                anchorPlayheadAcrossZoom(from: oldZoom, to: newZoom)
             }
     }
 
@@ -1305,6 +1345,10 @@ struct MultiTrackTimelineView: View {
                     .simultaneousGesture(marqueeSelectionGesture(pixelsPerFrame: ppf))
                 }
             }
+            // The width the zoom curve above was computed from. `onAppear` sets
+            // the first value, which `onChange` alone would never deliver.
+            .onAppear { trackAreaWidth = geometry.size.width }
+            .onChangeCompat(of: geometry.size.width) { trackAreaWidth = $0 }
             // Playhead overlay spanning full height
             .overlay(alignment: .topLeading) {
                 playhead(pixelsPerFrame: ppf, totalHeight: geometry.size.height)
@@ -2635,6 +2679,19 @@ struct MultiTrackTimelineView: View {
     /// out before scrolling anyway.
     private static let maxFitScrollAttempts = 20
 
+    /// Width the vertical scroller takes off the visible track area.
+    ///
+    /// A constant rather than a measurement because it has to be known *before*
+    /// the layout it describes: an import adds lanes, enough lanes bring the
+    /// scroller in, and that happens after the fit has already chosen a zoom.
+    /// Reading the clip view at solve time reports the width it had without the
+    /// scroller, so nothing would be reserved and the outermost reel would end
+    /// up behind it.
+    ///
+    /// 17pt is the difference measured between the track area's geometry and the
+    /// clip view once the scroller was present, on a five-lane import.
+    private static let verticalScrollerAllowance: CGFloat = 17
+
     /// The frame range occupied by every reel and clip on the timeline.
     ///
     /// - Returns: The first and last content frames, or `nil` when the timeline
@@ -2663,13 +2720,29 @@ struct MultiTrackTimelineView: View {
     /// off screen at any zoom that makes it legible, so zooming without
     /// scrolling would leave the viewport parked on empty timeline.
     private func zoomToFitContent() {
-        guard let scrollView = cachedScrollView,
-              let content = contentFrameRange() else { return }
+        guard let content = contentFrameRange() else { return }
 
-        let viewportWidth = scrollView.contentView.bounds.width
-        let contentAreaWidth = viewportWidth - TimelineLayout.headerWidth
+        // Two different widths, and using one for both jobs is what made the
+        // first version of this land wrong.
+        //
+        // `curveWidth` is the width the zoom curve is a function of, so
+        // inverting the curve has to use the *same* number
+        // `pixelsPerFrame(for:)` was handed - anything else changes the
+        // multiplier and the solved slider position with it.
+        //
+        // `visibleContentWidth` is how much of the track area a user can
+        // actually see, which is less: the scroll view's clip view is narrower
+        // than the row the geometry reported (1416pt against 1399pt, measured on
+        // a five-lane import), and an import that adds lanes brings the vertical
+        // scroller in *after* this runs. Framing against the larger number put
+        // the outermost reel behind that scroller.
+        let curveWidth = trackAreaWidth > TimelineLayout.headerWidth
+            ? trackAreaWidth
+            : (cachedScrollView?.contentView.bounds.width ?? 0)
+        let curveContentWidth = curveWidth - TimelineLayout.headerWidth
+        let visibleContentWidth = curveContentWidth - Self.verticalScrollerAllowance
         let durationFrames = CGFloat(max(1, timeline.config.durationFrames))
-        guard contentAreaWidth > 0 else { return }
+        guard curveContentWidth > 0, visibleContentWidth > 0 else { return }
 
         // Margin comes out of the span on both sides, clamped to the timeline
         // so a reel starting at frame 0 is not asked to scroll to a negative
@@ -2681,71 +2754,239 @@ struct MultiTrackTimelineView: View {
         let framedSpan = max(1, framedEnd - framedStart)
 
         // Invert the geometric zoom curve `pixelsPerFrame(for:)` applies: given
-        // the scale that makes the framed span exactly fill the track area,
+        // the scale that makes the framed span fill the visible track area,
         // solve for the slider position that produces it.
-        let fitPixelsPerFrame = contentAreaWidth / durationFrames
-        let desiredPixelsPerFrame = contentAreaWidth / framedSpan
+        let fitPixelsPerFrame = curveContentWidth / durationFrames
+        let desiredPixelsPerFrame = visibleContentWidth / framedSpan
         let multiplier = maxZoomMultiplier(fitPixelsPerFrame: fitPixelsPerFrame)
         guard fitPixelsPerFrame > 0, multiplier > 1 else { return }
 
         let solvedZoom = log(desiredPixelsPerFrame / fitPixelsPerFrame) / log(multiplier)
         let targetZoom = min(max(solvedZoom, minZoom), maxZoom)
-        zoomLevel = targetZoom
 
-        // Recomputed from the clamped zoom rather than reused from the solve:
-        // content shorter than the zoom ceiling can express lands at maxZoom,
-        // where the actual scale is smaller than the one asked for and a scroll
-        // offset derived from the latter would overshoot.
-        let actualPixelsPerFrame = fitPixelsPerFrame * pow(multiplier, targetZoom)
-        let documentWidth = durationFrames * actualPixelsPerFrame + TimelineLayout.headerWidth
+        // Framing sets the zoom *and* the offset that goes with it, so the
+        // playhead anchor must not also act on this change and scroll somewhere
+        // else. Only raised when the zoom really changes - otherwise no
+        // `onChange` arrives to lower it again, and the next genuine zoom would
+        // be the one that got skipped.
+        if targetZoom != zoomLevel {
+            isFramingContent = true
+            zoomLevel = targetZoom
+        }
 
-        // Content too short to fill the track area even at maximum zoom is
-        // centred rather than pinned left, so the blank space it cannot help
-        // leaving sits on both sides instead of all trailing off to the right.
-        let framedWidth = framedSpan * actualPixelsPerFrame
-        let centringOffset = max(0, contentAreaWidth - framedWidth) / 2
+        // The scroll is handed the span in *frames*, not a point offset, so it
+        // can convert once the layout has settled. Only the width the document
+        // is expected to reach is precomputed, and only to know when that has
+        // happened.
+        let expectedPixelsPerFrame = fitPixelsPerFrame * pow(multiplier, targetZoom)
 
         scrollFramedContentIntoView(
-            offsetX: framedStart * actualPixelsPerFrame - centringOffset,
-            expectedDocumentWidth: documentWidth
+            framedStartFrame: framedStart,
+            framedSpanFrames: framedSpan,
+            expectedDocumentWidth: durationFrames * expectedPixelsPerFrame + TimelineLayout.headerWidth
         )
     }
 
-    /// Scroll the track area to `offsetX` once the new zoom has been laid out.
+    /// Keep the playhead on the same pixel while the zoom changes.
+    ///
+    /// Without this the scroll offset stays put in *points* while the scale
+    /// changes underneath it, so the frame at the left edge is `offset / scale` -
+    /// and zooming in walks the viewport backwards towards the start of the
+    /// timeline. The thing being synced to slides away exactly when a closer look
+    /// is wanted.
+    ///
+    /// Anchored to the playhead rather than the pointer, which is what Pro Tools
+    /// and Resolve do and what a picture-sync session wants: the playhead is the
+    /// sync point, so it is what should hold still. A playhead already off screen
+    /// is brought to the middle instead - the deliberate "snap back" of a
+    /// playhead-anchored zoom.
+    ///
+    /// The before-state is read here, synchronously, while the clip view still
+    /// reflects the old scale. Reading it after the layout would mix the old
+    /// scale with an offset AppKit may already have clamped for the new document
+    /// width, which is wrong in the zoom-out direction.
+    ///
+    /// - Parameters:
+    ///   - oldZoom: Slider position before the change.
+    ///   - newZoom: Slider position after it.
+    private func anchorPlayheadAcrossZoom(from oldZoom: CGFloat, to newZoom: CGFloat) {
+        if isFramingContent {
+            isFramingContent = false
+            return
+        }
+
+        guard let scrollView = cachedScrollView else { return }
+
+        let durationFrames = CGFloat(max(1, timeline.config.durationFrames))
+        let previousPixelsPerFrame = pixelsPerFrame(atZoom: oldZoom)
+        let newPixelsPerFrame = pixelsPerFrame(atZoom: newZoom)
+        guard previousPixelsPerFrame > 0,
+              newPixelsPerFrame > 0,
+              newPixelsPerFrame != previousPixelsPerFrame else { return }
+
+        let clipView = scrollView.contentView
+        let visibleWidth = clipView.bounds.width - TimelineLayout.headerWidth
+        guard visibleWidth > 0 else { return }
+
+        let playheadFrame = CGFloat(max(0, playbackEngine.currentFrame))
+
+        // First change of the burst decides where the playhead is being held;
+        // the rest of the animation reuses it. A playhead already off screen is
+        // brought to the middle instead.
+        let anchorX: CGFloat
+        if let held = pendingAnchorX {
+            anchorX = held
+        } else {
+            let previousX = playheadFrame * previousPixelsPerFrame - clipView.bounds.origin.x
+            anchorX = (0...visibleWidth).contains(previousX) ? previousX : visibleWidth / 2
+            pendingAnchorX = anchorX
+        }
+
+        anchorToken += 1
+        let token = anchorToken
+
+        afterZoomLayout(
+            expectedDocumentWidth: durationFrames * newPixelsPerFrame + TimelineLayout.headerWidth
+        ) { scrollView, documentWidth in
+            // Superseded: the user has zoomed again since, and that change has
+            // its own scroll to do.
+            guard token == anchorToken else { return }
+
+            setScrollOriginX(
+                playheadFrame * newPixelsPerFrame - anchorX,
+                in: scrollView,
+                documentWidth: documentWidth
+            )
+            pendingAnchorX = nil
+        }
+    }
+
+    /// The scale a given slider position produces.
+    ///
+    /// The same curve as ``pixelsPerFrame(for:)``, addressed by zoom rather than
+    /// by width, so a zoom change can be converted to a scale change without
+    /// waiting for the layout that will realise it. **If one of these two
+    /// changes, the other has to change with it** - the anchor is only correct
+    /// while they agree.
+    ///
+    /// - Parameter zoom: Slider position, clamped to the usable range.
+    /// - Returns: Points per frame, or 0 when the track area has no width yet.
+    private func pixelsPerFrame(atZoom zoom: CGFloat) -> CGFloat {
+        let contentWidth = zoomCurveContentWidth
+        guard contentWidth > 0 else { return 0 }
+
+        let durationFrames = CGFloat(max(1, timeline.config.durationFrames))
+        let fitPixelsPerFrame = contentWidth / durationFrames
+        let multiplier = maxZoomMultiplier(fitPixelsPerFrame: fitPixelsPerFrame)
+        return fitPixelsPerFrame * pow(multiplier, min(max(zoom, minZoom), maxZoom))
+    }
+
+    /// Width the zoom curve is a function of, less the header column.
+    ///
+    /// The track area's own geometry, falling back to the scroll view before the
+    /// first layout has been recorded. See ``trackAreaWidth`` for why the clip
+    /// view is not a substitute.
+    private var zoomCurveContentWidth: CGFloat {
+        let width = trackAreaWidth > TimelineLayout.headerWidth
+            ? trackAreaWidth
+            : (cachedScrollView?.contentView.bounds.width ?? 0)
+        return width - TimelineLayout.headerWidth
+    }
+
+    /// Scroll the track area so the framed span is on screen, once the new zoom
+    /// has been laid out.
     ///
     /// Deferred, and retried until the document view is as wide as the new zoom
     /// implies: scrolling in the same run-loop turn as the zoom change clamps
     /// the offset against the old, narrower document and lands short of the
     /// content.
     ///
+    /// The offset is derived here, from the settled document and clip view,
+    /// rather than passed in as points. The scale the view actually adopts is
+    /// not quite the one the solve asked for - the clip view loses width to a
+    /// vertical scroller the import itself brings in - and converting frames to
+    /// points with the pre-layout scale put the framed span slightly off from
+    /// where it was measured to be.
+    ///
     /// - Parameters:
-    ///   - offsetX: Target horizontal scroll origin, in document points.
+    ///   - framedStartFrame: First frame that should be visible.
+    ///   - framedSpanFrames: Length of the span being framed.
     ///   - expectedDocumentWidth: Width the document reaches at the new zoom.
     ///   - attempt: Number of turns already waited.
     private func scrollFramedContentIntoView(
-        offsetX: CGFloat,
+        framedStartFrame: CGFloat,
+        framedSpanFrames: CGFloat,
+        expectedDocumentWidth: CGFloat
+    ) {
+        afterZoomLayout(expectedDocumentWidth: expectedDocumentWidth) { scrollView, documentWidth in
+            let clipView = scrollView.contentView
+            let durationFrames = CGFloat(max(1, timeline.config.durationFrames))
+            let pixelsPerFrame = (documentWidth - TimelineLayout.headerWidth) / durationFrames
+            let contentAreaWidth = clipView.bounds.width - TimelineLayout.headerWidth
+
+            // Content too short to fill the track area even at maximum zoom is
+            // centred rather than pinned left, so the blank space it cannot help
+            // leaving sits on both sides instead of all trailing off to the right.
+            let framedWidth = framedSpanFrames * pixelsPerFrame
+            let centringOffset = max(0, contentAreaWidth - framedWidth) / 2
+
+            setScrollOriginX(
+                framedStartFrame * pixelsPerFrame - centringOffset,
+                in: scrollView,
+                documentWidth: documentWidth
+            )
+        }
+    }
+
+    /// Runs `body` once the document view is as wide as a new zoom implies.
+    ///
+    /// Deferred, and retried, because scrolling in the same run-loop turn as the
+    /// zoom change clamps the offset against the old document width and lands
+    /// short. Gives up after ``maxFitScrollAttempts`` turns and runs anyway
+    /// rather than abandoning the scroll altogether.
+    ///
+    /// - Parameters:
+    ///   - expectedDocumentWidth: Width the document reaches at the new zoom.
+    ///   - attempt: Number of turns already waited.
+    ///   - body: Given the scroll view and the document width it settled at.
+    private func afterZoomLayout(
         expectedDocumentWidth: CGFloat,
-        attempt: Int = 0
+        attempt: Int = 0,
+        _ body: @escaping (NSScrollView, CGFloat) -> Void
     ) {
         DispatchQueue.main.async {
             guard let scrollView = cachedScrollView else { return }
 
             let documentWidth = scrollView.documentView?.frame.width ?? 0
             if documentWidth + 1 < expectedDocumentWidth, attempt < Self.maxFitScrollAttempts {
-                scrollFramedContentIntoView(
-                    offsetX: offsetX,
+                afterZoomLayout(
                     expectedDocumentWidth: expectedDocumentWidth,
-                    attempt: attempt + 1
+                    attempt: attempt + 1,
+                    body
                 )
                 return
             }
 
-            let clipView = scrollView.contentView
-            var origin = clipView.bounds.origin
-            origin.x = max(0, min(offsetX, documentWidth - clipView.bounds.width))
-            clipView.setBoundsOrigin(origin)
-            scrollView.reflectScrolledClipView(clipView)
+            body(scrollView, documentWidth)
         }
+    }
+
+    /// Scrolls the track area horizontally, clamped to the document.
+    ///
+    /// - Parameters:
+    ///   - offsetX: Desired horizontal origin, in document points.
+    ///   - scrollView: The track area's scroll view.
+    ///   - documentWidth: Width the document settled at.
+    private func setScrollOriginX(
+        _ offsetX: CGFloat,
+        in scrollView: NSScrollView,
+        documentWidth: CGFloat
+    ) {
+        let clipView = scrollView.contentView
+        var origin = clipView.bounds.origin
+        origin.x = max(0, min(offsetX, max(0, documentWidth - clipView.bounds.width)))
+        clipView.setBoundsOrigin(origin)
+        scrollView.reflectScrolledClipView(clipView)
     }
 
     private func registerTimelineUndo(actionName: String) {

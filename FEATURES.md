@@ -516,6 +516,8 @@ entitlements. **Those entitlements are not accepted on the Mac App Store** - see
 | File | Property | Type | Purpose |
 |------|----------|------|---------|
 | `ProjectorApp.swift` | `let updateService` | `any UpdateServiceProtocol` | Owned by the delegate; outlives every window |
+| `ProjectorApp.swift` | `EnvironmentValues.updateService` | `(any UpdateServiceProtocol)?` | How the view tree reaches it - see below |
+| `ContentView.swift` | `@Environment(\.updateService)` | `(any UpdateServiceProtocol)?` | Read from the scene, passed to `SettingsView` |
 | `SettingsView.swift` | `var updateService` | `(any UpdateServiceProtocol)?` | Passed in; `nil` hides the section |
 | `SettingsView.swift` | `@State var checksAutomatically` | `Bool` | Mirror of the updater's own preference |
 | `SettingsView.swift` | `@State var updatesExpanded` | `Bool` | Accordion state |
@@ -526,8 +528,29 @@ entitlements. **Those entitlements are not accepted on the Mac App Store** - see
 |------|----------|------------------|
 | `ProjectorApp.swift` | `setupMenus()` | Inserts "Check for Updates..." below About |
 | `ProjectorApp.swift` | `validateMenuItem` | Greys the item out while a check runs |
-| `ContentView.swift` | Settings sheet | Passes the delegate's service to `SettingsView` |
+| `ContentView.swift` | Settings sheet | Passes the environment's service to `SettingsView` |
 | `Projector.xcodeproj` | SPM | Sparkle 2.9.5, `upToNextMajorVersion` |
+
+#### `NSApp.delegate` is not the app delegate (2026-08-07)
+
+The Settings section was **invisible from the day it shipped**, and not because
+of anything in `SettingsView`: `ContentView` fetched the service with
+`(NSApp.delegate as? AppDelegate)?.updateService`, which is always `nil`.
+`@NSApplicationDelegateAdaptor` installs SwiftUI's own delegate as the
+application delegate and forwards the callbacks on. Measured, not assumed:
+
+```
+runtime=SwiftUI.AppDelegate  expected=Projector.AppDelegate  isKind=false
+```
+
+Both classes being named `AppDelegate` is what hid it - `type(of:)` prints
+"AppDelegate" either way. The **Check for Updates** menu item was unaffected
+throughout, because it reaches the updater through `self`.
+
+The service is now published into the environment from the scene body, where the
+adaptor's property is the real instance. Verified at runtime: the same probe
+reports `service=present enabled=true`, and the section renders with the
+installed version, the automatic-check toggle and Check Now.
 
 #### Verification
 
@@ -566,8 +589,79 @@ short to fill the track area at maximum zoom is centred instead of pinned left.
 
 | Type | Path | Purpose |
 |------|------|---------|
+| Model | `Models/Timeline/Timeline.swift` | `earliestContentFrame` |
+| View | `Views/ContentView+Timeline.swift` | `frameImportedContent()`, `snapTimelineStartToContent()` |
 | ViewModel | `ViewModels/TimelineViewModel.swift` | `requestZoomToFitContent()`, `zoomToFitContentRequest` |
-| View | `Views/Timeline/MultiTrackTimelineView.swift` | `zoomToFitContent()`, `contentFrameRange()`, `scrollFramedContentIntoView(offsetX:expectedDocumentWidth:attempt:)` |
+| View | `Views/Timeline/MultiTrackTimelineView.swift` | `zoomToFitContent()`, `contentFrameRange()`, `scrollFramedContentIntoView(framedStartFrame:framedSpanFrames:expectedDocumentWidth:attempt:)` |
+
+#### The two widths (2026-08-07)
+
+The fit is a function of **two different widths**, and the first version used one
+for both jobs:
+
+- The **zoom curve** must be inverted with the same width
+  `pixelsPerFrame(for:)` was given - `trackAreaWidth`, the geometry the track
+  area was laid out at. Solving with anything else changes the multiplier and so
+  the slider position.
+- The **target** is what the user can actually see, which is less: measured on a
+  five-lane import, the geometry reported 1416pt while the scroll view's clip
+  view was 1399pt, and an import that adds lanes brings the vertical scroller in
+  *after* the fit runs.
+
+Framing against the larger number spent the whole 3% margin: measured, the
+visible span was 176,085 frames against a framed span of 178,355, leaving the
+last reel ~21pt from the edge with a 17pt scroller drawn over it. With the widths
+separated the visible span is 178,433 frames and the reel sits ~37pt clear.
+
+The scroll offset is likewise derived after layout, from the settled document and
+clip view, rather than converted to points with the pre-layout scale.
+
+#### The timeline starts where the content starts (2026-08-08)
+
+An import now snaps the timeline's start to the earliest reel or clip on it, via
+the same shift as "Set Timeline Start to Region" — so content keeps its absolute
+timecode and the duration is preserved.
+
+`TimelineConfig.default` starts at 00:59:50:00 to leave pre-roll before the hour
+mark, and placement never moved it, so a reel delivered at 00:59:52:00 sat two
+seconds into a timeline whose first two seconds were dead. At high zoom that dead
+space is what you scroll through to reach the picture.
+
+Idempotent, which is what makes it safe after every import: `placementFrame`
+clamps at frame 0, so once the earliest thing is at 0 the snap does nothing and a
+later import landing further along leaves the start alone.
+
+`Timeline.earliestContentFrame` is on the model, not gathered at the call site,
+because framing and snapping must not disagree about what counts as content
+(audio counts: a stem can precede the picture). `nil` for an empty timeline —
+distinct from content at frame 0.
+
+Every import path goes through `ContentView.frameImportedContent()`, which snaps
+then frames, in that order: moving the start changes what frame the content sits
+on.
+
+#### Playhead-anchored zoom (2026-08-08)
+
+Every zoom change keeps the playhead on the same pixel. Before this, the scroll
+offset stayed put in *points* while the scale changed under it, so the frame at
+the left edge was `offset / scale` and zooming in walked the viewport backwards
+towards the start of the timeline — the sync point slid away exactly when a
+closer look was wanted.
+
+Anchored to the playhead rather than the pointer, matching Pro Tools and Resolve
+(Premiere anchors to the pointer instead); a playhead already off screen is
+brought to the middle, the deliberate snap-back of a playhead-anchored zoom.
+
+The anchor position is captured **once per zoom burst**, not per value. A zoom
+step is animated, so `zoomLevel` arrives as a stream of interpolated values —
+measured, 195 across six clicks, some out of order — and re-reading the
+playhead's position per value drifted it from 629pt to 204pt over one zoom-out,
+because each read saw an offset the previous value had not applied yet. A token
+drops superseded scrolls.
+
+Verified: six discrete steps held the playhead at 655.79pt ± 0.2pt; a slider drag
+holds it wherever there is scroll room and clamps at fit zoom, where the document
+equals the viewport and there is nowhere to scroll.
 
 #### State Properties
 
@@ -575,6 +669,16 @@ short to fill the track area at maximum zoom is centred instead of pinned left.
 |------|----------|------|---------|
 | `TimelineViewModel.swift` | `@Published private(set) var zoomToFitContentRequest` | `Int` | Counter; each new value is one request |
 | `MultiTrackTimelineView.swift` | `var zoomToFitContentRequest` | `Int` | Request passed in, observed via `onChangeCompat` |
+| `MultiTrackTimelineView.swift` | `@State private var trackAreaWidth` | `CGFloat` | Width the zoom curve was computed from. Recorded, never fed back |
+| `MultiTrackTimelineView.swift` | `@State private var isFramingContent` | `Bool` | Framing sets its own offset; the anchor stands aside for that one change |
+| `MultiTrackTimelineView.swift` | `@State private var pendingAnchorX` | `CGFloat?` | Playhead position held for the zoom burst in progress |
+| `MultiTrackTimelineView.swift` | `@State private var anchorToken` | `Int` | Identifies the newest zoom change so superseded scrolls are dropped |
+
+#### Not done (deliberately)
+
+Standard elsewhere, not built — no trackpad pinch / ⌘-scroll zoom, no keyboard
+shortcuts (Pro Tools uses ⌘] / ⌘[ and ⌘⌃[ for whole timeline), no zoom-to-selected-region,
+no zoom presets. Scoped out on 2026-08-08: fix the anchor only.
 
 #### Integration Points
 
@@ -589,6 +693,59 @@ short to fill the track area at maximum zoom is centred instead of pinned left.
 
 #### Dependencies
 - Depends on: Multi-Track Timeline
+- Depended by: none
+
+---
+
+### One Frame Rate per Batch Import
+
+**Status**: Active
+**Added**: 2026-08-07
+
+#### Description
+A multi-file video import settles the frame rate for the whole batch **before**
+placing anything: every file's rate is read, the project's rate is decided (an
+empty timeline adopts the first file that reports one, as a single import
+already did), and only the files matching it are imported. Whatever is left over
+is named in one report at the end.
+
+Replaces a per-file dialog that could not work in a batch. The dialog is driven
+by one slot of pending state (`pendingVideoURL` / `pendingVideoFPS`) and the
+import loop does not wait for it, so a second mismatching file overwrote the
+first file's URL while the first file's dialog was still on screen, and a third
+queued behind a dialog whose state had since been cleared.
+
+Measured on a drop of three reels at 24, 25 and 30 fps, before the fix:
+
+- **one** reel imported
+- the dialog said "This video is 25 fps" while pointing at the 30 fps file, and
+  its Change Project FPS button would have removed the reel just imported
+- the third file vanished with nothing said about it
+
+After: the 24 fps reel imports, and one **Not Imported** alert names
+`MixB_25.mov` and `MixC_30.mov` against the project's 24 fps. Nothing is silently
+lost, and no destructive offer is made in the middle of a batch.
+
+Single-file imports are unchanged - there the offer to change the project's rate
+is actionable and unambiguous, so `fpsConflict` still handles it.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| View | `Views/ContentView+Timeline.swift` | `addVideoFilesSequentially`, `frameRates(of:)`, `batchProjectFrameRate(urls:rates:)` |
+| Coordinator | `Coordinators/AlertCoordinator.swift` | `batchFrameRateMismatch(names:projectFPS:)` case and its alert |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `ContentView+Timeline.swift` | `handleVideoDropOnTimeline` | Batch path; unchanged call site |
+| `ContentView+Timeline.swift` | `handleMixedBatchDrop` | Batch path; unchanged call site |
+| `ContentView+Timeline.swift` | `splitOffers.expect` | Counts importable files, not the whole drop |
+
+#### Dependencies
+- Depends on: Multi-Track Timeline, Alert/Sheet Coordination
 - Depended by: none
 
 ---
