@@ -47,6 +47,24 @@ final class AggregateDeviceTests: XCTestCase {
         description()[kAudioAggregateDeviceSubDeviceListKey] as? [[String: Any]] ?? []
     }
 
+    /// A sub-device found by its UID rather than its position in the list.
+    ///
+    /// The drift assertions below used `first` and `last`, which quietly encoded
+    /// interface-first ordering. When the loopback device was deliberately moved
+    /// to the front - so the stems become the DAW's inputs 1-4 - those three
+    /// tests began failing against correct code, and stayed red.
+    ///
+    /// Order is a real requirement, but it belongs to the tests that exist to
+    /// pin it (`testVirtualComesFirstSoStemsAreTheLowChannels`,
+    /// `testStemsStartAtChannelOne`). Everything else should say which device it
+    /// means.
+    ///
+    /// - Parameter uid: The sub-device's UID.
+    /// - Returns: That sub-device's description, or `nil` if it is absent.
+    private func subDevice(uid: String) -> [String: Any]? {
+        subDevices().first { $0[kAudioSubDeviceUIDKey] as? String == uid }
+    }
+
     // MARK: - Identity
 
     func testCarriesStableUID() {
@@ -229,14 +247,13 @@ final class AggregateDeviceTests: XCTestCase {
     /// halves of the aggregate slide apart over the length of a reel, which is the
     /// exact failure this application exists to prevent.
     func testOnlyTheVirtualDeviceIsDriftCompensated() {
-        let devices = subDevices()
-        XCTAssertEqual(devices.first?[kAudioSubDeviceDriftCompensationKey] as? Int, 0)
-        XCTAssertEqual(devices.last?[kAudioSubDeviceDriftCompensationKey] as? Int, 1)
+        XCTAssertEqual(subDevice(uid: interfaceUID)?[kAudioSubDeviceDriftCompensationKey] as? Int, 0)
+        XCTAssertEqual(subDevice(uid: virtualUID)?[kAudioSubDeviceDriftCompensationKey] as? Int, 1)
     }
 
     func testDriftQualityIsSetOnTheVirtualDevice() {
         // Within CoreAudio's documented 0...0x7F range, and not the minimum.
-        guard let quality = subDevices().last?[kAudioSubDeviceDriftCompensationQualityKey] as? Int else {
+        guard let quality = subDevice(uid: virtualUID)?[kAudioSubDeviceDriftCompensationQualityKey] as? Int else {
             return XCTFail("Expected a drift compensation quality")
         }
         XCTAssertGreaterThan(quality, 0)
@@ -245,7 +262,7 @@ final class AggregateDeviceTests: XCTestCase {
 
     func testInterfaceCarriesNoDriftQuality() {
         // Nothing to compensate against - it is the clock.
-        XCTAssertNil(subDevices().first?[kAudioSubDeviceDriftCompensationQualityKey])
+        XCTAssertNil(subDevice(uid: interfaceUID)?[kAudioSubDeviceDriftCompensationQualityKey])
     }
 
     // MARK: - Visibility
