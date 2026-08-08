@@ -1,10 +1,315 @@
 # Session State
 
 > **Last Updated**: 2026-08-08
-> **Status**: IDLE — two reported bugs plus playhead-anchored zoom, verified, uncommitted
+> **Status**: ACTIVE — coreaudiod leak RESOLVED and attributed; lane-reorder regression fixed, awaiting eyeball
 > **Branch**: main
 
 ---
+
+## RESOLVED: the coreaudiod leak was the HAL plug-ins, not Projector
+
+Measured after the restart, on a fresh boot, with the user having removed four
+HAL plug-ins beforehand (**SoundID Reference**, **Jump** ×2, **BlackHole 2ch**),
+leaving five: ARK, Audiomovers InjectIO, BlackHole 16ch, Parrot, Pro Tools Audio
+Bridge.
+
+A three-phase A/B, with a near-silent 15-minute tone as a constant driven load so
+phases B and C differ only by Projector:
+
+| Phase | Condition | RSS | Rate | Overloads |
+|---|---|---|---|---|
+| A | idle, no audio client | 98.2 → 99.5 MB | settling only | 0 |
+| B | tone, **no** Projector | 113.5 → 114.6 MB (4.5 min) | 0.24 MB/min | 0 |
+| C | tone **+ Projector playing 3 lanes** | 115.2 → 115.6 MB (6.5 min) | **0.06 MB/min** | 0 |
+
+Against the prior session's **22.4 MB/min with Projector and 16.8 without** — a
+~70× reduction. Projector's entire cost is a **~1 MB attach, then flat**; it grew
+*less* than the idle case, which is noise rather than a real difference.
+
+**Zero overload messages throughout**, from both the instrument and system-wide
+(`log show --predicate 'process == "coreaudiod"' | grep -ci overload`). Since
+queued overload reports were 92% of the memory in the 2.8 GB sample, no overloads
+means no mechanism.
+
+`coreaudiod` also now **gives memory back** when clients detach (113.0 → 109.4 MB
+when Spotify/Safari quit), where before it climbed monotonically to 26 GB.
+
+### The earlier "Projector is ~30% of the growth" was wrong
+
+That attribution was an artifact of measuring while SoundID was driving the
+overload storm: Projector was being charged for load it did not create. With the
+plug-ins gone it contributes nothing measurable. The instrument stays anyway —
+it is what turned a suspicion into a number, and it is the only way to judge a
+future regression.
+
+**The user does not intend to reinstall SoundID**, so no further bisection: we do
+not need to name which of the four it was.
+
+### Correction: `log show --info` does not reliably persist these
+
+The instruction below to use `log show --info --predicate 'subsystem == …'`
+**does not work** — info-level messages are memory-only and the query comes back
+empty, which makes a working instrument look dead. It cost some time here. Use a
+live stream instead, from a script to dodge shell quoting:
+
+```
+log stream --info --predicate 'subsystem == "com.keegandewitt.projector"' --style compact
+```
+
+That caught both `Overload monitor watching device 167` and `Audio engine
+released on teardown`. Note the device id is **167** this boot, not 194 — it
+changes across reboots, so confirm it against the default output every time.
+
+### Reusable harness
+
+`scratchpad/sample-coreaudiod.sh` samples RSS/CPU/Projector-running every 30s to
+a TSV. Fixtures regenerated at `~/Movies/ProjectorDropTest` (5-min 24fps reel
+with a real timecode track, two sine stems) — **must** live under `~/Movies` for
+the sandbox to read them. Delete when finished.
+
+---
+
+## REGRESSION: drag-to-reorder lanes was dead in 2026.08.08.1 (fixed, uncommitted)
+
+Reported by the user during verification. **Self-inflicted, in `2f29e8b`** — the
+same commit that fixed right-click-to-delete broke reordering, and both shipped.
+
+Fixing the right-click meant hanging a `.contextMenu` on the invisible drag
+handle. On macOS that **wraps** the view, so it received mouse events before the
+gesture did and swallowed the whole stream. The tell was that the closed-hand
+cursor never appeared: the `LongPressGesture` never even reached `.first(true)`,
+so it was not the drag half or the commit — the gesture was entirely dead.
+
+`LaneReorder`'s arithmetic was **not** at fault (traced: 0.68 rows ≈ 56pt to
+trigger the first swap, holds correctly either side). The hysteresis work was
+fine; only the modifier order was wrong.
+
+**Fix**: apply `.highPriorityGesture` *after* `.contextMenu`, so the gesture sits
+outside it and sees events first. The two coexist only because a long press and a
+drag are primary-button gestures, so a right-click still falls through. Marked
+ORDER IS LOAD-BEARING at the call site.
+
+**Both behaviours must be tested together** — a change that restores one can kill
+the other, which is exactly how this shipped. **User verified both.**
+
+## And the shaking was never the hysteresis (fixed, uncommitted)
+
+With reordering working again the user still reported shaking when hesitating near
+a swap point — the symptom the previous session had already "fixed" twice with
+hysteresis. It was neither the arithmetic nor the animation.
+
+**Measured, not reasoned.** A temporary trace logged `dy / rows / held / target`
+per gesture update. Across **377 samples the target never flipped once** — the
+`LaneReorder` rule was innocent, as was `AppAnimations.quick` (a plain easeOut,
+no spring overshoot) and the insertion indicator (defined at
+`MultiTrackTimelineView.swift:3155`, never used — dead code).
+
+What shook was `drag.translation.height` itself, alternating between two values
+every frame while the mouse was **held still**, with the gap *growing*: 3.6pt,
+4.1, 5.1, 5.9 … 8.9pt.
+
+**Cause: a positive feedback loop through the coordinate space.** The row is
+displaced by `.offset(y: draggingLaneOffset)`, and `draggingLaneOffset` *is* the
+gesture's own `translation.height`. `DragGesture` defaults to `.local`, so the
+translation was measured against a frame the offset was moving. Offset fed the
+gesture, gesture fed the offset, and hesitating gave the oscillator time to wind
+up — which is exactly why holding still made it worse.
+
+**Fix**: `DragGesture(minimumDistance: 0, coordinateSpace: .global)`. The global
+space does not move when the row is offset, so the loop is broken.
+
+Verified with the trace still running: direction reversals fell from *every
+sample* to **3 of 142 (2.1%)** — the hand changing direction — `dy` climbed
+monotonically, and the target flipped once at `rows=0.684`, right on the 0.68
+threshold, then held. Instrumentation since removed.
+
+**The lesson worth keeping**: two previous passes tuned the hysteresis constant
+because the symptom looked like target flip-flop. It never was. Any future "feels
+jumpy" report here should trace the raw gesture input *before* touching the rule —
+the rule was correct all along and was being fed a corrupted signal.
+
+---
+
+## FIXED: a mixed drop on the audio area silently discarded the video
+
+### First attempt went into dead code — caught by clare, not by the build
+
+The fix was first written into `handleEmptyAudioDrop`, which **nothing calls**.
+Its name appears exactly once in the repo: its own definition. `xcodebuild`
+raises no warning for an unused private method, so a clean build proved nothing,
+and the user's runtime check passed because *once a lane exists*
+`AudioLaneView.routeDroppedMedia` handles the drop and already routes mixed
+batches correctly. Only the **first** drop into an empty project was ever broken,
+so retesting on a timeline with content could never reproduce it.
+
+**The live path** is `DragCaptureView.onPerform`
+(`MultiTrackTimelineView.swift:2170`, `2247`) → `handleNewLanePerformDrop`
+(`:2275`) → `audioURLs(from:)` → `audioCandidate(from:)` (`:2340`), which filters
+the pasteboard to `.audio` — throwing the picture away before the handler runs.
+
+**Real fix**: a new `videoURLs(from:)` beside the existing `audioURLs(from:)`, and
+`handleNewLanePerformDrop` routes to `onDropMixedMedia` when a batch carries both.
+Audio-only and video-only behaviour deliberately unchanged, matching
+`AudioLaneView`.
+
+**Lesson**: a passing build and a passing runtime check together still did not
+show that the edited function was unreachable. When a fix "works", confirm the
+edited code is on the path that ran — `grep -c` for the function name is enough.
+
+### Still open: the orphaned drop subsystem around it
+
+`handleEmptyAudioDrop`, `beginEmptyAudioDrop`, `loadURL(from: NSItemProvider)`,
+`mediaItem(from:)` and `quickMediaType(from:)` are called only by each other —
+~200 lines reachable from nothing. Awaiting a decision to delete or reconnect.
+Leaving it is what caused the wrong fix above.
+
+### The original report
+
+Found during verification. Reproduced from the log:
+
+```
+handleAudioDropOnTimeline: ENTRY - laneIndex=0, urls=["Stem_Dx.wav", "Stem_Mx.wav"]
+```
+
+A reel and two stems were dropped; the `.mov` is already gone at ENTRY. The audio
+lane's drop handler in `MultiTrackTimelineView.swift` filters to audio and returns
+without a word:
+
+```swift
+let audioURLs = urls.filter { ProjectMediaLibrary.mediaType(for: $0) == .audio }
+guard !audioURLs.isEmpty else { return }
+```
+
+No alert, no partial-import notice — the same silent-loss class as the 08.07
+frame-rate batch bug, which was fixed by naming the skipped files in one **Not
+Imported** alert. The same answer probably applies here.
+
+Worth noting: `onDropMixedMedia` is already wired into that view
+(`MultiTrackTimelineView.swift:1192`) and this path does not call it, so the fix
+may be routing rather than a new alert.
+
+**Not a bug, checked**: two stems landing on *one* lane is by design when the drop
+targets a specific lane ("Each file goes to its own timecode, or after the last
+one", `ContentView+Timeline.swift:98`). They were placed sequentially only because
+the first test fixtures carried no BWF timecode. Fixtures now carry
+`time_reference=172800000` (01:00:00:00 @ 48 kHz), matching the reel's tmcd.
+
+---
+
+## Remaining UI verification (unchanged, still not eyeballed)
+
+**Shipped**: `2026.08.08.1`, in `/Applications`, on the feed.
+
+**Uncommitted**: `PlaybackEngine.swift` (the overload monitor + the `[weak self]`
+removal), `MultiTrackTimelineView.swift` (the reorder-order fix) and this file.
+
+### Still not eyeballed
+
+All of it is in the shipped build already:
+
+- **Create QT Demo** - pick a bounce, check the detected timecode, toggle a lane,
+  ride a fader (the preview must keep playing, not restart), set handles, export.
+  The biggest untested surface; nobody has ever clicked the button.
+- **Undo** - drop files, Cmd-Z. Then Cmd-Shift-Z. If Cmd-Z does nothing, the first
+  thing to check is whether `@Environment(\.undoManager)` is non-nil at all; if it
+  is nil, own an `UndoManager` explicitly rather than reading the environment.
+- **Lane right-click** *and* **lane reorder** - always together, see the regression
+  above. Reorder: drag slowly and hold near the swap point; it should commit once
+  and stay, not shake.
+- **Header** - Export Cue List should sit beside Settings and Report a Bug.
+- **Head of timeline** - after an import, frame 0 should be the first region.
+- **Update install** - the next real update either relaunches cleanly or reproduces
+  the original "Install and Relaunch does nothing". Not testable on a Debug build,
+  where the update service is deliberately inert.
+
+### Standing constraints
+
+- Run the app from a terminal to see `debugPrint`. `diagnosticLog` goes to `os_log`
+  and needs a **live `log stream`** — `log show` does not persist info-level
+  messages and comes back empty, which reads as a broken instrument.
+- A locked screen creates no window, so `-test-drop-urls` probes launch and do
+  nothing. Keep the screen awake for any runtime check.
+- Do not kill the app with `pkill` when testing teardown - `SIGKILL` runs no
+  cleanup. Use Quit (`osascript -e 'tell application "Projector" to quit'`), which
+  is confirmed to log `Audio engine released on teardown`.
+- The Debug build's app code lives in `Projector.debug.dylib`, not in the 60 KB
+  `Projector` stub — `strings` on the stub finds nothing and looks like a failed
+  build. Check the dylib.
+
+---
+
+## CoreAudio overload instrumentation (2026-08-08, uncommitted)
+
+Acting on a handoff from a separate investigation session. Its headline
+correction, which supersedes anything below implying otherwise: **Projector is
+about 30% of the growth, not the cause.** `coreaudiod` grew to ~26 GB and hung the
+Mac; 92% of its memory in a 2.8 GB sample was *queued overload reports*, at ~82/sec
+against a device running 93.75 IO cycles/sec. The dominant source is still
+unidentified; `SoundID Reference.driver` is the leading external suspect among nine
+installed HAL plug-ins.
+
+### The instrument (the point of this work)
+
+`ProcessorOverloadMonitor` in `PlaybackEngine.swift`, `#if DEBUG`. Counts
+`kAudioDeviceProcessorOverload` on the active output device and logs a rate every
+five seconds, only when non-zero.
+
+**The header dictated the design.** `kAudioDeviceProcessorOverload` is one of
+exactly two properties CoreAudio dispatches *synchronously from the IO context*:
+
+> All listener blocks will be dispatched asynchronously save for those dispatched
+> from the IO context (of which `kAudioDevicePropertyDeviceIsRunning` and
+> `kAudioDeviceProcessorOverload` are the only examples) which will be dispatched
+> synchronously.
+
+So **the listener runs on the render thread**. At the observed rate that is ~82
+render-thread callbacks a second: instrumenting this with a lock, a `Task`, a log
+line or any `self` access would have added 82 hazards/sec to the thread being
+investigated. The block increments one `Int64` through an
+`UnsafeMutablePointer` and returns. Non-atomic on purpose - one writer, one
+reader, a rate is wanted, and a lost increment is cheaper than a lock here.
+
+The counter is **never freed**. Removal is documented to stop future dispatches,
+not to wait for one already running, so freeing in `deinit` risks a
+use-after-free on the render thread. Eight bytes for the process lifetime in Debug
+only is the better trade. (Raised by clare as the one theoretical concern in her
+review; closed structurally rather than by asking Apple.)
+
+Verified: attaches to device 194 = **MacBook Pro Speakers**, which is both the
+default output and the device the handoff names. Reported 0 overloads in 35s - and
+that zero means nothing yet, because `coreaudiod` had just been restarted and sat
+at 0.0% CPU / 38 MB (from 124% / 2.66 GB). The instrument is proven to attach and
+report; it has not yet seen a real overload.
+
+### Render-thread sweep
+
+The whole app has **one** render-thread closure: the meter tap. Plus the new
+listener. The other two property listeners watch non-IO-context properties
+(`kAudioDevicePropertyNominalSampleRate`, `kAudioHardwarePropertyDevices`) and are
+dispatched asynchronously onto our own queues. No `AVAudioSourceNode`, no
+`AURenderCallback`, no `AudioUnitAddRenderNotify`; the single `scheduleSegment` has
+no completion handler and is a control-plane call.
+
+### `[weak self]` removed from the tap
+
+A weak load takes the Swift runtime's side-table lock - not real-time safe, once
+per buffer. The tap now captures the `MeterLevelStore` strongly and calls a static
+`measure(_:into:)`, so the closure touches no reference counting. No cycle: the
+store holds nothing.
+
+### Teardown: nothing to fix, and why
+
+Xcode's Stop sends `SIGKILL`, so no in-process code can run - that is not
+fixable from inside. What survives is only the aggregate device, which is
+deliberate: a public aggregate outlives its creator by design and is removed
+solely by the ✕ in Settings. Taps, listeners and the IOProc die with the process.
+Graceful quit does run cleanup (`Audio engine released on teardown`).
+
+### How to judge a fix
+
+Baseline from a fresh `coreaudiod` (`sudo killall coreaudiod`), then sample
+`ps -o rss= -p $(pgrep coreaudiod)` each minute. **A fix is real only if it lowers
+the overload rate** - memory is the symptom, the report queue is the mechanism.
 
 ## CoreAudio audit (2026-08-08, uncommitted)
 
@@ -337,7 +642,15 @@ for `screencapture -l`, because the app opens on a second display and a fixed
 whole screen** — the first attempt caught the user's Messages and a Finder window
 full of client folder names, and was deleted.
 
-### Pre-existing, NOT touched: three red tests
+### ~~Pre-existing, NOT touched: three red tests~~ (RESOLVED 2026-08-08)
+
+**No longer true — do not act on the section below.** All three pass as of
+`3863d65` ("test(aggregate): address sub-devices by UID, not by position"), which
+addressed the sub-devices by UID rather than by position and so stopped encoding
+the old order. Full suite is **257 passing, 0 failures**. Kept for the reasoning
+only.
+
+### Historical: three red tests
 
 `AggregateDeviceTests.testOnlyTheVirtualDeviceIsDriftCompensated`,
 `testDriftQualityIsSetOnTheVirtualDevice` and `testInterfaceCarriesNoDriftQuality`

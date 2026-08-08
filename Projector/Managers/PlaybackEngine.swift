@@ -239,6 +239,13 @@ final class PlaybackEngine: ObservableObject {
     private var pendingSeekFrame: Int?
 
     /// Sample rate change listener block (held for cleanup)
+    #if DEBUG
+    /// Counts missed IO deadlines on the output device. See
+    /// ``ProcessorOverloadMonitor`` - this is the measurement the CoreAudio
+    /// investigation runs on.
+    private let overloadMonitor = ProcessorOverloadMonitor()
+    #endif
+
     private nonisolated(unsafe) var sampleRateListenerBlock: AudioObjectPropertyListenerBlock?
 
     /// Dispatch queue for sample rate change notifications
@@ -630,8 +637,16 @@ final class PlaybackEngine: ObservableObject {
         // Buffer size: ~20ms at the current sample rate for responsive metering
         let bufferSize = AVAudioFrameCount(format.sampleRate * 0.02)
 
-        mainMixer.installTap(onBus: 0, bufferSize: bufferSize, format: format) { [weak self] buffer, _ in
-            self?.processMeterBuffer(buffer)
+        // Captures the level store, never `self`.
+        //
+        // A `[weak self]` load is not real-time safe: reading a weak reference
+        // takes the Swift runtime's side-table lock, on the render thread, once
+        // per buffer. Capturing the store strongly means the closure touches no
+        // reference counting at all - and creates no cycle, because the store
+        // holds nothing.
+        let levels = meterLevels
+        mainMixer.installTap(onBus: 0, bufferSize: bufferSize, format: format) { buffer, _ in
+            PlaybackEngine.measure(buffer, into: levels)
         }
 
         meterTapInstalled = true
@@ -671,7 +686,7 @@ final class PlaybackEngine: ObservableObject {
     /// Processes an audio buffer to calculate RMS meter levels.
     ///
     /// - Parameter buffer: The audio buffer from the meter tap
-    private nonisolated func processMeterBuffer(_ buffer: AVAudioPCMBuffer) {
+    private nonisolated static func measure(_ buffer: AVAudioPCMBuffer, into levels: MeterLevelStore) {
         guard let floatData = buffer.floatChannelData else { return }
 
         let channelCount = Int(buffer.format.channelCount)
@@ -717,7 +732,7 @@ final class PlaybackEngine: ObservableObject {
         //
         // The main side drains it on a timer, which also makes the decay a function
         // of elapsed time rather than of how many buffers happened to arrive.
-        meterLevels.store(left: normalizedLeft, right: normalizedRight)
+        levels.store(left: normalizedLeft, right: normalizedRight)
     }
 
     /// Sets MTC sync mode.
@@ -1896,6 +1911,11 @@ final class PlaybackEngine: ObservableObject {
         } else {
             debugPrint("PlaybackEngine: Sample rate listener installed for device \(deviceID)")
         }
+
+        // Same moment, same device: start counting missed deadlines.
+        #if DEBUG
+        overloadMonitor.start(deviceID: deviceID)
+        #endif
     }
 
     /// Removes the sample rate change listener from the current device.
@@ -2341,6 +2361,10 @@ final class PlaybackEngine: ObservableObject {
         // Remove sample rate change listener before releasing audio engine
         removeSampleRateListener()
 
+        #if DEBUG
+        overloadMonitor.stop()
+        #endif
+
         // Stop and clean up audio engine
         audioEngine.stop()
 
@@ -2447,3 +2471,185 @@ final class MeterLevelStore: @unchecked Sendable {
         store(left: 0, right: 0)
     }
 }
+
+#if DEBUG
+// MARK: - Processor Overload Monitor
+
+/// Counts the overloads CoreAudio reports on an output device.
+///
+/// ## Why this exists
+///
+/// An overload is a missed IO deadline. The system-wide symptom being chased is
+/// `coreaudiod` growing without bound on *queued overload reports* - 92% of its
+/// memory in one 2.8 GB sample - at a measured ~82 reports/sec against a device
+/// running 93.75 IO cycles/sec. Nearly every cycle is late. Until now that was
+/// only visible by reading `coreaudiod`'s heap hours later; this makes it a live
+/// number, and answers the question that matters: does *this* engine cause
+/// overloads, or does it merely play through someone else's?
+///
+/// ## Why the counter is a bare pointer
+///
+/// `kAudioDeviceProcessorOverload` is one of exactly two properties CoreAudio
+/// dispatches **synchronously from the IO context** - the header says so:
+///
+/// > All listener blocks will be dispatched asynchronously save for those
+/// > dispatched from the IO context (of which `kAudioDevicePropertyDeviceIsRunning`
+/// > and `kAudioDeviceProcessorOverload` are the only examples) which will be
+/// > dispatched synchronously.
+///
+/// So this block runs **on the render thread**, up to ~82 times a second here.
+/// Anything it does must be real-time safe, which rules out the obvious
+/// implementations: no `os_unfair_lock` (a lock can invert priority), no
+/// `Task`, no logging, no `self` - a weak load alone takes the runtime's
+/// side-table lock. It increments one `Int64` through a pointer and returns.
+/// Instrumenting this the naive way would add 82 hazards per second to the very
+/// thread under investigation.
+///
+/// The count is deliberately **not** atomic. There is one writer and one reader,
+/// the value is used to compute a rate, and a lost increment is worth less than a
+/// lock on the render thread.
+final class ProcessorOverloadMonitor {
+
+    /// Where the render thread writes. Heap-allocated once, so the listener block
+    /// captures a trivial value and touches no reference counting.
+    private let counter: UnsafeMutablePointer<Int64>
+
+    private var listenerBlock: AudioObjectPropertyListenerBlock?
+    private var deviceID: AudioDeviceID?
+    private var reportTimer: Timer?
+    private var lastReportedCount: Int64 = 0
+    private var lastReportDate = Date()
+
+    /// How often the accumulated count is turned into a rate and logged.
+    ///
+    /// Five seconds, not per overload: at the observed rate, logging each one
+    /// would put 82 log writes a second into the report and tell you nothing the
+    /// rate does not.
+    private let reportInterval: TimeInterval = 5
+
+    /// Listener callbacks arrive on the IO thread regardless of this queue, but a
+    /// queue is required to register, and it is retained until removal.
+    private let listenerQueue = DispatchQueue(label: "com.projector.overloadmonitor")
+
+    init() {
+        counter = UnsafeMutablePointer<Int64>.allocate(capacity: 1)
+        counter.initialize(to: 0)
+    }
+
+    deinit {
+        stop()
+
+        // The counter is deliberately **never freed**.
+        //
+        // `AudioObjectRemovePropertyListenerBlock` is documented to stop future
+        // dispatches; nothing documents that it waits for an invocation already
+        // running. This listener fires from the IO thread, so an overload arriving
+        // at the same moment as `stop()` could be inside `counter.pointee += 1`
+        // while this deinit continues - and freeing the page under it would be a
+        // use-after-free on the render thread, the worst possible place for one.
+        //
+        // The cost of not freeing is eight bytes for the life of the process, in
+        // Debug builds only. That is a better trade than depending on a guarantee
+        // Apple does not give, and it removes the question rather than answering
+        // it.
+    }
+
+    /// Begin counting overloads on a device.
+    ///
+    /// - Parameter deviceID: The output device in use. Passing a different device
+    ///   moves the listener; passing the same one is a no-op.
+    func start(deviceID newDeviceID: AudioDeviceID) {
+        guard deviceID != newDeviceID else { return }
+        stop()
+
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDeviceProcessorOverload,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        // Captures `counter` - a pointer, copied by value - and nothing else.
+        let counter = self.counter
+        let block: AudioObjectPropertyListenerBlock = { _, _ in
+            counter.pointee += 1
+        }
+
+        let status = AudioObjectAddPropertyListenerBlock(
+            newDeviceID,
+            &propertyAddress,
+            listenerQueue,
+            block
+        )
+
+        guard status == noErr else {
+            diagnosticLog(.warning, .playback, "Overload monitor could not attach to device \(newDeviceID): \(status)")
+            return
+        }
+
+        listenerBlock = block
+        deviceID = newDeviceID
+        counter.pointee = 0
+        lastReportedCount = 0
+        lastReportDate = Date()
+        startReporting()
+
+        diagnosticLog(.info, .playback, "Overload monitor watching device \(newDeviceID)")
+    }
+
+    /// Stop counting and hand the listener back.
+    func stop() {
+        reportTimer?.invalidate()
+        reportTimer = nil
+
+        guard let deviceID, let listenerBlock else { return }
+
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDeviceProcessorOverload,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        AudioObjectRemovePropertyListenerBlock(
+            deviceID,
+            &propertyAddress,
+            listenerQueue,
+            listenerBlock
+        )
+
+        self.listenerBlock = nil
+        self.deviceID = nil
+    }
+
+    private func startReporting() {
+        let timer = Timer.scheduledTimer(withTimeInterval: reportInterval, repeats: true) { [weak self] _ in
+            self?.report()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        reportTimer = timer
+    }
+
+    /// Turn the count into a rate. Silent while nothing is overloading, so the
+    /// report reads as a signal rather than a heartbeat.
+    private func report() {
+        let total = counter.pointee
+        let since = lastReportedCount
+        lastReportedCount = total
+
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastReportDate)
+        lastReportDate = now
+
+        let delta = total - since
+        guard delta > 0, elapsed > 0 else { return }
+
+        let rate = Double(delta) / elapsed
+        diagnosticLog(
+            .warning, .playback,
+            String(
+                format: "Audio overloads: %.1f/sec (%lld in %.1fs, %lld total) on device %u",
+                rate, delta, elapsed, total, deviceID ?? 0
+            )
+        )
+    }
+}
+#endif

@@ -1291,7 +1291,6 @@ struct MultiTrackTimelineView: View {
                                         .frame(width: TimelineLayout.headerWidth, height: 40)
                                         .contentShape(Rectangle())
                                         .allowsHitTesting(true)
-                                        .highPriorityGesture(laneReorderGesture(laneId: lane.id, laneIndex: index))
                                         // This invisible handle lies over the lane
                                         // name - the obvious place to right-click a
                                         // lane - and a transparent Color with no
@@ -1306,6 +1305,19 @@ struct MultiTrackTimelineView: View {
                                                 timelineManager.removeAudioLane(id: lane.id)
                                             }
                                         }
+                                        // ORDER IS LOAD-BEARING: the gesture must be
+                                        // applied *after* `.contextMenu`, so that it
+                                        // sits outside it and sees mouse events first.
+                                        // Applied before, the context menu wraps the
+                                        // gesture and swallows the whole stream - the
+                                        // long press never fires, so the cursor does
+                                        // not even change and reordering is dead.
+                                        // That shipped in 2f29e8b: the right-click fix
+                                        // silently cost the drag. The two survive
+                                        // together only because a long press and a
+                                        // drag are primary-button gestures, so a
+                                        // right-click still falls through to the menu.
+                                        .highPriorityGesture(laneReorderGesture(laneId: lane.id, laneIndex: index))
                                 }
                                 .overlay(alignment: .bottom) {
                                     if index == timeline.audioLanes.count - 1 {
@@ -2268,12 +2280,34 @@ struct MultiTrackTimelineView: View {
     ) -> Bool {
         // Handle both single and multi-file drops to create new lane
         let urls = audioURLs(from: info)
+        let videos = videoURLs(from: info)
+        let targetFrame = max(0, Int(location.x / max(pixelsPerFrame, 0.001)))
+        let isInternal = dragContext.isDragging
+
+        // A batch dropped here can carry picture as well as audio, and
+        // `audioCandidate(from:)` filters to audio - so the reel was discarded
+        // with no alert and no "Not Imported" notice. It simply vanished, the
+        // same silent-loss failure as the 08.07 frame-rate batch bug.
+        //
+        // This is the drop that runs when there is no lane to aim at yet, so it
+        // was the *first* drop into an empty project that lost the picture.
+        // Once a lane exists `AudioLaneView.routeDroppedMedia` handles the drop
+        // and already routes mixed batches correctly - which is why this looked
+        // fine whenever it was retested on a timeline that had content.
+        //
+        // Video-only drops stay ignored, matching `AudioLaneView`: the video
+        // track owns those.
+        if !videos.isEmpty, !urls.isEmpty, let onDropMixedMedia {
+            onDropMixedMedia(videos, urls, targetFrame)
+            dragContext.end()
+            clearEmptyAudioDrop()
+            return true
+        }
+
         guard !urls.isEmpty else {
             clearEmptyAudioDrop()
             return false
         }
-        let targetFrame = max(0, Int(location.x / max(pixelsPerFrame, 0.001)))
-        let isInternal = dragContext.isDragging
         onDropAudioMedia(laneIndex, urls, targetFrame, isInternal)
         dragContext.end()
         clearEmptyAudioDrop()
@@ -2344,6 +2378,29 @@ struct MultiTrackTimelineView: View {
     private func audioURLs(from info: NSDraggingInfo) -> [URL] {
         let candidate = audioCandidate(from: info)
         return candidate.urls
+    }
+
+    /// The video files in a drag, as `audioCandidate(from:)` gives the audio ones.
+    ///
+    /// Filtering a drag down to audio is right for the drop *preview* - the
+    /// empty-lane target only ever previews an audio clip - but wrong for
+    /// deciding where the drop should go. A batch carrying picture as well as
+    /// audio has to reach `onDropMixedMedia`, and there is no way to notice that
+    /// from a list the picture has already been removed from.
+    ///
+    /// - Parameter info: The drag being inspected.
+    /// - Returns: Every video URL in the drag, empty if there are none.
+    private func videoURLs(from info: NSDraggingInfo) -> [URL] {
+        if dragContext.isDragging {
+            return dragContext.mediaItems
+                .filter { $0.type == .video }
+                .map { $0.url }
+        }
+
+        let pasteboard = info.draggingPasteboard
+        return (pasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true
+        ]) as? [URL] ?? []).filter { ProjectMediaLibrary.mediaType(for: $0) == .video }
     }
 
     private func beginEmptyAudioDrop(
@@ -3094,7 +3151,24 @@ struct MultiTrackTimelineView: View {
     /// - Returns: A gesture that handles lane reordering
     private func laneReorderGesture(laneId: UUID, laneIndex: Int) -> some Gesture {
         LongPressGesture(minimumDuration: 0.15)
-            .sequenced(before: DragGesture(minimumDistance: 0))
+            // `.global` IS LOAD-BEARING, and the default `.local` is a bug.
+            //
+            // The row is displaced by `.offset(y: draggingLaneOffset)`, and
+            // `draggingLaneOffset` is this gesture's own `translation.height`. In
+            // the local coordinate space that translation is measured against a
+            // frame the offset is itself moving, so the offset feeds the gesture
+            // and the gesture feeds the offset: a positive feedback loop.
+            //
+            // Measured, holding the mouse still mid-drag: `translation.height`
+            // alternated between two values every frame and the gap *grew* -
+            // 3.6pt, 4.1, 5.1, 5.9 ... 8.9pt - an oscillator winding up. That was
+            // the "shaking", and it is why hesitating made it worse rather than
+            // better. The reorder target never flipped once across 377 samples,
+            // so the hysteresis rule below was never the cause.
+            //
+            // The global space does not move when the row is offset, which breaks
+            // the loop.
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
             .onChanged { value in
                 switch value {
                 case .first(true):
