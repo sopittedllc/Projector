@@ -22,7 +22,7 @@ struct SettingsView: View {
     // Accordion section states - default to expanded
     @State private var audioExpanded = true
     @State private var displayExpanded = true
-    @State private var updatesExpanded = true
+    @State private var updatesExpanded = false
 
     /// Mirror of the updater's preference, because a `Toggle` needs a binding
     /// and the updater stores this itself rather than in ``AppSettings``.
@@ -78,6 +78,33 @@ struct SettingsView: View {
                     // MIDI Info Blurb
                     midiInfoSection
 
+                    // Above Audio and Display, collapsed.
+                    //
+                    // This section was invisible for a different and much
+                    // stupider reason than its position: the service handed in
+                    // was always nil, because the caller reached for it through
+                    // `NSApp.delegate as? AppDelegate`, which never succeeds -
+                    // see ``EnvironmentValues/updateService``. That is fixed
+                    // upstream of here.
+                    //
+                    // The position still matters, and was measured once the
+                    // section could be seen at all: Audio and Display are
+                    // expanded by default and together overflow the 650pt panel
+                    // (Display's own rows are already cut off), so a section
+                    // below them can only be found by scrolling a panel that
+                    // gives no sign there is anything more. Collapsed and first
+                    // costs the sections beneath it one header's height, and the
+                    // header is the part that needed to be visible.
+                    if updateService != nil {
+                        accordionSection(
+                            title: "Updates",
+                            icon: "arrow.down.circle",
+                            isExpanded: $updatesExpanded
+                        ) {
+                            updatesSectionContent
+                        }
+                    }
+
                     accordionSection(
                         title: "Audio",
                         icon: "speaker.wave.2",
@@ -94,15 +121,6 @@ struct SettingsView: View {
                         displaySectionContent
                     }
 
-                    if updateService?.isEnabled == true {
-                        accordionSection(
-                            title: "Updates",
-                            icon: "arrow.down.circle",
-                            isExpanded: $updatesExpanded
-                        ) {
-                            updatesSectionContent
-                        }
-                    }
                 }
                 .padding()
             }
@@ -745,6 +763,17 @@ struct SettingsView: View {
     @ViewBuilder
     private var updatesSectionContent: some View {
         VStack(alignment: .leading, spacing: SettingsDesign.rowSpacing) {
+            // Says so rather than hiding the controls. A section that silently
+            // empties itself is indistinguishable from one that failed to
+            // build, which is exactly the confusion this caused once already.
+            if updateService?.isEnabled != true {
+                SettingsSubRow {
+                    Text("This build cannot update itself.")
+                        .font(SettingsDesign.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
             SettingsRow(label: "Installed") {
                 Text(Self.installedVersionDescription)
                     .font(SettingsDesign.value)

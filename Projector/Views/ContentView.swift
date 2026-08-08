@@ -20,6 +20,11 @@ struct ContentView: View {
     @StateObject private var dragContext = DragContext()
     @Environment(\.undoManager) var undoManager
 
+    /// The updater, published by the scene. Never reached for through
+    /// `NSApp.delegate` - see ``EnvironmentValues/updateService`` for why that
+    /// silently yields nothing.
+    @Environment(\.updateService) var updateService
+
     // MARK: - MIDI Sync (Actor-based for thread safety)
     /// The MIDI sync actor (logic layer) - handles MTC/MMC on dedicated context
     let midiSyncActor: MIDISyncActor
@@ -218,7 +223,7 @@ struct ContentView: View {
             )) {
                 SettingsView(
                     audioManager: audioManager,
-                    updateService: (NSApp.delegate as? AppDelegate)?.updateService,
+                    updateService: updateService,
                     isPresented: Binding(
                         get: { alerts.activeAlert?.id == "settings" },
                         set: { if !$0, alerts.activeAlert?.id == "settings" { alerts.dismiss() } }

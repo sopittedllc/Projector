@@ -22,6 +22,9 @@ struct ProjectorApp: App {
         // command is removed below, which is what actually keeps it to one.
         WindowGroup("Projector", id: "main") {
             ContentView()
+                // The only supported way to reach the delegate instance - see
+                // ``EnvironmentValues/updateService``.
+                .environment(\.updateService, appDelegate.updateService)
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
@@ -33,6 +36,38 @@ struct ProjectorApp: App {
     }
 }
 
+
+// MARK: - Reaching the Updater from the View Tree
+
+private struct UpdateServiceKey: EnvironmentKey {
+    static let defaultValue: (any UpdateServiceProtocol)? = nil
+}
+
+extension EnvironmentValues {
+    /// The app's updater, or `nil` when this build has none to offer.
+    ///
+    /// **`NSApp.delegate` is not the app delegate.**
+    /// `@NSApplicationDelegateAdaptor` installs SwiftUI's own delegate -
+    /// runtime class `SwiftUI.AppDelegate` - as the application delegate and
+    /// forwards the callbacks to this app's one, so
+    /// `NSApp.delegate as? AppDelegate` is **always** nil. Measured, not
+    /// assumed: `runtime=SwiftUI.AppDelegate expected=Projector.AppDelegate
+    /// isKind=false`.
+    ///
+    /// That is how the Updates section in Settings came to be permanently
+    /// invisible while the Check for Updates menu item worked perfectly - the
+    /// menu item reaches the updater through `self`, and the settings sheet
+    /// reached for it through `NSApp.delegate`, receiving nothing. The two
+    /// names being identical is what made the mistake so hard to see.
+    ///
+    /// The adaptor's own property is the supported way to reach the instance,
+    /// so the scene body publishes it here and views read it from the
+    /// environment rather than hunting for the delegate.
+    var updateService: (any UpdateServiceProtocol)? {
+        get { self[UpdateServiceKey.self] }
+        set { self[UpdateServiceKey.self] = newValue }
+    }
+}
 
 // MARK: - App Delegate
 
