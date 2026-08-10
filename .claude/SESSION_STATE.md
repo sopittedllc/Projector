@@ -1,10 +1,39 @@
 # Session State
 
 > **Last Updated**: 2026-08-10
-> **Status**: IDLE — 2026.08.10.1 shipped (second-window fix); user click-through still outstanding
+> **Status**: ACTIVE — clip-width floor removed, built and tested, not yet shipped
 > **Branch**: main
 
 ---
+
+## In progress — clips drew wider than they are, at low zoom
+
+**Report**: zoomed out, the playhead appeared to be sitting over clip activity
+that was not actually there; zoom in and the content jumped back.
+
+**Cause**: `TimelineLayout.minimumClipWidth` floored every clip at 44pt
+(`AudioClipView.swift:167`, `VideoReelClipView.swift:243`). Below that zoom a
+clip was drawn longer than it is, and the waveform stretched to fill the space.
+The old doc comment recorded the overstatement as an accepted cost.
+
+**It is not an edge case.** At fit zoom on the default timeline a nine-minute
+reel is about 30pt, so it was drawn at 44 - claiming to run to 01:12:49 when it
+ended at 01:08:44. The user's screenshot shows the clips at exactly 44pt (88px
+at 2x) with the playhead parked at 01:10:28, inside four minutes of clip that
+does not exist.
+
+**Fix**: floor lowered to 2pt - a hairline, below which a clip would vanish
+entirely. Width is now duration x zoom at every scale. Rejected: widening the
+*hit* area to keep short clips grabbable, because clips sit shoulder to
+shoulder and an oversized target selects the neighbour. Zooming in is the way
+to grab a narrow clip.
+
+**Left alone, deliberately**: the drag-preview ghosts
+(`AudioLaneView.swift:373,397`, `VideoTrackView.swift:313`) still floor at 12pt.
+They are transient drop feedback rather than a claim about existing content.
+
+Full suite green. **Not verified visually** - screen recording is not permitted
+to the agent, so how a hairline clip reads on screen is the user's call.
 
 ## Shipped 2026.08.10.1 — Finder double-click opened a second window
 

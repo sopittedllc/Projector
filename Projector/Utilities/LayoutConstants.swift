@@ -815,18 +815,33 @@ enum TimelineLayout {
 
     /// Narrowest a clip may draw, whatever its duration.
     ///
-    /// Zoomed out far enough, a short clip works out to a few points wide and
-    /// becomes impossible to see or grab, so it is floored here. The floor does
-    /// overstate the clip's length at that zoom, which is the accepted cost of
-    /// keeping it selectable.
+    /// A hairline, and it must stay one. **A clip's width is a claim about
+    /// where its content ends**, and this floor is the one place that claim can
+    /// be made false, so it is set low enough that the lie is smaller than a
+    /// line.
+    ///
+    /// It was 44pt - the HIG target size - to keep short clips grabbable, and
+    /// the cost was recorded here as accepted. It was not. At fit zoom on the
+    /// default timeline a nine-minute reel works out to about 30pt, so it was
+    /// drawn half again as long as it was: the clip claimed to run to 01:12:49
+    /// when it ended at 01:08:44, and a playhead parked at 01:10:28 sat inside
+    /// four minutes of clip that did not exist, over a waveform that was
+    /// drawing the wrong span to fill the space. Zoom in past 44pt and the
+    /// content jumped back to where it really was. For a tool whose whole job
+    /// is telling a composer where they are against picture, that is the worst
+    /// thing the timeline can do.
+    ///
+    /// Grabbing a clip that is a few points wide is now done by zooming in,
+    /// which costs a scroll and is always available. Widening the *hit* area
+    /// instead was considered and rejected: clips sit shoulder to shoulder in a
+    /// lane, so a target wider than the clip covers its neighbour and the
+    /// timeline starts selecting something other than what was clicked.
     ///
     /// Video and audio must share the value. They were previously floored
     /// separately at 60 and 40, so any clip short enough to hit both drew a
     /// reel 1.5x wider than the lanes carrying that same reel's audio - which
     /// reads as the audio being shorter than the video it came from.
-    ///
-    /// 44pt is the macOS HIG minimum target size.
-    static let minimumClipWidth: CGFloat = 44
+    static let minimumClipWidth: CGFloat = 2
 
     /// Spacing between ruler markings
     static let rulerSpacing: CGFloat = 5
