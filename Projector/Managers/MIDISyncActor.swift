@@ -787,7 +787,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         // made the readout oscillate between 24 and 25 while Cubase held a
         // steady rate. `MTCReceiver.mtcFrameRate` is the rate decoded from the
         // quarter-frame stream itself: what the sender is actually running at.
-        let decoded = mtcReceiver?.mtcFrameRate.directEquivalentFrameRate
+        let decoded = mtcReceiver?.mtcFrameRate.reportedRate(forProject: localFrameRate)
         if incomingFrameRate != decoded {
             incomingFrameRate = decoded
             midiLog("Incoming MTC frame rate: \(decoded?.stringValue ?? "unknown") (project: \(localFrameRate.stringValue))")
@@ -1211,6 +1211,41 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
                 try? data.write(to: Self.debugLogURL)
             }
         }
+    }
+}
+
+// MARK: - Incoming Rate Reporting
+
+extension MTCFrameRate {
+
+    /// The frame rate to report for a stream arriving at this MTC base rate.
+    ///
+    /// ## MTC carries a family, not a rate
+    ///
+    /// Quarter-frames encode one of four base rates - 24, 25, 29.97 drop and 30
+    /// - and every timecode rate is transmitted on the base it belongs to. A
+    /// 23.976 session and a 24 session both go out as MTC 24; 29.97 and 30 both
+    /// go out as MTC 30. Nothing on the wire tells them apart, because nothing
+    /// needs to: within a family the labels are identical and only wall-clock
+    /// speed differs, which the sender and receiver each already know.
+    ///
+    /// So the base rate's `directEquivalentFrameRate` is not "the rate the
+    /// sender is running at". It is one member of the family, and naming it as
+    /// the incoming rate accused a correctly configured 23.976 session of a
+    /// mismatch against itself: the readout went red and read "24 ≠ 23.976",
+    /// with a tooltip telling the user to change the project to 24 - which would
+    /// have been the actual error, on the most common rate for picture. The same
+    /// applied to 29.97 against 30.
+    ///
+    /// Reporting the project's own rate whenever it belongs to the arriving
+    /// family says exactly as much as MTC knows. A real mismatch - 25 against a
+    /// 24 family - still resolves to a different rate and still shows.
+    ///
+    /// - Parameter project: The timeline's frame rate.
+    /// - Returns: The project rate when it transmits on this base, otherwise the
+    ///   base's direct equivalent.
+    func reportedRate(forProject project: TimecodeFrameRate) -> TimecodeFrameRate {
+        project.transmitsMTC(using: self) ? project : directEquivalentFrameRate
     }
 }
 

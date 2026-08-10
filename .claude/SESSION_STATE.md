@@ -38,8 +38,38 @@ correct - the reel was placed against the wrong clock.
 **Tests**: `ProjectorTests/TimelineConfigFrameRateTests.swift` (new, 6 cases,
 covers the exact 25 fps arithmetic). Full suite green.
 
-**Not verified at runtime.** Debug build launched from DerivedData for the user
-to drop the file into; the placement readout is theirs to confirm.
+**Verified at runtime by the user** against the 25 fps delivery. Committed
+(505df8d) and pushed. Ship held at the user's request to check the other rates
+first - see below.
+
+## In progress — verifying 23.976 / 24 / 25
+
+Asked before shipping. Walked all three through detection, adoption, placement,
+grid conversion, label rendering, MTC receive and MMC locate.
+
+**24 and 25: clean.** Every conversion checked out, and the paths are now
+covered by `ProjectorTests/SupportedFrameRatesTests.swift`.
+
+**23.976: found a second bug, in the sync readout.** MTC carries a *family*, not
+a rate - 23.976 and 24 both transmit as MTC 24, 29.97 and 30 both as MTC 30, and
+nothing on the wire separates them. `MIDISyncActor` named the family's integer
+member as the incoming rate (`directEquivalentFrameRate`), so a correctly
+configured 23.976 session receiving its own DAW went **red** and read
+"24 ≠ 23.976", with a tooltip instructing the user to change the project to 24 -
+which would have been the actual error, on the commonest rate for picture.
+
+**Fix**: `MTCFrameRate.reportedRate(forProject:)` reports the project's rate
+whenever it transmits on the arriving base, which is exactly as much as MTC
+knows. A genuine mismatch (25 against a 24 family) still resolves to a different
+rate and still shows red.
+
+**Checked and sound, no change needed**: MTC full-frame and MMC locate build
+their timecode at the wire rate, but 23.976 and 24 share a counting grid so the
+frame count is identical either way. The app receives MTC only - it has no
+generator - so there is no transmit path to get wrong.
+
+**Not verified at runtime**: the 23.976 readout needs a DAW running at 23.976.
+The fix is unit-tested; the red-dot behaviour is the user's to confirm.
 
 ## Shipped 2026.08.10.2 — clips drew wider than they are, at low zoom
 
