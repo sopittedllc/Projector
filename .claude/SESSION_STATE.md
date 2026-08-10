@@ -1,10 +1,45 @@
 # Session State
 
 > **Last Updated**: 2026-08-10
-> **Status**: IDLE — 2026.08.10.2 shipped; low-zoom appearance not yet eyeballed
+> **Status**: ACTIVE — 25 fps import fixed, built and launched, awaiting user verification
 > **Branch**: main
 
 ---
+
+## In progress — a 25 fps reel landed 2:23:15 early
+
+**Report**: a 25 fps file imported with its timecode "way off throughout".
+
+**Measured**: the file carries a `tmcd` track reading 00:59:52:00, 25 fps,
+2768.72s (69218 frames). Nothing wrong with the file, and rate detection was
+correct - the reel was placed against the wrong clock.
+
+**Cause, two halves of the same mistake — a frame count is not a time.**
+
+1. Adopting the reel's rate carried the timeline's bounds across as *frame
+   counts* (`ContentView+Timeline.swift`, `MultiTrackTimelineView.swift`). The
+   default start, 86160 frames = 00:59:50:00 at 24 fps, becomes 00:57:26:10 when
+   the same 86160 frames are counted at 25. Every timecode the timeline reported
+   was then 2:23:15 early, for the whole reel - which is why it reads as a bad
+   file rather than a bad setting.
+2. Placement was resolved *before* the timeline adopted the rate, so the reel's
+   00:59:52:00 was converted onto the outgoing 24 fps grid (89800 -> 86208) and
+   landed 48 frames past a start that had itself moved.
+
+**Fix**:
+- `TimelineConfig.setFrameRate(_:)` (new) re-expresses the bounds by their
+  components, so 00:59:50:00 stays 00:59:50:00 at any rate. All four sites that
+  changed the rate now go through it, including the previously uncalled
+  `TimelineManager.setFrameRate`.
+- Import holds what the file said (`PendingVideoPlacement`) and resolves it to a
+  frame only once the rate is settled - including across the FPS-conflict dialog,
+  which now carries the unresolved placement rather than a stale frame number.
+
+**Tests**: `ProjectorTests/TimelineConfigFrameRateTests.swift` (new, 6 cases,
+covers the exact 25 fps arithmetic). Full suite green.
+
+**Not verified at runtime.** Debug build launched from DerivedData for the user
+to drop the file into; the placement readout is theirs to confirm.
 
 ## Shipped 2026.08.10.2 — clips drew wider than they are, at low zoom
 

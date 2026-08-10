@@ -984,12 +984,7 @@ struct MultiTrackTimelineView: View {
 
     private func changeFrameRate(to newRate: TimecodeFrameRate) {
         var config = timeline.config
-        // Convert timecodes to new frame rate
-        let startFrames = config.startTimecode.frameCount.wholeFrames
-        let endFrames = config.endTimecode.frameCount.wholeFrames
-        config.frameRate = newRate
-        config.startTimecode = Timecode(.frames(startFrames), at: newRate, by: .clamping)
-        config.endTimecode = Timecode(.frames(endFrames), at: newRate, by: .clamping)
+        config.setFrameRate(newRate)
         timelineManager.updateConfig(config)
         // Update start TC text field
         editingStartTCText = config.startTimecode.stringValue()

@@ -211,10 +211,16 @@ final class TimelineManager: ObservableObject {
         updateConfig(config)
     }
 
-    /// Set the frame rate for the timeline
+    /// Set the frame rate for the timeline.
+    ///
+    /// Goes through ``TimelineConfig/setFrameRate(_:)``, so the bounds are
+    /// re-expressed at the new rate instead of being left holding timecodes
+    /// built at the old one.
+    ///
+    /// - Parameter frameRate: The rate to express the timeline at.
     func setFrameRate(_ frameRate: TimecodeFrameRate) {
         var config = timeline.config
-        config.frameRate = frameRate
+        config.setFrameRate(frameRate)
         timeline.config = config
     }
 

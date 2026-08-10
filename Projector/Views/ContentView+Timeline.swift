@@ -328,23 +328,17 @@ extension ContentView {
     ///   - atFrame: Target frame position (nil = auto-place at end)
     ///   - checkTimecode: Whether to check for embedded timecode and prompt user
     func addVideoToTimeline(url: URL, atFrame: Int?, checkTimecode: Bool = true) async {
-        var atFrame = atFrame
-
-        // Place at the video's own timecode when it has one. `checkTimecode:
-        // false` means a caller has already resolved the frame and is passing it
-        // in, so leave its answer alone.
+        // Read the video's timecode now, resolve it to a frame later. A frame
+        // number only means something against a frame rate, and this import may
+        // be about to set the timeline's - so resolving here would answer in the
+        // outgoing rate and land the reel in the wrong place.
+        //
+        // `checkTimecode: false` means a caller has already resolved the frame
+        // and is passing it in, so leave its answer alone.
+        var placement = PendingVideoPlacement(dropFrame: atFrame)
         if checkTimecode {
-            let filenameTC = detectTimecodeFromFilename(url.lastPathComponent)
-            let metadataTC = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil)
-
-            if filenameTC != nil || metadataTC != nil {
-                atFrame = placementFrame(
-                    metadata: metadataTC,
-                    filenameTimecode: filenameTC,
-                    dropFrame: atFrame ?? 0
-                )
-                debugPrint("addVideoToTimeline: '\(url.lastPathComponent)' -> frame \(atFrame ?? 0) (filename=\(filenameTC ?? "nil"), metadata=\(metadataTC?.formattedTimecode ?? "nil"))")
-            }
+            placement.filenameTimecode = detectTimecodeFromFilename(url.lastPathComponent)
+            placement.metadata = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil)
         }
 
         isLoadingMedia = true
@@ -377,7 +371,7 @@ extension ContentView {
                 isLoadingMedia = false
                 pendingVideoURL = url
                 pendingVideoFPS = videoFPS
-                pendingVideoInsertFrame = atFrame
+                pendingVideoPlacement = placement
                 showFPSConflictAlertViaCoordinator(videoFPS: videoFPS, projectFPS: projectFPS)
                 // Deferred behind a dialog, so it leaves the batch rather than
                 // holding it open. If the user goes ahead it reports as its own
@@ -389,14 +383,13 @@ extension ContentView {
             // If first video, set project FPS to match
             if !hasExistingReels {
                 var config = timelineManager.timeline.config
-                config.frameRate = videoFPS
-                config.startTimecode = Timecode(.frames(config.startTimecode.frameCount.wholeFrames), at: videoFPS, by: .clamping)
-                config.endTimecode = Timecode(.frames(config.endTimecode.frameCount.wholeFrames), at: videoFPS, by: .clamping)
+                config.setFrameRate(videoFPS)
                 timelineManager.updateConfig(config)
             }
 
-            // Calculate placement frame, avoiding overlaps with existing reels
-            var placementFrame = atFrame ?? (timelineManager.timeline.videoReels.map { $0.timelineEndFrame }.max() ?? 0)
+            // Resolve placement only now, against the rate the timeline has
+            // settled on.
+            var placementFrame = resolvedPlacementFrame(placement, for: url)
             placementFrame = findNonOverlappingPosition(
                 startFrame: placementFrame,
                 durationFrames: videoDurationFrames,
@@ -596,21 +589,21 @@ extension ContentView {
 
         // Update project FPS
         var config = timelineManager.timeline.config
-        config.frameRate = fps
-        config.startTimecode = Timecode(.frames(config.startTimecode.frameCount.wholeFrames), at: fps, by: .clamping)
-        config.endTimecode = Timecode(.frames(config.endTimecode.frameCount.wholeFrames), at: fps, by: .clamping)
+        config.setFrameRate(fps)
         timelineManager.updateConfig(config)
 
         // Clear pending state
         pendingVideoURL = nil
         pendingVideoFPS = nil
-        let insertFrame = pendingVideoInsertFrame
-        pendingVideoInsertFrame = nil
+        let placement = pendingVideoPlacement
+        pendingVideoPlacement = nil
 
-        // Now add the video
+        // Resolve placement only now: the reel's timecode addresses the timeline
+        // that exists after the rate change, not the one that existed when the
+        // conflict was raised.
         Task {
-            let placementFrame = insertFrame ?? 0
-            await addVideoToTimelineUnchecked(url: url, at: placementFrame)
+            let frame = placement.map { resolvedPlacementFrame($0, for: url) } ?? 0
+            await addVideoToTimelineUnchecked(url: url, at: frame)
         }
     }
 
@@ -1461,6 +1454,33 @@ extension ContentView {
 
     // MARK: - Automatic Placement
 
+    /// Where a video lands, resolved against the timeline's current frame rate.
+    ///
+    /// Separate from gathering the timecode because the two happen at different
+    /// moments: the timecode is read from the file at import, but the frame it
+    /// resolves to is only meaningful once the timeline's rate is final - which,
+    /// for the first reel or after an FPS conflict, is *after* the file has been
+    /// inspected.
+    ///
+    /// - Parameters:
+    ///   - placement: What the file said about where it belongs.
+    ///   - url: The file, for the log line.
+    /// - Returns: A frame relative to the timeline start.
+    func resolvedPlacementFrame(_ placement: PendingVideoPlacement, for url: URL) -> Int {
+        guard placement.metadata != nil || placement.filenameTimecode != nil else {
+            return placement.dropFrame
+                ?? (timelineManager.timeline.videoReels.map { $0.timelineEndFrame }.max() ?? 0)
+        }
+
+        let frame = placementFrame(
+            metadata: placement.metadata,
+            filenameTimecode: placement.filenameTimecode,
+            dropFrame: placement.dropFrame ?? 0
+        )
+        debugPrint("addVideoToTimeline: '\(url.lastPathComponent)' -> frame \(frame) at \(timelineManager.timeline.config.frameRate.stringValueVerbose) (filename=\(placement.filenameTimecode ?? "nil"), metadata=\(placement.metadata?.formattedTimecode ?? "nil"))")
+        return frame
+    }
+
     /// Where a dropped file lands.
     ///
     /// Import asks nothing: a file that carries its own timecode goes to that
@@ -1568,7 +1588,7 @@ extension ContentView {
             onCancel: {
                 self.pendingVideoURL = nil
                 self.pendingVideoFPS = nil
-                self.pendingVideoInsertFrame = nil
+                self.pendingVideoPlacement = nil
             }
         ))
     }
@@ -1593,6 +1613,25 @@ extension ContentView {
         ))
     }
 
+}
+
+// MARK: - Pending Placement
+
+/// What a video said about where it belongs, before that answer has a frame rate.
+///
+/// Held rather than resolved so placement can be worked out against the rate the
+/// timeline ends up at. An import can change that rate - the first reel adopts
+/// its own, and an FPS conflict changes it behind a dialog - and a frame number
+/// worked out at the outgoing rate addresses a timeline that no longer exists.
+struct PendingVideoPlacement {
+    /// Where the user let go, used when the file carries no timecode.
+    var dropFrame: Int?
+
+    /// Timecode read from the file's metadata, if any.
+    var metadata: EmbeddedTimecodeResult?
+
+    /// Timecode parsed out of the file's name, as a fallback.
+    var filenameTimecode: String?
 }
 
 // MARK: - Filename Timecode Detection

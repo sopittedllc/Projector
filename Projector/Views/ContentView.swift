@@ -155,7 +155,7 @@ struct ContentView: View {
     // FPS conflict state (internal for ContentView+Timeline.swift extension)
     @State var pendingVideoURL: URL?
     @State var pendingVideoFPS: TimecodeFrameRate?
-    @State var pendingVideoInsertFrame: Int?
+    @State var pendingVideoPlacement: PendingVideoPlacement?
     @State var videoInsertURL: URL?
     @State var videoAlreadyInTimelineName: String = ""
     @State var audioAlreadyInTimelineName: String = ""
