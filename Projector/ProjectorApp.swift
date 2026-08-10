@@ -13,6 +13,13 @@ extension UTType {
 struct ProjectorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
+    /// The external events this app answers to: opening a `.projector` document.
+    private static let externalEvents: Set<String> = ["projector", "file"]
+
+    /// Documented wildcard for the window-level `allowing:` set - this window
+    /// will take any external event rather than let a new one be opened for it.
+    private static let anyExternalEvent: Set<String> = ["*"]
+
     var body: some Scene {
         // Single window app - only one project open at a time.
         //
@@ -22,10 +29,26 @@ struct ProjectorApp: App {
         // command is removed below, which is what actually keeps it to one.
         WindowGroup("Projector", id: "main") {
             ContentView()
+                // Without this the group opened a *second* window every time a
+                // project was double-clicked in the Finder while the app was
+                // already running - a whole second copy of the interface, with
+                // its own state, inside the one process. It reads as two
+                // instances of the app and the only way out is to close one.
+                //
+                // The scene modifier below says the group can handle these
+                // events; on its own that is a licence to open a new window.
+                // This one is the window saying it will take them, which is
+                // what makes SwiftUI route the open to the window already on
+                // screen. `AppDelegate.application(_:open:)` then loads the
+                // project into it, exactly as File > Open does.
+                .handlesExternalEvents(
+                    preferring: ProjectorApp.externalEvents,
+                    allowing: ProjectorApp.anyExternalEvent
+                )
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
-        .handlesExternalEvents(matching: ["projector", "file"])
+        .handlesExternalEvents(matching: ProjectorApp.externalEvents)
         .commands {
             // Remove the New Window command from the system menu
             CommandGroup(replacing: .newItem) { }

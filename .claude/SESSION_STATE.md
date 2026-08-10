@@ -1,10 +1,47 @@
 # Session State
 
 > **Last Updated**: 2026-08-10
-> **Status**: IDLE — 2026.08.10 shipped; UI in it not eyeballed
+> **Status**: ACTIVE — second-window fix written and runtime-verified, awaiting user verification
 > **Branch**: main
 
 ---
+
+## In progress — Finder double-click opened a second window
+
+**Report**: with a project already open, double-clicking another `.projector` in
+the Finder left two full copies of the interface on screen.
+
+**Measured, not assumed.** One process the whole time (`pid 6223`,
+`/Applications/Projector.app`, which is also the Launch Services default handler
+for the type, so a double-click can never start a second process). Enumerating
+`CGWindowListCopyWindowInfo` before and after the open showed a *second* main
+window appear under the same pid: 1440x923 and 1076x635 side by side. Two
+windows, each a `ContentView` with its own state — reads as two instances.
+
+**Cause**: `WindowGroup` declared `.handlesExternalEvents(matching:)` at the
+scene, and nothing inside it claimed those events. That combination is a licence
+to open a *new* window for each incoming open, which is what SwiftUI did.
+
+**Fix** (`Projector/ProjectorApp.swift`): the window now claims them, with
+`.handlesExternalEvents(preferring: ["projector", "file"], allowing: ["*"])` on
+`ContentView`. The open routes to the window already on screen and
+`AppDelegate.application(_:open:)` loads it there, as File > Open does.
+
+**Verified at runtime** against a Debug build, window counts from
+`CGWindowListCopyWindowInfo` and load counts from the unified log
+(`subsystem == "com.keegandewitt.projector"`):
+
+| Scenario | Windows | Loads |
+|---|---|---|
+| Cold launch by opening a project | 1 main | 1 |
+| Open a different project while running | 1 main | 1 |
+| Open the same project again | 1 main | 1 |
+
+**Left for the user**: run the real app and confirm. Not shipped.
+
+**Aside, unrelated to the fix**: `lsregister` lists ~40 registered copies of
+`Projector.app` — DerivedData, `release-build/`, stale `/Volumes/dmg.*` mounts.
+Harmless today (the `/Applications` copy wins) but worth a clean-up.
 
 ## Shipped 2026.08.10 — identity, Settings, demo defaults, permanent links
 
