@@ -1,12 +1,12 @@
 # Session State
 
 > **Last Updated**: 2026-08-10
-> **Status**: ACTIVE — clip-width floor removed, built and tested, not yet shipped
+> **Status**: IDLE — 2026.08.10.2 shipped; low-zoom appearance not yet eyeballed
 > **Branch**: main
 
 ---
 
-## In progress — clips drew wider than they are, at low zoom
+## Shipped 2026.08.10.2 — clips drew wider than they are, at low zoom
 
 **Report**: zoomed out, the playhead appeared to be sitting over clip activity
 that was not actually there; zoom in and the content jumped back.
