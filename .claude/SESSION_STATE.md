@@ -1,8 +1,99 @@
 # Session State
 
-> **Last Updated**: 2026-08-08
-> **Status**: IDLE — 2026.08.08.2 shipped; dead drop subsystem removed; nothing blocking
+> **Last Updated**: 2026-08-10
+> **Status**: IDLE — 2026.08.10 shipped; UI in it not eyeballed
 > **Branch**: main
+
+---
+
+## Shipped 2026.08.10 — identity, Settings, demo defaults, permanent links
+
+Six pieces, written 2026-08-08 evening and left uncommitted for two days; the
+session file above them was never updated, which is why the tree and the record
+disagreed until now. **Recorded from the diff, not from memory.** Full suite
+green before shipping.
+
+### 1. The company is So Pitted LLC
+
+`Musique LA` → `So Pitted LLC` in the copyright, which lives in **two** places
+that must agree: `Info.plist`'s `NSHumanReadableCopyright` and
+`INFOPLIST_KEY_NSHumanReadableCopyright` in all four build configurations. The
+build setting wins where both apply, so changing only the plist looks correct in
+the repo and ships the old name.
+
+### 2. About panel, retargeted rather than rebuilt
+
+The system About item now points at `AppDelegate.showAboutPanel`, which calls
+`orderFrontStandardAboutPanel(options: [.credits:])`. macOS already reads name,
+version and copyright out of the bundle — only the credit line was missing, so a
+hand-built window would have had to re-earn all of it. The credit is an
+`NSAttributedString` because the link has to be clickable: a `.link` attribute
+makes the panel's own text view open the browser, with no action to wire up.
+
+### 3. The Updates section is gone from Settings
+
+It offered an installed version, an automatic-check toggle and a Check Now
+button for a mechanism that schedules and runs itself — and in a Debug build,
+which cannot update at all, three rows explaining there was nothing to do.
+Updating is now reached only from the application menu.
+
+`EnvironmentValues.updateService` went with it, and **its hard-won comment was
+deliberately preserved** on `AppDelegate.updateService`: `NSApp.delegate` is
+`SwiftUI.AppDelegate`, never ours, so `NSApp.delegate as? AppDelegate` is always
+nil. That is what made the old section permanently invisible while the menu item
+worked. If a section ever returns, publish the delegate's property into the
+environment from the scene body — do not hunt for the delegate.
+
+### 4. Settings sizes itself to its content
+
+`SettingsContentHeightKey` measures the scrolling content at a **fixed width**
+and the window takes that plus a constant `SettingsLayout.chromeHeight` (132pt),
+capped at `maxScreenFraction` (0.9) of the screen's `visibleFrame` with
+`maxHeight` (900pt) as the fallback. The chrome is a constant on purpose: the
+outer stack's height *is* the window height, so measuring it to decide the
+window height is exactly the sizing loop this avoids. Nothing feeds back.
+
+### 5. The QT demo remembers its setup, across projects
+
+`QuickTimeDemoDefaults` in `AppSettings`, saved from `rebuild()` and
+`applyLevels()` rather than from the export — the balance is found by ear long
+before anyone commits to writing a file, so a setup arrived at and abandoned is
+still offered next time. Lanes are **merged**, so a music-only project does not
+forget a dialogue setting.
+
+Two decisions worth keeping:
+
+- **Lanes are keyed by name, not by id.** A lane's `id` is a fresh `UUID` per
+  project, so keying on it would store something that could never match. Names
+  recur because stems are named by convention. Cost: renaming a lane loses its
+  setting, and two lanes sharing a name share one.
+- **`init(from:)` is written by hand**, every field `decodeIfPresent`. The
+  synthesised one uses `decode` even where properties have defaults, so a payload
+  missing any key throws — and *every* stored setup predates whatever field is
+  added next. The first release to add one would have silently discarded every
+  saved setup and looked exactly like the feature not working, one version late.
+
+5 unit tests, including the partial-payload case.
+
+### 6. Permanent download links
+
+`build-release.sh` now uploads the DMG **twice**: the versioned name the appcast
+points at, and a constant `${DMG_NAME}.dmg`. GitHub serves
+`/releases/latest/download/<name>` by **filename**, so the name must be identical
+in every release — which the versioned one never is. The versioned asset stays
+because Sparkle needs each entry to name its own build; a moving enclosure would
+let an installed copy download something other than what it was offered.
+
+Drive uses `rclone copyto`, which **updates the existing file** rather than
+replacing it, so the file id — and therefore the share link — survives. Measured
+before relying on it: two uploads of different content to the same destination
+returned the same id. A plain `rclone copy` cannot do this.
+
+### Not eyeballed
+
+All of it, plus everything still listed further down. Specifically new here:
+About (menu item, credit, link opens `sopitted.llc`), Settings at its new height
+on a small display, and the demo sheet restoring a setup on second open.
 
 ---
 

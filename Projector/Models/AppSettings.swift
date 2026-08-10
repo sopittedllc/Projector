@@ -102,6 +102,28 @@ final class AppSettings: ObservableObject {
     /// Saved output profiles, JSON-encoded.
     @AppStorage("audioOutputProfiles") private var audioOutputProfilesJSON: String = ""
 
+    /// Remembered QuickTime demo setup, JSON-encoded.
+    @AppStorage("quickTimeDemoDefaults") private var quickTimeDemoDefaultsJSON: String = ""
+
+    // MARK: - QuickTime Demo Defaults
+
+    /// The demo setup to start from, or defaults if nothing has been saved.
+    var quickTimeDemoDefaults: QuickTimeDemoDefaults {
+        guard !quickTimeDemoDefaultsJSON.isEmpty,
+              let data = quickTimeDemoDefaultsJSON.data(using: .utf8) else {
+            return QuickTimeDemoDefaults()
+        }
+        return (try? JSONDecoder().decode(QuickTimeDemoDefaults.self, from: data))
+            ?? QuickTimeDemoDefaults()
+    }
+
+    /// Remember this setup for the next demo, in this and every other project.
+    func saveQuickTimeDemoDefaults(_ defaults: QuickTimeDemoDefaults) {
+        guard let data = try? JSONEncoder().encode(defaults),
+              let json = String(data: data, encoding: .utf8) else { return }
+        quickTimeDemoDefaultsJSON = json
+    }
+
     // MARK: - Audio Output Profiles
 
     /// Every saved profile, newest last.
@@ -289,6 +311,77 @@ struct AudioOutputProfile: Identifiable, Codable, Hashable {
     /// enough outputs to satisfy it.
     var highestChannel: Int {
         outputs.map { $0.channelStart + $0.channelCount }.max() ?? 0
+    }
+}
+
+// MARK: - QuickTime Demo Defaults
+
+/// The QuickTime demo setup to start from, remembered across projects.
+///
+/// Global rather than per-project by choice: the same person cutting the same
+/// kind of demo wants the same lanes at the same levels every time, and
+/// re-picking them per show is the tedium this removes.
+///
+/// ### Why lanes are keyed by name
+///
+/// A lane's `id` is a fresh `UUID` in every project, so it cannot carry a
+/// setting from one show to the next - keying on it would make this store
+/// nothing that ever matched. The name is the only handle that recurs, because
+/// stems are named by convention ("DX/SFX", "MX") rather than by accident. The
+/// cost is that renaming a lane loses its remembered setting, and two lanes
+/// sharing a name share one - both acceptable against a preference that
+/// otherwise could not work at all.
+struct QuickTimeDemoDefaults: Codable, Equatable {
+
+    /// What to remember about one lane.
+    struct Lane: Codable, Equatable {
+        var isIncluded: Bool
+        var gainDB: Float
+    }
+
+    /// Head handle, in seconds.
+    var headSeconds: Int = 0
+
+    /// Tail handle, in seconds.
+    var tailSeconds: Int = 0
+
+    /// Level for the supplied mix, in decibels.
+    var mixGainDB: Float = 0
+
+    /// Remembered lane settings, keyed by lane name.
+    var lanes: [String: Lane] = [:]
+
+    init(
+        headSeconds: Int = 0,
+        tailSeconds: Int = 0,
+        mixGainDB: Float = 0,
+        lanes: [String: Lane] = [:]
+    ) {
+        self.headSeconds = headSeconds
+        self.tailSeconds = tailSeconds
+        self.mixGainDB = mixGainDB
+        self.lanes = lanes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case headSeconds, tailSeconds, mixGainDB, lanes
+    }
+
+    /// Decoded field by field, every one of them optional.
+    ///
+    /// The synthesised `init(from:)` would use `decode` rather than
+    /// `decodeIfPresent` even though every property here has a default, so a
+    /// payload missing any single key throws. That matters because *every*
+    /// stored setup predates whatever field is added next: the first release to
+    /// add one would fail to decode every saved setup, fall back to the blank
+    /// default, and silently forget the user's setup - a failure that looks
+    /// exactly like the feature not working, and only shows up one version later.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        headSeconds = try container.decodeIfPresent(Int.self, forKey: .headSeconds) ?? 0
+        tailSeconds = try container.decodeIfPresent(Int.self, forKey: .tailSeconds) ?? 0
+        mixGainDB = try container.decodeIfPresent(Float.self, forKey: .mixGainDB) ?? 0
+        lanes = try container.decodeIfPresent([String: Lane].self, forKey: .lanes) ?? [:]
     }
 }
 

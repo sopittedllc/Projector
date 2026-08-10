@@ -125,16 +125,27 @@ final class QuickTimeDemoViewModel: ObservableObject {
         mixTimecode = detected.formattedTimecode
         mixDurationText = Self.durationText(seconds: duration.seconds)
 
+        // The setup remembered from the last demo, in any project. A lane the
+        // user has never seen before is not in there, and falls back to the
+        // original default: excluded at unity. The mix is the thing being
+        // judged, so a lane arrives silent unless it was deliberately kept.
+        let remembered = AppSettings.shared.quickTimeDemoDefaults
+        headSeconds = remembered.headSeconds
+        tailSeconds = remembered.tailSeconds
+
         spec = QuickTimeDemoSpec(
             wavURL: url,
             wavStartFrame: startFrame,
             wavDurationFrames: durationFrames,
-            wavGainDB: 0,
-            // Everything excluded to begin with. The mix is the thing being
-            // judged; adding lanes is a decision, and a default that doubled the
-            // music under a new cue would be worse than one that starts quiet.
-            lanes: timeline.audioLanes.map {
-                QuickTimeDemoLaneChoice(id: $0.id, name: $0.name)
+            wavGainDB: remembered.mixGainDB,
+            lanes: timeline.audioLanes.map { lane in
+                let saved = remembered.lanes[lane.name]
+                return QuickTimeDemoLaneChoice(
+                    id: lane.id,
+                    name: lane.name,
+                    isIncluded: saved?.isIncluded ?? false,
+                    gainDB: saved?.gainDB ?? 0
+                )
             },
             headFrames: 0,
             tailFrames: 0
@@ -159,6 +170,7 @@ final class QuickTimeDemoViewModel: ObservableObject {
         spec.headFrames = Int(Double(headSeconds) * rate.fps)
         spec.tailFrames = Int(Double(tailSeconds) * rate.fps)
         self.spec = spec
+        rememberChoices()
 
         isBuilding = true
         defer { isBuilding = false }
@@ -201,6 +213,35 @@ final class QuickTimeDemoViewModel: ObservableObject {
     func applyLevels() {
         guard let demo, let spec else { return }
         player?.currentItem?.audioMix = QuickTimeDemoBuilder.makeAudioMix(for: demo, spec: spec)
+        rememberChoices()
+    }
+
+    /// Keep this setup for the next demo, in this and every other project.
+    ///
+    /// Called from both paths that change a choice - ``rebuild()`` for lanes and
+    /// handles, ``applyLevels()`` for faders - rather than from the export, so a
+    /// setup arrived at and then abandoned is still the one offered next time.
+    /// That matches how the sheet is actually used: the balance is found by ear
+    /// long before anyone commits to writing a file.
+    ///
+    /// Lanes are merged into what is already stored rather than replacing it, so
+    /// a project that happens to contain only music does not forget the dialogue
+    /// setting made in the last one.
+    private func rememberChoices() {
+        guard let spec else { return }
+
+        var defaults = AppSettings.shared.quickTimeDemoDefaults
+        defaults.headSeconds = headSeconds
+        defaults.tailSeconds = tailSeconds
+        defaults.mixGainDB = spec.wavGainDB
+        for lane in spec.lanes {
+            defaults.lanes[lane.name] = QuickTimeDemoDefaults.Lane(
+                isIncluded: lane.isIncluded,
+                gainDB: lane.gainDB
+            )
+        }
+
+        AppSettings.shared.saveQuickTimeDemoDefaults(defaults)
     }
 
     /// Which lanes actually have audio inside the demo's span.

@@ -287,6 +287,7 @@ fi
 #
 # Skipped with --no-publish, or when gh is missing or not logged in.
 DOWNLOAD_URL=""
+STABLE_URL=""
 if [ "${PUBLISH}" -eq 0 ]; then
     echo ""
     echo "[publish] Skipped (--no-publish)."
@@ -318,8 +319,27 @@ else
 Built from \`${COMMIT}\`."
     fi
 
+    # A second copy of the same DMG under a constant filename.
+    #
+    # This is what makes the public link permanent. GitHub serves
+    # /releases/latest/download/<name> from whichever release is marked Latest,
+    # resolving the asset **by filename** - so the filename has to be identical
+    # in every release, which the versioned one never is. The versioned asset
+    # stays because the appcast's enclosure URLs point at it: Sparkle needs each
+    # entry to name its own build, and a moving target would let an installed
+    # copy download something other than the version it was offered.
+    STABLE_DMG="$(dirname "${DMG_PATH}")/${DMG_NAME}.dmg"
+    cp "${DMG_PATH}" "${STABLE_DMG}"
+    gh release upload "v${VERSION}" "${STABLE_DMG}" --clobber
+    rm -f "${STABLE_DMG}"
+
     DOWNLOAD_URL="$(gh release view "v${VERSION}" \
         --json assets --jq '.assets[0].url' 2>/dev/null || true)"
+
+    REPO_SLUG="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || true)"
+    if [ -n "${REPO_SLUG}" ]; then
+        STABLE_URL="https://github.com/${REPO_SLUG}/releases/latest/download/${DMG_NAME}.dmg"
+    fi
 fi
 
 # Add this build to the appcast
@@ -436,6 +456,7 @@ fi
 #
 # Skipped with --no-upload, or when the rclone remote is not configured.
 DRIVE_URL=""
+DRIVE_STABLE_URL=""
 if [ "${UPLOAD}" -eq 0 ]; then
     echo ""
     echo "[upload] Skipped (--no-upload)."
@@ -455,6 +476,22 @@ else
     else
         echo "[upload] WARNING: upload failed. The DMG and any release link are still good."
     fi
+
+    # The same DMG again under a constant name, which is the link worth handing
+    # out. `copyto` **updates the existing file** rather than replacing it, so the
+    # Drive file id survives - and since a Drive share link is just that id, the
+    # link keeps working forever. Measured before relying on it: two uploads of
+    # different content to the same destination returned the same id.
+    #
+    # A plain `rclone copy` cannot do this: the versioned name differs every
+    # release, so it creates a new file with a new id and a new link each time.
+    if rclone copyto "${DMG_PATH}" \
+            "${DRIVE_REMOTE}:${DRIVE_FOLDER}/${DMG_NAME}.dmg" --stats-one-line; then
+        DRIVE_STABLE_URL="$(rclone link \
+            "${DRIVE_REMOTE}:${DRIVE_FOLDER}/${DMG_NAME}.dmg" 2>/dev/null || true)"
+    else
+        echo "[upload] WARNING: the permanent-link copy failed; versioned copy is still good."
+    fi
 fi
 
 # Done
@@ -473,6 +510,12 @@ if [ -n "${DOWNLOAD_URL}" ]; then
 fi
 if [ -n "${DRIVE_URL}" ]; then
     echo "Drive:        ${DRIVE_URL}"
+fi
+if [ -n "${STABLE_URL}" ] || [ -n "${DRIVE_STABLE_URL}" ]; then
+    echo ""
+    echo "PERMANENT LINKS - these never change, hand these out:"
+    [ -n "${STABLE_URL}" ]       && echo "  GitHub:     ${STABLE_URL}"
+    [ -n "${DRIVE_STABLE_URL}" ] && echo "  Drive:      ${DRIVE_STABLE_URL}"
 fi
 if [ "${APPCAST_UPDATED}" -eq 1 ]; then
     echo "Appcast:      published (installed copies will offer ${VERSION})"

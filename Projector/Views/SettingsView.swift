@@ -1,32 +1,39 @@
 import SwiftUI
 import AppKit
 
+/// Natural height of the settings content, reported up so the window can be
+/// sized to it instead of scrolling.
+private struct SettingsContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    /// The tallest report wins. There is only one reporter today, but a `max`
+    /// keeps a future second one from shrinking the window to whichever
+    /// happened to be measured last.
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 /// Settings window for audio and display configuration.
 ///
 /// Provides accordion-style sections for:
 /// - Audio: Output device selection and channel mapping
 /// - Display: Timecode overlay configuration
+///
+/// Updating is reached from the application menu's Check for Updates, not from
+/// here: a panel of controls for a mechanism that runs itself was three rows
+/// explaining that there was nothing to do.
+///
+/// Sizes itself to its content rather than scrolling - see ``settingsHeight``.
 struct SettingsView: View {
     @ObservedObject var audioManager: AudioOutputManager
     @ObservedObject var settings = AppSettings.shared
-
-    /// The updater, or `nil` when there is none to offer.
-    ///
-    /// Passed in rather than reached for through `NSApp.delegate`, so a preview
-    /// or an App Store build can hand over nothing and the section simply does
-    /// not appear.
-    var updateService: (any UpdateServiceProtocol)?
 
     @Binding var isPresented: Bool
 
     // Accordion section states - default to expanded
     @State private var audioExpanded = true
     @State private var displayExpanded = true
-    @State private var updatesExpanded = false
-
-    /// Mirror of the updater's preference, because a `Toggle` needs a binding
-    /// and the updater stores this itself rather than in ``AppSettings``.
-    @State private var checksAutomatically = false
 
     @State private var pendingOutputRole: OutputRole?
 
@@ -55,6 +62,34 @@ struct SettingsView: View {
     @State private var pendingProfile: AudioOutputProfile?
     @State private var showProfileDeviceWarning = false
 
+    /// Natural height of the scrolling content, once it has been measured.
+    ///
+    /// Zero until the first layout, which is why ``settingsHeight`` falls back
+    /// to the fixed height rather than collapsing the window to its chrome.
+    @State private var contentHeight: CGFloat = 0
+
+    /// Height the window should be: tall enough not to scroll, within the space
+    /// the screen actually has.
+    ///
+    /// The panel used to be a fixed 650pt with Audio and Display both expanded
+    /// by default, which overflowed it, and Display's own rows were cut off.
+    /// Sizing to the content fixes that for whatever the
+    /// sections happen to contain, rather than for their length on the day a
+    /// number was picked.
+    ///
+    /// The `ScrollView` stays underneath: on a short screen the cap wins and
+    /// scrolling is the only honest answer.
+    private var settingsHeight: CGFloat {
+        guard contentHeight > 0 else { return SettingsLayout.height }
+
+        let screenCap = NSScreen.main.map {
+            $0.visibleFrame.height * SettingsLayout.maxScreenFraction
+        } ?? SettingsLayout.maxHeight
+
+        let wanted = contentHeight + SettingsLayout.chromeHeight
+        return min(max(SettingsLayout.height, wanted), screenCap)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -78,33 +113,6 @@ struct SettingsView: View {
                     // MIDI Info Blurb
                     midiInfoSection
 
-                    // Above Audio and Display, collapsed.
-                    //
-                    // This section was invisible for a different and much
-                    // stupider reason than its position: the service handed in
-                    // was always nil, because the caller reached for it through
-                    // `NSApp.delegate as? AppDelegate`, which never succeeds -
-                    // see ``EnvironmentValues/updateService``. That is fixed
-                    // upstream of here.
-                    //
-                    // The position still matters, and was measured once the
-                    // section could be seen at all: Audio and Display are
-                    // expanded by default and together overflow the 650pt panel
-                    // (Display's own rows are already cut off), so a section
-                    // below them can only be found by scrolling a panel that
-                    // gives no sign there is anything more. Collapsed and first
-                    // costs the sections beneath it one header's height, and the
-                    // header is the part that needed to be visible.
-                    if updateService != nil {
-                        accordionSection(
-                            title: "Updates",
-                            icon: "arrow.down.circle",
-                            isExpanded: $updatesExpanded
-                        ) {
-                            updatesSectionContent
-                        }
-                    }
-
                     accordionSection(
                         title: "Audio",
                         icon: "speaker.wave.2",
@@ -123,6 +131,21 @@ struct SettingsView: View {
 
                 }
                 .padding()
+                // Measured at a fixed width with the height unconstrained, so
+                // this reports what the content *wants* - a number the window's
+                // own height cannot influence, which is what makes feeding it
+                // back into the frame safe.
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: SettingsContentHeightKey.self,
+                            value: proxy.size.height
+                        )
+                    }
+                )
+            }
+            .onPreferenceChange(SettingsContentHeightKey.self) { height in
+                contentHeight = height
             }
 
             Divider()
@@ -145,7 +168,7 @@ struct SettingsView: View {
             }
             .padding()
         }
-        .frame(width: SettingsLayout.width, height: SettingsLayout.height)
+        .frame(width: SettingsLayout.width, height: settingsHeight)
     }
 
     // MARK: - Accordion Helper
@@ -751,83 +774,6 @@ struct SettingsView: View {
             }
         }
     }
-
-    // MARK: - Updates Section
-
-    /// Which version is running, whether the app looks for new ones, and a way
-    /// to look right now.
-    ///
-    /// The installed version is shown because it is the first thing anyone is
-    /// asked for when reporting a problem, and until now it appeared only
-    /// inside a submitted bug report.
-    @ViewBuilder
-    private var updatesSectionContent: some View {
-        VStack(alignment: .leading, spacing: SettingsDesign.rowSpacing) {
-            // Says so rather than hiding the controls. A section that silently
-            // empties itself is indistinguishable from one that failed to
-            // build, which is exactly the confusion this caused once already.
-            if updateService?.isEnabled != true {
-                SettingsSubRow {
-                    Text("This build cannot update itself.")
-                        .font(SettingsDesign.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            SettingsRow(label: "Installed") {
-                Text(Self.installedVersionDescription)
-                    .font(SettingsDesign.value)
-                    .foregroundColor(.secondary)
-                    .textSelection(.enabled)
-            }
-
-            SettingsRow(label: "Automatic") {
-                Toggle("Check for updates on launch", isOn: Binding(
-                    get: { checksAutomatically },
-                    set: { newValue in
-                        checksAutomatically = newValue
-                        updateService?.automaticallyChecksForUpdates = newValue
-                    }
-                ))
-                .font(SettingsDesign.value)
-                .toggleStyle(.checkbox)
-            }
-
-            SettingsSubRow {
-                Button("Check Now") {
-                    updateService?.checkForUpdates()
-                }
-                .controlSize(.small)
-                .disabled(!(updateService?.canCheckForUpdates ?? false))
-
-                if let lastChecked = updateService?.lastUpdateCheckDate {
-                    Text("Last checked \(lastChecked.formatted(.relative(presentation: .named)))")
-                        .font(SettingsDesign.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    Text("Not checked yet")
-                        .font(SettingsDesign.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-        }
-        .onAppear {
-            checksAutomatically = updateService?.automaticallyChecksForUpdates ?? false
-        }
-    }
-
-    /// The running version, as "1.4 (20260807.1652)".
-    ///
-    /// Short version first because that is the one releases are named after;
-    /// the build number distinguishes two builds cut on the same day, which is
-    /// the normal case while chasing a bug.
-    private static var installedVersionDescription: String {
-        let info = Bundle.main.infoDictionary
-        let short = info?["CFBundleShortVersionString"] as? String ?? "unknown"
-        let build = info?["CFBundleVersion"] as? String ?? "?"
-        return "\(short) (\(build))"
-    }
-
 }
 
 // MARK: - Choose Output Sheet

@@ -1179,7 +1179,7 @@
 				INFOPLIST_FILE = Projector/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Projector;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright \U00a9 2026 Musique LA. All rights reserved.";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright \U00a9 2026 So Pitted LLC. All rights reserved.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1210,7 +1210,7 @@
 				INFOPLIST_FILE = Projector/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Projector;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright \U00a9 2026 Musique LA. All rights reserved.";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright \U00a9 2026 So Pitted LLC. All rights reserved.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1237,7 +1237,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ProjectorQuickLook/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ProjectorQuickLook;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright \U00a9 2026 Musique LA. All rights reserved.";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright \U00a9 2026 So Pitted LLC. All rights reserved.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1270,7 +1270,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ProjectorQuickLook/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ProjectorQuickLook;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright \U00a9 2026 Musique LA. All rights reserved.";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright \U00a9 2026 So Pitted LLC. All rights reserved.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

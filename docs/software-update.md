@@ -25,8 +25,8 @@ find ~/Library/Developer/Xcode/DerivedData -name generate_keys -path '*Sparkle*'
 Put the printed public key into `Projector/Info.plist` as `SUPublicEDKey`.
 
 **Until that value is filled in, the updater does not start at all.** The app is
-otherwise completely normal: no update menu item, no Updates section in
-Settings, one warning line in the diagnostic log. That is deliberate — Sparkle's
+otherwise completely normal: no update menu item, one warning line in the
+diagnostic log. That is deliberate — Sparkle's
 own response to a missing key is to fail `startUpdater` and put a modal *"Unable
 to Check For Updates"* alert on screen at every launch, which is not a state to
 ship. `SparkleUpdateService` checks for the key first and stays inert without

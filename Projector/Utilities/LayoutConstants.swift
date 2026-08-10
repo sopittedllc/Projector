@@ -328,8 +328,28 @@ enum SettingsLayout {
     /// Settings window width
     static let width: CGFloat = 450
 
-    /// Settings window height
+    /// Smallest the settings window ever is, and the height used before its
+    /// content has been measured.
     static let height: CGFloat = 650
+
+    /// Everything in the settings window that is not the scrolling content:
+    /// the header, the two dividers around it, and the footer with its buttons.
+    ///
+    /// A constant rather than another measurement because the outer stack's
+    /// height *is* the window height - measuring it to decide the window height
+    /// is the sizing loop this deliberately avoids. Only the content is
+    /// measured, and it is measured at a fixed width, so nothing feeds back.
+    static let chromeHeight: CGFloat = 132
+
+    /// Tallest the settings window may grow before its content scrolls again.
+    ///
+    /// A fallback for screens the `visibleFrame` cannot be read from; the real
+    /// cap is the display, so the window can never be taller than the space it
+    /// has to open in.
+    static let maxHeight: CGFloat = 900
+
+    /// How much of the screen's usable height the window may occupy.
+    static let maxScreenFraction: CGFloat = 0.9
 
     /// Settings window size as CGSize
     static let size = CGSize(width: width, height: height)

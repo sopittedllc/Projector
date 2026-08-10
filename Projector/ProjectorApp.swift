@@ -22,9 +22,6 @@ struct ProjectorApp: App {
         // command is removed below, which is what actually keeps it to one.
         WindowGroup("Projector", id: "main") {
             ContentView()
-                // The only supported way to reach the delegate instance - see
-                // ``EnvironmentValues/updateService``.
-                .environment(\.updateService, appDelegate.updateService)
         }
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
@@ -36,38 +33,6 @@ struct ProjectorApp: App {
     }
 }
 
-
-// MARK: - Reaching the Updater from the View Tree
-
-private struct UpdateServiceKey: EnvironmentKey {
-    static let defaultValue: (any UpdateServiceProtocol)? = nil
-}
-
-extension EnvironmentValues {
-    /// The app's updater, or `nil` when this build has none to offer.
-    ///
-    /// **`NSApp.delegate` is not the app delegate.**
-    /// `@NSApplicationDelegateAdaptor` installs SwiftUI's own delegate -
-    /// runtime class `SwiftUI.AppDelegate` - as the application delegate and
-    /// forwards the callbacks to this app's one, so
-    /// `NSApp.delegate as? AppDelegate` is **always** nil. Measured, not
-    /// assumed: `runtime=SwiftUI.AppDelegate expected=Projector.AppDelegate
-    /// isKind=false`.
-    ///
-    /// That is how the Updates section in Settings came to be permanently
-    /// invisible while the Check for Updates menu item worked perfectly - the
-    /// menu item reaches the updater through `self`, and the settings sheet
-    /// reached for it through `NSApp.delegate`, receiving nothing. The two
-    /// names being identical is what made the mistake so hard to see.
-    ///
-    /// The adaptor's own property is the supported way to reach the instance,
-    /// so the scene body publishes it here and views read it from the
-    /// environment rather than hunting for the delegate.
-    var updateService: (any UpdateServiceProtocol)? {
-        get { self[UpdateServiceKey.self] }
-        set { self[UpdateServiceKey.self] = newValue }
-    }
-}
 
 // MARK: - App Delegate
 
@@ -85,8 +50,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     ///
     /// Owned by the app delegate rather than a view: it has to outlive every
     /// window, and Sparkle's scheduled check runs whether or not anything is on
-    /// screen. Exposed so the settings window can offer the same controls
-    /// without building a second updater.
+    /// screen. Reached only from the application menu's Check for Updates,
+    /// which goes through `self` - Settings has no updates section, because a
+    /// panel of controls for something that runs itself was three rows
+    /// explaining there was nothing to do.
+    ///
+    /// **If that ever changes, do not reach for this through `NSApp.delegate`.**
+    /// `@NSApplicationDelegateAdaptor` installs SwiftUI's own delegate - runtime
+    /// class `SwiftUI.AppDelegate` - as the application delegate and forwards
+    /// callbacks to this one, so `NSApp.delegate as? AppDelegate` is **always**
+    /// nil. Measured, not assumed: `runtime=SwiftUI.AppDelegate
+    /// expected=Projector.AppDelegate isKind=false`. That is how the old
+    /// Settings section came to be permanently invisible while the menu item
+    /// worked perfectly, and the two classes sharing a name is what made it so
+    /// hard to see. Publish this property into the environment from the scene
+    /// body instead.
     ///
     /// Typed as the protocol, not as ``SparkleUpdateService``, so an App Store
     /// build can supply a different one - see ``UpdateServiceProtocol``.
@@ -515,7 +493,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
             appMenu.insertItem(NSMenuItem.separator(), at: insertionIndex + 1)
         }
 
+        // Projector > About Projector.
+        //
+        // Retargeted, not replaced. macOS builds this item and its panel from the
+        // bundle, and the standard panel already reads the name, version and
+        // copyright out of Info.plist - so the only thing missing is the credit
+        // line, which `orderFrontStandardAboutPanel(options:)` takes directly.
+        // Pointing the existing item at our own action is the whole change; a
+        // hand-built About window would have to re-earn all of that.
+        if let appMenu = mainMenu.items.first?.submenu,
+           let aboutItem = appMenu.items.first(where: { $0.title.hasPrefix("About") }) {
+            aboutItem.action = #selector(showAboutPanel(_:))
+            aboutItem.target = self
+        }
+
         debugPrint("setupMenus: DONE. Added Edit, View and Help menus")
+    }
+
+    /// The credit line in the About panel.
+    private static let aboutCredit = "Built in LA by So Pitted LLC"
+
+    /// The site the About panel links to, shown without its scheme.
+    private static let aboutSiteDisplay = "sopitted.llc"
+    private static let aboutSiteURL = URL(string: "https://sopitted.llc")!
+
+    /// Shows the standard About panel with our credit and a link to the site.
+    ///
+    /// The credit is an `NSAttributedString` rather than plain text because the
+    /// URL has to be clickable: a `.link` attribute makes the panel's text view
+    /// open it in the browser on its own, with no action of ours to wire up.
+    @objc private func showAboutPanel(_ sender: Any?) {
+        MainActor.assumeIsolated {
+            let centred = NSMutableParagraphStyle()
+            centred.alignment = .center
+
+            let credits = NSMutableAttributedString(
+                string: Self.aboutCredit + "\n",
+                attributes: [
+                    .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                    .foregroundColor: NSColor.secondaryLabelColor
+                ]
+            )
+            credits.append(NSAttributedString(
+                string: Self.aboutSiteDisplay,
+                attributes: [
+                    .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                    .link: Self.aboutSiteURL
+                ]
+            ))
+            credits.addAttribute(
+                .paragraphStyle,
+                value: centred,
+                range: NSRange(location: 0, length: credits.length)
+            )
+
+            NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     /// Title of the Help menu item, also used to avoid adding it twice.

@@ -687,3 +687,73 @@ final class LaneReorderTests: XCTestCase {
         XCTAssertEqual(reorder.target(source: 0, held: nil, dragOffset: 500, laneCount: 0), 0)
     }
 }
+
+// MARK: - QuickTime Demo Defaults
+
+/// The demo setup remembered between projects.
+///
+/// Pinned because the failure is silent: a setup that does not survive encoding
+/// simply reverts to defaults next time, which reads as "the feature does
+/// nothing" rather than as a bug, and only shows up on the second project.
+final class QuickTimeDemoDefaultsTests: XCTestCase {
+
+    private func roundTrip(_ defaults: QuickTimeDemoDefaults) throws -> QuickTimeDemoDefaults {
+        let data = try JSONEncoder().encode(defaults)
+        return try JSONDecoder().decode(QuickTimeDemoDefaults.self, from: data)
+    }
+
+    func testAnEmptySetupRoundTripsToTheSameDefaults() throws {
+        XCTAssertEqual(try roundTrip(QuickTimeDemoDefaults()), QuickTimeDemoDefaults())
+    }
+
+    func testHandlesLevelsAndLanesAllSurviveEncoding() throws {
+        var defaults = QuickTimeDemoDefaults()
+        defaults.headSeconds = 8
+        defaults.tailSeconds = 12
+        defaults.mixGainDB = -3
+        defaults.lanes["DX/SFX"] = .init(isIncluded: true, gainDB: -6)
+        defaults.lanes["MX"] = .init(isIncluded: false, gainDB: 2.5)
+
+        let decoded = try roundTrip(defaults)
+
+        XCTAssertEqual(decoded.headSeconds, 8)
+        XCTAssertEqual(decoded.tailSeconds, 12)
+        XCTAssertEqual(decoded.mixGainDB, -3)
+        XCTAssertEqual(decoded.lanes["DX/SFX"], .init(isIncluded: true, gainDB: -6))
+        XCTAssertEqual(decoded.lanes["MX"], .init(isIncluded: false, gainDB: 2.5))
+    }
+
+    /// A lane never seen before has no remembered setting, and the caller is
+    /// expected to fall back to excluded at unity rather than to invent one.
+    func testAnUnknownLaneHasNoRememberedSetting() {
+        var defaults = QuickTimeDemoDefaults()
+        defaults.lanes["MX"] = .init(isIncluded: true, gainDB: -6)
+
+        XCTAssertNil(defaults.lanes["Foley"])
+    }
+
+    /// Merging is why a project containing only music does not erase the
+    /// dialogue setting made in the previous one.
+    func testRememberingOneLaneLeavesTheOthersAlone() {
+        var defaults = QuickTimeDemoDefaults()
+        defaults.lanes["DX/SFX"] = .init(isIncluded: true, gainDB: -6)
+        defaults.lanes["MX"] = .init(isIncluded: true, gainDB: 0)
+
+        defaults.lanes["MX"] = .init(isIncluded: false, gainDB: -12)
+
+        XCTAssertEqual(defaults.lanes["DX/SFX"], .init(isIncluded: true, gainDB: -6))
+        XCTAssertEqual(defaults.lanes["MX"], .init(isIncluded: false, gainDB: -12))
+    }
+
+    /// Decoding must not throw on a payload written before a field existed -
+    /// every stored setup predates whatever is added next.
+    func testAPartialPayloadStillDecodes() throws {
+        let json = Data(#"{"headSeconds":5}"#.utf8)
+        let decoded = try JSONDecoder().decode(QuickTimeDemoDefaults.self, from: json)
+
+        XCTAssertEqual(decoded.headSeconds, 5)
+        XCTAssertEqual(decoded.tailSeconds, 0)
+        XCTAssertEqual(decoded.mixGainDB, 0)
+        XCTAssertTrue(decoded.lanes.isEmpty)
+    }
+}

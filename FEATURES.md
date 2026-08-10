@@ -502,7 +502,6 @@ entitlements. **Those entitlements are not accepted on the Mac App Store** - see
 |------|------|---------|
 | Protocol | `Contracts/UpdateServiceProtocol.swift` | The seam that lets an App Store build swap Sparkle out |
 | Manager | `Managers/SparkleUpdateService.swift` | Sparkle-backed implementation, logs each check |
-| View | `Views/SettingsView.swift` | Updates section: installed version, toggle, Check Now |
 | App | `ProjectorApp.swift` | Owns the service; adds the app-menu item |
 | Config | `Projector/Info.plist` | `SUFeedURL`, `SUPublicEDKey`, `SUEnableInstallerLauncherService`, check interval |
 | Config | `Projector/Projector.entitlements` | `-spks` / `-spki` mach-lookup exceptions |
@@ -581,9 +580,17 @@ the fact: `TeamIdentifier=G398H44H6X` on the copy in the build folder, running t
 release version.
 
 So the gate is the build configuration, which is the thing that actually differs.
-A Debug build keeps the service object but leaves it disabled, so Settings still
-shows the Updates section with "This build cannot update itself" rather than hiding
-it and looking broken. Verified at runtime: `Update service inert: debug build.`
+A Debug build keeps the service object but leaves it disabled, so the app-menu
+item is omitted rather than offered and permanently greyed out. Verified at
+runtime: `Update service inert: debug build.`
+
+**There is no Updates section in Settings** (removed 2026-08-08). It showed an
+installed version, an automatic-check toggle and a Check Now button for a
+mechanism that schedules and runs itself, which in a build that cannot update was
+three rows explaining there was nothing to do. Updating is reached from the
+application menu's Check for Updates. The `EnvironmentValues.updateService`
+plumbing that fed the section went with it; the trap it documented is preserved
+on `AppDelegate.updateService`.
 
 #### `NSApp.delegate` is not the app delegate (2026-08-07)
 
