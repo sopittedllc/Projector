@@ -1,12 +1,12 @@
 # Session State
 
 > **Last Updated**: 2026-08-10
-> **Status**: ACTIVE — second-window fix written and runtime-verified, awaiting user verification
+> **Status**: IDLE — 2026.08.10.1 shipped (second-window fix); user click-through still outstanding
 > **Branch**: main
 
 ---
 
-## In progress — Finder double-click opened a second window
+## Shipped 2026.08.10.1 — Finder double-click opened a second window
 
 **Report**: with a project already open, double-clicking another `.projector` in
 the Finder left two full copies of the interface on screen.
@@ -37,7 +37,18 @@ to open a *new* window for each incoming open, which is what SwiftUI did.
 | Open a different project while running | 1 main | 1 |
 | Open the same project again | 1 main | 1 |
 
-**Left for the user**: run the real app and confirm. Not shipped.
+Re-verified after shipping, against the installed `2026.08.10.1` binary rather
+than a Debug build: one main window across a cold open and a second open, and
+the player window resizing 1280x720 -> 1880x1058 as the second project's video
+took over — the timeline swapped in the window that was already there.
+
+**The first attempt at verification was wasted** and the lesson is worth
+keeping: a Finder double-click always routes to the Launch Services default
+handler, which is `/Applications/Projector.app`. A fix sitting in DerivedData
+cannot be tested that way, and testing it that way reports the *old* build's
+behaviour as if the fix had failed.
+
+**Left for the user**: the click-through in the checklist below.
 
 **Aside, unrelated to the fix**: `lsregister` lists ~40 registered copies of
 `Projector.app` — DerivedData, `release-build/`, stale `/Volumes/dmg.*` mounts.
