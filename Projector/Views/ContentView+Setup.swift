@@ -123,6 +123,35 @@ extension ContentView {
         }
     }
 
+    /// Lets go of the audio interface while the machine sleeps.
+    ///
+    /// The notifications live on `NSWorkspace`, which belongs to this layer -
+    /// the engine is told what happened and decides what to do about it.
+    ///
+    /// Without this, Projector held an IO proc on the user's interface straight
+    /// through sleep. The device left and returned underneath a client that
+    /// never let go, and the wake - re-established IO against hardware still
+    /// re-locking its clock - arrived as a click through the monitors.
+    func setupSystemSleepCallbacks() {
+        let engine = playbackEngine
+        let notifications = NSWorkspace.shared.notificationCenter
+
+        notifications.publisher(for: NSWorkspace.willSleepNotification)
+            .sink { [weak engine] _ in
+                engine?.prepareForSystemSleep()
+            }
+            .store(in: &midiCancellables)
+
+        // Device IDs are not stable across re-enumeration, so the cached one is
+        // re-resolved here rather than waiting for the next thing that plays to
+        // discover it naming a device that no longer exists.
+        notifications.publisher(for: NSWorkspace.didWakeNotification)
+            .sink { [weak engine] _ in
+                engine?.resumeAfterSystemWake()
+            }
+            .store(in: &midiCancellables)
+    }
+
     func setupTimelineCallbacks() {
         // Sync timeline changes to playback engine and document
         let engine = playbackEngine

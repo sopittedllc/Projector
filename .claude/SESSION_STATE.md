@@ -1,10 +1,146 @@
 # Session State
 
-> **Last Updated**: 2026-08-10
-> **Status**: ACTIVE — 25 fps import fixed, built and launched, awaiting user verification
+> **Last Updated**: 2026-08-11
+> **Status**: ACTIVE — beach-ball causes fixed and measured, awaiting user runtime verification
 > **Branch**: main
 
 ---
+
+## In progress — beach ball on a batch import
+
+**Report**: dragged a batch of media onto the timeline, pressed Cmd+S before the
+waveforms had drawn, got the spinning beach ball.
+
+Reproduced with a Debug build driven through the real drop handler
+(`-ui-testing -test-drop-urls`) over 12 generated reels, and diagnosed with
+`sample`. Two independent defects, both live in that window. **Neither has been
+confirmed as *the* one the user hit** - nothing was recorded at the time (no
+crash report, no `.hang` report, no unified-log entries for Projector).
+
+### 1. Waveform decoding took the whole cooperative thread pool
+
+Every `com.apple.root.*.cooperative` thread, 100% of samples across a 6s window,
+sat in `WaveformCache.generateAtlasForClip`. The read loop in
+`samplesPerChannelUsingAssetReader` has no suspension point in it, so running it
+as an ordinary `async` function on `Task.detached` held a pool thread for the
+length of the file - and Swift sizes that pool to the core count. Generation was
+also started once per clip with no cap, so a batch import asked for a dozen at
+once. Everything else asynchronous in the app starves behind it: audio clip
+loading, thumbnail strips, `AudioTrackExtractor`, timecode detection.
+
+**Fix** (`WaveformCache.swift`):
+- The blocking read moved to a dedicated `decodeQueue`, with a
+  `DecodeCancellation` flag polled per block so a removed clip stops decoding.
+- `maxConcurrentGenerations` = `max(2, activeProcessorCount / 4)`, with
+  `waitingClips` holding the overflow and `startNextWaitingGeneration()`
+  promoting on completion. `pendingCount` is now derived, not hand-tallied.
+
+**Measured after**: 4 decode threads (the cap), zero `copyNextSampleBuffer` on
+the pool, and only the finite post-decode `buildLevel` work left there.
+
+### 2. Opening the audio device blocked the main thread
+
+Reproduced as a *permanent* hang, not a slow frame: on one launch the main thread
+sat in `ContentView.init()` → `PlaybackEngine.init` →
+`configureAudioEngineIfNeeded()` → `AVAudioEngine.outputNode` →
+`AudioDeviceCreateIOProcID` → `mach_msg` for 47s+ without moving, and had to be
+killed. It launched cleanly on the next attempt, so it is state-dependent - the
+Aurora is shared with a DAW, and Cubase had crashed on that machine earlier.
+
+This corrects a premise in the previous section: **building the graph is not the
+cheap half.** Reading `outputNode` is exactly what instantiates the IO unit and
+opens the interface. A compiled probe measured it at 324ms on an *idle* Aurora
+(`engine.start()` 58ms, a later restart 166ms).
+
+**Fix** (`PlaybackEngine.swift`):
+- `init` no longer builds the graph, so nothing touches the hardware during
+  SwiftUI view construction.
+- `configureAudioEngineOffMainThread()` opens the device on a serial
+  `deviceQueue` and finishes the build on the main actor. `buildAudioPlayback`
+  awaits it; `configureAudioEngineIfNeeded()` and `ensureAudioEngineRunning()`
+  stand off while an open is in flight.
+
+**Trap worth remembering**: the first version had the *caller* clear
+`outputDeviceOpening` and then build. Two clips load together, and whichever
+waiter resumed first found the flag still set - cleared by the caller that owned
+it, which had not run yet - so its build was skipped by the guard meant to
+protect it and it attached nodes to an engine with no output connection. It
+showed up only as a wrong sample rate in the log (44100 against a 48k device) and
+a `buildAudioPlayback` line printing *before* the configure line. The open and
+the build now both belong to the task, so a waiter resumes to a finished engine.
+
+**Scope correction**: `buildAudioPlayback` is reached from `play()`,
+`setMTCSynced()` and output-device changes - **not** from import. So this path
+fires on first play, not on drop.
+
+### Also observed, not fixed
+
+- **The startup disk filled during this work** and the beach ball is consistent
+  with it: `AudioTrackExtractor` writes extracted tracks to temp files on import,
+  and Cmd+S writes `project.json`. Both block hard against a full volume. Worth
+  ruling in or out before assuming the two fixes above are the whole story.
+- `MediaGridCell.body` (`FileManagerView.swift:864`) constructs `NSImage(data:)`
+  inside the view body - <1% of main-thread samples, but it is image decoding in
+  a `body` getter.
+- The Debug build's menu bar has no File menu at all (`Apple, Projector, Edit,
+  Window, View, Help`), so Cmd+S has no menu item there. Not investigated.
+
+**Verification so far**: `** TEST SUCCEEDED **` on `ProjectorTests`; Debug build
+clean; play verified by hand (engine configures at 48kHz before any clip builds,
+no errors). **Runtime verification by the user is still outstanding** - see the
+checklist handed over in chat.
+
+---
+
+## In progress — Projector held the audio interface open around the clock
+
+**Report**: the user's Lynx Aurora clicks, noticed after waking the machine in
+the morning. Suspected a bit-depth or sample-rate setting.
+
+**Not the rate settings.** Nothing in the app writes sample rate or bit depth to
+any device - every `kAudioDevicePropertyNominalSampleRate` call is a read plus a
+listener. The only property written to any device is channel names, and only on
+Projector's own aggregate (`VirtualPortLabels` already documents why).
+
+**What it did do**: `PlaybackEngine.init` called `ensureAudioEngineRunning()`, so
+`AVAudioEngine.start()` ran at launch and nothing stopped it. Projector held an
+IO proc on the interface from launch, through system sleep, and out the other
+side - and nothing in the project observed `NSWorkspace.willSleep`/`didWake`.
+Two smaller multipliers: `applyAudioOutputDevice()` set
+`kAudioOutputUnitProperty_CurrentDevice` *after* `start()`, forcing an extra
+teardown and re-open per start; and the device's rate listener reconfigured the
+engine on every report, so an interface re-locking its clock on wake got several
+stop/start cycles in a second.
+
+**Fix** (all in `PlaybackEngine.swift`, wiring in `ContentView+Setup.swift`):
+- Launch builds the graph but no longer starts the engine. The device is opened
+  by the first thing that plays.
+  *(Superseded above: launch no longer builds the graph either, because building
+  it is what opens the device.)*
+- `scheduleIdleDeviceRelease()` stops the engine after 60s with nothing playing.
+  Graph and format are left intact, so the next play restarts rather than
+  rebuilds.
+- `prepareForSystemSleep()` / `resumeAfterSystemWake()`, driven by `NSWorkspace`
+  from the view layer (Managers may not import AppKit). Wake re-resolves the
+  device: an `AudioDeviceID` is not stable across re-enumeration, so the cached
+  one could name a device that no longer exists.
+- Rate changes are coalesced over 0.75s, so a re-lock causes one reconfiguration.
+- Device is set before `start()`; afterwards it is *verified* rather than
+  re-asserted.
+
+**Measured**: a compiled CoreAudio probe (scratchpad) confirmed the new build
+reaches launch without an engine start - it resolves device 260 (Aurora, 32ch),
+installs the listener, builds a 32-channel format, and stops.
+
+**Not the only client, and possibly not the cause.** The same probe found the
+Aurora already `IsRunningSomewhere` with Projector *not* running, held by two
+macOS screen-capture aggregates that are live right now and built on
+`LynxAudioDevice-UID016016` + BlackHole 2ch:
+`Screen Record (Screenshot)` (`~:AMS2_Aggregate:0`) and `Screen Record (Cubase)`
+(`~:AMS2_StackedOutput:0`, a stacked output). Neither is ours. A stacked
+aggregate sitting on the interface is at least as good a click candidate on wake.
+The overnight test - quit Projector, see whether the morning click survives - is
+what separates them, and has not been run.
 
 ## In progress — a 25 fps reel landed 2:23:15 early
 

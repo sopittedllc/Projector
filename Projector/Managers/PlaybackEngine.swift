@@ -253,6 +253,12 @@ final class PlaybackEngine: ObservableObject {
         label: "com.projector.samplerate-listener"
     )
 
+    /// Pending reconfiguration, waiting for the device's rate to stop moving.
+    private var sampleRateSettleTask: Task<Void, Never>?
+
+    /// Pending release of the output device after a spell with nothing playing.
+    private var idleReleaseTask: Task<Void, Never>?
+
     /// Callback for frame position updates (used by TransportActor)
     var onFrameUpdate: ((Int) async -> Void)?
 
@@ -385,9 +391,25 @@ final class PlaybackEngine: ObservableObject {
         self.currentTimecode = timeline.config.startTimecode
         updateTimelineProperties()
         updateAudioOutputDeviceSettings()
-        // Pre-configure audio engine at launch for immediate playback readiness
-        configureAudioEngineIfNeeded()
-        ensureAudioEngineRunning()
+
+        // Nothing touches the hardware here.
+        //
+        // Holding an interface open around the clock is not free on real
+        // hardware. Projector kept an IO proc on the user's interface from
+        // launch, through system sleep, and out the other side - so every wake,
+        // where the interface re-locks its clock and CoreAudio re-establishes
+        // the IO, arrived as an audible click through the monitors of a machine
+        // nobody was using. The device is now opened when something needs it and
+        // released when nothing has for a while.
+        //
+        // Building the graph is not the cheap half of that: reading
+        // `audioEngine.outputNode` is what instantiates the IO unit, and the
+        // call underneath it - `AudioDeviceCreateIOProcID` - is a synchronous
+        // round trip to coreaudiod. On a Thunderbolt interface shared with a DAW
+        // it has been measured at 324ms, and seen not to return at all. Doing
+        // that here put it inside `ContentView.init()`, so the app hung while
+        // SwiftUI was still building the window and before the user had asked
+        // for any audio whatsoever.
     }
 
     // MARK: - Public Methods
@@ -495,6 +517,7 @@ final class PlaybackEngine: ObservableObject {
         stopGapPlayback()
         stopAllAudioClips()
         parkOnCurrentFrame()
+        scheduleIdleDeviceRelease()
     }
 
     /// Settle the picture onto the frame the position readout names.
@@ -1458,7 +1481,7 @@ final class PlaybackEngine: ObservableObject {
         audioFile: AVAudioFile,
         mediaAccess: SecurityScopedAccess?
     ) async throws -> AudioClipPlayback {
-        configureAudioEngineIfNeeded()
+        await configureAudioEngineOffMainThread()
 
         let player = AVAudioPlayerNode()
         let rateConverter = AVAudioMixerNode()
@@ -1705,8 +1728,73 @@ final class PlaybackEngine: ObservableObject {
         }
     }
 
+    /// Where the blocking CoreAudio device calls run.
+    ///
+    /// Serial: two threads opening the same output unit is not something
+    /// CoreAudio owes us an answer for.
+    private nonisolated static let deviceQueue = DispatchQueue(
+        label: "com.projector.audio-device",
+        qos: .userInitiated
+    )
+
+    /// The in-flight open, if the device is being opened right now.
+    ///
+    /// Doubles as the flag that keeps the synchronous paths off the engine while
+    /// that is happening - see `configureAudioEngineIfNeeded`.
+    private var outputDeviceOpening: Task<Void, Never>?
+
+    /// Builds the engine graph, opening the output device off the main thread.
+    ///
+    /// The open is the expensive half - `audioEngine.outputNode` instantiates
+    /// the IO unit, and `AudioDeviceCreateIOProcID` beneath it is a synchronous
+    /// round trip to coreaudiod. Importing a reel with audio used to make that
+    /// call on the main thread, so dropping media on the timeline could hang the
+    /// app on hardware that was busy: measured at 324ms on an idle Thunderbolt
+    /// interface, and observed not to return at all on a contended one.
+    ///
+    /// Once the unit exists the rest of the build is cheap, so it finishes on
+    /// the main actor where the engine's state lives.
+    ///
+    /// - Note: Concurrent callers share one open rather than racing into two.
+    private func configureAudioEngineOffMainThread() async {
+        guard audioOutputFormat == nil else { return }
+
+        if let existing = outputDeviceOpening {
+            await existing.value
+            return
+        }
+
+        // The open and the build both belong to the task, so that a caller which
+        // merely waited for it resumes to a finished engine.
+        //
+        // Doing the build in the *caller* instead looks equivalent and is not:
+        // two clips load together, and whichever waiter resumed first found
+        // `outputDeviceOpening` still set - the flag is cleared by the caller
+        // that owns it, which had not run yet - so its build was skipped by the
+        // very guard meant to protect it, and it attached its nodes to an engine
+        // with no output connection.
+        let engine = audioEngine
+        let opening = Task { @MainActor [weak self] in
+            await withCheckedContinuation { continuation in
+                Self.deviceQueue.async {
+                    _ = engine.outputNode
+                    continuation.resume()
+                }
+            }
+            guard let self else { return }
+            self.outputDeviceOpening = nil
+            self.configureAudioEngineIfNeeded()
+        }
+        outputDeviceOpening = opening
+        await opening.value
+    }
+
     private func configureAudioEngineIfNeeded() {
         guard audioOutputFormat == nil else { return }
+        // The device is being opened off the main thread; that path finishes the
+        // build itself. Touching the engine now would be a second thread in the
+        // output unit, and would block here for exactly as long as the open.
+        guard outputDeviceOpening == nil else { return }
         if audioEngine.isRunning {
             audioEngine.stop()
         }
@@ -1731,16 +1819,56 @@ final class PlaybackEngine: ObservableObject {
     }
 
     private func ensureAudioEngineRunning() {
+        cancelIdleDeviceRelease()
+        // Nothing to start until the open finishes; the clip that asked for it
+        // schedules itself again once it has.
+        guard outputDeviceOpening == nil else { return }
         configureAudioEngineIfNeeded()
         guard !audioEngine.isRunning else { return }
 
+        // Device before start, not after.
+        //
+        // `kAudioOutputUnitProperty_CurrentDevice` on a unit that is already
+        // running makes the HAL tear the IO down and re-establish it on the new
+        // device - a second open and close of hardware that was about to be
+        // opened anyway. Setting it first means one open.
+        applyAudioOutputDevice()
+
         do {
             try audioEngine.start()
-            applyAudioOutputDevice()
+            verifyOutputDevice()
             synchronizeOutputFormatIfNeeded()
         } catch {
             debugPrint("PlaybackEngine: Failed to start audio engine: \(error)")
         }
+    }
+
+    /// Confirms the running engine is on the device it was pointed at.
+    ///
+    /// Checked rather than re-asserted. Setting the device again unconditionally
+    /// is what used to happen here, and it cost an open and close of the
+    /// interface on every start whether or not anything was wrong. Re-assertion
+    /// is kept for the case where the check actually fails, which is also the
+    /// only case worth a line in the log.
+    private func verifyOutputDevice() {
+        guard let intended = audioOutputDeviceID,
+              let audioUnit = audioEngine.outputNode.audioUnit else { return }
+
+        var current = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioUnitGetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &current,
+            &size
+        )
+
+        guard status == noErr, current != intended else { return }
+
+        debugPrint("PlaybackEngine: Engine started on device \(current), expected \(intended) - reasserting")
+        applyAudioOutputDevice()
     }
 
     private func synchronizeOutputFormatIfNeeded() {
@@ -1759,9 +1887,10 @@ final class PlaybackEngine: ObservableObject {
         audioOutputFormat = nodeFormat
         audioEngine.connect(audioEngine.mainMixerNode, to: audioEngine.outputNode, format: nodeFormat)
 
+        applyAudioOutputDevice()
         do {
             try audioEngine.start()
-            applyAudioOutputDevice()
+            verifyOutputDevice()
         } catch {
             debugPrint("PlaybackEngine: Failed to restart audio engine: \(error)")
         }
@@ -1952,6 +2081,24 @@ final class PlaybackEngine: ObservableObject {
     /// from the cached rate. This ensures playback continues at the correct speed
     /// when the device's sample rate changes.
     private func handleSampleRateChange() {
+        // Coalesced, not followed report by report. An interface re-locking its
+        // clock - on wake, or when a digital source appears - announces the rate
+        // several times as it settles, and following each one stopped and
+        // restarted the engine, re-opening the device every time. On hardware
+        // that mutes its outputs across a clock change that is a burst of
+        // clicks, and it arrives exactly when the user is not there to explain
+        // it. One reconfiguration, once the reports stop.
+        sampleRateSettleTask?.cancel()
+        sampleRateSettleTask = Task { [weak self] in
+            guard let delay = self?.sampleRateSettleDelay else { return }
+            try? await Task.sleep(nanoseconds: UInt64(delay * Double(NSEC_PER_SEC)))
+            guard !Task.isCancelled else { return }
+            self?.applySettledSampleRate()
+        }
+    }
+
+    /// Follows the device to the rate it settled on.
+    private func applySettledSampleRate() {
         guard let deviceID = audioOutputDeviceID else { return }
 
         let newSampleRate = outputSampleRate(for: deviceID) ?? audioOutputSampleRate
@@ -1962,6 +2109,96 @@ final class PlaybackEngine: ObservableObject {
 
         // Reconfigure the audio engine with the new sample rate
         reconfigureAudioEngineForOutputChange()
+    }
+
+    // MARK: - Holding the Device
+
+    /// How long the device is given to settle before the engine follows it.
+    ///
+    /// Long enough to cover the several reports an interface makes while
+    /// re-locking, short enough that a deliberate rate change in Audio MIDI
+    /// Setup still takes effect while the user is looking at it.
+    private let sampleRateSettleDelay: TimeInterval = 0.75
+
+    /// How long the engine keeps the device open with nothing playing.
+    ///
+    /// A minute, rather than releasing on the instant playback stops: a
+    /// spotting session stops and starts constantly, and re-opening the
+    /// interface between takes would put the click into the working day
+    /// instead of taking it out of the morning.
+    private let idleDeviceReleaseDelay: TimeInterval = 60
+
+    /// Releases the output device once nothing has played for a while.
+    ///
+    /// Started when playback stops, cancelled the moment anything needs the
+    /// engine again.
+    private func scheduleIdleDeviceRelease() {
+        idleReleaseTask?.cancel()
+        idleReleaseTask = Task { [weak self] in
+            guard let delay = self?.idleDeviceReleaseDelay else { return }
+            try? await Task.sleep(nanoseconds: UInt64(delay * Double(NSEC_PER_SEC)))
+            guard !Task.isCancelled else { return }
+            self?.releaseAudioDeviceIfIdle()
+        }
+    }
+
+    private func cancelIdleDeviceRelease() {
+        idleReleaseTask?.cancel()
+        idleReleaseTask = nil
+    }
+
+    /// Stops the engine, and with it the app's hold on the interface.
+    ///
+    /// The graph is left connected and `audioOutputFormat` intact, so the next
+    /// play restarts rather than rebuilds - the delay is one engine start, not
+    /// a reconfiguration.
+    ///
+    /// - Note: This releases the *engine's* hold. A loaded reel's `AVPlayer`
+    ///   keeps its own connection to the device, so a session sitting on a
+    ///   parked reel still has one client on the interface.
+    private func releaseAudioDeviceIfIdle() {
+        idleReleaseTask = nil
+        guard !isPlaying, audioEngine.isRunning else { return }
+
+        audioEngine.stop()
+        diagnosticLog(.info, .audio, "Audio device released after \(Int(idleDeviceReleaseDelay))s idle")
+    }
+
+    // MARK: - System Sleep
+
+    /// Releases the audio device before the system sleeps.
+    ///
+    /// Called from the app layer, which owns the `NSWorkspace` notification.
+    ///
+    /// Sleeping while holding an IO proc is what made the interface click on the
+    /// following morning's wake: the device went away and came back underneath a
+    /// client that never let go, and CoreAudio re-established the IO on hardware
+    /// that was still re-locking its clock.
+    func prepareForSystemSleep() {
+        // Pause first: it schedules an idle release of its own, which this then
+        // cancels as redundant - the device is being released here and now.
+        if isPlaying { pause() }
+        stopAllAudioClips()
+        cancelIdleDeviceRelease()
+        sampleRateSettleTask?.cancel()
+
+        guard audioEngine.isRunning else { return }
+        audioEngine.stop()
+        diagnosticLog(.info, .audio, "Audio device released for system sleep")
+    }
+
+    /// Re-resolves the audio device after the system wakes.
+    ///
+    /// The engine is deliberately left stopped - the device is opened again by
+    /// the next thing that plays, not by the wake itself.
+    ///
+    /// Re-resolving matters beyond the click: an `AudioDeviceID` is not stable
+    /// across re-enumeration, so the cached one can name a device that no longer
+    /// exists. Everything keyed to it - the sample rate listener, the device set
+    /// on the output unit - would then be pointed at nothing.
+    func resumeAfterSystemWake() {
+        updateAudioOutputDeviceSettings()
+        diagnosticLog(.info, .audio, "Audio device re-resolved after system wake: \(audioOutputDeviceID ?? 0)")
     }
 
     private func reconfigureAudioEngineForOutputChange() {

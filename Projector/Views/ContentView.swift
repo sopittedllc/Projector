@@ -301,6 +301,7 @@ struct ContentView: View {
         .onAppear {
             setupMIDICallbacks()
             setupAudioCallback()
+            setupSystemSleepCallbacks()
             setupTimelineCallbacks()
 
             // Reclaim the audio earlier versions extracted to disk. Nothing
