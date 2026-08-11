@@ -116,6 +116,42 @@ final class WaveformCache: ObservableObject {
     /// undefined behavior. This set prevents duplicate deferred requests.
     private var queuedGenerationIDs: Set<UUID> = []
 
+    /// Clips holding a ticket for a decode slot, oldest first.
+    ///
+    /// A batch import asks for every clip's waveform at once - one drop of a
+    /// feature's reels is a dozen requests in the same frame. Starting them all
+    /// is what saturated the machine; these wait their turn instead.
+    private var waitingClips: [AudioClip] = []
+
+    /// Membership of `waitingClips`, for the lookups that would otherwise be a
+    /// linear scan of it on every view evaluation.
+    private var waitingClipIDs: Set<UUID> = []
+
+    /// How many clips may decode at once.
+    ///
+    /// A quarter of the machine, never fewer than two. Decoding is bound by the
+    /// disk as much as the CPU, so more readers past this point mostly queue
+    /// against each other - and the whole point of the cap is to leave the
+    /// machine with capacity for everything else the import is doing.
+    private let maxConcurrentGenerations = max(2, ProcessInfo.processInfo.activeProcessorCount / 4)
+
+    /// Where the blocking sample read runs.
+    ///
+    /// Not the cooperative pool. `copyNextSampleBuffer` has no suspension point
+    /// in it, so a decode running as an ordinary `async` function holds its pool
+    /// thread from the first sample to the last. Swift sizes that pool to the
+    /// core count, so a batch import of more clips than cores took every thread
+    /// in it and nothing else asynchronous in the app could run - audio clips
+    /// could not load, thumbnails could not draw, extraction could not start -
+    /// until the last waveform finished.
+    ///
+    /// A queue of its own keeps blocking work where blocking work belongs.
+    private nonisolated static let decodeQueue = DispatchQueue(
+        label: "com.projector.waveform-decode",
+        qos: .utility,
+        attributes: .concurrent
+    )
+
     /// DSWaveformImage analyzer for legacy track-based mode.
     private let analyzer = WaveformAnalyzer()
 
@@ -235,14 +271,17 @@ final class WaveformCache: ObservableObject {
             }
         }
 
-        if generationTasks[clip.id] == nil, !queuedGenerationIDs.contains(clip.id) {
+        if generationTasks[clip.id] == nil,
+           !queuedGenerationIDs.contains(clip.id),
+           !waitingClipIDs.contains(clip.id) {
             queuedGenerationIDs.insert(clip.id)
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.queuedGenerationIDs.remove(clip.id)
                 guard self.clipAtlases[clip.id] == nil,
-                      self.generationTasks[clip.id] == nil else { return }
-                self.startGeneration(for: clip)
+                      self.generationTasks[clip.id] == nil,
+                      !self.waitingClipIDs.contains(clip.id) else { return }
+                self.requestGeneration(for: clip)
             }
         }
 
@@ -257,12 +296,29 @@ final class WaveformCache: ObservableObject {
     /// - Parameter clip: The audio clip to generate waveforms for
     ///
     /// - Note: This method is idempotent - duplicate calls for the same clip are ignored.
+    private func requestGeneration(for clip: AudioClip) {
+        guard generationTasks.count < maxConcurrentGenerations else {
+            guard waitingClipIDs.insert(clip.id).inserted else { return }
+            waitingClips.append(clip)
+            updateGeneratingState()
+            return
+        }
+        startGeneration(for: clip)
+    }
+
+    /// Promotes the longest-waiting clip, if there is room and one is waiting.
+    private func startNextWaitingGeneration() {
+        guard generationTasks.count < maxConcurrentGenerations,
+              !waitingClips.isEmpty else { return }
+        let next = waitingClips.removeFirst()
+        waitingClipIDs.remove(next.id)
+        startGeneration(for: next)
+    }
+
     private func startGeneration(for clip: AudioClip) {
         let clipId = clip.id
         let sps = samplesPerSecond
         let bucketCounts = atlasBucketCounts
-
-        pendingCount += 1
 
         let worker = Task.detached(priority: .userInitiated) {
             try await Self.generateAtlasForClip(
@@ -518,6 +574,48 @@ final class WaveformCache: ObservableObject {
         channelCount: Int,
         sourceSampleRate: Double
     ) async throws -> [[Float]] {
+        // Onto `decodeQueue`, and cancellable once it is there. The read itself
+        // never suspends, so leaving it on the caller's cooperative thread holds
+        // that thread from the first sample to the last - see `decodeQueue`.
+        let cancellation = DecodeCancellation()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                decodeQueue.async {
+                    do {
+                        continuation.resume(returning: try readSamplesPerChannel(
+                            asset: asset,
+                            track: track,
+                            samplesPerSecond: samplesPerSecond,
+                            durationSeconds: durationSeconds,
+                            channelCount: channelCount,
+                            sourceSampleRate: sourceSampleRate,
+                            cancellation: cancellation
+                        ))
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        } onCancel: {
+            cancellation.cancel()
+        }
+    }
+
+    /// The blocking read itself. Runs on `decodeQueue`, never on the pool.
+    ///
+    /// - Parameter cancellation: Polled between blocks, so a clip removed from
+    ///   the timeline stops decoding rather than reading a whole reel into a
+    ///   cache nothing will look at.
+    /// - Throws: `CancellationError` if cancelled part way through the file.
+    private nonisolated static func readSamplesPerChannel(
+        asset: AVAsset,
+        track: AVAssetTrack,
+        samplesPerSecond: Int,
+        durationSeconds: Double,
+        channelCount: Int,
+        sourceSampleRate: Double,
+        cancellation: DecodeCancellation
+    ) throws -> [[Float]] {
         let channels = max(1, channelCount)
         let reader = try AVAssetReader(asset: asset)
         let expectedSamples = Int(durationSeconds * Double(samplesPerSecond))
@@ -556,6 +654,14 @@ final class WaveformCache: ObservableObject {
         var framesInBucket = 0
 
         while let sampleBuffer = output.copyNextSampleBuffer() {
+            // Once per block, which on a feature-length reel is often enough to
+            // stop within a few milliseconds of the ask and rare enough that the
+            // lock never shows up in the profile.
+            if cancellation.isCancelled {
+                reader.cancelReading()
+                throw CancellationError()
+            }
+
             guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { continue }
 
             var length = 0
@@ -632,7 +738,9 @@ final class WaveformCache: ObservableObject {
     /// - Parameter clip: The audio clip to check
     /// - Returns: `true` if a generation task is running, `false` otherwise
     func isLoading(for clip: AudioClip) -> Bool {
-        generationTasks[clip.id] != nil || queuedGenerationIDs.contains(clip.id)
+        generationTasks[clip.id] != nil
+            || queuedGenerationIDs.contains(clip.id)
+            || waitingClipIDs.contains(clip.id)
     }
 
     /// Cancels any pending waveform generation for a clip.
@@ -640,6 +748,10 @@ final class WaveformCache: ObservableObject {
     /// - Parameter clipId: The UUID of the clip to cancel
     func cancelGeneration(for clipId: UUID) {
         queuedGenerationIDs.remove(clipId)
+        if waitingClipIDs.remove(clipId) != nil {
+            waitingClips.removeAll { $0.id == clipId }
+            updateGeneratingState()
+        }
         if let task = generationTasks[clipId] {
             task.cancel()
         }
@@ -719,15 +831,21 @@ final class WaveformCache: ObservableObject {
 
     // MARK: - State Management
 
-    /// Updates the isGenerating flag based on pending task count.
+    /// Republishes the pending count and the generating flag from the work
+    /// actually outstanding, decoding and waiting alike.
+    ///
+    /// Derived rather than counted up and down by hand: a clip that is promoted
+    /// from waiting to decoding moves between the two collections without the
+    /// total changing, and a hand-kept tally has to know that.
     private func updateGeneratingState() {
+        pendingCount = generationTasks.count + waitingClips.count
         isGenerating = pendingCount > 0
     }
 
-    /// Completes one tracked generation exactly once.
+    /// Completes one tracked generation exactly once, and starts the next.
     private func finishGeneration(for clipId: UUID) {
         guard generationTasks.removeValue(forKey: clipId) != nil else { return }
-        pendingCount = max(0, pendingCount - 1)
+        startNextWaitingGeneration()
         updateGeneratingState()
     }
 
@@ -741,6 +859,8 @@ final class WaveformCache: ObservableObject {
         }
         generationTasks.removeAll()
         queuedGenerationIDs.removeAll()
+        waitingClips.removeAll()
+        waitingClipIDs.removeAll()
         pendingCount = 0
 
         clipAtlases.removeAll()
@@ -758,7 +878,8 @@ final class WaveformCache: ObservableObject {
         }
         generationTasks.removeAll()
         queuedGenerationIDs.removeAll()
-        pendingCount = 0
+        waitingClips.removeAll()
+        waitingClipIDs.removeAll()
 
         clipAtlases.removeAll()
         updateGeneratingState()
@@ -920,6 +1041,30 @@ final class WaveformCache: ObservableObject {
         }
 
         return WaveformLevel(min: minValues, max: maxValues, rms: rmsValues)
+    }
+}
+
+// MARK: - Decode Cancellation
+
+/// A cancellation signal that can be read from the decode queue.
+///
+/// `Task.isCancelled` is a property of the task, and the read it guards has been
+/// handed to a dispatch queue precisely so that it is not running as a task any
+/// more. This carries the signal across that boundary.
+private final class DecodeCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
     }
 }
 
