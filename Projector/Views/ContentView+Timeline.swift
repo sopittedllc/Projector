@@ -148,13 +148,19 @@ extension ContentView {
 
     /// Handle mixed video and audio files dropped together
     ///
-    /// Creates a unified batch sheet showing all files with their detected timecodes.
-    /// Each audio file gets its own lane.
+    /// This is the handler that invents destinations: reels go along the video
+    /// track, and audio is grouped by the stem its name declares so a delivery
+    /// cut into reels lands on one lane per stem rather than one lane per file.
+    ///
+    /// Only files that carry timecode are placed. Anything that does not say
+    /// where it belongs is added to the media panel and named in one report -
+    /// see ``holdBackFilesWithoutTimecode(videoURLs:audioURLs:)`` for why.
     ///
     /// - Parameters:
     ///   - videoURLs: Array of video file URLs
     ///   - audioURLs: Array of audio file URLs
-    ///   - atFrame: Target frame position for files not using embedded timecode
+    ///   - atFrame: Where the drop landed. Reached only by the single-file
+    ///     paths; a batch places every file at the timecode it names.
     func handleMixedBatchDrop(videoURLs: [URL], audioURLs: [URL], atFrame: Int) {
         debugPrint("handleMixedBatchDrop: ENTRY - \(videoURLs.count) video \(videoURLs.map { $0.lastPathComponent }), \(audioURLs.count) audio \(audioURLs.map { $0.lastPathComponent }), atFrame=\(atFrame)")
         // One import at a time: a second drop landing mid-import would place
@@ -195,18 +201,42 @@ extension ContentView {
                 return
             }
 
+            // Only files that say where they belong are placed. The rest go to
+            // the media panel and are named in one report.
+            //
+            // This handler is the one that *invents* destinations - a lane per
+            // stem for the audio, a running position for the reels - so it is
+            // the one with nothing to go on when a file carries no timecode. A
+            // drop that names a lane or a frame is an instruction and is still
+            // honoured; see `handleAudioDropOnTimeline`.
+            //
+            // Placing them anyway is what the report that prompted this looked
+            // like: a picture turnover with no `tmcd` on the reels and no `bext`
+            // on the stems laid out from the drop, giving a timeline that looks
+            // finished and is silently wrong - and, because same-frame files
+            // spill onto lanes of their own, one lane per file into the bargain.
+            let (placeableVideoURLs, placeableAudioURLs) = await holdBackFilesWithoutTimecode(
+                videoURLs: newVideoURLs,
+                audioURLs: newAudioURLs
+            )
+
+            guard !placeableVideoURLs.isEmpty || !placeableAudioURLs.isEmpty else {
+                debugPrint("handleMixedBatchDrop: nothing carried timecode, all held in Media")
+                return
+            }
+
             // For single video + no audio, use existing single-file flow
-            if newVideoURLs.count == 1 && newAudioURLs.isEmpty {
-                await addVideoToTimeline(url: newVideoURLs[0], atFrame: atFrame)
+            if placeableVideoURLs.count == 1 && placeableAudioURLs.isEmpty {
+                await addVideoToTimeline(url: placeableVideoURLs[0], atFrame: atFrame)
                 frameImportedContent()
                 return
             }
 
             // For single audio + no video, use existing single-file flow with new lane
-            if newAudioURLs.count == 1 && newVideoURLs.isEmpty {
-                let newLane = timelineManager.addAudioLane(name: laneName(for: newAudioURLs[0]))
+            if placeableAudioURLs.count == 1 && placeableVideoURLs.isEmpty {
+                let newLane = timelineManager.addAudioLane(name: laneName(for: placeableAudioURLs[0]))
                 batchCreatedLaneIds.insert(newLane.id)
-                let clip = await addAudioToTimeline(url: newAudioURLs[0], laneId: newLane.id, atFrame: atFrame)
+                let clip = await addAudioToTimeline(url: placeableAudioURLs[0], laneId: newLane.id, atFrame: atFrame)
                 if let clip = clip {
                     let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)
                     timelineManager.extendTimeline(toEndFrame: clip.timelineEndFrame + paddingFrames)
@@ -215,61 +245,80 @@ extension ContentView {
                 return
             }
 
-            // For multiple files, detect timecode for all files in parallel
-
-            // Detect timecode for video files
-            var allItems: [BatchTimecodeItem] = []
-            if !newVideoURLs.isEmpty {
-                let videoItems = await detectTimecodeForBatch(urls: newVideoURLs, mediaType: .video)
-                allItems.append(contentsOf: videoItems)
-            }
-
             // IMPORTANT: Reserve lanes for video embedded audio FIRST
             // Each video may have an audio track that needs its own lane
             // We create placeholder lanes now so standalone audio files get assigned to subsequent lanes
-            for url in newVideoURLs {
+            var allItems: [BatchTimecodeItem] = []
+            for url in placeableVideoURLs {
                 let lane = timelineManager.addAudioLane(name: laneName(for: url))
                 batchCreatedLaneIds.insert(lane.id)
             }
 
-            // Detect timecode for audio files and create a lane for each
-            // These lanes come AFTER the video audio lanes
-            for url in newAudioURLs {
-                let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil)
-                let newLane = timelineManager.addAudioLane(name: laneName(for: url))
+            // Detect timecode for audio files and create a lane per stem.
+            // These lanes come AFTER the video audio lanes.
+            //
+            // A reel-based delivery is one file per reel per stem: five reels
+            // hand over five DX_FX files and five MX files. One lane per file
+            // made ten lanes of one clip each, when the material is two stems
+            // cut into reels - so files whose names declare the same stem share
+            // a lane, and the reels sit end to end along it. Anything with no
+            // stem in its name still gets a lane to itself.
+            for group in AudioStemGrouping.groups(for: placeableAudioURLs) {
+                // The stem names the lane only when it actually collects
+                // several files; a lone file keeps the filename it has always
+                // been given, since there is no grouping to explain.
+                guard let firstURL = group.urls.first else { continue }
+                let name = (group.urls.count > 1 ? group.stem?.displayName : nil)
+                    ?? laneName(for: firstURL)
+                let newLane = timelineManager.addAudioLane(name: name)
                 batchCreatedLaneIds.insert(newLane.id)
-                var item = BatchTimecodeItem(url: url, mediaType: .audio, detectedTimecode: result)
-                item.targetLaneId = newLane.id
-                allItems.append(item)
                 reservedAudioLaneIds.insert(newLane.id)
-                batchCreatedLaneIds.insert(newLane.id)
-                debugPrint("handleMixedBatchDrop: assigned '\(url.lastPathComponent)' -> lane '\(newLane.name)' (\(newLane.id.uuidString.prefix(8))), tc=\(result?.formattedTimecode ?? "none")")
+
+                for url in group.urls {
+                    let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil)
+                    var item = BatchTimecodeItem(url: url, mediaType: .audio, detectedTimecode: result)
+                    item.targetLaneId = newLane.id
+                    allItems.append(item)
+                    debugPrint("handleMixedBatchDrop: assigned '\(url.lastPathComponent)' -> lane '\(newLane.name)' (\(newLane.id.uuidString.prefix(8))), tc=\(result?.formattedTimecode ?? "none")")
+                }
             }
 
-            // Place everything, no questions asked. Each file goes to its own
-            // timecode where it has one, otherwise to the drop.
-            await addVideoFilesSequentially(urls: newVideoURLs, startFrame: atFrame)
+            // Place everything, no questions asked. Every file here carries
+            // timecode - the ones that did not were held back above - so each
+            // one goes to the timecode it names and `atFrame` is never reached.
+            await addVideoFilesSequentially(urls: placeableVideoURLs, startFrame: atFrame)
 
             // Audio to its assigned lane. Uses the overlap-avoiding placement:
             // video import creates its own embedded-audio lanes as it goes, so a
             // lane reserved here can already be occupied by the time we place.
             debugPrint("handleMixedBatchDrop: placing \(allItems.filter { $0.mediaType == .audio }.count) audio item(s)")
+            var overlapping: [URL] = []
             for item in allItems where item.mediaType == .audio {
                 guard let laneId = item.targetLaneId else {
                     debugPrint("handleMixedBatchDrop: '\(item.url.lastPathComponent)' has no targetLaneId, SKIPPED")
                     continue
                 }
                 let target = placementFrame(metadata: item.detectedTimecode, dropFrame: atFrame)
-                let clip = await addAudioToTimelineAvoidingOverlap(
+                switch await addAudioToTimelineAvoidingOverlap(
                     url: item.url,
                     preferredLaneId: laneId,
                     atFrame: target
-                )
-                debugPrint("handleMixedBatchDrop: placed '\(item.url.lastPathComponent)' at \(target) -> \(clip == nil ? "FAILED" : "ok")")
+                ) {
+                case .placed:
+                    debugPrint("handleMixedBatchDrop: placed '\(item.url.lastPathComponent)' at \(target)")
+                case .laneOccupied:
+                    overlapping.append(item.url)
+                case .failed:
+                    alerts.show(.error("Couldn't add \"\(item.url.lastPathComponent)\" to the timeline."))
+                }
             }
             reservedAudioLaneIds.removeAll()
-            // Placement spills to a fresh lane whenever the reserved one is
-            // taken, stranding the lane held for the file.
+
+            // Held back rather than given a lane of their own, so a stem keeps
+            // one lane however badly the delivery is stamped.
+            await holdBack(urls: overlapping, reason: .timecodeAlreadyOccupied)
+
+            // A stem lane whose every file collided has nothing on it.
             discardEmptyLanesCreatedForDrop()
 
             // Add padding after all files
@@ -280,6 +329,98 @@ extension ContentView {
 
             frameImportedContent()
         }
+    }
+
+    // MARK: - Holding Back Files That Say Nothing
+
+    /// Splits a dropped batch into the files that say where they belong and the
+    /// files that do not, adding the latter to the media panel and reporting
+    /// them in one alert.
+    ///
+    /// ## Why a file is held back rather than placed
+    ///
+    /// A file with no timecode gives the app nothing to place it against, and
+    /// the answers available are all guesses: the drop position, or after
+    /// whatever landed last. A guess produces a timeline that looks finished and
+    /// is quietly wrong - a stem shorter than its reel drags every later reel on
+    /// its lane early, with nothing on screen to say so - and, because files
+    /// guessed onto the same frames of the same lane spill onto lanes of their
+    /// own, a lane per file into the bargain. The media panel is where a file
+    /// with no home belongs until someone says where it goes.
+    ///
+    /// ## What counts as saying where it belongs
+    ///
+    /// Embedded timecode for anything, plus a timecode in the *name* for video,
+    /// because that is exactly what `addVideoFilesSequentially` will place a
+    /// video by. Audio deliberately does not count a filename timecode: nothing
+    /// on the audio placement path reads one, so counting it here would let a
+    /// file through to be placed at the drop position after all.
+    ///
+    /// - Parameters:
+    ///   - videoURLs: Deduplicated video files from the drop.
+    ///   - audioURLs: Deduplicated audio files from the drop.
+    /// - Returns: The files that can be placed, in the order they were dropped.
+    func holdBackFilesWithoutTimecode(
+        videoURLs: [URL],
+        audioURLs: [URL]
+    ) async -> (video: [URL], audio: [URL]) {
+        var placeableVideo: [URL] = []
+        var placeableAudio: [URL] = []
+        // Held as URLs, not names: two reels delivered in different folders can
+        // share a filename, and the media import below has to know which file it
+        // is importing.
+        var heldBack: [URL] = []
+
+        for url in videoURLs {
+            let embedded = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil)
+            let fromName = detectTimecodeFromFilename(url.lastPathComponent)
+            if embedded != nil || fromName != nil {
+                placeableVideo.append(url)
+            } else {
+                heldBack.append(url)
+            }
+        }
+
+        for url in audioURLs {
+            if await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) != nil {
+                placeableAudio.append(url)
+            } else {
+                heldBack.append(url)
+            }
+        }
+
+        await holdBack(urls: heldBack, reason: .noTimecode)
+        return (placeableVideo, placeableAudio)
+    }
+
+    /// Put files in the media panel instead of on the timeline, and say so.
+    ///
+    /// Called from every point an import decides it cannot place something, so
+    /// there is one answer to "where did my file go" and one alert whatever the
+    /// reason. Does nothing when there is nothing to report.
+    ///
+    /// - Parameters:
+    ///   - urls: The files to hold back.
+    ///   - reason: Why, which is what the alert groups them under.
+    func holdBack(urls: [URL], reason: ImportHoldBackReason) async {
+        guard !urls.isEmpty else { return }
+
+        // Into the media panel, which is the whole point of holding them back:
+        // the files are imported and findable, they are simply not on the
+        // timeline. Placement imports the files it places itself, so this is the
+        // only import the held-back ones get.
+        for url in urls {
+            do {
+                _ = try await mediaLibrary.importFile(from: url)
+            } catch {
+                debugPrint("holdBack: '\(url.lastPathComponent)' could not be added to Media - \(error.localizedDescription)")
+            }
+        }
+
+        debugPrint("holdBack: held \(urls.count) file(s), reason=\(reason)")
+        alerts.show(.filesNotPlaced(files: urls.map {
+            HeldBackFile(name: $0.lastPathComponent, reason: reason)
+        }))
     }
 
     // MARK: - Media Library Handlers
@@ -451,29 +592,27 @@ extension ContentView {
         })
     }
 
-    /// Find a position for a new video that doesn't overlap with existing reels
-    /// If the proposed position overlaps, places it immediately after the overlapping reel
+    /// Find a position for a new video that doesn't cover an existing reel.
+    ///
+    /// The rule lives in ``ReelPlacement`` so it can be unit-tested; this is the
+    /// adapter from the timeline's reels to it.
+    ///
+    /// - Parameters:
+    ///   - startFrame: Where the reel's timecode puts it.
+    ///   - durationFrames: The reel's length.
+    ///   - existingReels: What is already on the video track.
+    /// - Returns: A start frame at or after `startFrame` where the reel fits.
     func findNonOverlappingPosition(startFrame: Int, durationFrames: Int, existingReels: [VideoReel]) -> Int {
-        var proposedStart = startFrame
-        let proposedEnd = proposedStart + durationFrames
-
-        // Sort reels by start frame
-        let sortedReels = existingReels.sorted { $0.timelineStartFrame < $1.timelineStartFrame }
-
-        // Check for overlaps and adjust position
-        for reel in sortedReels {
-            let reelStart = reel.timelineStartFrame
-            let reelEnd = reel.timelineEndFrame
-
-            // Check if proposed position overlaps with this reel
-            if proposedStart < reelEnd && proposedEnd > reelStart {
-                // Overlap detected - move to immediately after this reel
-                proposedStart = reelEnd
-                debugPrint("findNonOverlappingPosition: Overlap with '\(reel.displayName)', moving to frame \(proposedStart)")
-            }
+        let occupied = existingReels.map { $0.timelineStartFrame ..< $0.timelineEndFrame }
+        let resolved = ReelPlacement.firstFreeStart(
+            preferredStart: startFrame,
+            durationFrames: durationFrames,
+            occupied: occupied
+        )
+        if resolved != startFrame {
+            debugPrint("findNonOverlappingPosition: frame \(startFrame) was taken; using \(resolved)")
         }
-
-        return proposedStart
+        return resolved
     }
 
     /// Add video without FPS checking (internal use after conflict resolution)
@@ -1346,65 +1485,82 @@ extension ContentView {
         }
     }
 
-    /// Place an audio clip on the preferred lane, or on a new lane when the
-    /// destination frames are already occupied.
+    /// The result of trying to place one audio file during a batch import.
+    enum AudioPlacementOutcome {
+
+        /// The clip is on its lane.
+        case placed(AudioClip)
+
+        /// The lane the file's stem owns is already occupied at those frames,
+        /// so the file was not placed. The caller reports it.
+        case laneOccupied
+
+        /// Placement failed for a reason that is ours, not the delivery's.
+        case failed
+    }
+
+    /// Place an audio clip on the lane its stem owns, or report that it does
+    /// not fit.
+    ///
+    /// ## A batch never invents a second lane for one stem
     ///
     /// The model allows overlapping clips (`AudioLane.addClip` appends
-    /// unconditionally), so placing a batch of files that share a start
-    /// timecode - stems and mix passes routinely all start at 01:00:00:00 -
-    /// used to stack every clip at the same frames of the same lane. The lane
-    /// showed one clip's waveform with the rest hidden exactly underneath,
-    /// which read as "only the first file was imported". Spilling each
-    /// overlapping file onto its own lane keeps all of them visible and
-    /// aligned, which is the layout simultaneous material wants anyway.
-    func addAudioToTimelineAvoidingOverlap(url: URL, preferredLaneId: UUID, atFrame: Int) async -> AudioClip? {
+    /// unconditionally), so a batch of files sharing a start timecode - stems
+    /// and mix passes routinely all start at 01:00:00:00 - would stack every
+    /// clip at the same frames of one lane, showing the first clip's waveform
+    /// with the rest hidden exactly underneath. That read as "only the first
+    /// file was imported", so overlapping files used to spill onto a lane each.
+    ///
+    /// Spilling traded one wrong answer for another: a five-reel delivery
+    /// arrived as five `MX` lanes holding one clip apiece. Both answers are the
+    /// app deciding something it cannot know. Since a batch now puts exactly one
+    /// lane under each stem, a collision here means two files of the *same* stem
+    /// claim overlapping time - which no delivery can mean - so the file is
+    /// held back and named instead. See ``ImportHoldBackReport``.
+    ///
+    /// - Parameters:
+    ///   - url: The audio file.
+    ///   - preferredLaneId: The lane this file's stem owns.
+    ///   - atFrame: Where the file's timecode puts it.
+    /// - Returns: What happened, for the caller to report.
+    func addAudioToTimelineAvoidingOverlap(
+        url: URL,
+        preferredLaneId: UUID,
+        atFrame: Int
+    ) async -> AudioPlacementOutcome {
         let fps = timelineManager.timeline.config.frameRate.fps
         var durationFrames = 1
         if let duration = try? await AVURLAsset(url: url).load(.duration) {
             durationFrames = max(1, Int(duration.seconds * fps))
         }
 
-        var targetLaneId = preferredLaneId
-
-        if let preferred = timelineManager.timeline.audioLanes.first(where: { $0.id == preferredLaneId }) {
-            if laneIsOccupied(preferred, startFrame: atFrame, durationFrames: durationFrames) {
-                let newLane = timelineManager.addAudioLane(name: laneName(for: url))
-                debugPrint("addAudioToTimelineAvoidingOverlap: '\(url.lastPathComponent)' overlaps at frame \(atFrame); spilling to new lane '\(newLane.name)'")
-                targetLaneId = newLane.id
-            }
-        } else {
-            // The reserved lane is gone. Mixed drops reserve a lane per audio
-            // file up front, but importing the videos in the same batch creates
-            // its OWN embedded-audio lanes and prunes empty ones - so by the
-            // time we place, the reserved ID can name a lane that no longer
-            // exists. `addAudioClip` guards on lane existence and returns nil,
-            // which silently dropped the file with no error anywhere. Make a
-            // fresh lane instead of losing the audio.
-            let newLane = timelineManager.addAudioLane(name: laneName(for: url))
-            debugPrint("addAudioToTimelineAvoidingOverlap: preferred lane \(preferredLaneId.uuidString.prefix(8)) no longer exists for '\(url.lastPathComponent)'; created '\(newLane.name)'")
-            targetLaneId = newLane.id
+        guard let preferred = timelineManager.timeline.audioLanes.first(where: { $0.id == preferredLaneId }) else {
+            // The reserved lane is gone. This should not happen now that the
+            // batch marks its stem lanes in `reservedAudioLaneIds` so video
+            // embedded audio cannot adopt them, but losing the file silently is
+            // the one outcome worth ruling out structurally: `addAudioClip`
+            // returns nil when the lane is missing, and nothing downstream
+            // could tell that from an empty drop.
+            debugPrint("addAudioToTimelineAvoidingOverlap: preferred lane \(preferredLaneId.uuidString.prefix(8)) no longer exists for '\(url.lastPathComponent)'")
+            return .failed
         }
 
-        if let clip = await addAudioToTimeline(url: url, laneId: targetLaneId, atFrame: atFrame, checkTimecode: false) {
-            return clip
+        if laneIsOccupied(preferred, startFrame: atFrame, durationFrames: durationFrames) {
+            debugPrint("addAudioToTimelineAvoidingOverlap: '\(url.lastPathComponent)' overlaps lane '\(preferred.name)' at frame \(atFrame); holding it back")
+            return .laneOccupied
         }
 
-        // Backstop: placement returned nil, so the file is currently lost with
-        // no error surfaced anywhere. `addAudioClip` returns nil whenever the
-        // target lane no longer exists, and lanes reserved for a batch can be
-        // claimed out from under us - `prepareAudioLaneIfNeeded` adopts ANY
-        // lane the video's embedded audio doesn't overlap, which includes the
-        // empty ones reserved here. Retry once on a guaranteed-fresh lane
-        // rather than dropping the file silently.
-        let fallbackLane = timelineManager.addAudioLane(name: laneName(for: url))
-        debugPrint("addAudioToTimelineAvoidingOverlap: first placement of '\(url.lastPathComponent)' failed; retrying on fresh lane '\(fallbackLane.name)'")
-
-        let retried = await addAudioToTimeline(url: url, laneId: fallbackLane.id, atFrame: atFrame, checkTimecode: false)
-        if retried == nil {
-            debugPrint("addAudioToTimelineAvoidingOverlap: RETRY ALSO FAILED for '\(url.lastPathComponent)'")
-            alerts.show(.error("Couldn't add \"\(url.lastPathComponent)\" to the timeline."))
+        guard let clip = await addAudioToTimeline(
+            url: url,
+            laneId: preferredLaneId,
+            atFrame: atFrame,
+            checkTimecode: false
+        ) else {
+            debugPrint("addAudioToTimelineAvoidingOverlap: placement of '\(url.lastPathComponent)' returned nil")
+            return .failed
         }
-        return retried
+
+        return .placed(clip)
     }
 
     /// Add audio files at their embedded timecode positions (auto-confirm mode)
@@ -1419,6 +1575,7 @@ extension ContentView {
     ///   - fallbackFrame: Frame to start placing clips without timecode
     func addAudioFilesAtEmbeddedTimecode(items: [BatchTimecodeItem], laneId: UUID, fallbackFrame: Int) async {
         var nextSequentialFrame = fallbackFrame
+        var overlapping: [URL] = []
 
         for item in items {
             // Relative to the timeline's start, like every other placement.
@@ -1428,10 +1585,20 @@ extension ContentView {
             )
             debugPrint("addAudioFilesAtEmbeddedTimecode: \(item.url.lastPathComponent) -> frame \(targetFrame) (\(item.hasTimecode ? "timecode" : "sequential"))")
 
-            if let clip = await addAudioToTimelineAvoidingOverlap(url: item.url, preferredLaneId: laneId, atFrame: targetFrame) {
+            switch await addAudioToTimelineAvoidingOverlap(url: item.url, preferredLaneId: laneId, atFrame: targetFrame) {
+            case .placed(let clip):
                 nextSequentialFrame = clip.timelineEndFrame
+            case .laneOccupied:
+                overlapping.append(item.url)
+            case .failed:
+                alerts.show(.error("Couldn't add \"\(item.url.lastPathComponent)\" to the timeline."))
             }
         }
+
+        // Same rule as a mixed batch: the lane the user aimed at keeps its
+        // identity, and a file that will not fit on it is reported rather than
+        // given a lane nobody asked for.
+        await holdBack(urls: overlapping, reason: .timecodeAlreadyOccupied)
 
         // Add padding after all files
         let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)

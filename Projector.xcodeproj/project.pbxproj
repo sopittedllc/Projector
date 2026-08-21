@@ -49,6 +49,9 @@
 		HPS001SPLITTEST0002 /* HardPannedSplitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */; };
 		APA001PANTEST000002 /* AudioPanningAnalyzerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */; };
 		TCFRTEST0000002 /* TimecodeFrameRateNearestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCFRTEST0000001 /* TimecodeFrameRateNearestTests.swift */; };
+		STEMGRPTEST00002 /* AudioStemGroupingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = STEMGRPTEST00001 /* AudioStemGroupingTests.swift */; };
+		TCLESSTEST00002 /* ImportHoldBackReportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCLESSTEST00001 /* ImportHoldBackReportTests.swift */; };
+		REELPLACETEST002 /* ReelPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = REELPLACETEST001 /* ReelPlacementTests.swift */; };
 		TCFGRATE0000002 /* TimelineConfigFrameRateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCFGRATE0000001 /* TimelineConfigFrameRateTests.swift */; };
 		SUPRATES0000002 /* SupportedFrameRatesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SUPRATES0000001 /* SupportedFrameRatesTests.swift */; };
 		ETCRESTEST00002 /* EmbeddedTimecodeResultTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ETCRESTEST00001 /* EmbeddedTimecodeResultTests.swift */; };
@@ -77,6 +80,8 @@
 		DEBUGLOG00000002 /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBUGLOG00000001 /* DebugLog.swift */; };
 		TIMECODEENTRY0002 /* TimecodeEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = TIMECODEENTRY0001 /* TimecodeEntry.swift */; };
 		TCFRNEAREST00002 /* TimecodeFrameRate+Nearest.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCFRNEAREST00001 /* TimecodeFrameRate+Nearest.swift */; };
+		STEMGROUP0000002 /* AudioStemGrouping.swift in Sources */ = {isa = PBXBuildFile; fileRef = STEMGROUP0000001 /* AudioStemGrouping.swift */; };
+		TCLESSRPT0000002 /* ImportHoldBackReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCLESSRPT0000001 /* ImportHoldBackReport.swift */; };
 		B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */; };
 		B19B58BD2F088AEA00FA33EC /* MIDISyncActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */; };
 		B19B58BF2F088BFF00FA33EC /* TimelineViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */; };
@@ -232,6 +237,9 @@
 		HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardPannedSplitTests.swift; sourceTree = "<group>"; };
 		APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPanningAnalyzerTests.swift; sourceTree = "<group>"; };
 		TCFRTEST0000001 /* TimecodeFrameRateNearestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeFrameRateNearestTests.swift; sourceTree = "<group>"; };
+		STEMGRPTEST00001 /* AudioStemGroupingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioStemGroupingTests.swift; sourceTree = "<group>"; };
+		TCLESSTEST00001 /* ImportHoldBackReportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportHoldBackReportTests.swift; sourceTree = "<group>"; };
+		REELPLACETEST001 /* ReelPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelPlacementTests.swift; sourceTree = "<group>"; };
 		TCFGRATE0000001 /* TimelineConfigFrameRateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineConfigFrameRateTests.swift; sourceTree = "<group>"; };
 		SUPRATES0000001 /* SupportedFrameRatesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportedFrameRatesTests.swift; sourceTree = "<group>"; };
 		ETCRESTEST00001 /* EmbeddedTimecodeResultTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTimecodeResultTests.swift; sourceTree = "<group>"; };
@@ -256,6 +264,8 @@
 		DEBUGLOG00000001 /* DebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLog.swift; sourceTree = "<group>"; };
 		TIMECODEENTRY0001 /* TimecodeEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeEntry.swift; sourceTree = "<group>"; };
 		TCFRNEAREST00001 /* TimecodeFrameRate+Nearest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TimecodeFrameRate+Nearest.swift"; sourceTree = "<group>"; };
+		STEMGROUP0000001 /* AudioStemGrouping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioStemGrouping.swift; sourceTree = "<group>"; };
+		TCLESSRPT0000001 /* ImportHoldBackReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportHoldBackReport.swift; sourceTree = "<group>"; };
 		B19B58B62F0889F200FA33EC /* MIDISyncViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncViewModel.swift; sourceTree = "<group>"; };
 		B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncActor.swift; sourceTree = "<group>"; };
 		B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineViewModel.swift; sourceTree = "<group>"; };
@@ -397,6 +407,9 @@
 				HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */,
 				APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */,
 				TCFRTEST0000001 /* TimecodeFrameRateNearestTests.swift */,
+				STEMGRPTEST00001 /* AudioStemGroupingTests.swift */,
+				TCLESSTEST00001 /* ImportHoldBackReportTests.swift */,
+				REELPLACETEST001 /* ReelPlacementTests.swift */,
 				TCFGRATE0000001 /* TimelineConfigFrameRateTests.swift */,
 				SUPRATES0000001 /* SupportedFrameRatesTests.swift */,
 				ETCRESTEST00001 /* EmbeddedTimecodeResultTests.swift */,
@@ -617,6 +630,8 @@
 				DEBUGLOG00000001 /* DebugLog.swift */,
 				TIMECODEENTRY0001 /* TimecodeEntry.swift */,
 				TCFRNEAREST00001 /* TimecodeFrameRate+Nearest.swift */,
+				STEMGROUP0000001 /* AudioStemGrouping.swift */,
+				TCLESSRPT0000001 /* ImportHoldBackReport.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -863,6 +878,9 @@
 				HPS001SPLITTEST0002 /* HardPannedSplitTests.swift in Sources */,
 				APA001PANTEST000002 /* AudioPanningAnalyzerTests.swift in Sources */,
 		TCFRTEST0000002 /* TimecodeFrameRateNearestTests.swift in Sources */,
+		STEMGRPTEST00002 /* AudioStemGroupingTests.swift in Sources */,
+		TCLESSTEST00002 /* ImportHoldBackReportTests.swift in Sources */,
+		REELPLACETEST002 /* ReelPlacementTests.swift in Sources */,
 				TCFGRATE0000002 /* TimelineConfigFrameRateTests.swift in Sources */,
 				SUPRATES0000002 /* SupportedFrameRatesTests.swift in Sources */,
 		ETCRESTEST00002 /* EmbeddedTimecodeResultTests.swift in Sources */,
@@ -924,6 +942,8 @@
 		DEBUGLOG00000002 /* DebugLog.swift in Sources */,
 		TIMECODEENTRY0002 /* TimecodeEntry.swift in Sources */,
 		TCFRNEAREST00002 /* TimecodeFrameRate+Nearest.swift in Sources */,
+		STEMGROUP0000002 /* AudioStemGrouping.swift in Sources */,
+		TCLESSRPT0000002 /* ImportHoldBackReport.swift in Sources */,
 				B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */,
 				BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */,
 				67053C082F0B787BAEF7B06D /* EmbeddedTimecodeService.swift in Sources */,

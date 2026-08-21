@@ -67,6 +67,14 @@ final class AlertCoordinator: ObservableObject {
         /// leaves the decision for a later, deliberate import.
         case batchFrameRateMismatch(names: [String], projectFPS: String)
 
+        /// Files an import added to the media panel rather than the timeline.
+        ///
+        /// Reports rather than asks, for the same reason
+        /// ``batchFrameRateMismatch`` does. There is no answer the user could
+        /// give here that Projector could act on - the file genuinely does not
+        /// say where it belongs, and only the person who cut it knows.
+        case filesNotPlaced(files: [HeldBackFile])
+
         // MARK: Sheets
         case videoInsert(
             url: Binding<URL?>,
@@ -93,6 +101,7 @@ final class AlertCoordinator: ObservableObject {
             case .missingFile: return "missingFile"
             case .fpsConflict: return "fpsConflict"
             case .batchFrameRateMismatch: return "batchFrameRateMismatch"
+            case .filesNotPlaced: return "filesNotPlaced"
             case .videoInsert: return "videoInsert"
             case .saveProject: return "saveProject"
             case .settings: return "settings"
@@ -111,7 +120,7 @@ final class AlertCoordinator: ObservableObject {
             switch self {
             case .error, .videoAlreadyInTimeline, .audioAlreadyInTimeline,
                  .duplicateMedia, .codecUnavailable, .missingFile, .fpsConflict,
-                 .batchFrameRateMismatch:
+                 .batchFrameRateMismatch, .filesNotPlaced:
                 return false
             case .videoInsert, .saveProject, .settings, .proVideoFormatsInstall,
                  .quickTimeDemo:
@@ -283,6 +292,13 @@ private struct AlertCoordinatorModifier: ViewModifier {
                     return Alert(
                         title: Text("Not Imported"),
                         message: Text(message),
+                        dismissButton: .default(Text("OK"))
+                    )
+
+                case .filesNotPlaced(let files):
+                    return Alert(
+                        title: Text(ImportHoldBackReport.title),
+                        message: Text(ImportHoldBackReport.message(for: files) ?? ""),
                         dismissButton: .default(Text("OK"))
                     )
 

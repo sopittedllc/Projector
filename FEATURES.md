@@ -910,6 +910,87 @@ is actionable and unambiguous, so `fpsConflict` still handles it.
 
 ---
 
+### Stem Lanes on Batch Import
+
+**Status**: Active
+**Added**: 2026-08-12
+
+#### Description
+A batch drop puts audio files that declare the same stem on the **same lane**,
+instead of one lane per file.
+
+A reel-based delivery arrives as one file per reel per stem: five reels hand
+over five `_DX_FX` files and five `_MX` files. One lane per file made ten lanes
+holding one clip each, when the material is two stems cut into reels — nine of
+them mostly empty, the timeline reading as a staircase rather than two
+continuous stems.
+
+The stem is read from the **end** of the filename, because that is the part a
+delivery keeps constant: the reel number varies, and so can the descriptive
+middle (a reel carrying an end-title song says so), but `_DX_FX` does not.
+Tokens are taken from the end while they are a known role (`DX`, `MX`, `FX`,
+`M&E`, `VO`, `FOLEY`, …, plus longer spellings) or trailing noise (a reel
+number, `STEM`, a channel layout, `v2`). The walk stops at the first token that
+is neither, so a project code or session name is never read as a stem.
+
+A lane is named after the stem (`DX FX`, `MX`) only when the group collects more
+than one file; a lone file keeps the filename-based lane name it has always had.
+Files whose names declare no stem are unchanged — one lane each.
+
+#### Only files that carry timecode are placed
+
+Grouping alone was not enough, because placement undid it. A file with no
+timecode used to go to the **drop frame** — the same frame for every file in the
+batch. A picture turnover routinely carries no timecode at all, so every file in
+a group asked for the same frames of the same lane, and
+`addAudioToTimelineAvoidingOverlap` spills an overlapping file onto a lane of its
+own. The grouped delivery came apart into a lane per file again, which is exactly
+the symptom the grouping was built to fix.
+
+The answer is not a better guess. A file that does not say where it belongs is
+**held back**: added to the media panel, not to the timeline, and named in one
+`timecodelessNotPlaced` alert. Guessing produces a timeline that looks finished
+and is quietly wrong — a stem shorter than its reel drags every later reel on its
+lane early, with nothing on screen to say so — and the delivery has a real
+problem that the import is the right moment to surface.
+
+The rule applies to `handleMixedBatchDrop` and to both media types, because that
+handler is the one that *invents* destinations: a lane per stem for the audio, a
+running position for the reels. A drop that names a lane and a frame is an
+instruction, and `handleAudioDropOnTimeline` still honours it.
+
+What counts as saying where it belongs: embedded timecode for anything, plus a
+timecode in the **name** for video, because a filename timecode is exactly what
+`addVideoFilesSequentially` places a video by. Audio deliberately does not count
+one — no audio placement path reads it, so counting it here would let a file
+through to be placed at the drop position after all.
+
+The overlap rule itself is untouched, and is still the backstop: stems that
+genuinely play at the same time cannot be stacked invisibly by this grouping.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Utility | `Utilities/AudioStemGrouping.swift` | `AudioStemRole`, `AudioStemLabel`, `AudioStemGroup`, filename reading and batch grouping |
+| Utility | `Utilities/TimecodelessImportReport.swift` | Title, name cap and message for the held-back-files alert |
+| Tests | `ProjectorTests/AudioStemGroupingTests.swift` | Name reading, aliases, noise, grouping, reel ordering |
+| Tests | `ProjectorTests/TimecodelessImportReportTests.swift` | Truncation, singular/plural, what the message must say |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `ContentView+Timeline.swift` | `handleMixedBatchDrop` | Lane reservation loop now iterates stem groups, not files |
+| `ContentView+Timeline.swift` | `holdBackFilesWithoutTimecode` | New. Partitions the drop, imports the held-back files to Media, raises the alert |
+| `AlertCoordinator.swift` | `AlertType.timecodelessNotPlaced` | New report-only alert case |
+
+#### Dependencies
+- Depends on: Multi-Track Timeline, Media Import Coordination
+- Depended by: none
+
+---
+
 ### No Output ("None") on a Lane
 
 **Status**: Active

@@ -1,10 +1,196 @@
 # Session State
 
-> **Last Updated**: 2026-08-11
-> **Status**: ACTIVE — beach-ball causes fixed and measured, awaiting user runtime verification
+> **Last Updated**: 2026-08-12
+> **Status**: ACTIVE — stem lanes on batch import built and unit-tested, awaiting user runtime verification
 > **Branch**: main
 
 ---
+
+## In progress — a reel delivery made one lane per file
+
+**Report**: dropping a whole folder of reels at once created a new audio lane
+for every audio file. The names carry a consistent stem suffix (`_DX_FX`,
+`_MX`), so files sharing a stem should share a lane — ten lanes of one clip
+each is not what two stems cut into five reels look like.
+
+**Measured, and it changed the diagnosis.** The delivery this was reported
+against carries **no timecode at all**: probed all fifteen files — no `tmcd`
+track in any of the five pictures, no `bext` chunk in any of the ten stems (bare
+`RIFF`/`fmt `/`data`). That is what makes the second half below the real bug.
+
+**Built** (uncommitted):
+
+- `Projector/Utilities/AudioStemGrouping.swift` (new) — reads the stem from the
+  *end* of a filename: tokens are taken from the end while they are a known role
+  (`DX`, `MX`, `FX`, `M&E`, `VO`, `FOLEY`, … plus longer spellings) or trailing
+  noise (reel numbers, `STEM`, channel layouts, `v2`), stopping at the first
+  token that is neither. The end is the part a delivery keeps constant — the
+  reel number varies and so can the descriptive middle, but the stem suffix
+  does not. `groups(for:)` returns one group per stem, files inside it ordered
+  the way the Finder orders them (reel 2 before reel 10).
+- `Views/ContentView+Timeline.swift` — `handleMixedBatchDrop` reserves one lane
+  per **group** instead of one per file. The lane takes the stem's name (`DX FX`,
+  `MX`) only when the group holds more than one file; a lone file keeps the
+  filename-based name it always had. Files with no stem still get a lane each.
+- `ProjectorTests/AudioStemGroupingTests.swift` (new) — 16 tests, neutral
+  fixtures reproducing the delivery's *shape* (varying reel number, varying
+  middle, constant suffix), including the stray double space and the reel whose
+  middle names an end-title song.
+
+### CORRECTION: this delivery does carry timecode, everywhere
+
+An earlier entry in this session said it carried none. **That was a bad
+measurement** and it was stated as fact twice. The probe read only the first 4 KB
+of each WAV looking for `bext`; in these files the chunk order is
+`fmt ` / `data` / `LIST` / **`bext`** / `iXML` / `_PMX`, so `bext` sits *after* a
+304 MB data chunk at byte 318,528,144. Scan the whole file, or just ask ffprobe
+for `format_tags`, which reports `time_reference` directly.
+
+**What is actually there** (measured, and confirmed against the app's own log):
+
+| Reel | Stem `bext` | Picture `©TIM` |
+|---|---|---|
+| 1 | 01:00:00:00 | 01:00:00:00 |
+| 2 | 02:00:00:00 | 01:00:00:00 |
+| 3 | 03:00:00:00 | 01:00:00:00 |
+| 4 | 04:00:00:00 | 01:00:00:00 |
+| 5 | 05:00:00:00 | 05:00:00:00 |
+
+Stems are reel-hour stamped. **Pictures are not** - reels 1-4 all claim hour one.
+Only reels 1 and 5 have picture and stems agreeing. That is an upstream defect,
+not something the app can resolve.
+
+The picture timecode lives in a QuickTime user-data atom, `©TIM` = the ASCII
+string, with `©TSC` = "24" beside it. AVFoundation surfaces it as
+`uiso/0X0P+09TIM`, 15 bytes: a 4-byte header (`00 0b 00 00`) then the 11
+characters. `parseTimecodeString` reads the *frames* correctly but stores
+`formattedTimecode: value` - the raw payload, leading NULs and all - so every log
+line reads `Found timecode in QT metadata: ` and looks like a failure. **It is
+not a failure.** Left alone for now; worth cleaning up, since the string is what
+any UI would show.
+
+### FIXED: a reel could be slid on top of another and vanish
+
+`findNonOverlappingPosition` computed `proposedEnd` **once**, from the original
+start, and never recomputed it after moving the reel. Second and later
+neighbours were therefore tested against a reel that was no longer there.
+
+Traced exactly, against the log and the durations:
+
+| Reel | Asked for | Old rule | Fixed |
+|---|---|---|---|
+| 1 | 240 | 240 | 240 |
+| 2 | 240 | 26783 | 26783 |
+| 3 | 240 | 51707 | 51707 |
+| 4 | 240 | **26783 - on top of reel 2** | 84911 |
+| 5 | 345840 | 345840 | 345840 |
+
+Reel 4 was invisible: the video track drew reel 2 over it, and the *only* sign it
+had imported at all was a second picture-audio lane holding its embedded audio,
+because `prepareAudioLanesForAllTracks` found lane 0 occupied at those frames.
+That duplicate lane is what the user reported as "we still should not be creating
+multiple lanes" - the duplicate was a symptom, the hidden reel was the cause.
+
+**Fix**: rule extracted to `ReelPlacement.firstFreeStart(preferredStart:
+durationFrames:occupied:)` in `Models/Timeline/Timeline.swift`, recomputing the
+end from the current start each iteration. One ascending pass is provably enough
+because the start only moves forward. 7 tests in
+`ProjectorTests/ReelPlacementTests.swift`, including the four-reels-one-timecode
+case with the old wrong answer written down.
+
+**Still open, needs a decision**: the slide is *silent*. A picture track laid out
+by sliding looks like a normal contiguous assembly while no reel except 1 and 5
+is where its timecode says. Consistency with the audio rule argues for holding a
+colliding reel back and naming it instead of sliding it.
+
+### Grouping alone did not fix it — placement undid it
+
+The lane explosion is a **placement** bug wearing a lane-naming costume, and the
+first pass above would have shipped without fixing the report.
+
+`handleMixedBatchDrop` resolved every audio file with
+`placementFrame(metadata:dropFrame: atFrame)` — one constant frame for the whole
+batch. With no timecode in the delivery, all five `_DX_FX` files asked for the
+same frames of the same lane, and `addAudioToTimelineAvoidingOverlap` spills an
+overlapping file onto a lane of its own. Five files, four spills, one lane each,
+named after the file. Same for `_MX`. Ten lanes again.
+
+### The answer is not a better guess — it is to stop guessing
+
+Two placement policies were offered and both were declined, correctly. Reel-to-
+picture anchoring was too much inference. Laying each lane end to end fixes the
+lane count and leaves the content wrong: in the reported delivery the `_MX` files
+are shorter than their reels (990.9s of music against 1106.0s of picture on reel
+1), so `MX` reel 2 lands about two minutes ahead of picture. A timeline that
+looks finished and is quietly two minutes out is worse than one that says it does
+not know.
+
+**The user's call, and it is the right one**: place anything that carries
+timecode, hold back anything that does not, and list what was held.
+
+**Built**:
+
+- `Projector/Utilities/TimecodelessImportReport.swift` (new) — the alert's title
+  and message. `title` is deliberately **"Not Placed"**, not "Nothing Placed":
+  the hold-back is per file, so a drop can place some and hold others. Names are
+  capped at `maxListedNames` (10) with "…and N more", because a delivery can run
+  to dozens of files and an alert taller than the screen cannot be dismissed.
+  Singular and plural are both written out.
+- `Coordinators/AlertCoordinator.swift` — `timecodelessNotPlaced(names:)`,
+  report-only with one OK button, alongside `batchFrameRateMismatch` which it is
+  modelled on. There is no answer the user could give that Projector could act
+  on: the file genuinely does not say where it belongs.
+- `Views/ContentView+Timeline.swift` — `holdBackFilesWithoutTimecode(videoURLs:
+  audioURLs:)` partitions the drop, imports the held-back files with
+  `mediaLibrary.importFile(from:)` (the same call placement makes, so they are
+  findable in the panel) and raises the alert. `handleMixedBatchDrop` runs it
+  before reserving any lane, so a drop that can place nothing creates nothing.
+- `ProjectorTests/TimecodelessImportReportTests.swift` (new) — 7 tests.
+
+**Two boundaries that are load-bearing:**
+
+1. **`handleMixedBatchDrop` only.** That handler is the one that *invents*
+   destinations — a lane per stem for audio, a running position for reels — so it
+   is the one with nothing to go on. `handleAudioDropOnTimeline` names a lane and
+   a frame; that is an instruction and is still honoured. Dropping onto empty
+   timeline area therefore behaves differently from dropping onto a lane, which
+   is intended: one is a guess, the other is an aim.
+2. **Filename timecode counts for video, not for audio.** It counts for video
+   because `addVideoFilesSequentially` places by it. No audio path reads one, so
+   counting it for audio would let a file through only to be placed at the drop
+   position after all — the exact bug this removes.
+
+The per-lane sequential cursor written earlier in this session was **removed**.
+With the hold-back in front of it, every file reaching placement carries
+timecode, so `dropFrame` is unreachable there and the cursor was dead code. This
+repo has been burned by unreachable code before (`handleEmptyAudioDrop`).
+
+**Known and deliberately not fixed**: a delivery that stamps *every* reel
+01:00:00:00 — a real convention — will still spill, because five clips genuinely
+claiming the same hour cannot share a lane without lying about one of them. The
+spill is the honest answer there.
+
+**Verified**: `** BUILD SUCCEEDED **`; `** TEST SUCCEEDED **`, zero failures
+across the suite (16 stem-grouping tests + 7 report tests).
+
+**Not verified at runtime, and the harness could not do it.** Neutral fixtures
+were generated at `~/Movies/ProjectorStemDrop` (5 reels x picture + `_Dx_Fx` +
+`_Mx`, no timecode, deliberately mismatched durations) and the Debug build was
+launched with `-ui-testing -test-drop-urls` over all fifteen. **The app never
+creates a window** — four lines of log ending at `setupMenus`, no crash, no
+diagnostic report, `CGWindowListCopyWindowInfo` showing only menu-bar windows —
+whether launched directly or through `open -n -a`. The screen was *not* locked
+this time (`kCGSSessionOnConsoleKey` true), so the standing "a locked screen
+creates no window" note does not explain it and the harness should be treated as
+unreliable until someone works out why.
+
+**To verify at runtime**, dropping the 15-file reel folder in one go:
+— a **Not Placed** alert naming all fifteen (ten listed, "…and 5 more")
+— nothing added to the timeline: no video reels, no audio lanes, no empty lanes
+— all fifteen files present in the Media panel
+— then drag one stem from Media onto a lane: it lands where dropped, as before
+— and on a delivery that *does* carry timecode, that everything still places, on
+  one lane per stem
 
 ## In progress — beach ball on a batch import
 

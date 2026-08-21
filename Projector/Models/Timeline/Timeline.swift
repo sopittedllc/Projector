@@ -368,3 +368,48 @@ struct LaneReorder: Equatable {
         return max(0, min(source + Int(movedRows), laneCount - 1))
     }
 }
+
+/// Where a reel can start without covering one already on the video track.
+///
+/// Extracted as a value type because the arithmetic is a few frames wide and
+/// cannot be judged by eye: a reel slid on top of another is *invisible* - the
+/// track shows the reel underneath and the covered one leaves no mark except,
+/// if it happens to carry audio, an extra lane nobody asked for.
+enum ReelPlacement {
+
+    /// The first frame at or after `preferredStart` where the whole reel fits.
+    ///
+    /// Reels are only ever moved **later**, never earlier: the preferred start
+    /// is what the file's timecode asked for, and answering with something
+    /// earlier would be a worse lie than answering with something later.
+    ///
+    /// - Parameters:
+    ///   - preferredStart: Where the reel's timecode puts it.
+    ///   - durationFrames: The reel's length.
+    ///   - occupied: Half-open frame ranges already taken, in any order.
+    /// - Returns: `preferredStart` when it is free, otherwise the end of the
+    ///   last range blocking it.
+    static func firstFreeStart(
+        preferredStart: Int,
+        durationFrames: Int,
+        occupied: [Range<Int>]
+    ) -> Int {
+        var start = preferredStart
+
+        // Ascending, so one pass is enough: `start` only ever moves forward, so
+        // a range already passed can never block it again.
+        for range in occupied.sorted(by: { $0.lowerBound < $1.lowerBound }) {
+            // The end is recomputed from the *current* start every time. Taking
+            // it once from `preferredStart` - which is what this did - tests the
+            // second and later ranges against a reel that is no longer there,
+            // and a reel slid past one neighbour was then declared clear of the
+            // next. That is how a reel came to sit exactly on top of another.
+            let end = start + durationFrames
+            if start < range.upperBound && end > range.lowerBound {
+                start = range.upperBound
+            }
+        }
+
+        return start
+    }
+}
