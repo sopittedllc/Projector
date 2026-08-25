@@ -138,6 +138,40 @@ struct Timeline: Codable, Equatable, Sendable {
         return result
     }
 
+    /// Every clip under the playhead, whatever the mix says about it.
+    ///
+    /// The companion to ``activeAudioClips(at:)``: the same clips, without the
+    /// mute, solo and routing filtering. Playback has to answer the two
+    /// questions separately - which clips to keep *loaded* is a matter of time,
+    /// while whether they are *heard* is a matter of gain - because tearing a
+    /// player down when a lane is muted means rebuilding it from disk to undo.
+    func audioClipsAtPlayhead(at frame: Int) -> [(lane: AudioLane, clip: AudioClip)] {
+        var result: [(lane: AudioLane, clip: AudioClip)] = []
+
+        for lane in audioLanes {
+            for clip in lane.activeClips(at: frame) {
+                result.append((lane: lane, clip: clip))
+            }
+        }
+
+        return result
+    }
+
+    /// Whether `lane` is heard, given what else on the timeline is soloed.
+    ///
+    /// Solo is a property of the timeline rather than of the lane: one lane
+    /// soloed silences every lane that is not, so a lane cannot answer this
+    /// about itself.
+    ///
+    /// - Parameter lane: The lane to test.
+    /// - Returns: `false` if the lane is muted, routed to None, or silenced by
+    ///   another lane's solo.
+    func isLaneAudible(_ lane: AudioLane) -> Bool {
+        if lane.isMuted || lane.isOutputDisabled { return false }
+        let hasSolo = audioLanes.contains { $0.isSolo }
+        return !hasSolo || lane.isSolo
+    }
+
     /// Get all audio clips across all lanes
     var allAudioClips: [AudioClip] {
         audioLanes.flatMap { $0.clips }

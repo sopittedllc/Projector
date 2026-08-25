@@ -1,8 +1,144 @@
 # Session State
 
-> **Last Updated**: 2026-08-12
-> **Status**: ACTIVE — stem lanes on batch import built and unit-tested, awaiting user runtime verification
+> **Last Updated**: 2026-08-24
+> **Status**: ACTIVE — Solo/Mute hit-target and stuck grab cursor fixed, uncommitted, app running for user verification
 > **Branch**: main
+
+---
+
+## In progress — Solo lagged, and the grab cursor stayed after letting go
+
+**Report**: "strange lag when trying to use the Solo buttons", and "hanging use
+of the grab cursor even after I unpress the solo button".
+
+**One cause for both.** Each standalone audio lane has an invisible reorder
+handle over its header — `Color.white.opacity(0.001)`, `height: 40`, carrying
+`.highPriorityGesture(longPress(0.15s) → drag)`
+(`MultiTrackTimelineView.swift`, the lane `ForEach`). It is opaque to hit
+testing: nothing under it ever sees a click. But the header's content is 75pt
+centred in an 80pt row — 8 padding, 15 name, 4, 18 controls, 4, 18 picker, 8 —
+so the M/S toggles sit at roughly y 30-48 and the 40pt handle covered their top
+half.
+
+- The lag is misses. Only a ~8pt sliver at the bottom of Solo reached the
+  button, so it took two or three tries. `toggleLaneSolo` is three lines and is
+  not slow.
+- The stuck cursor is an unbalanced `NSCursor` stack. A deliberate click easily
+  exceeds the 0.15s long press, so pressing Solo *armed the reorder* and pushed
+  `closedHand`. The matching `pop()` lived only in the gesture's `onEnded`, and
+  an interrupted sequenced gesture never ends — it stops. Push, no pop.
+
+**Fixed** (uncommitted, builds clean):
+
+- `Utilities/LayoutConstants.swift` — `laneNameRowHeight` (15) and
+  `laneDragHandleHeight` (`Spacing.sm + laneNameRowHeight` = 23) replace the
+  magic `40`, derived from the same padding and name row the header uses so the
+  handle cannot creep back over the controls.
+- `Views/Timeline/MultiTrackTimelineView.swift` — the handle uses that
+  constant; new `LaneDragCursor` owns the push/pop. `grab()` installs a
+  `.leftMouseUp` local monitor beside the push, so the cursor is restored on
+  mouse-up whether or not the gesture is still alive. Both calls are
+  idempotent, so gesture-end and monitor cannot double-pop. Replaces the
+  `laneReorderCursorPushed` flag.
+
+### Then: Solo was heard ~2s after it was pressed
+
+**Report**, once the hit target was fixed: "about a 2 second lag between when
+the button is pressed and when the results are heard."
+
+**Cause.** The toggle reaches `PlaybackEngine` immediately — `toggleLaneSolo` →
+`timeline` didSet → `markDirty` → `onTimelineChanged` → `engine.timeline = …`,
+all synchronous. But `updateTimelineProperties()` did not reconcile audio, and
+the only thing that did was the throttle in `handleTimeUpdate`:
+
+```swift
+if framesSinceLastSync >= 30 || isSignificantJump || lastAudioSyncFrame < 0 {
+```
+
+Solo is applied by `Timeline.activeAudioClips(at:)`, which `syncAudioClips()`
+calls, so the new state sat in the engine until the throttle came round — 30
+frames, 1.25s at 24fps, and the observer's own granularity on top.
+
+The throttle itself is correct: `handleTimeUpdate` runs at frame rate and
+rebuilding players on every tick stutters playback. It is right for playback
+advancing and wrong for a button press.
+
+**Fixed in two parts** (uncommitted, builds clean).
+
+**1. The mixer no longer waits for the throttle.**
+`Managers/PlaybackEngine.swift` — a new `MixState` value digests everything that
+decides how the loaded clips *sound*: per lane id, `isMuted`, `isSolo`,
+`isOutputDisabled`, `volume`, `outputMappingId`, channel offset and count; per
+clip id, `isMuted`, `volume`. `updateTimelineProperties()` compares it against
+the previous one and calls the new `applyMixToLoadedPlayers()` when it differs.
+
+Done at the single funnel every mutation already passes through
+(`onTimelineChanged` → `engine.timeline = …`) rather than at the M/S call sites,
+so `disableLaneOutput`, `setLaneMuted`, per-clip mute and anything added later
+are covered without being remembered. Positions, lane order and timeline length
+are deliberately **out** of the digest — those change which clips are *loaded*,
+which is the periodic sync's job, and folding them in would re-walk the graph on
+every clip drag.
+
+**2. Silence is now zero gain, not a torn-down player.**
+This was the asymmetry flagged below, and it was real by inspection:
+`syncAudioClips()` built its player set from `activeAudioClips(at:)`, which
+already filters by mute/solo/route-to-None. So muting *removed* the clip from
+the set → `removeAudioPlayback` → `audioEngine.detach` on the player, the rate
+converter and the matrix mixer. Unmuting had to `loadAudioClip` again: an async
+file read and a rebuild of all three nodes. Silencing was instant; un-silencing
+paid a reload.
+
+The two questions were conflated in one query. They are now separate:
+
+- `Models/Timeline/Timeline.swift` — new `audioClipsAtPlayhead(at:)` (same
+  clips, no mix filtering) and `isLaneAudible(_:)` (mute, route-to-None, and
+  solo, which is a property of the *timeline* — one lane soloed silences the
+  rest, so a lane cannot answer it about itself). `activeAudioClips(at:)` is
+  untouched and still means "what is sounding" for `TimelineManager` and the
+  clip highlight in `MultiTrackTimelineView`.
+- `PlaybackEngine` — the player set follows the playhead only. New
+  `playbackGain(for:lane:)` returns 0 for a silenced clip or lane and
+  `clip.volume * lane.volume` otherwise; it replaced all three sites that
+  assigned `player.volume` directly. A silenced player stays loaded and keeps
+  its scheduled position, so restoring gain is heard on the next buffer.
+
+`applyMixToLoadedPlayers()` reschedules nothing and does no drift arithmetic —
+it walks loaded players, applies routing and sets gain — so it is cheap enough
+to run on every mixer change, including a dragged fader.
+
+**Trade-off accepted**: muted and routed-to-None lanes now load and decode like
+any other. That is what a mixer does, but it means a session with many silenced
+lanes uses more CPU and memory than before. Worth watching on a heavy delivery.
+
+---
+
+**Awaiting user runtime verification** — S and M toggle first time anywhere on
+the button; cursor returns to arrow on release; long-press-and-drag still
+reorders lanes; drag released mid-move and outside the timeline both restore
+the cursor; right-click on a lane name still opens the delete menu.
+
+**Noticed, not touched** (outside the ask): the handle also covers the lane
+name, and double-click-to-rename is wired to the name text *underneath* it. It
+may have been dead since the handle shipped. Worth a double-click during the
+pass above.
+
+### Relaunching for verification
+
+The running copy does not pick up a rebuild, and `open` on an already-running
+app just *activates the old instance* rather than launching the new binary. So
+the loop is kill-then-open, not open:
+
+```bash
+xcodebuild -project Projector.xcodeproj -scheme Projector -configuration Debug build
+pkill -x Projector
+open -a ~/Library/Developer/Xcode/DerivedData/Projector-fydbxewmlbvirkgtjlmfuiogvhys/Build/Products/Debug/Projector.app
+```
+
+This is the Debug build, **not** `/Applications/Projector.app`. Opening
+Projector from the Dock or Finder runs the old shipped copy and tests nothing —
+see the note on verifying against the installed build for the flows where the
+reverse is true.
 
 ---
 

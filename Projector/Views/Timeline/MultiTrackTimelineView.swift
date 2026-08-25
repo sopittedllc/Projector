@@ -70,6 +70,46 @@ private struct ScrollViewCaptureHelper: NSViewRepresentable {
     }
 }
 
+/// Owns the closed-hand cursor shown while a lane header is held for reordering.
+///
+/// `NSCursor.push()` and `NSCursor.pop()` are a stack, so a push that is never
+/// popped leaves the closed hand over every control in the window until some
+/// unrelated code happens to pop it. The gesture's `onEnded` is not a reliable
+/// place to do that on its own: a sequenced gesture can be interrupted - the
+/// press lands on something that takes the mouse-up, the row it is attached to
+/// is rebuilt mid-press - and an interrupted gesture never ends, it just stops.
+/// That is the grab cursor that hangs around after the button has been let go.
+///
+/// So the push also installs a mouse-up monitor. Releasing the button restores
+/// the cursor whether or not the gesture that asked for it is still alive, and
+/// both calls below are idempotent, so the gesture ending and the monitor
+/// firing cannot pop twice between them.
+@MainActor
+final class LaneDragCursor {
+
+    /// Non-nil exactly while a cursor of ours is on the stack.
+    private var mouseUpMonitor: Any?
+
+    /// Show the closed hand, unless it is already showing.
+    func grab() {
+        guard mouseUpMonitor == nil else { return }
+        NSCursor.closedHand.push()
+        mouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] event in
+            // Local monitors are delivered on the main thread.
+            MainActor.assumeIsolated { self?.release() }
+            return event
+        }
+    }
+
+    /// Restore whatever cursor was showing before ``grab()``.
+    func release() {
+        guard let monitor = mouseUpMonitor else { return }
+        mouseUpMonitor = nil
+        NSEvent.removeMonitor(monitor)
+        NSCursor.pop()
+    }
+}
+
 /// Multi-track timeline view with video reels and audio lanes
 struct MultiTrackTimelineView: View {
     @ObservedObject var timelineManager: TimelineManager
@@ -151,7 +191,7 @@ struct MultiTrackTimelineView: View {
     @State private var draggingLaneSourceIndex: Int?
     @State private var draggingLaneOffset: CGFloat = 0
     @State private var laneReorderTargetIndex: Int?
-    @State private var laneReorderCursorPushed = false
+    @State private var laneDragCursor = LaneDragCursor()
 
     // Unified multi-file drop state
     @State private var isMultiFileDropTargeted = false
@@ -1277,11 +1317,17 @@ struct MultiTrackTimelineView: View {
                                     selectedClipIds: selectedAudioClipIds
                                 )
                                 .frame(width: totalContentWidth, height: TimelineLayout.audioLaneHeight)
-                                // Drag handle covers header except controls row at bottom
-                                // Full header width, top portion only (lane name row)
+                                // Drag handle over the lane name only. It is an
+                                // opaque overlay - anything it covers cannot be
+                                // clicked at all - so its height stops above the
+                                // M/S row rather than being eyeballed. See
+                                // `laneDragHandleHeight`.
                                 .overlay(alignment: .topLeading) {
                                     Color.white.opacity(0.001)
-                                        .frame(width: TimelineLayout.headerWidth, height: 40)
+                                        .frame(
+                                            width: TimelineLayout.headerWidth,
+                                            height: TimelineLayout.laneDragHandleHeight
+                                        )
                                         .contentShape(Rectangle())
                                         .allowsHitTesting(true)
                                         // This invisible handle lies over the lane
@@ -2883,10 +2929,7 @@ struct MultiTrackTimelineView: View {
                 switch value {
                 case .first(true):
                     // Long press started - immediately show closed hand cursor
-                    if !laneReorderCursorPushed {
-                        NSCursor.closedHand.push()
-                        laneReorderCursorPushed = true
-                    }
+                    laneDragCursor.grab()
                 case .second(true, let drag):
                     guard let drag = drag else { return }
                     if draggingLaneId == nil {
@@ -2903,11 +2946,7 @@ struct MultiTrackTimelineView: View {
                 }
             }
             .onEnded { value in
-                // Pop the closed hand cursor
-                if laneReorderCursorPushed {
-                    NSCursor.pop()
-                    laneReorderCursorPushed = false
-                }
+                laneDragCursor.release()
                 if case .second(true, _) = value,
                    let targetIndex = laneReorderTargetIndex,
                    targetIndex != laneIndex {

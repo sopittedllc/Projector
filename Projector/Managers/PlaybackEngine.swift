@@ -1205,7 +1205,7 @@ final class PlaybackEngine: ObservableObject {
 
     /// Start playing active audio clips at current position
     private func startActiveAudioClips() {
-        let activeClips = timeline.activeAudioClips(at: currentFrame)
+        let activeClips = timeline.audioClipsAtPlayhead(at: currentFrame)
         let totalClips = timeline.audioLanes.flatMap { $0.clips }.count
 
         debugPrint("startActiveAudioClips: frame=\(currentFrame), activeClips=\(activeClips.count), totalClips=\(totalClips), lanes=\(timeline.audioLanes.count)")
@@ -1325,9 +1325,14 @@ final class PlaybackEngine: ObservableObject {
     }
 
     /// Sync audio clips to current position
+    ///
+    /// The player set follows the *playhead*, not the mix. A muted or
+    /// un-soloed lane keeps its player and runs at zero gain - see
+    /// ``playbackGain(for:lane:)`` - so that unmuting is heard on the next
+    /// buffer instead of costing a reload.
     private func syncAudioClips() {
         // Get currently active clips
-        let activeClips = timeline.activeAudioClips(at: currentFrame)
+        let activeClips = timeline.audioClipsAtPlayhead(at: currentFrame)
         let activeIds = Set(activeClips.map { $0.clip.id })
 
         // Remove clips that are no longer active
@@ -1347,6 +1352,42 @@ final class PlaybackEngine: ObservableObject {
         }
     }
 
+    /// The gain a clip's player should run at, with mute and solo folded in.
+    ///
+    /// Silence is zero gain rather than a torn-down player. `removeAudioPlayback`
+    /// detaches the player, the rate converter and the matrix mixer, and
+    /// rebuilding them reads the file again on a background load - so silencing
+    /// a lane used to be instant while un-silencing it waited for that reload.
+    /// A player held at zero gain keeps its scheduled position, and restoring
+    /// the gain is heard on the next buffer.
+    ///
+    /// - Parameters:
+    ///   - clip: The clip being played.
+    ///   - lane: The lane it belongs to.
+    /// - Returns: Zero if the clip or its lane is silenced, otherwise the
+    ///   product of the two volumes.
+    private func playbackGain(for clip: AudioClip, lane: AudioLane) -> Float {
+        guard !clip.isMuted, timeline.isLaneAudible(lane) else { return 0 }
+        return clip.volume * lane.volume
+    }
+
+    /// Re-apply gain and routing to every loaded player, without rescheduling.
+    ///
+    /// The counterpart to ``syncAudioClips()`` for changes that alter how the
+    /// loaded clips sound rather than which clips are loaded. It touches no
+    /// scheduling and does no drift arithmetic, so it is cheap enough to run on
+    /// every mixer change - which is what makes pressing Solo audible now
+    /// rather than at the next throttled sync.
+    private func applyMixToLoadedPlayers() {
+        for lane in timeline.audioLanes {
+            for clip in lane.clips {
+                guard let playback = audioPlayers[clip.id] else { continue }
+                applyOutputMappingIfNeeded(playback, lane: lane)
+                playback.player.volume = playbackGain(for: clip, lane: lane)
+            }
+        }
+    }
+
     private func syncAudioPlayer(_ playback: AudioClipPlayback, for clip: AudioClip, lane: AudioLane, shouldPlay: Bool) {
         // Before the routing below, not after: matrix crosspoints written to a
         // stopped engine are discarded when it starts. Starting here means a
@@ -1357,7 +1398,7 @@ final class PlaybackEngine: ObservableObject {
             ensureAudioEngineRunning()
         }
         applyOutputMappingIfNeeded(playback, lane: lane)
-        playback.player.volume = clip.volume * lane.volume
+        playback.player.volume = playbackGain(for: clip, lane: lane)
         guard let sourceTime = clip.sourceTime(at: currentFrame, masterFrameRate: frameRate) else { return }
 
         let currentSeconds: Double? = {
@@ -1457,7 +1498,7 @@ final class PlaybackEngine: ObservableObject {
         }
 
         playback.player.stop()
-        playback.player.volume = clip.volume * lane.volume
+        playback.player.volume = playbackGain(for: clip, lane: lane)
         playback.player.scheduleSegment(file, startingFrame: startFrame, frameCount: frameCount, at: nil)
         playback.scheduledSourceTime = sourceTime
         if shouldPlay {
@@ -2554,6 +2595,61 @@ final class PlaybackEngine: ObservableObject {
         }
     }
 
+    /// How the timeline currently says its loaded clips should sound.
+    ///
+    /// Gain and routing only. Clip positions, lane order and timeline length are
+    /// deliberately absent: those change which clips are *loaded*, which is
+    /// ``syncAudioClips()``'s job on the periodic path, and folding them in here
+    /// would re-walk the audio graph on every clip drag.
+    private struct MixState: Equatable {
+
+        /// One lane's contribution, in timeline order.
+        struct LaneMix: Equatable {
+            let id: UUID
+            let isMuted: Bool
+            let isSolo: Bool
+            let isOutputDisabled: Bool
+            let volume: Float
+            let outputMappingId: UUID?
+            let outputChannelOffset: Int
+            let outputChannelCount: Int
+            let clips: [ClipMix]
+        }
+
+        /// The part of a clip that decides how loud it is.
+        struct ClipMix: Equatable {
+            let id: UUID
+            let isMuted: Bool
+            let volume: Float
+        }
+
+        let lanes: [LaneMix]
+
+        init(_ timeline: Timeline) {
+            lanes = timeline.audioLanes.map { lane in
+                LaneMix(
+                    id: lane.id,
+                    isMuted: lane.isMuted,
+                    isSolo: lane.isSolo,
+                    isOutputDisabled: lane.isOutputDisabled,
+                    volume: lane.volume,
+                    outputMappingId: lane.outputMappingId,
+                    outputChannelOffset: lane.outputChannelOffset,
+                    outputChannelCount: lane.outputChannelCount,
+                    clips: lane.clips.map {
+                        ClipMix(id: $0.id, isMuted: $0.isMuted, volume: $0.volume)
+                    }
+                )
+            }
+        }
+    }
+
+    /// The mix as of the last timeline change, so the next one can be compared.
+    ///
+    /// `nil` until the first change after `init`, which seeds it without
+    /// applying anything - there is no audio graph to walk yet.
+    private var lastMixState: MixState?
+
     /// Update timeline properties when timeline changes
     private func updateTimelineProperties() {
         durationFrames = timeline.config.durationFrames
@@ -2562,6 +2658,24 @@ final class PlaybackEngine: ObservableObject {
         isInGap = timeline.videoReel(at: currentFrame) == nil
         if isInGap && timeline.videoReels.isEmpty {
             activeReel = nil
+        }
+
+        // Mute and solo have to be heard now, not at the next scheduled sync.
+        //
+        // `handleTimeUpdate` reconciles audio every 30 frames - a deliberate
+        // throttle, because it runs at frame rate and rebuilding players on
+        // every tick stutters playback. But it was also the *only* thing that
+        // noticed a solo: the toggle reached this engine immediately and then
+        // sat here until the throttle came round, so pressing S was heard up to
+        // 30 frames - well over a second - later.
+        //
+        // The throttle is right for playback advancing and wrong for a user
+        // pressing a button, so a mixer change skips it. Applying the mix
+        // reschedules nothing, so this stays cheap even under a dragged fader.
+        let mix = MixState(timeline)
+        defer { lastMixState = mix }
+        if let lastMixState, lastMixState != mix {
+            applyMixToLoadedPlayers()
         }
 
         // Clean up asset cache for removed reels

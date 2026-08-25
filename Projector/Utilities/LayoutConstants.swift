@@ -775,6 +775,28 @@ enum TimelineLayout {
     /// Corner radius shared by lane header controls.
     static let laneControlCornerRadius: CGFloat = 4
 
+    /// Height of the lane name row at the top of a lane header.
+    ///
+    /// A single line of ``Typography/subheading`` (12pt). Named because the
+    /// reorder drag handle has to know where the name stops and the M/S row
+    /// starts, and it cannot ask the header at layout time.
+    static let laneNameRowHeight: CGFloat = 15
+
+    /// Height of the invisible handle that grabs a lane header for reordering.
+    ///
+    /// THE UPPER BOUND IS LOAD-BEARING. The handle is an opaque overlay: every
+    /// click inside it goes to the reorder gesture, and nothing underneath ever
+    /// sees one. It was a flat 40pt. A header's content - 8pt of padding, a
+    /// 15pt name, 4pt of spacing, an 18pt row of controls, 4pt, an 18pt output
+    /// picker, 8pt - comes to 75pt centred in an 80pt row, which puts the M/S
+    /// toggles at roughly 30-48pt. So the handle covered their top half: Mute
+    /// and Solo could only be hit on a sliver at the bottom, and a press that
+    /// landed above it armed a lane drag instead - closed-hand cursor and all.
+    ///
+    /// Derived from the padding and the name row rather than written out, so
+    /// changing either cannot silently push the handle back over the controls.
+    static let laneDragHandleHeight: CGFloat = Spacing.sm + laneNameRowHeight
+
     /// Width of the colour stripe identifying a lane in its header.
     ///
     /// Ties a header to its clips: the stripe uses the same colour the lane's
