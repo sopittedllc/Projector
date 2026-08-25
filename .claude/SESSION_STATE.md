@@ -1,12 +1,12 @@
 # Session State
 
 > **Last Updated**: 2026-08-24
-> **Status**: ACTIVE — Solo/Mute hit-target and stuck grab cursor fixed, uncommitted, app running for user verification
+> **Status**: IDLE — Solo work verified, committed (80a3a75) and shipped as 2026.08.25
 > **Branch**: main
 
 ---
 
-## In progress — Solo lagged, and the grab cursor stayed after letting go
+## Shipped 2026-08-25 — Solo lagged, and the grab cursor stayed after letting go
 
 **Report**: "strange lag when trying to use the Solo buttons", and "hanging use
 of the grab cursor even after I unpress the solo button".
@@ -113,32 +113,28 @@ lanes uses more CPU and memory than before. Worth watching on a heavy delivery.
 
 ---
 
-**Awaiting user runtime verification** — S and M toggle first time anywhere on
-the button; cursor returns to arrow on release; long-press-and-drag still
-reorders lanes; drag released mid-move and outside the timeline both restore
-the cursor; right-click on a lane name still opens the delete menu.
+**Verified at runtime by the user** ("working perfect"), including the one that
+mattered most: solo a lane, let it run 20-30s, unsolo, and the other lanes come
+back **in sync** — the case the old teardown-and-reload accidentally protected
+against, and the new zero-gain approach had to earn.
 
-**Noticed, not touched** (outside the ask): the handle also covers the lane
-name, and double-click-to-rename is wired to the name text *underneath* it. It
-may have been dead since the handle shipped. Worth a double-click during the
-pass above.
+**Shipped** as `2026.08.25` — commit `80a3a75`, appcast commit `a37993a`, both
+pushed. `build-release.sh` completed with exit 0 and **skipped nothing**:
+notarization Accepted for app and DMG, Gatekeeper `source=Notarized Developer
+ID`, GitHub release `v2026.08.25`, appcast published, both Drive copies
+uploaded, and `/Applications/Projector.app` replaced (now reports 2026.08.25).
 
-### Relaunching for verification
+**Worth remembering — two builds is a trap.** The first report of "still
+broken" was against `/Applications/Projector.app`, two weeks stale, launched
+*after* the Debug build and therefore the frontmost window. Nothing was wrong
+with the fix. Check `ps` for both copies before believing a "still broken"
+report.
 
-The running copy does not pick up a rebuild, and `open` on an already-running
-app just *activates the old instance* rather than launching the new binary. So
-the loop is kill-then-open, not open:
-
-```bash
-xcodebuild -project Projector.xcodeproj -scheme Projector -configuration Debug build
-pkill -x Projector
-open -a ~/Library/Developer/Xcode/DerivedData/Projector-fydbxewmlbvirkgtjlmfuiogvhys/Build/Products/Debug/Projector.app
-```
-
-This is the Debug build, **not** `/Applications/Projector.app`. Opening
-Projector from the Dock or Finder runs the old shipped copy and tests nothing —
-see the note on verifying against the installed build for the flows where the
-reverse is true.
+**Also worth remembering — `sign_update` lives in DerivedData.** The appcast
+step finds it under `SourcePackages/artifacts/sparkle/Sparkle/bin/`. DerivedData
+had been wiped that morning; the Debug rebuild re-resolved the package, so it
+was there. A wipe with no rebuild before a release would publish no appcast, and
+the script only warns.
 
 ---
 
