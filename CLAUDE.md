@@ -87,14 +87,14 @@ between steps:
 2. **Push** to the remote.
 3. **Build the DMG** — `./scripts/build-release.sh`, which signs, notarizes and
    verifies it.
-4. **Update the download links** — GitHub release (tagged `v<version>`) and the
-   Google Drive copy. Both, not either.
+4. **Update the download links** — GitHub release (tagged `v<version>`), the
+   Google Drive copy, and the Dropbox copy. All three, not one of them.
 5. **Publish the appcast** so installed copies are offered the update.
 6. **Replace `/Applications/Projector.app`** with the new build.
 
 Steps 3-6 are all `build-release.sh`; it is one command and it prints what it
 skipped. **Read that output and report anything it skipped** — a release that
-did not reach the feed, the release page or Drive is a release nobody gets, and
+did not reach the feed, the release page or a mirror is a release nobody gets, and
 the script warns rather than failing so the parts that did work are kept.
 
 Ship does not mean "commit". Committing without shipping is fine and normal;

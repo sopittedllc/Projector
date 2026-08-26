@@ -10,13 +10,14 @@
 # Usage: ./scripts/build-release.sh [version] [--no-publish] [--no-upload] [--no-install]
 #   version:      Optional version string (e.g., "1.0.0"). Defaults to the current date.
 #   --no-publish: Do not create a GitHub release.
-#   --no-upload:  Do not upload to Google Drive.
+#   --no-upload:  Do not copy to the Google Drive or Dropbox mirrors.
 #   --no-install: Do not replace /Applications/Projector.app.
 #
 # On success the DMG replaces the copy in /Applications, is attached to a GitHub
-# release tagged v<version>, and is copied to Google Drive - so the machine and
-# both links move together. The DMG itself is never committed: it is ~11MB, git
-# keeps every version forever, and `release-build/` is ignored.
+# release tagged v<version>, and is copied to both Google Drive and Dropbox - so
+# the machine and all three links move together. The DMG itself is never
+# committed: it is ~11MB, git keeps every version forever, and `release-build/`
+# is ignored.
 
 set -e
 
@@ -35,6 +36,19 @@ NOTARY_PROFILE="notary"
 DRIVE_REMOTE="gdrive"
 DRIVE_FOLDER="Projector Builds"
 INSTALL_PATH="/Applications/${APP_NAME}"
+
+# Dropbox is a synced folder on this machine, not an API: the copy is a plain
+# `cp` and the Dropbox client uploads it in the background. No OAuth, no rclone
+# remote, and nothing to re-authorise when a token expires.
+#
+# DROPBOX_SHARE_URL is the "anyone with the link" URL for the permanent copy,
+# read once from Finder (right-click Projector.dmg > Copy Dropbox Link) and
+# pasted here. It is a constant rather than something the script fetches because
+# Dropbox has no CLI to ask for it - and it never changes, for the reason given
+# at the copy step below.
+DROPBOX_ROOT="/Volumes/Samples/So Pitted Dropbox"
+DROPBOX_DIR="${DROPBOX_ROOT}/So Pitted - Team Folder/Projector Builds"
+DROPBOX_SHARE_URL=""
 
 # Arguments
 #
@@ -494,6 +508,44 @@ else
     fi
 fi
 
+# Copy to Dropbox
+#
+# The third mirror, alongside GitHub and Drive rather than instead of either:
+# each link is a separate point of failure and none of them cost anything.
+#
+# Two names again, for the same reason Drive keeps two. The versioned file is the
+# archive; `Projector.dmg` is the link worth handing out. A Dropbox share link is
+# bound to the file at that path, so writing over `Projector.dmg` keeps the link
+# alive - which holds only because `cp` truncates the existing file in place. A
+# delete-then-write would hand out a link to a file that no longer exists.
+DROPBOX_COPIED=0
+if [ "${UPLOAD}" -eq 0 ]; then
+    echo ""
+    echo "[dropbox] Skipped (--no-upload)."
+elif [ ! -d "${DROPBOX_ROOT}" ]; then
+    echo ""
+    echo "[dropbox] Skipped: '${DROPBOX_ROOT}' is not mounted."
+    echo "          Mount the volume and re-run, or copy ${DMG_FILENAME} across by hand."
+else
+    echo ""
+    echo "[dropbox] Copying to ${DROPBOX_DIR}..."
+
+    # `|| true` because `set -e` is on and a mirror must warn, never abort: the
+    # DMG is already built, signed and notarized by this point, and losing that
+    # over a folder that could not be created would be the worst trade in the
+    # script. A failed mkdir surfaces as the cp warning below instead.
+    mkdir -p "${DROPBOX_DIR}" || true
+
+    if cp "${DMG_PATH}" "${DROPBOX_DIR}/${DMG_FILENAME}" \
+       && cp "${DMG_PATH}" "${DROPBOX_DIR}/${DMG_NAME}.dmg"; then
+        DROPBOX_COPIED=1
+        echo "[dropbox] Copied. Dropbox syncs it in the background - the link is live"
+        echo "          once the client finishes uploading, not the moment this exits."
+    else
+        echo "[dropbox] WARNING: copy failed. The DMG and any other link are still good."
+    fi
+fi
+
 # Done
 echo ""
 echo "========================================"
@@ -511,11 +563,23 @@ fi
 if [ -n "${DRIVE_URL}" ]; then
     echo "Drive:        ${DRIVE_URL}"
 fi
-if [ -n "${STABLE_URL}" ] || [ -n "${DRIVE_STABLE_URL}" ]; then
+if [ "${DROPBOX_COPIED}" -eq 1 ]; then
+    echo "Dropbox:      ${DROPBOX_DIR}/${DMG_FILENAME}"
+fi
+if [ -n "${STABLE_URL}" ] || [ -n "${DRIVE_STABLE_URL}" ] \
+   || { [ "${DROPBOX_COPIED}" -eq 1 ] && [ -n "${DROPBOX_SHARE_URL}" ]; }; then
     echo ""
     echo "PERMANENT LINKS - these never change, hand these out:"
     [ -n "${STABLE_URL}" ]       && echo "  GitHub:     ${STABLE_URL}"
     [ -n "${DRIVE_STABLE_URL}" ] && echo "  Drive:      ${DRIVE_STABLE_URL}"
+    [ "${DROPBOX_COPIED}" -eq 1 ] && [ -n "${DROPBOX_SHARE_URL}" ] \
+        && echo "  Dropbox:    ${DROPBOX_SHARE_URL}"
+fi
+if [ "${DROPBOX_COPIED}" -eq 1 ] && [ -z "${DROPBOX_SHARE_URL}" ]; then
+    echo ""
+    echo "[dropbox] No share URL configured. Once Dropbox has finished syncing,"
+    echo "          right-click ${DMG_NAME}.dmg in Finder > Copy Dropbox Link, then set"
+    echo "          DROPBOX_SHARE_URL at the top of this script and in README.md."
 fi
 if [ "${APPCAST_UPDATED}" -eq 1 ]; then
     echo "Appcast:      published (installed copies will offer ${VERSION})"
