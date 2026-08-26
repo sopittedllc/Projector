@@ -179,6 +179,46 @@ final class AudioStemGroupingTests: XCTestCase {
     }
 
     /// An empty drop is not an error.
+    // MARK: - A Session Built One Turnover at a Time
+
+    /// The premise of reusing a lane across drops: two reels delivered weeks
+    /// apart, dropped separately, still name the same stem.
+    ///
+    /// Grouping within one drop was only ever half the job. A session is built
+    /// as turnovers arrive, so reel 2 lands in its own drop long after reel 1,
+    /// and each drop creating its own lanes rebuilt the staircase - three lanes
+    /// after the first turnover, six after the second. The reuse is keyed on
+    /// this equality, so it is pinned here rather than left implied.
+    func testReelsFromSeparateDropsShareAStemKey() {
+        let firstDrop = AudioStemGrouping.stem(for: url("SHOW_Reel 1_v2.0 0821 DX.wav"))
+        let secondDrop = AudioStemGrouping.stem(for: url("SHOW_Reel 2_v2.0 0821 DX.wav"))
+
+        XCTAssertEqual(firstDrop?.key, secondDrop?.key)
+        XCTAssertEqual(firstDrop?.roles, [.dialogue])
+    }
+
+    /// The version marker survives the dot that splits it into two tokens.
+    ///
+    /// `v2.0` tokenises to `V2` and `0` because `.` is a separator. Both have
+    /// to read as noise or the walk stops before reaching the role, and every
+    /// file in a `v2.0` delivery lands on a lane of its own.
+    func testAVersionWithAPointIsStillNoise() {
+        XCTAssertEqual(roles("SHOW_Reel 1_v2.0 0821 DX.wav"), [.dialogue])
+        XCTAssertEqual(roles("SHOW_Reel 1_v2.0 0821 FX.wav"), [.effects])
+        XCTAssertEqual(roles("SHOW_Reel 1_v2.0 0821 MX.wav"), [.music])
+    }
+
+    /// The three stems of one turnover stay three distinct keys.
+    ///
+    /// Reuse looks a lane up by key, so keys collapsing would put music under
+    /// dialogue - a worse outcome than the duplicate lanes it is fixing.
+    func testTheThreeStemsOfATurnoverDoNotCollide() {
+        let keys = ["DX", "FX", "MX"].map {
+            AudioStemGrouping.stem(for: url("SHOW_Reel 1_v2.0 0821 \($0).wav"))?.key
+        }
+        XCTAssertEqual(Set(keys).count, 3, "DX, FX and MX must remain three separate lanes")
+    }
+
     func testEmptyBatch() {
         XCTAssertTrue(AudioStemGrouping.groups(for: []).isEmpty)
     }

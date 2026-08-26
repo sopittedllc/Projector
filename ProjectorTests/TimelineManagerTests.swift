@@ -402,6 +402,74 @@ final class TimelineManagerTests: XCTestCase {
         )
     }
 
+    // MARK: - Dragging a Clip Between Lanes
+
+    /// A clip dragged onto another lane arrives there, and leaves the old one.
+    ///
+    /// Vertical dragging used to be gated on `sourceType == .videoTrack`, so
+    /// this - an ordinary stem being moved off the lane it imported onto - did
+    /// nothing at all.
+    func testMovingAClipToAnotherLaneLeavesTheFirst() {
+        let dx = manager.addAudioLane(name: "DX")
+        let mx = manager.addAudioLane(name: "MX")
+        let clip = Self.makeClip(startFrame: 100)
+        manager.timeline.addClip(clip, toLane: dx.id)
+
+        manager.moveAudioClipToLane(clipId: clip.id, fromLane: dx.id, toLane: mx.id)
+
+        XCTAssertTrue(manager.timeline.audioLanes[0].clips.isEmpty, "Source lane should give it up")
+        XCTAssertEqual(manager.timeline.audioLanes[1].clips.map(\.id), [clip.id])
+    }
+
+    /// A diagonal drag carries its horizontal half across with it.
+    ///
+    /// The lane change is one gesture with the timecode move, so committing the
+    /// lane while discarding the frame would slide a stem out of sync with
+    /// picture as the price of changing which lane it sits on.
+    func testMovingToAnotherLaneKeepsTheDraggedFrame() {
+        let dx = manager.addAudioLane(name: "DX")
+        let mx = manager.addAudioLane(name: "MX")
+        let clip = Self.makeClip(startFrame: 100)
+        manager.timeline.addClip(clip, toLane: dx.id)
+
+        manager.moveAudioClipToLane(clipId: clip.id, fromLane: dx.id, toLane: mx.id, at: 550)
+
+        XCTAssertEqual(manager.timeline.audioLanes[1].clips.first?.timelineStartFrame, 550)
+    }
+
+    /// Without a frame the clip keeps the timecode it had.
+    ///
+    /// This is the video-linked path: those clips are pinned to their reel
+    /// horizontally, so a lane change must not move them along the timeline.
+    func testMovingToAnotherLaneWithoutAFrameKeepsTheOldPosition() {
+        let dx = manager.addAudioLane(name: "DX")
+        let mx = manager.addAudioLane(name: "MX")
+        let clip = Self.makeClip(startFrame: 100)
+        manager.timeline.addClip(clip, toLane: dx.id)
+
+        manager.moveAudioClipToLane(clipId: clip.id, fromLane: dx.id, toLane: mx.id)
+
+        XCTAssertEqual(manager.timeline.audioLanes[1].clips.first?.timelineStartFrame, 100)
+    }
+
+    /// Overlap is judged where the clip is going, not where it came from.
+    ///
+    /// `hasOverlap` is what the drag consults before committing, so a probe at
+    /// the landing frame has to be the thing asked. Testing the old frame would
+    /// refuse moves into free space and permit moves straight onto a clip.
+    func testOverlapIsJudgedAtTheLandingFrame() {
+        let mx = manager.addAudioLane(name: "MX")
+        manager.timeline.addClip(Self.makeClip(startFrame: 500), toLane: mx.id)
+
+        var probe = Self.makeClip(startFrame: 100)
+        let target = manager.timeline.audioLanes[0]
+        XCTAssertFalse(target.hasOverlap(with: probe), "Clear at its old frame")
+
+        // 120 frames long, so 550 lands inside the 500..620 clip already there.
+        probe.timelineStartFrame = 550
+        XCTAssertTrue(target.hasOverlap(with: probe), "Occupied at the frame it is dragged to")
+    }
+
     private static func makeClip(startFrame: Int) -> AudioClip {
         AudioClip(
             sourceURL: URL(fileURLWithPath: "/tmp/stem.wav"),

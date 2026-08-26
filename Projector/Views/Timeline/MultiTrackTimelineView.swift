@@ -1271,25 +1271,34 @@ struct MultiTrackTimelineView: View {
                                         registerTimelineUndo(actionName: "Delete Lane")
                                         timelineManager.removeAudioLane(id: lane.id)
                                     },
-                                    onClipLaneChangeRequested: { clipId, laneOffset in
-                                        // Move video-linked audio clip to adjacent lane
-                                        let currentIndex = index
-                                        let targetIndex = currentIndex + laneOffset
-                                        guard targetIndex >= 0 && targetIndex < timeline.audioLanes.count else { return }
+                                    onClipLaneChangeRequested: { clipId, laneOffset, frame in
+                                        defer { laneChangePreview = nil }
+                                        guard let targetIndex = laneChangeTarget(
+                                            from: index,
+                                            offset: laneOffset
+                                        ) else { return }
                                         let targetLane = timeline.audioLanes[targetIndex]
+                                        guard var clip = lane.clips.first(where: { $0.id == clipId }) else { return }
 
-                                        // Check if clip would overlap in target lane
-                                        if let clip = lane.clips.first(where: { $0.id == clipId }) {
-                                            if !targetLane.hasOverlap(with: clip) {
-                                                timelineManager.moveAudioClipToLane(
-                                                    clipId: clipId,
-                                                    fromLane: lane.id,
-                                                    toLane: targetLane.id
-                                                )
-                                            }
-                                        }
-                                        // Clear preview after move
-                                        laneChangePreview = nil
+                                        // Overlap is judged where the clip is
+                                        // going, not where it was: a diagonal
+                                        // drag changes both lane and timecode,
+                                        // and testing the old frame would block
+                                        // a move into free space, or allow one
+                                        // straight on top of another clip.
+                                        clip.timelineStartFrame = frame
+                                        guard !targetLane.hasOverlap(with: clip) else { return }
+
+                                        // Snapshot undo: the move mutates two
+                                        // lanes, so the per-clip move undo
+                                        // cannot put it back.
+                                        registerTimelineUndo(actionName: "Move Audio Clip to Lane")
+                                        timelineManager.moveAudioClipToLane(
+                                            clipId: clipId,
+                                            fromLane: lane.id,
+                                            toLane: targetLane.id,
+                                            at: frame
+                                        )
                                     },
                                     onClipLaneChangePreview: { clip, laneOffset in
                                         guard let offset = laneOffset else {
@@ -1297,13 +1306,11 @@ struct MultiTrackTimelineView: View {
                                             laneChangePreview = nil
                                             return
                                         }
-                                        let targetIndex = index + offset
-                                        guard targetIndex >= 0 && targetIndex < timeline.audioLanes.count else {
+                                        guard let targetIndex = laneChangeTarget(from: index, offset: offset) else {
                                             laneChangePreview = nil
                                             return
                                         }
-                                        let targetLane = timeline.audioLanes[targetIndex]
-                                        let isValid = !targetLane.hasOverlap(with: clip)
+                                        let isValid = !timeline.audioLanes[targetIndex].hasOverlap(with: clip)
                                         laneChangePreview = LaneChangePreview(
                                             clipId: clip.id,
                                             timelineStartFrame: clip.timelineStartFrame,
@@ -2865,6 +2872,30 @@ struct MultiTrackTimelineView: View {
     ///   - sourceLaneIndex: Index of the lane being dragged, in `audioLanes`.
     ///   - dragOffset: How far it has been dragged vertically, in points.
     /// - Returns: The index it would be inserted at, clamped to the lane count.
+    /// The lane index a clip dragged `offset` lanes from `sourceIndex` lands on.
+    ///
+    /// Resolving this in one place keeps the drag preview and the committed
+    /// move honest with each other: a preview computed by different rules will
+    /// eventually highlight a lane the drop does not use.
+    ///
+    /// - Parameters:
+    ///   - sourceIndex: Index of the lane the clip is on now.
+    ///   - offset: Lanes crossed by the drag; positive is downward.
+    /// - Returns: The target index, or `nil` when the drag runs off either end
+    ///   of the timeline, or lands on a lane that is not a valid destination.
+    private func laneChangeTarget(from sourceIndex: Int, offset: Int) -> Int? {
+        let target = sourceIndex + offset
+        guard target != sourceIndex,
+              timeline.audioLanes.indices.contains(target) else { return nil }
+
+        // A video's audio lane is owned by its reel and moves with it, so a
+        // clip parked there would be dragged around by a reel it has nothing
+        // to do with. Refusing is better than accepting and surprising later.
+        guard !timeline.audioLanes[target].isLockedToVideo else { return nil }
+
+        return target
+    }
+
     private func calculateLaneReorderTarget(from sourceLaneIndex: Int, dragOffset: CGFloat) -> Int {
         // Indices are into `audioLanes` while the rows on screen are
         // `standaloneAudioLanes` - the video file's own audio is drawn as a strip

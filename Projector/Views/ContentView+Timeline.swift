@@ -264,22 +264,40 @@ extension ContentView {
             // a lane, and the reels sit end to end along it. Anything with no
             // stem in its name still gets a lane to itself.
             for group in AudioStemGrouping.groups(for: placeableAudioURLs) {
-                // The stem names the lane only when it actually collects
-                // several files; a lone file keeps the filename it has always
-                // been given, since there is no grouping to explain.
                 guard let firstURL = group.urls.first else { continue }
-                let name = (group.urls.count > 1 ? group.stem?.displayName : nil)
-                    ?? laneName(for: firstURL)
-                let newLane = timelineManager.addAudioLane(name: name)
-                batchCreatedLaneIds.insert(newLane.id)
-                reservedAudioLaneIds.insert(newLane.id)
+
+                // A stem the timeline already carries keeps its lane. Grouping
+                // within one drop was never the whole job: a session is built
+                // one turnover at a time, so reel 2 arrives in its own drop
+                // long after reel 1, and creating a lane per drop rebuilds the
+                // staircase this feature exists to remove - three lanes after
+                // the first reel, six after the second.
+                let lane: AudioLane
+                if let stem = group.stem, let existing = laneAlreadyCarrying(stem) {
+                    lane = existing
+                    adoptStemName(stem, forLane: existing)
+                } else {
+                    // The stem names a new lane only when it actually collects
+                    // several files; a lone file keeps the filename it has
+                    // always been given, since there is no grouping to explain.
+                    let name = (group.urls.count > 1 ? group.stem?.displayName : nil)
+                        ?? laneName(for: firstURL)
+                    lane = timelineManager.addAudioLane(name: name)
+
+                    // Only a lane this drop created may be discarded again if
+                    // everything on it collides. A reused lane is somebody
+                    // else's, already carrying clips, and deleting it would
+                    // take a previous reel down with the failed import.
+                    batchCreatedLaneIds.insert(lane.id)
+                }
+                reservedAudioLaneIds.insert(lane.id)
 
                 for url in group.urls {
                     let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil)
                     var item = BatchTimecodeItem(url: url, mediaType: .audio, detectedTimecode: result)
-                    item.targetLaneId = newLane.id
+                    item.targetLaneId = lane.id
                     allItems.append(item)
-                    debugPrint("handleMixedBatchDrop: assigned '\(url.lastPathComponent)' -> lane '\(newLane.name)' (\(newLane.id.uuidString.prefix(8))), tc=\(result?.formattedTimecode ?? "none")")
+                    debugPrint("handleMixedBatchDrop: assigned '\(url.lastPathComponent)' -> lane '\(lane.name)' (\(lane.id.uuidString.prefix(8))), tc=\(result?.formattedTimecode ?? "none")")
                 }
             }
 
@@ -1454,6 +1472,58 @@ extension ContentView {
         let size = CGSize(width: abs(display.width), height: abs(display.height))
         guard size.width > 0, size.height > 0 else { return }
         PlayerWindowController.shared.sizeToMedia(size)
+    }
+
+    // MARK: - Lanes a Stem Already Owns
+
+    /// The lane this stem is already laid out on, or `nil` when the timeline
+    /// has none.
+    ///
+    /// The lane's stem is read back from the files on it with the same parser
+    /// that grouped the drop, rather than from the lane's name. Names cannot
+    /// answer this: a lane holding one file is named after that file, so the
+    /// `DX` lane in a session built one reel at a time is called
+    /// `Show_R1_v2_DX` and matching on the name would never find it.
+    ///
+    /// - Parameter stem: The stem the incoming group declares.
+    /// - Returns: The lane to place onto, or `nil` to create one.
+    func laneAlreadyCarrying(_ stem: AudioStemLabel) -> AudioLane? {
+        timelineManager.timeline.audioLanes.first { lane in
+            // A video's own audio lane belongs to its reel and moves with it.
+            // Dropping a stem onto it would hand the reel clips it does not own.
+            guard !lane.isLockedToVideo, !lane.clips.isEmpty else { return false }
+
+            // Every clip must agree. A lane holding a mixture says nothing
+            // reliable about which stem it is, and guessing there would put a
+            // music reel under dialogue - worse than an extra lane.
+            let keys = Set(lane.clips.compactMap { AudioStemGrouping.stem(for: $0.sourceURL)?.key })
+            return keys.count == 1 && keys.first == stem.key
+        }
+    }
+
+    /// Renames a reused lane after its stem, once the stem collects more than
+    /// one file.
+    ///
+    /// This is the same rule a fresh multi-file group follows, applied a drop
+    /// late: the lane was named after its only file when that was all it had,
+    /// and a lane called `Show_R1_v2_DX` holding reels 1 through 5 describes
+    /// itself wrongly.
+    ///
+    /// Skipped unless the current name is one this code generated - a filename
+    /// of a clip on the lane, or an `Audio N` placeholder - so a lane the user
+    /// named by hand is never renamed underneath them.
+    ///
+    /// - Parameters:
+    ///   - stem: The stem the lane carries.
+    ///   - lane: The lane being reused.
+    func adoptStemName(_ stem: AudioStemLabel, forLane lane: AudioLane) {
+        let stemName = stem.displayName
+        guard lane.name != stemName else { return }
+
+        let autoNames = Set(lane.clips.map { laneName(for: $0.sourceURL) })
+        guard autoNames.contains(lane.name) || isGenericLaneName(lane.name) else { return }
+
+        timelineManager.renameAudioLane(id: lane.id, name: stemName)
     }
 
     func laneName(for url: URL) -> String {

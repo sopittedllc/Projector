@@ -69,9 +69,19 @@ struct AudioLaneView: View {
     /// is already at the type-checker's limit, and every track needs the same
     /// value from the same scroll view.
     @Environment(\.timelineHeaderScrollOffset) private var headerScrollOffset
-    /// Called when a video-linked clip is dragged vertically to change lanes
-    /// Parameters: clipId, laneOffset (+1 = next lane down, -1 = previous lane up)
-    let onClipLaneChangeRequested: ((UUID, Int) -> Void)?
+    /// Called when a clip is dragged vertically onto a different lane.
+    ///
+    /// - Parameters:
+    ///   - clipId: The clip being moved.
+    ///   - laneOffset: Lanes crossed; positive is downward. Not limited to
+    ///     &#177;1 - a drag across four lanes reports 4, because landing one lane
+    ///     down from where it was released reads as the app ignoring the drag.
+    ///   - frame: Where the clip should start once it lands. A drag is
+    ///     diagonal as often as not, and dropping the horizontal half of it
+    ///     would slide a stem out of sync with picture to change its lane.
+    ///     Video-linked clips report their existing frame, since those stay
+    ///     locked to their reel.
+    let onClipLaneChangeRequested: ((_ clipId: UUID, _ laneOffset: Int, _ frame: Int) -> Void)?
     /// Called during vertical drag to show preview in target lane
     /// Parameters: clip, targetLaneOffset (nil to clear preview)
     let onClipLaneChangePreview: ((AudioClip, Int?) -> Void)?
@@ -442,59 +452,48 @@ struct AudioLaneView: View {
                             onClipSelected(clip.id, SelectionModifiers.current)
                         }
 
-                        // Track vertical offset for lane changes
                         dragVerticalOffset = value.translation.height
 
-                        // For video-linked clips, lock horizontal position but allow vertical lane changes
+                        // A video-linked clip is pinned to its reel horizontally;
+                        // everything else follows the pointer on both axes.
                         if clip.sourceType == .videoTrack {
-                            // Don't allow horizontal movement - clip is locked to video
                             dragOffsetFrames = 0
-
-                            // Show preview in target lane when crossing threshold
-                            let laneChangeThreshold: CGFloat = TimelineLayout.audioLaneHeight / 2
-                            if abs(dragVerticalOffset) > laneChangeThreshold {
-                                let laneOffset = dragVerticalOffset > 0 ? 1 : -1
-                                onClipLaneChangePreview?(clip, laneOffset)
-                            } else {
-                                onClipLaneChangePreview?(clip, nil)
-                            }
                         } else {
-                            // Regular clips can move horizontally
-                            let deltaFrames = Int(round(value.translation.width / max(pixelsPerFrame, 0.001)))
-                            dragOffsetFrames = deltaFrames
+                            dragOffsetFrames = Int(round(value.translation.width / max(pixelsPerFrame, 0.001)))
                         }
 
-                        let desired = dragStartFrame + dragOffsetFrames
-                        let allowedRange = allowedFrameRange(for: clip)
-                        let previewFrame = min(max(desired, allowedRange.lowerBound), allowedRange.upperBound)
+                        // Every clip previews its lane change, not just the
+                        // video-linked ones. The lane change used to be gated on
+                        // `sourceType == .videoTrack`, which left the ordinary
+                        // case - dragging a stem off the lane it landed on -
+                        // with no vertical behaviour at all.
+                        let crossed = laneOffset(forVerticalDrag: dragVerticalOffset)
+                        onClipLaneChangePreview?(clip, crossed == 0 ? nil : crossed)
+
+                        // Only the linked preview is drawn from a callback.
+                        // A regular clip already follows the drag through
+                        // `clipOffset(for:)`, and previewing it here would draw
+                        // it twice.
                         if clip.sourceType == .videoTrack {
-                            onClipDragPreview(clip, previewFrame)
+                            onClipDragPreview(clip, draggedFrame(for: clip))
                         }
                     }
                     .onEnded { _ in
                         guard draggingClipId == clip.id else { return }
 
-                        // Check for vertical lane change (threshold: half a lane height)
-                        let laneChangeThreshold: CGFloat = TimelineLayout.audioLaneHeight / 2
-                        let verticalOffset = dragVerticalOffset
+                        let crossed = laneOffset(forVerticalDrag: dragVerticalOffset)
+                        let landing = draggedFrame(for: clip)
 
-                        if clip.sourceType == .videoTrack && abs(verticalOffset) > laneChangeThreshold {
-                            // Video-linked clip dragged vertically - request lane change
-                            let laneOffset = verticalOffset > 0 ? 1 : -1
-                            onClipLaneChangeRequested?(clip.id, laneOffset)
-                            onClipDragPreview(clip, nil)
-                            onClipLaneChangePreview?(clip, nil)  // Clear lane change preview
+                        if crossed != 0 {
+                            // The lane change carries the horizontal move with
+                            // it, so a diagonal drag lands where it was let go
+                            // rather than snapping back to its old timecode.
+                            onClipLaneChangeRequested?(clip.id, crossed, landing)
                         } else if clip.sourceType != .videoTrack {
-                            // Regular clip - move horizontally
-                            let unclamped = dragStartFrame + dragOffsetFrames
-                            let allowedRange = allowedFrameRange(for: clip)
-                            let newFrame = min(max(unclamped, allowedRange.lowerBound), allowedRange.upperBound)
-                            onClipMove(clip.id, newFrame)
-                        } else {
-                            // Video-linked clip not moved far enough - clear preview
-                            onClipLaneChangePreview?(clip, nil)
+                            onClipMove(clip.id, landing)
                         }
 
+                        onClipLaneChangePreview?(clip, nil)
                         draggingClipId = nil
                         dragOffsetFrames = 0
                         dragVerticalOffset = 0
@@ -505,6 +504,34 @@ struct AudioLaneView: View {
                     }
             )
         }
+    }
+
+    /// How many lanes a vertical drag of `offset` points has crossed.
+    ///
+    /// Rounded against the lane pitch rather than clamped to a single step, so
+    /// dragging a clip down past four lanes moves it four lanes. `rounded()`
+    /// also gives the commit threshold for free: half a lane in either
+    /// direction is where the result stops being zero.
+    ///
+    /// - Parameter offset: Vertical drag translation, in points.
+    /// - Returns: Lanes crossed; positive is downward, `0` for a drag that has
+    ///   not travelled far enough to count.
+    private func laneOffset(forVerticalDrag offset: CGFloat) -> Int {
+        Int((offset / max(laneHeight, 1)).rounded())
+    }
+
+    /// Where the clip currently being dragged would start if released now.
+    ///
+    /// Clamped to what the clip is allowed to occupy, and identical to the
+    /// position `clipOffset(for:)` draws it at - the preview and the committed
+    /// move have to agree, or the clip jumps on release.
+    ///
+    /// - Parameter clip: The clip under the drag.
+    /// - Returns: The landing frame.
+    private func draggedFrame(for clip: AudioClip) -> Int {
+        let desired = dragStartFrame + dragOffsetFrames
+        let allowed = allowedFrameRange(for: clip)
+        return min(max(desired, allowed.lowerBound), allowed.upperBound)
     }
 
     /// The viewport's span expressed relative to this clip's leading edge.
