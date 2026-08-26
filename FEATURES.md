@@ -181,6 +181,35 @@ a plain error rather than an install that could not help.
 #### Description
 Core timeline with video track and multiple audio lanes. Supports drag-and-drop, zoom, playhead, and clip manipulation.
 
+#### Dragging a clip between lanes (fixed 2026-08-25)
+
+Vertical dragging was gated on `clip.sourceType == .videoTrack` in
+`AudioLaneView`'s clip gesture: the branch that requested a lane change ran only
+for a video's own audio, and every other clip fell into an `else` that moved it
+horizontally and dropped the vertical translation on the floor. So the ordinary
+case - dragging a stem off the lane it imported onto - did nothing at all, while
+the rarer video-linked case worked.
+
+Now every clip previews and commits a lane change, and three things came with it:
+
+- **The horizontal half of the drag is carried across.** `onClipLaneChangeRequested`
+  gained a landing frame. A drag is diagonal as often as not, and committing the
+  lane while discarding the frame would slide a stem out of sync with picture as
+  the price of moving it.
+- **Multi-lane hops.** The offset was `verticalOffset > 0 ? 1 : -1`, so a drag
+  across four lanes moved one. It is now `round(offset / laneHeight)`, which also
+  gives the half-lane commit threshold for free.
+- **Overlap is judged at the landing frame,** not the clip's old one. Testing the
+  old frame refuses moves into free space and permits moves straight onto another
+  clip.
+
+`laneChangeTarget(from:offset:)` resolves the destination for both the preview and
+the commit, so the highlighted lane is always the one the drop uses. It refuses a
+lane locked to video, for the same reason lane reuse does.
+
+The move registers a snapshot undo rather than the per-clip move undo, because it
+mutates two lanes.
+
 #### Files
 
 | Type | Path | Purpose |
@@ -219,10 +248,55 @@ Core timeline with video track and multiple audio lanes. Supports drag-and-drop,
 
 **Status**: Active
 **Added**: 2026-01-02
+**Updated**: 2026-08-26 (ports named per protocol)
+**Updated**: 2026-08-25 (lock preroll, Full Frame locates, backwards locates)
 **Updated**: 2026-03-31 (drift compensation UI)
 
 #### Description
 MIDI Time Code (MTC) and MIDI Machine Control (MMC) synchronization for external device control. Runs on dedicated actor for thread safety. Includes live drift monitoring, configurable sync thresholds, and auto-play/pause settings.
+
+#### One port per protocol (2026-08-26)
+
+There was one input, `Projector MIDI IN`, carrying both protocols, and one
+output, `Projector MIDI OUT`. A DAW asks for its MTC destination and its MMC
+destination in two different dialogs and neither says which of Projector's ports
+it wants, so setting up machine control meant reading two names that described
+direction rather than content and guessing which end of the arrow was being asked
+about.
+
+Now `Projector MTC IN`, `Projector MMC IN` and `Projector MMC OUT`. The names
+answer the DAW's dialogs.
+
+**Both inputs accept everything.** The split is a label for the operator, not a
+filter: a DAW that sends MTC and MMC down one port still works. Refusing traffic
+on the "wrong" port would turn a cosmetic improvement into a way to break a
+working session. Said explicitly in Settings, because the split invites exactly
+the opposite worry.
+
+The MTC port keeps the UID key the single port used (`ProjectorMIDIInputUID`).
+CoreMIDI routing is by unique ID, so from the DAW's side this is a rename of a
+port it is already pointed at rather than a port disappearing and a new one
+arriving. A DAW that stores routing by *name* still needs re-pointing once.
+`legacyInputName` keeps a `selectedMIDIInput` stored by an older version
+resolving to "the built-in ports" instead of being hunted for among the hardware.
+
+Verified at the CoreMIDI layer, not just in the app: `MIDIGetDestination` reports
+`Projector MTC IN` and `Projector MMC IN`, `MIDIGetSource` reports
+`Projector MMC OUT`.
+
+#### Stop stutter and start lag — investigated, unresolved (2026-08-26)
+
+Seven changes were made to the chase path on 2026-08-26 and then reverted. Each
+removed a real defect; none changed the reported symptom. The write-up is
+**`docs/incidents/2026-08-26-mtc-stop-stutter-unresolved.md`** and it is required
+reading before touching this path again.
+
+It records what was ruled out, a measurement error that invalidated the session's
+readings (`DispatchTime.rawValue` is in `mach_absolute_time` units, not
+nanoseconds), the documented architecture that should be used instead
+(`AVPlayer.setRate(_:time:atHostTime:)` scheduled from MIDIKit's `preSync`
+payload, per MIDIKit's own reference receiver), why a first implementation of it
+was inert, and the audio path that was never examined.
 
 #### Files
 
@@ -250,6 +324,9 @@ MIDI Time Code (MTC) and MIDI Machine Control (MMC) synchronization for external
 |------|----------|------------------|
 | `ContentView.swift` | initialization | Actor creation |
 | `SettingsView.swift` | Sync accordion section | Configuration UI |
+| `SettingsView.swift` | `midiInfoSection` | Names the three ports and says either input accepts both |
+| `OnboardingView.swift` | per-DAW setup steps | MTC destinations name `Projector MTC IN` |
+| `WelcomeOverlayView.swift` | MIDI sync row | Names both input ports |
 
 #### Dependencies
 - Depends on: MIDIKit (external package)
@@ -968,20 +1045,59 @@ through to be placed at the drop position after all.
 The overlap rule itself is untouched, and is still the backstop: stems that
 genuinely play at the same time cannot be stacked invisibly by this grouping.
 
+#### A stem the timeline already carries keeps its lane (2026-08-25)
+
+Grouping within one drop was only half the job. A session is built one turnover
+at a time: reel 2 arrives in its own drop, days after reel 1. Each drop created
+its own lanes, so the staircase came back one turnover later - three lanes after
+the first drop, six after the second, and the lane names still filename-based
+because each group held one file.
+
+`handleMixedBatchDrop` now looks for a lane already carrying the group's stem
+before creating one. The lane's stem is read back from the clips on it with the
+same parser that grouped the drop, not from its name: a lane holding one file is
+named after that file, so the DX lane in a session built reel by reel is called
+`Show_R1_v2_DX` and matching on the name would never find it.
+
+Two guards on what may be reused:
+
+- **Not a video's audio lane.** Those belong to a reel and move with it, so a
+  stem parked there would be dragged around by a reel it has nothing to do with.
+- **Not a lane holding a mixture.** Every clip must parse to the same stem. A
+  lane that says two things says nothing reliable, and guessing there would put
+  a music reel under dialogue - worse than the extra lane being fixed.
+
+A reused lane is renamed after its stem once it collects more than one file,
+which is the same rule a fresh multi-file group follows, applied a drop late.
+Skipped unless the current name is one the app generated - a filename of a clip
+on the lane, or an `Audio N` placeholder - so a lane named by hand is never
+renamed underneath the user.
+
+A reused lane is deliberately **not** added to `batchCreatedLaneIds`. That set
+drives `discardEmptyLanesCreatedForDrop()`, and a reused lane is somebody else's
+with clips already on it; deleting it because this drop's file collided would
+take the previous reel down with the failed import.
+
+Existing duplicate lanes are left alone. A later drop consolidates onto the
+topmost match, but nothing auto-merges lanes already on the timeline - that is a
+destructive edit the user did not ask for.
+
 #### Files
 
 | Type | Path | Purpose |
 |------|------|---------|
 | Utility | `Utilities/AudioStemGrouping.swift` | `AudioStemRole`, `AudioStemLabel`, `AudioStemGroup`, filename reading and batch grouping |
 | Utility | `Utilities/TimecodelessImportReport.swift` | Title, name cap and message for the held-back-files alert |
-| Tests | `ProjectorTests/AudioStemGroupingTests.swift` | Name reading, aliases, noise, grouping, reel ordering |
+| Tests | `ProjectorTests/AudioStemGroupingTests.swift` | Name reading, aliases, noise, grouping, reel ordering, cross-drop stem keys |
 | Tests | `ProjectorTests/TimecodelessImportReportTests.swift` | Truncation, singular/plural, what the message must say |
 
 #### Integration Points
 
 | File | Location | Integration Type |
 |------|----------|------------------|
-| `ContentView+Timeline.swift` | `handleMixedBatchDrop` | Lane reservation loop now iterates stem groups, not files |
+| `ContentView+Timeline.swift` | `handleMixedBatchDrop` | Lane reservation loop now iterates stem groups, not files; reuses a lane the stem already owns |
+| `ContentView+Timeline.swift` | `laneAlreadyCarrying(_:)` | New. Finds the lane a stem is already laid out on |
+| `ContentView+Timeline.swift` | `adoptStemName(_:forLane:)` | New. Renames a reused lane after its stem, guarded against hand-named lanes |
 | `ContentView+Timeline.swift` | `holdBackFilesWithoutTimecode` | New. Partitions the drop, imports the held-back files to Media, raises the alert |
 | `AlertCoordinator.swift` | `AlertType.timecodelessNotPlaced` | New report-only alert case |
 
@@ -1196,19 +1312,34 @@ Two-phase async audio extraction from video files for waveform generation and au
 
 ### Timecode OCR
 
-**Status**: Active
+**Status**: Removed
 **Added**: 2026-02-XX
+**Removed**: date unknown - found gone on 2026-08-25
 
 #### Description
-OCR-based timecode detection from video frames using Vision framework.
+OCR-based timecode detection from video frames using the Vision framework, as a
+fallback for media carrying a burned-in timecode window but no embedded track.
 
-#### Files
+#### Why this entry says "date unknown"
+
+It was still listed Active while nothing of it remained. Checked on 2026-08-25:
+`Managers/TimecodeOCRManager.swift` does not exist, no Swift or test file
+mentions `TimecodeOCR` or OCR, and the pbxproj has no entry for it. The registry
+was the only place the feature still existed, which is exactly the archaeology
+the registry is meant to prevent - so it is corrected here rather than quietly
+deleted.
+
+`EmbeddedTimecodeService` is unaffected: it still reads QuickTime, BWF and XMP
+timecode. Only the OCR fallback is gone, so a file with a burned-in window and no
+embedded timecode is placed by filename or at the drop frame like any other.
+
+#### Files (Deleted)
 
 | Type | Path | Purpose |
 |------|------|---------|
 | Manager | `Managers/TimecodeOCRManager.swift` | Vision-based OCR |
 
-#### Integration Points
+#### Integration Points (Removed)
 
 | File | Location | Integration Type |
 |------|----------|------------------|

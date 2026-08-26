@@ -1,8 +1,201 @@
 # Session State
 
-> **Last Updated**: 2026-08-24
-> **Status**: IDLE — Solo work verified, committed (80a3a75) and shipped as 2026.08.25
-> **Branch**: main
+> **Last Updated**: 2026-08-26
+> **Status**: HANDING OFF — sync work to be reverted by the user; symptom unresolved
+> **Branch**: main (2 local commits, nothing pushed, no DMG built)
+
+---
+
+## READ THIS FIRST
+
+**`docs/incidents/2026-08-26-mtc-stop-stutter-unresolved.md`** is the full write-up
+of the MTC stop-stutter investigation: what was ruled out, the measurement error
+that invalidated the session's readings, the documented architecture that should
+have been used, and what to keep vs revert.
+
+The single most important line in it: `DispatchTime.rawValue` is in
+`mach_absolute_time` units, not nanoseconds (41.667ns each on this machine), so
+every lead time logged this session was **41x too small**. Decisions were made on
+those numbers.
+
+---
+
+## State of the tree
+
+| Commit | Verdict |
+|---|---|
+| `a2d34fd` timeline: stem lane reuse + vertical region drag | **Good.** Tested, 7 new unit tests, unrelated to sync. Runtime verification still owed. |
+| `c706501` sync + MIDI port rename | **Mixed.** Port rename verified at the CoreMIDI layer and worth keeping; all chase changes should go. |
+| uncommitted | Park model, scheduled chase lock, `MTCChaseLock` contract, frame-by-frame tracing. All chase work. |
+
+Reset commands are in the incident doc. The port rename is worth lifting out of
+`c706501` rather than losing to a hard reset — it spans `MIDISyncActor.swift`,
+`SettingsView.swift`, `OnboardingView.swift`, `WelcomeOverlayView.swift`,
+`MIDISyncViewModel.swift`.
+
+## Still outstanding, unrelated to sync
+
+- **Runtime verification of the timeline fixes.** Two turnovers should make three
+  lanes not six; reused lanes rename to DX/FX/MX; a hand-typed lane name survives;
+  regions drag vertically, diagonally, across several lanes, and refuse an
+  occupied timecode; undo restores lane and frame.
+- **The launch page work is uncommitted**: README screenshot + rebuilt feature
+  list, Dropbox mirror in `build-release.sh`, `FEATURES.md` Timecode OCR marked
+  Removed, `CLAUDE.md` ship steps.
+- **Blocked on the Dropbox share URL** — needed for `DROPBOX_SHARE_URL` in
+  `scripts/build-release.sh` and a mirrors line in README's Download section.
+  `2026.08.25` is already seeded at
+  `/Volumes/Samples/So Pitted Dropbox/So Pitted - Team Folder/Projector Builds/`.
+- The README screenshot shows client material. Raised against the "Never Reference
+  Client Material" rule; the user chose to ship it anyway on 2026-08-25. Recorded
+  because the repo is public and the decision is not visible from the diff.
+
+---
+
+## Shipped 2026-08-26 — start lag and stop stutter (partial)
+
+**Report**: play still lags; stopping stutters and replays a short amount.
+
+### The stop stutter
+
+`dropOutFrames: 10` means the receiver freewheels for 417ms at 24fps after MTC
+stops. Through all of it `isMTCSynced` and `isPlaying` stayed true, so picture
+kept rolling while `mtcTargetFrame` sat frozen on the last frame received. Drift
+grew past the threshold, `handleTimeUpdate` seeked **backwards** to that frozen
+frame and resumed, picture ran ahead again, seek back again — replaying the same
+stretch until idle arrived.
+
+Fixed in two parts: drift correction now runs only against MTC newer than
+`mtcStaleAfter` (0.2s), and `settleAtLastMTCPosition(wasSynced:)` does one seek
+to `mtcTargetFrame` when idle arrives. The `wasSynced` guard stops the `.idle`
+Combine delivers at subscribe time from seeking a fresh project to frame zero.
+
+### The remaining start lag
+
+Not MTC. `AVPlayer.play()` on a paused item has to fill empty render pipelines
+before a frame appears. `prerollForImminentPlay()` calls
+`AVPlayer.preroll(atRate:)` during **preSync** — the only warning the app gets
+that play is imminent. `hasPrerolled` guards it and is cleared in
+`seekWithinReel`, on player construction, and when `play()` consumes it.
+`automaticallyWaitsToMinimizeStalling` was already `false`.
+
+**If lag persists**: the next step is MIDIKit's `.preSync(lockTime, lockTimecode)`
+payload, which `handleMTCStateChange` currently discards. It says *when* lock will
+occur and *at what timecode* — enough to seek, preroll and schedule `play()` for
+the lock instant, which is how hardware chase works. Bigger change; not attempted
+without a DAW to verify against.
+
+---
+
+## Earlier — MIDI ports named per protocol (2026-08-26)
+
+**Report**: connecting the DAW for MMC showed `Projector MIDI OUT`, which is
+confusing.
+
+**Cause**: one input carried both protocols (`Projector MIDI IN`) and the output
+was named for direction, not content. A DAW asks for its MTC destination and its
+MMC destination in two separate dialogs, neither of which says which Projector
+port it wants — so the operator read two names describing direction and had to
+guess which end of the arrow was being asked about.
+
+**Now**: `Projector MTC IN`, `Projector MMC IN`, `Projector MMC OUT`.
+
+- Both inputs accept everything. The split is a label, not a filter — a DAW that
+  sends both down one port still works. Said explicitly in Settings, because the
+  split invites the opposite worry.
+- The MTC port keeps the old UID key (`ProjectorMIDIInputUID`). CoreMIDI routes
+  by unique ID, so a DAW already pointed at it sees a rename, not a disappearance.
+  A DAW that stores routing by *name* needs re-pointing once.
+- `legacyInputName` keeps a `selectedMIDIInput` stored by an older version
+  resolving to "the built-in ports".
+- Text updated in `SettingsView` (`midiInfoSection`), `WelcomeOverlayView`, and
+  all eight per-DAW steps plus the general panel in `OnboardingView`.
+
+**Verified at the CoreMIDI layer**, not just in-app: `MIDIGetDestination` reports
+`Projector MTC IN` and `Projector MMC IN`; `MIDIGetSource` reports
+`Projector MMC OUT`.
+
+**Not done** (deliberately, would be scope creep — worth raising): `OnboardingView`
+has no MMC setup step at all. Every per-DAW walkthrough covers MTC output only.
+
+---
+
+## Earlier 2026-08-25 — sync felt loose
+
+**Report**: a pause before playback when the DAW rolls; MMC not airtight when
+scrolling.
+
+1. **333ms preroll.** `syncPolicy(lockFrames: 8)` → MIDIKit holds `.preSync` for 8
+   continuous frames, and `.sync` is the only thing that starts picture. Now 2.
+   The value was also duplicated between the UI metrics constants and the policy;
+   single-sourced.
+2. **Full Frame locates thrown away.** `handleMTCFullFrame` set `mtcTimecode` and
+   stopped, so a locate was indistinguishable from running timecode downstream.
+   The consumer inferred intent from distance (`jump > 10 frames`), so any scrub
+   under 417ms at 24fps moved the readout and froze the picture. Full Frames now
+   raise a locate through the existing MMC path.
+3. **Backwards scrub had the forward dead zone.** `abs(...) > 10` gave backwards
+   movement the same 10-frame tolerance. Backwards now gets 2 frames; forward
+   stays at 10 on purpose, since seeking on small forward discrepancies stalls the
+   decoder mid-play.
+
+---
+
+## Earlier 2026-08-25 — two timeline bugs
+
+1. **A second drop rebuilt the staircase.** `handleMixedBatchDrop` created a lane
+   per stem group unconditionally; grouping only worked within one drop.
+   `laneAlreadyCarrying(_:)` now reuses a lane already holding that stem, read
+   back from its clips (names cannot answer it — a one-file lane is named after
+   its file). Guarded against video-audio lanes and mixed lanes.
+   `adoptStemName(_:forLane:)` renames a reused lane once it collects a second
+   file, skipped for hand-typed names. Reused lanes stay out of
+   `batchCreatedLaneIds`. Existing duplicates left alone.
+2. **Regions would not drag between lanes.** The lane-change branch in
+   `AudioLaneView` was gated on `sourceType == .videoTrack`. Un-gated; the landing
+   frame is carried across, the offset is `round(offset / laneHeight)` instead of
+   ±1, and overlap is judged at the landing frame.
+   `laneChangeTarget(from:offset:)` resolves the destination for preview and
+   commit alike. Snapshot undo.
+
+---
+
+## Verification
+
+- Debug build succeeds; app relaunched from DerivedData after each change.
+- `ProjectorTests`: **315 pass**. One failure,
+  `AudioOutputManagerTests.testSelectedDeviceUIDDefaultsToSystemOutput`, is
+  **pre-existing** — confirmed by stashing all changes and re-running it alone.
+- 7 tests added earlier: 3 in `AudioStemGroupingTests`, 4 in `TimelineManagerTests`.
+- **Nothing committed.**
+
+### Owed — runtime verification
+
+**Ports**: DAW shows MTC IN / MMC IN / MMC OUT; MMC transport works pointed at
+MMC IN; sync still works after re-pointing; a DAW already routed by UID keeps
+working.
+
+**Sync**: roll the DAW — shorter gap before picture; scrub a few frames while
+stopped, forwards and backwards — picture tracks; long scrub and cross-reel
+scrub; then a full playback pass watching for stutter (the forward threshold is
+untouched, but that is what a sync change could regress).
+
+**Timeline**: two turnovers → three lanes not six; reused lanes rename; hand-typed
+name survives; drag regions vertically, diagonally, across several lanes, onto an
+occupied timecode; ⌘Z after a lane move.
+
+---
+
+## Outstanding — GitHub page for launch (uncommitted)
+
+README screenshot + rebuilt feature list, Dropbox mirror in `build-release.sh`,
+`FEATURES.md` Timecode OCR marked Removed. **Still blocked on the Dropbox share
+URL** — needed for `DROPBOX_SHARE_URL` in `scripts/build-release.sh` and a mirrors
+line in README's Download section.
+
+The README screenshot shows client material. Raised against the "Never Reference
+Client Material" rule; the user chose to ship it anyway on 2026-08-25. Recorded
+because the repo is public and the decision is not visible from the diff.
 
 ---
 
