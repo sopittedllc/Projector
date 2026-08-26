@@ -53,7 +53,7 @@ struct WelcomeOverlayView: View {
                         icon: "pianokeys",
                         iconColor: .purple,
                         title: "Connect your DAW",
-                        description: "Send MTC and MMC to \"Projector MIDI IN\" for frame-accurate sync"
+                        description: "Send MTC to \"Projector MTC IN\" and MMC to \"Projector MMC IN\" for frame-accurate sync"
                     )
 
                     welcomeStep(

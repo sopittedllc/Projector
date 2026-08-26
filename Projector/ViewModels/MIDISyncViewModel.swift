@@ -111,7 +111,7 @@ public final class MIDISyncViewModel: ObservableObject {
     /// Display name of the currently selected MIDI input port.
     ///
     /// `nil` indicates no input is selected (all inputs disconnected).
-    /// Includes both the virtual "Projector MIDI IN" port and any connected hardware.
+    /// Includes the built-in "Projector MTC IN" and "Projector MMC IN" ports and any connected hardware.
     @Published public var selectedInputName: String?
 
     /// All available MIDI input port names.
@@ -390,7 +390,7 @@ public final class MIDISyncViewModel: ObservableObject {
     /// new state update reflecting the change.
     ///
     /// - Parameter name: The display name of the MIDI input to select, or `nil` to disconnect.
-    ///                  Common values include "Projector MIDI IN" (virtual) or hardware port names.
+    ///                  Common values include "Projector MTC IN" (built-in) or hardware port names.
     ///
     /// ## Thread Safety
     /// This method is safe to call from the main thread (where Views operate).
@@ -402,7 +402,7 @@ public final class MIDISyncViewModel: ObservableObject {
     /// await midiSync.selectInput("ProTools MIDI OUT")
     ///
     /// // Use the virtual input
-    /// await midiSync.selectInput("Projector MIDI IN")
+    /// await midiSync.selectInput("Projector MTC IN")
     ///
     /// // Disconnect all inputs
     /// await midiSync.selectInput(nil)

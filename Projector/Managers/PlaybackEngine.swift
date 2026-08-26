@@ -1,4 +1,22 @@
 import Foundation
+
+/// Timestamped trace of the MTC chase path, for diagnosing start and stop
+/// behaviour against a real DAW.
+///
+/// `NSLog` for the same reason `midiLog` uses it: stdout is fully buffered when
+/// redirected to a file, so `print` output disappears exactly when it is being
+/// collected. Capture with:
+///
+/// ```
+/// Projector.app/Contents/MacOS/Projector > trace.log 2>&1
+/// ```
+@inline(__always)
+func syncTrace(_ message: @autoclosure () -> String) {
+    #if DEBUG
+    NSLog(">>> [SYNC] \(message())")
+    #endif
+}
+
 import AVFoundation
 import os
 import Combine
@@ -136,6 +154,81 @@ final class PlaybackEngine: ObservableObject {
 
     /// Minimum interval between corrective seeks to prevent seek storms.
     private let minimumMTCResyncInterval: TimeInterval = 0.25
+
+    /// When a position last arrived from MTC.
+    ///
+    /// Drift correction is only meaningful against timecode that is still
+    /// coming in; see `handleTimeUpdate`.
+    private var lastMTCArrival: Date = .distantPast
+
+    /// Whether the decoder has been primed for an imminent `play()`.
+    ///
+    /// Cleared wherever the position changes, because a seek discards what
+    /// `preroll(atRate:)` filled.
+    private var hasPrerolled = false
+
+    /// A position the transport located to, which outranks MTC until timecode
+    /// agrees with it.
+    ///
+    /// Nil when no locate is outstanding. See ``noteLocate(toFrame:)``.
+    private var pendingLocateFrame: Int?
+
+    /// When ``pendingLocateFrame`` was issued.
+    private var pendingLocateAt: Date = .distantPast
+
+    /// How long a locate outranks MTC that disagrees with it.
+    ///
+    /// Long enough to cover a receiver freewheeling out its pre-stop position -
+    /// measured at under 20ms - and short enough that a locate the DAW never
+    /// followed through on cannot wedge tracking.
+    private static let locateAuthorityWindow: TimeInterval = 0.5
+
+    /// How near a locate MTC must land to count as having caught up.
+    ///
+    /// A DAW resumes timecode a frame or two either side of where it located,
+    /// so this cannot be exact.
+    private static let locateAgreementFrames = 5
+
+    #if DEBUG
+    /// Trace-only: when `play()` was last called, to measure time to first picture.
+    private var tracePlayStart: Date?
+
+    /// Trace-only: last video frame seen, to detect the first that moves.
+    private var traceLastVideoFrame = -1
+    #endif
+
+    /// Whether MTC has driven the position since sync was last established.
+    ///
+    /// Guards the settle on stop, so the `.idle` that Combine delivers the
+    /// instant the app subscribes cannot seek a freshly-opened project to
+    /// frame zero.
+    private var hasReceivedMTC = false
+
+    /// How stale the last MTC position may be and still be worth correcting to.
+    ///
+    /// A full timecode assembles every two frames, and the sink feeding
+    /// `syncToMTC` is throttled at 50ms, so anything still arriving is well
+    /// under this. Past it, the receiver is freewheeling and `mtcTargetFrame`
+    /// has stopped moving - correcting to it would be correcting to a position
+    /// the DAW has left.
+    private static let mtcStaleAfter: TimeInterval = 0.2
+
+    /// How far MTC must jump *forward* before it is read as a locate rather
+    /// than the timeline running.
+    ///
+    /// Generous on purpose: seeking on every small forward discrepancy would
+    /// stall the decoder mid-playback, which is the failure this threshold was
+    /// introduced to prevent. Locates that arrive as MTC Full Frame no longer
+    /// depend on it - `MIDISyncActor` raises those as locates - so this only has
+    /// to catch a DAW that shuttles by sending running timecode.
+    private static let mtcForwardLocateFrames = 10
+
+    /// How far MTC must run *backwards* before it is read as a locate.
+    ///
+    /// Small, because running timecode never goes backwards. Two frames is
+    /// there to absorb rounding when an incoming rate is converted into the
+    /// project's, not to tolerate real movement.
+    private static let mtcBackwardLocateFrames = 2
 
     /// Meter decay coefficient for smooth falloff
     private let meterDecay: Float = 0.9
@@ -445,6 +538,7 @@ final class PlaybackEngine: ObservableObject {
         let player = AVPlayer(playerItem: playerItem)
         player.automaticallyWaitsToMinimizeStalling = false
         player.isMuted = true
+        hasPrerolled = false
 
         // Cache asset
         assetCache[reel.id] = asset
@@ -763,6 +857,8 @@ final class PlaybackEngine: ObservableObject {
     /// When synced, the playback engine follows external MTC position.
     /// Timeline position is updated via `syncToMTC()` calls from MTC timecode observer.
     func setMTCSynced(_ synced: Bool, controlPlayback: Bool = true) {
+        let wasSynced = isMTCSynced
+        syncTrace("setMTCSynced(\(synced), controlPlayback: \(controlPlayback)) wasSynced=\(wasSynced) currentFrame=\(currentFrame) mtcTarget=\(mtcTargetFrame) rate=\(currentPlayer?.rate ?? -1) item=\(currentPlayer?.currentItem?.status.rawValue ?? -1)")
         isMTCSynced = synced
 
         if synced {
@@ -771,7 +867,13 @@ final class PlaybackEngine: ObservableObject {
             stopGapPlayback()  // Don't run our own timer - MTC drives position
             mtcTargetFrame = currentFrame  // Initialize target to current position
 
-            guard controlPlayback else { return }
+            guard controlPlayback else {
+                // preSync: MTC is arriving but lock is not declared yet. This is
+                // the only warning we get that play is imminent, so spend it
+                // priming the decoder.
+                prerollForImminentPlay()
+                return
+            }
 
             transportOverride = false
             isPlaying = true
@@ -798,6 +900,7 @@ final class PlaybackEngine: ObservableObject {
                 activeReel = reel
 
                 if currentPlayer == nil || currentReelId != reel.id {
+                    syncTrace("lock: reel not loaded (player=\(currentPlayer == nil ? "nil" : "set")) -> loadReel + seek")
                     Task {
                         do {
                             try await loadReel(reel)
@@ -807,7 +910,14 @@ final class PlaybackEngine: ObservableObject {
                         seekWithinReel(reel, timelineFrame: currentFrame, resumeAfterSeek: true) {}
                     }
                 } else if currentPlayer?.rate == 0 {
+                    syncTrace("lock: calling play() at frame \(currentFrame), primed=\(hasPrerolled)")
                     currentPlayer?.play()
+                    hasPrerolled = false
+                    #if DEBUG
+                    tracePlayStart = Date()
+                    #endif
+                } else {
+                    syncTrace("lock: player already rolling at rate \(currentPlayer?.rate ?? -1)")
                 }
             }
 
@@ -820,11 +930,71 @@ final class PlaybackEngine: ObservableObject {
                 stopGapPlayback()
                 stopAllAudioClips()
                 currentPlayer?.pause()
+                settleAtLastMTCPosition(wasSynced: wasSynced)
             } else if isPlaying && isInGap {
                 // Continue manual playback on the internal clock after MTC ends.
                 startGapPlayback()
             }
         }
+    }
+
+    /// Primes the decoder so the `play()` at lock starts on the first frame.
+
+    ///
+    /// `AVPlayer.play()` on a paused item is not instant: the render pipelines
+    /// are empty and have to fill before a frame appears. That cost lands
+    /// exactly where it is most visible - between the DAW rolling and picture
+    /// moving - and it is what remains of the start lag after the receiver's
+    /// lock preroll was cut from 8 frames to 2.
+    ///
+    /// `preroll(atRate:)` exists for this: it fills those pipelines ahead of
+    /// time. preSync is the right moment because MTC is already arriving and
+    /// lock is a known couple of frames away.
+    ///
+    /// Guarded rather than called on every preSync event: prerolling is only
+    /// valid once the item is ready, is wasted while the player is already
+    /// rolling, and a seek discards it - so `hasPrerolled` is cleared wherever
+    /// the position changes.
+    private func prerollForImminentPlay() {
+        guard !hasPrerolled else { syncTrace("preroll skipped: already primed"); return }
+        guard let player = currentPlayer else { syncTrace("preroll skipped: no player"); return }
+        guard player.rate == 0 else { syncTrace("preroll skipped: already rolling"); return }
+        guard player.currentItem?.status == .readyToPlay else {
+            syncTrace("preroll skipped: item status \(player.currentItem?.status.rawValue ?? -1)")
+            return
+        }
+
+        hasPrerolled = true
+        let started = Date()
+        player.preroll(atRate: 1.0) { done in
+            syncTrace("preroll finished=\(done) after \(Int(Date().timeIntervalSince(started) * 1000))ms")
+        }
+    }
+
+    /// Puts picture on the last frame MTC actually reported, once it has stopped.
+    ///
+    /// Freewheeling lets picture run past the DAW's stop point - up to
+    /// `dropOutFrames`, 417ms at 24fps - so without this the reel sits ten
+    /// frames beyond the hit the operator stopped on, while the timeline readout
+    /// (driven by `syncToMTC`, not by the player) correctly shows the stop
+    /// point. One seek settles the two onto each other.
+    ///
+    /// Deliberately one move at the end rather than continuous correction during
+    /// the freewheel, which is what produced the replaying stutter.
+    ///
+    /// - Parameter wasSynced: Whether MTC was driving before this call. Combine
+    ///   delivers `.idle` the moment the app subscribes, and without this a
+    ///   freshly-opened project would be seeked to frame zero before any DAW had
+    ///   said anything.
+    private func settleAtLastMTCPosition(wasSynced: Bool) {
+        guard wasSynced, hasReceivedMTC, let reel = activeReel else {
+            syncTrace("settle skipped: wasSynced=\(wasSynced) hasReceivedMTC=\(hasReceivedMTC) reel=\(activeReel == nil ? "nil" : "set")")
+            return
+        }
+        syncTrace("SETTLE to \(mtcTargetFrame)")
+        hasReceivedMTC = false
+
+        seekWithinReel(reel, timelineFrame: mtcTargetFrame, resumeAfterSeek: false) {}
     }
 
     private func resetSeekState() {
@@ -861,7 +1031,36 @@ final class PlaybackEngine: ObservableObject {
     /// - Parameter timecode: Target timecode.
     func seekToTimecode(_ timecode: Timecode) {
         let frame = timeline.config.frame(for: timecode)
+        noteLocate(toFrame: frame)
         seekToFrame(frame)
+    }
+
+    /// Records that the transport explicitly located somewhere.
+    ///
+    /// ## Why a locate has to outrank timecode
+    ///
+    /// Stopping sends two things down two independent channels, and they
+    /// disagree. Traced against a DAW, one stop produced three positions in
+    /// 18ms: an MMC Locate to the play-start, then the MTC receiver freewheeling
+    /// out the *pre-stop* position 29 frames later, then timecode from the
+    /// located position. Picture was yanked back, forward, and back again - the
+    /// jitter on every stop.
+    ///
+    /// A locate is an instruction; the timecode arriving just after it is the
+    /// receiver draining. So the locate wins until timecode agrees with it,
+    /// which is self-clearing: normal tracking resumes the moment MTC lands
+    /// within ``locateAgreementFrames``, or after
+    /// ``locateAuthorityWindow`` if it never does.
+    ///
+    /// `mtcTargetFrame` moves too, so the settle at idle lands on the frame the
+    /// transport located to. Without that it settled on the last *MTC* frame -
+    /// three frames adrift of the DAW, on every stop.
+    ///
+    /// - Parameter frame: The timeline frame the transport located to.
+    private func noteLocate(toFrame frame: Int) {
+        pendingLocateFrame = frame
+        pendingLocateAt = Date()
+        mtcTargetFrame = frame
     }
 
     /// Syncs to an MTC timecode received from external sync.
@@ -872,6 +1071,9 @@ final class PlaybackEngine: ObservableObject {
     ///
     /// - Parameter timecode: MTC timecode from external source.
     func syncToMTC(_ timecode: Timecode) {
+        lastMTCArrival = Date()
+        hasReceivedMTC = true
+
         let mtcFrame = timeline.config.frame(for: timecode)
 
         // Clamp to valid range
@@ -884,12 +1086,38 @@ final class PlaybackEngine: ObservableObject {
             targetFrame = mtcFrame
         }
 
-        // Detect MTC jump (user clicked timeline) vs normal playback
-        // During normal playback, MTC increments smoothly (1-2 frames per update)
-        // When user clicks timeline, MTC jumps discontinuously
+        // A locate outstanding? Then timecode that disagrees with it is the
+        // receiver draining its pre-stop position, not the transport's opinion.
+        if let locate = pendingLocateFrame {
+            if Date().timeIntervalSince(pendingLocateAt) > Self.locateAuthorityWindow {
+                pendingLocateFrame = nil
+            } else if abs(targetFrame - locate) <= Self.locateAgreementFrames {
+                pendingLocateFrame = nil
+            } else {
+                syncTrace("ignoring stale MTC \(targetFrame); locate says \(locate)")
+                return
+            }
+        }
+
+        // Tell a locate apart from the timeline simply running.
+        //
+        // Running MTC advances a frame or two per update and never goes
+        // backwards, so distance alone is a workable signal - but it has to be
+        // measured in both directions. The forward threshold was the only test,
+        // written as `abs(...) > 10`, which quietly gave a scrub *backwards* the
+        // same 10-frame dead zone as one forwards. Rolling the DAW back a few
+        // frames to re-check a hit therefore moved the readout and left the
+        // picture where it was.
+        //
+        // Backwards gets a much smaller allowance because it has no legitimate
+        // cause during playback; the couple of frames it does get absorb the
+        // rounding when an incoming rate is converted into the project's.
         let previousMtcTarget = mtcTargetFrame
-        let mtcJump = abs(targetFrame - previousMtcTarget)
-        let isDiscontinuousJump = mtcJump > 10 && previousMtcTarget > 0  // >10 frames = user action
+        let mtcJump = targetFrame - previousMtcTarget
+        let isDiscontinuousJump = previousMtcTarget > 0 && (
+            mtcJump > Self.mtcForwardLocateFrames ||
+            mtcJump < -Self.mtcBackwardLocateFrames
+        )
 
         // Update MTC target (used by time observer for drift detection)
         mtcTargetFrame = targetFrame
@@ -1042,8 +1270,10 @@ final class PlaybackEngine: ObservableObject {
             return
         }
 
+        syncTrace("seek -> frame \(timelineFrame), resume=\(resumeAfterSeek), isPlaying=\(isPlaying)")
         isSeekingVideo = true
         pendingVideoSeekFrame = nil
+        hasPrerolled = false  // A seek discards the primed pipelines.
 
         // Exact, on the source's own frame grid. A 600-tick CMTime cannot land
         // on an NTSC frame boundary - one 23.976 frame is 25.025 ticks - which
@@ -1067,6 +1297,17 @@ final class PlaybackEngine: ObservableObject {
                     self.seekWithinReel(reel, timelineFrame: pending, resumeAfterSeek: resumeAfterSeek) {}
                 } else if completed && resumeAfterSeek && self.isPlaying {
                     self.currentPlayer?.play()
+                } else if completed, self.isMTCSynced, !self.isPlaying {
+                    // Re-prime after landing, because the seek just threw away
+                    // whatever preSync primed.
+                    //
+                    // The trace showed this losing half the prerolls: a DAW
+                    // rolling from somewhere other than the playhead sends a
+                    // position that reads as a locate, so the order was
+                    // preroll -> seek (discards it) -> play, and `play()` found
+                    // the pipelines empty again. Priming here instead means the
+                    // preroll survives to the lock that follows.
+                    self.prerollForImminentPlay()
                 }
                 completion()
             }
@@ -2429,6 +2670,23 @@ final class PlaybackEngine: ObservableObject {
         // the user-configured frame threshold. Corrections are rate-limited to
         // avoid repeated seeks while a decoder is settling.
         if isMTCSynced {
+            // Correct only against timecode that is still arriving.
+            //
+            // This is what made stopping stutter. When the DAW stops, MTC stops,
+            // and the receiver spends `dropOutFrames` freewheeling before it
+            // reports idle - 10 frames, 417ms at 24fps. Through all of it
+            // `isMTCSynced` stays true and `isPlaying` stays true, so picture
+            // kept rolling while `mtcTargetFrame` sat frozen on the last frame
+            // received. Drift grew past the threshold, this seeked *backwards*
+            // to that frozen frame and resumed, picture ran ahead again, and it
+            // seeked back again - replaying the same short stretch until idle
+            // finally arrived.
+            //
+            // Freewheeling means "ride it out", not "snap back to a position the
+            // DAW has left". Let picture run; `setMTCSynced(false,...)` settles
+            // it in one move when idle arrives.
+            guard Date().timeIntervalSince(lastMTCArrival) < Self.mtcStaleAfter else { return }
+
             // Use integer arithmetic to avoid floating-point drift over time.
             // Frame = time * fps = (value/timescale) * (num/denom) = (value * num) / (timescale * denom)
             let playerTime = player.currentTime()
@@ -2444,9 +2702,20 @@ final class PlaybackEngine: ObservableObject {
             let canResync = now.timeIntervalSince(lastMTCResyncTime) >= minimumMTCResyncInterval
 
             if absDrift > driftThreshold && canResync && !isSeekingVideo {
+                syncTrace("DRIFT CORRECT: video=\(videoFrame) target=\(mtcTargetFrame) drift=\(absDrift) threshold=\(driftThreshold)")
                 lastMTCResyncTime = now
                 seekWithinReel(reel, timelineFrame: mtcTargetFrame, resumeAfterSeek: true) {}
             }
+
+            #if DEBUG
+            // Kept out of release entirely: `handleTimeUpdate` fires at frame
+            // rate, and measurement scaffolding has no business there.
+            if let started = tracePlayStart, videoFrame != traceLastVideoFrame {
+                syncTrace("first picture movement \(Int(Date().timeIntervalSince(started) * 1000))ms after play()")
+                tracePlayStart = nil
+            }
+            traceLastVideoFrame = videoFrame
+            #endif
             return
         }
 

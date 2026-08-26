@@ -82,7 +82,7 @@ func midiLog(_ message: @autoclosure () -> String) {
 /// }
 ///
 /// // Select an input
-/// await midiSync.selectInput("Projector MIDI IN")
+/// await midiSync.selectInput("Projector MTC IN")
 /// ```
 ///
 /// ## Performance Considerations
@@ -94,17 +94,54 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
     // MARK: - Constants
 
-    /// Name of the virtual MIDI input port that DAWs can send to.
-    public static let virtualInputName = "Projector MIDI IN"
+    /// Name of the virtual MIDI input a DAW sends timecode to.
+    public static let mtcInputName = "Projector MTC IN"
 
-    /// Name of the virtual MIDI output port for sending responses.
-    public static let virtualOutputName = "Projector MIDI OUT"
+    /// Name of the virtual MIDI input a DAW sends machine control to.
+    ///
+    /// ## Why two ports rather than one
+    ///
+    /// There was one port, `Projector MIDI IN`, carrying both. A DAW asks for
+    /// its MTC destination and its MMC destination in two different dialogs, and
+    /// neither says which of Projector's ports it wants - so setting up machine
+    /// control meant reading `Projector MIDI IN` and `Projector MIDI OUT` and
+    /// guessing which end of the arrow you were being asked about. Naming the
+    /// ports after what they carry answers the question in the dialog.
+    ///
+    /// Both ports accept anything. Splitting them is a label for the operator,
+    /// not a filter: a DAW that sends MTC and MMC down one of them still works,
+    /// and refusing traffic on the "wrong" port would turn a cosmetic
+    /// improvement into a way to break a working session.
+    public static let mmcInputName = "Projector MMC IN"
 
-    /// Tag for the virtual MIDI input in MIDIKit.
-    private static let virtualInputTag = "ProjectorVirtualInput"
+    /// Name of the virtual MIDI output Projector answers on.
+    ///
+    /// Only ever carries MMC replies - an Identity Reply to a device enquiry -
+    /// so it is named for that. Left as `Projector MIDI OUT` it would have been
+    /// the one port still named after nothing in particular, next to two that
+    /// say what they are.
+    public static let mmcOutputName = "Projector MMC OUT"
+
+    /// What the single input port was called before it was split in two.
+    ///
+    /// Kept so a `selectedMIDIInput` stored by an older version still resolves
+    /// to "the built-in ports" instead of being hunted for among the hardware
+    /// and logged as missing.
+    private static let legacyInputName = "Projector MIDI IN"
+
+    /// Every name that means one of Projector's own always-on ports.
+    private static var builtInInputNames: Set<String> {
+        [mtcInputName, mmcInputName, legacyInputName]
+    }
+
+    /// Tag for the MTC virtual input in MIDIKit.
+    private static let mtcInputTag = "ProjectorVirtualInput"
+
+    /// Tag for the MMC virtual input in MIDIKit.
+    private static let mmcInputTag = "ProjectorVirtualMMCInput"
 
     /// Tag for the virtual MIDI output in MIDIKit.
-    private static let virtualOutputTag = "ProjectorVirtualOutput"
+    private static let mmcOutputTag = "ProjectorVirtualOutput"
 
     /// Tag for external MIDI input connections.
     private static let inputConnectionTag = "ProjectorMIDIInput"
@@ -170,11 +207,38 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
     // MARK: - Sync Quality Metrics
 
-    /// Number of frames required to establish lock.
-    private let lockFramesRequired: Int = 8
+    /// Continuous MTC frames the receiver must see before it declares lock.
+    ///
+    /// This is preroll, and it is dead time: MIDIKit converts it straight into a
+    /// delay before `.sync`, and `.sync` is what starts the picture. At 8 - the
+    /// value this shipped with - a 24fps session paid 333ms every time the DAW
+    /// rolled, which is the pause you could feel between hitting play and
+    /// picture moving.
+    ///
+    /// Two frames is one assembled timecode plus one confirming it, which is
+    /// enough to reject a stray message without making the operator wait. The
+    /// cost of locking a frame early is nothing: position is already being
+    /// tracked through preSync, and the drift correction in `handleTimeUpdate`
+    /// pulls picture in if the first frames were wrong. MIDIKit's own default is
+    /// 16; it is tuned for chasing tape, not a DAW on a virtual port in the same
+    /// machine.
+    private let lockFramesRequired: Int = 2
 
-    /// Number of frames allowed before entering freewheeling.
-    private let dropoutFramesAllowed: Int = 10
+    /// Frames of missing timecode tolerated before the receiver reports idle.
+    ///
+    /// This is how long picture free-runs past a stop the DAW never announced.
+    /// Nothing tells Projector the transport stopped - the DAW traced here sends
+    /// a Locate and simply ceases timecode, no MMC Stop - so a stop is only
+    /// knowable as an absence, and this is how long that absence has to last.
+    ///
+    /// Ten frames is 417ms at 24fps, which is a long overshoot to then settle
+    /// back from on every stop. Six still rides out three consecutive missed
+    /// messages - timecode arrives every two frames - while cutting the
+    /// overshoot to 250ms.
+    ///
+    /// Not lower: freewheeling exists so a dropped message mid-reel does not
+    /// hitch picture during a take, and that matters more than a crisp stop.
+    private let dropoutFramesAllowed: Int = 6
 
     /// Progress toward sync lock (0...lockFramesRequired).
     private var lockProgress: Int = 0
@@ -238,7 +302,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// try await midiSync.start()
     /// ```
     public init() {
-        self.selectedInputName = Self.virtualInputName
+        self.selectedInputName = Self.mtcInputName
     }
 
     // MARK: - Lifecycle
@@ -366,7 +430,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     ///
     /// - Parameter name: The display name of the MIDI input, or `nil` to disconnect.
     ///
-    /// - Note: The virtual input "Projector MIDI IN" is always available and allows
+    /// - Note: The built-in ports are always available and allow
     ///         DAWs to send MIDI directly to the application.
     ///
     /// ## Thread Safety
@@ -378,7 +442,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// await midiSync.selectInput("Pro Tools MIDI Out")
     ///
     /// // Use the virtual input
-    /// await midiSync.selectInput(MIDISyncActor.virtualInputName)
+    /// await midiSync.selectInput(MIDISyncActor.mtcInputName)
     ///
     /// // Disconnect all inputs
     /// await midiSync.selectInput(nil)
@@ -396,7 +460,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// Call this method to update the `availableInputs` in `MIDISyncState` after
     /// the user connects or disconnects MIDI hardware.
     ///
-    /// - Note: The virtual input is always included as the first option.
+    /// - Note: The built-in ports are always included, ahead of the hardware.
     ///
     /// ## Thread Safety
     /// This method runs on the actor and is safe to call from any context.
@@ -407,13 +471,13 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// ```
     public func refreshAvailableInputs() async {
         guard let manager = midiManager else {
-            availableInputs = [Self.virtualInputName]
+            availableInputs = [Self.mtcInputName, Self.mmcInputName]
             emitState()
             return
         }
 
-        // Start with our virtual port at the top
-        var inputs = [Self.virtualInputName]
+        // Our own always-on ports first, then the hardware.
+        var inputs = [Self.mtcInputName, Self.mmcInputName]
 
         // Add external MIDI outputs (sources) - these are where MIDI data comes FROM
         let externalSources = manager.endpoints.outputs.map { $0.displayName }
@@ -485,7 +549,10 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         let receiver = MTCReceiver(
             name: "Projector MTC",
             initialLocalFrameRate: localFrameRate,
-            syncPolicy: .init(lockFrames: 8, dropOutFrames: 10)
+            syncPolicy: .init(
+                lockFrames: lockFramesRequired,
+                dropOutFrames: dropoutFramesAllowed
+            )
         ) { [weak self] timecode, _, _, displayNeedsUpdate in
             // CRITICAL: Wrap in Task to hop to actor context
             // This callback runs on an arbitrary thread from MIDIKit
@@ -503,15 +570,59 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         midiLog("MTC receiver configured")
     }
 
-    /// Sets up the virtual MIDI input port that DAWs can send to.
+    /// Sets up the virtual MIDI input ports that DAWs can send to.
+    ///
+    /// Both ports route into the same handler. See ``mmcInputName`` for why
+    /// there are two.
     private func setupVirtualInput() {
         guard let manager = midiManager else { return }
 
+        // The MTC port keeps the UID key the single port used, so a DAW that
+        // already had a destination saved keeps working. CoreMIDI routing is by
+        // unique ID, not by name, so from the DAW's side this is a rename of a
+        // port it is already pointed at rather than a port disappearing.
+        let mtcFailure = addVirtualInput(
+            to: manager,
+            name: Self.mtcInputName,
+            tag: Self.mtcInputTag,
+            uniqueIDKey: "ProjectorMIDIInputUID"
+        )
+
+        let mmcFailure = addVirtualInput(
+            to: manager,
+            name: Self.mmcInputName,
+            tag: Self.mmcInputTag,
+            uniqueIDKey: "ProjectorMMCInputUID"
+        )
+
+        // Surfaced, not swallowed: without a port nothing a DAW sends can ever
+        // arrive, and the failure was previously invisible. Either one failing
+        // is worth reporting - a session with timecode but no transport control
+        // is as broken as one with neither, just less obviously.
+        virtualInputError = mtcFailure ?? mmcFailure
+    }
+
+    /// Creates one always-on virtual input.
+    ///
+    /// - Parameters:
+    ///   - manager: The MIDIKit manager to create the port on.
+    ///   - name: The port name a DAW will show.
+    ///   - tag: MIDIKit's handle for the port.
+    ///   - uniqueIDKey: Defaults key the CoreMIDI unique ID persists under, so
+    ///     the port keeps its identity - and a DAW's saved routing to it - across
+    ///     launches.
+    /// - Returns: A description of the failure, or `nil` when the port exists.
+    private func addVirtualInput(
+        to manager: MIDIKitIO.MIDIManager,
+        name: String,
+        tag: String,
+        uniqueIDKey: String
+    ) -> String? {
         do {
             try manager.addInput(
-                name: Self.virtualInputName,
-                tag: Self.virtualInputTag,
-                uniqueID: .userDefaultsManaged(key: "ProjectorMIDIInputUID"),
+                name: name,
+                tag: tag,
+                uniqueID: .userDefaultsManaged(key: uniqueIDKey),
                 receiver: .events { [weak self] events, _, _ in
                     // CRITICAL: Wrap in Task to hop to actor context
                     Task { [weak self] in
@@ -519,13 +630,11 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
                     }
                 }
             )
-            midiLog("Virtual MIDI input '\(Self.virtualInputName)' created")
-            virtualInputError = nil
+            midiLog("Virtual MIDI input '\(name)' created")
+            return nil
         } catch {
-            // Surfaced, not swallowed: without this port nothing a DAW sends can
-            // ever arrive, and the failure was previously invisible.
-            virtualInputError = error.localizedDescription
-            midiLog("FAILED to create virtual MIDI input '\(Self.virtualInputName)': \(error)")
+            midiLog("FAILED to create virtual MIDI input '\(name)': \(error)")
+            return error.localizedDescription
         }
     }
 
@@ -535,11 +644,11 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
         do {
             try manager.addOutput(
-                name: Self.virtualOutputName,
-                tag: Self.virtualOutputTag,
+                name: Self.mmcOutputName,
+                tag: Self.mmcOutputTag,
                 uniqueID: .userDefaultsManaged(key: "ProjectorMIDIOutputUID")
             )
-            midiLog("Virtual MIDI output '\(Self.virtualOutputName)' created")
+            midiLog("Virtual MIDI output '\(Self.mmcOutputName)' created")
         } catch {
             midiLog("Failed to create virtual MIDI output: \(error)")
         }
@@ -573,10 +682,12 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
         guard let inputName = selectedInputName else { return }
 
-        // If selecting our virtual port, we don't need to connect to anything external
-        // The virtual input is always receiving via setupVirtualInput()
-        if inputName == Self.virtualInputName {
-            midiLog("Using virtual MIDI input: \(inputName)")
+        // Selecting one of our own ports connects nothing: they are created by
+        // `setupVirtualInput()` and receive continuously, whatever is selected.
+        // The legacy name counts, so a selection stored before the split is not
+        // hunted for among the hardware and logged as missing.
+        if Self.builtInInputNames.contains(inputName) {
+            midiLog("Using built-in MIDI input: \(inputName)")
             return
         }
 
@@ -730,7 +841,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// - Parameter channel: The channel to respond on.
     private func sendIdentityReply(channel: UInt8) {
         guard let manager = midiManager,
-              let output = manager.managedOutputs[Self.virtualOutputTag] else {
+              let output = manager.managedOutputs[Self.mmcOutputTag] else {
             midiLog("Cannot send Identity Reply - no output port")
             return
         }
@@ -923,6 +1034,20 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
     /// Parses MTC Full Frame from raw SysEx data.
     ///
+    /// ## A Full Frame is a locate
+    ///
+    /// Quarter-frames mean "the transport is running"; a Full Frame means "the
+    /// transport has jumped to here", which is every scrub, every playhead drag
+    /// and every marker recall while the DAW is stopped.
+    ///
+    /// This used to set `mtcTimecode` and stop there, which made it
+    /// indistinguishable downstream from a running-timecode update. The
+    /// consumer then had to guess from how far the position had moved, and its
+    /// guess was a 10-frame threshold - so a scrub shorter than 10 frames (417ms
+    /// at 24fps) updated the readout and left the picture where it was. Raising
+    /// it as a locate as well tells the consumer what the message actually
+    /// meant, instead of asking it to infer intent from distance.
+    ///
     /// - Parameter data: The SysEx data array.
     private func handleMTCFullFrame(_ data: [UInt8]) {
         // MTC Full Frame format (after F0/F7 stripped):
@@ -943,11 +1068,16 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             at: frameRate
         ) {
             mtcTimecode = timecode
-            emitState()
+            // Emits for us, with the timecode above already in place.
+            handleMMCCommand(.locate(timecode))
         }
     }
 
     /// Parses MTC Full Frame from Universal SysEx data.
+    ///
+    /// Same as ``handleMTCFullFrame(_:)``, including raising the position as a
+    /// locate: which SysEx framing a DAW happens to use does not change what a
+    /// Full Frame means.
     ///
     /// - Parameter data: The data portion of the Universal SysEx.
     private func handleMTCFullFrameFromUniversal(_ data: [UInt8]) {
@@ -967,7 +1097,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             at: frameRate
         ) {
             mtcTimecode = timecode
-            emitState()
+            handleMMCCommand(.locate(timecode))
         }
     }
 
