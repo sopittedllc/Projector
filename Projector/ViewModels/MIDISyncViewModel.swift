@@ -76,6 +76,12 @@ public final class MIDISyncViewModel: ObservableObject {
     ///
     /// Updates whenever the external MIDI source changes sync status.
     /// Use ``syncStatusText`` for user-friendly display.
+    /// The lock the receiver has predicted, if one is pending.
+    ///
+    /// Republished so playback can be scheduled for the lock instant. See
+    /// `MTCChaseLock`.
+    @Published public var pendingLock: MTCChaseLock?
+
     @Published public var mtcState: MTCSyncState = .idle
 
     /// Current MTC timecode received from the external source, if any.
@@ -476,6 +482,7 @@ public final class MIDISyncViewModel: ObservableObject {
                 }
 
                 // Update all published properties atomically
+                self.pendingLock = state.pendingLock
                 self.mtcState = state.mtcState
                 self.mtcTimecode = state.mtcTimecode
                 self.isReceivingMTC = state.isReceivingMTC

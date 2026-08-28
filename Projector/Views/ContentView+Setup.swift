@@ -11,6 +11,9 @@ extension ContentView {
         // Start the MIDI sync actor
         Task {
             do {
+                await midiSyncActor.setChaseLockHandler { [weak playbackEngine] lock in
+                    playbackEngine?.scheduleChaseLock(lock)
+                }
                 // Configure the decoder before constructing MIDIKit's MTC receiver.
                 // The actor defaults to 30 fps, while new projects default to 24 fps.
                 await midiSyncActor.setLocalFrameRate(initialFrameRate)

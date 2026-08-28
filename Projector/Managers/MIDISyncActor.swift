@@ -174,6 +174,12 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// The MTC receiver for timecode processing.
     private var mtcReceiver: MTCReceiver?
 
+    /// Direct delivery for timing-critical predicted locks.
+    private var chaseLockHandler: (@MainActor @Sendable (MTCChaseLock) -> Void)?
+
+    /// The lock the receiver has predicted, if one is pending.
+    private var pendingLock: MTCChaseLock?
+
     /// Current MTC receiver state.
     private var mtcState: MTCSyncState = .idle
 
@@ -540,12 +546,19 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         }
     }
 
+    public func setChaseLockHandler(
+        _ handler: (@MainActor @Sendable (MTCChaseLock) -> Void)?
+    ) async {
+        chaseLockHandler = handler
+    }
+
     // MARK: - MTC Receiver Setup
 
     /// Sets up the MTC receiver with callbacks wrapped in Task for actor isolation.
     private func setupMTCReceiver() {
         // Capture self weakly for the closure
         // The closure runs on arbitrary threads from MIDIKit
+        let directLockHandler = chaseLockHandler
         let receiver = MTCReceiver(
             name: "Projector MTC",
             initialLocalFrameRate: localFrameRate,
@@ -560,6 +573,16 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
                 await self?.handleMTCTimecode(timecode, displayNeedsUpdate: displayNeedsUpdate)
             }
         } stateChanged: { [weak self] state in
+            if case let .preSync(predictedLockTime, lockTimecode) = state,
+               let directLockHandler {
+                let lock = MTCChaseLock(
+                    hostTime: predictedLockTime.rawValue,
+                    timecode: lockTimecode
+                )
+                Task { @MainActor in
+                    directLockHandler(lock)
+                }
+            }
             // CRITICAL: Wrap in Task to hop to actor context
             Task { [weak self] in
                 await self?.handleMTCStateChange(state)
@@ -915,6 +938,20 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     ///
     /// - Parameter state: The new MTC receiver state.
     private func handleMTCStateChange(_ state: MTCReceiver.State) {
+        // Keep the preSync payload. `convertMTCState` flattens the state for
+        // display, which loses the two values a chase is made of: when lock
+        // happens and at what timecode. Published so playback can be scheduled
+        // for that instant rather than started after it - see `MTCChaseLock`.
+        if case let .preSync(predictedLockTime, lockTimecode) = state {
+            pendingLock = MTCChaseLock(
+                hostTime: predictedLockTime.rawValue,
+                timecode: lockTimecode
+            )
+            midiLog("preSync: lock at \(lockTimecode.stringValue()) lead \(String(format: "%.1f", PlaybackEngine.millisecondsUntil(hostTime: predictedLockTime.rawValue)))ms")
+        } else if case .idle = state {
+            pendingLock = nil
+        }
+
         let previousState = mtcState
         mtcState = convertMTCState(state)
         isReceivingMTC = mtcState.isReceiving
@@ -1284,6 +1321,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         }
 
         let state = MIDISyncState(
+            pendingLock: pendingLock,
             mtcState: mtcState,
             mtcTimecode: mtcTimecode,
             isReceivingMTC: isReceivingMTC,

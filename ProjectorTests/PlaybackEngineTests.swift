@@ -70,4 +70,63 @@ final class PlaybackEngineTests: XCTestCase {
         // Then: Should start at frame 0
         XCTAssertEqual(engine.currentFrame, 0)
     }
+
+    // MARK: - External Chase Reconciliation
+
+    func testPreStopDrainCannotOverrideRecentLocate() {
+        XCTAssertFalse(
+            PlaybackEngine.acceptsMTCFrame(
+                19_081,
+                afterLocate: 19_052,
+                elapsed: 0.018,
+                framesPerSecond: 24
+            )
+        )
+    }
+
+    func testLocatedPositionAndRealTimeAdvanceAreAccepted() {
+        XCTAssertTrue(
+            PlaybackEngine.acceptsMTCFrame(
+                19_052,
+                afterLocate: 19_052,
+                elapsed: 0.018,
+                framesPerSecond: 24
+            )
+        )
+        XCTAssertTrue(
+            PlaybackEngine.acceptsMTCFrame(
+                19_058,
+                afterLocate: 19_052,
+                elapsed: 0.25,
+                framesPerSecond: 24
+            )
+        )
+    }
+
+    func testHoldRequiresForwardRealTimeMovementToRelease() {
+        XCTAssertFalse(
+            PlaybackEngine.isRollingAfterHold(
+                from: 19_052,
+                to: 19_052,
+                elapsed: 0.25,
+                framesPerSecond: 24
+            )
+        )
+        XCTAssertTrue(
+            PlaybackEngine.isRollingAfterHold(
+                from: 19_052,
+                to: 19_058,
+                elapsed: 0.25,
+                framesPerSecond: 24
+            )
+        )
+        XCTAssertFalse(
+            PlaybackEngine.isRollingAfterHold(
+                from: 19_052,
+                to: 19_081,
+                elapsed: 0.25,
+                framesPerSecond: 24
+            )
+        )
+    }
 }

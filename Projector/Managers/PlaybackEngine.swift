@@ -167,6 +167,70 @@ final class PlaybackEngine: ObservableObject {
     /// `preroll(atRate:)` filled.
     private var hasPrerolled = false
 
+    /// Whether picture is paused because timecode went quiet, as opposed to
+    /// because the transport stopped.
+    ///
+    /// A hold is reversible and cheap: the player keeps its item and position,
+    /// so resuming is a `play()` on primed pipelines rather than a reload.
+    private var isPictureParked = false
+
+    /// A predicted lock has armed both media clocks and `.sync` must not start
+    /// them a second time.
+    private var hasScheduledChaseLock = false
+
+    /// The single roll decision used by both picture and audio.
+    private var shouldMediaRoll: Bool {
+        isPlaying && !isPictureParked
+    }
+
+    /// Where picture was parked, and when.
+    private var parkedAtFrame = 0
+    private var parkedAt: Date = .distantPast
+
+    /// Consecutive timecode updates that have advanced from the parked frame at
+    /// roughly real time.
+    ///
+    /// Evidence that the transport is actually rolling, rather than one stray
+    /// position. A single update cannot un-park picture, because a single
+    /// update is exactly what a receiver draining its pre-stop position looks
+    /// like.
+    private var advancesWhileParked = 0
+
+    /// How many consecutive advancing updates release a park.
+    private static let advancesToUnpark = 2
+
+    /// How long a park must stand before advancing timecode can release it.
+    ///
+    /// Advance alone cannot tell a rolling transport from a stopping one. After
+    /// a locate the receiver drains, and the drain *walks forward from the
+    /// locate* - traced as three frames in 84ms, which is real-time motion by
+    /// any arithmetic. Nothing in the timecode distinguishes it.
+    ///
+    /// What distinguishes them is that a stopped transport stops sending.
+    /// Measured against a DAW, timecode ceased about 130ms after the locate, so
+    /// outlasting the drain is the test, and the dwell is what performs it: only
+    /// a transport still producing timecode at the far end of this is really
+    /// rolling.
+    ///
+    /// The cost is a locate mid-playback freezing picture for this long before
+    /// resuming. That is rare, and small next to replaying a second of the reel
+    /// on every stop.
+    private static let parkDwellBeforeUnpark: TimeInterval = 0.25
+
+    /// How long timecode may go quiet before picture is held.
+    ///
+    /// Deliberately much shorter than the receiver's dropout window, because the
+    /// two answer different questions. "Has the transport stopped?" must be
+    /// answered slowly and only once - it tears the transport down. "Should
+    /// picture still be moving?" can be answered fast and reversibly, and
+    /// answering it fast is what keeps picture from running past the stop.
+    ///
+    /// Timecode arrives about every 42ms, so this rides out three missed
+    /// updates. It has to clear the worst-case *delivery* gap without reaching
+    /// the receiver's dropout window, which is what would let picture overshoot
+    /// again - so it lives between the two, nearer the bottom.
+    private static let mtcQuietBeforeHold: TimeInterval = 0.15
+
     /// A position the transport located to, which outranks MTC until timecode
     /// agrees with it.
     ///
@@ -188,6 +252,35 @@ final class PlaybackEngine: ObservableObject {
     /// A DAW resumes timecode a frame or two either side of where it located,
     /// so this cannot be exact.
     private static let locateAgreementFrames = 5
+
+    /// Whether a timecode frame is physically reachable from a recent locate.
+    ///
+    /// Kept pure so the DAW's observed locate/drain sequence can be regression
+    /// tested without constructing AVFoundation players.
+    static func acceptsMTCFrame(
+        _ frame: Int,
+        afterLocate locate: Int,
+        elapsed: TimeInterval,
+        framesPerSecond: Double
+    ) -> Bool {
+        let couldHaveAdvanced = Int(max(0, elapsed) * framesPerSecond)
+        let lowest = locate - locateAgreementFrames
+        let highest = locate + couldHaveAdvanced + locateAgreementFrames
+        return frame >= lowest && frame <= highest
+    }
+
+    /// Whether movement after a hold is consistent with real-time rolling.
+    static func isRollingAfterHold(
+        from parkedFrame: Int,
+        to reportedFrame: Int,
+        elapsed: TimeInterval,
+        framesPerSecond: Double
+    ) -> Bool {
+        let expected = max(0, elapsed) * framesPerSecond
+        let advanced = Double(reportedFrame - parkedFrame)
+        return advanced >= 1
+            && abs(advanced - expected) <= Double(locateAgreementFrames)
+    }
 
     #if DEBUG
     /// Trace-only: when `play()` was last called, to measure time to first picture.
@@ -878,6 +971,15 @@ final class PlaybackEngine: ObservableObject {
             transportOverride = false
             isPlaying = true
 
+            if hasScheduledChaseLock {
+                // `.sync` confirms the preSync schedule. Starting either media
+                // path here would replace the shared host-time start with two
+                // unrelated immediate starts.
+                syncTrace("lock confirmed; media already armed")
+                hasScheduledChaseLock = false
+                return
+            }
+
             // Start the picture at the current position.
             //
             // This is deliberately not guarded on "did we just become synced".
@@ -910,6 +1012,10 @@ final class PlaybackEngine: ObservableObject {
                         seekWithinReel(reel, timelineFrame: currentFrame, resumeAfterSeek: true) {}
                     }
                 } else if currentPlayer?.rate == 0 {
+                    // Lock is the transport saying it is rolling, which is the
+                    // one thing that outranks a park.
+                    isPictureParked = false
+                    advancesWhileParked = 0
                     syncTrace("lock: calling play() at frame \(currentFrame), primed=\(hasPrerolled)")
                     currentPlayer?.play()
                     hasPrerolled = false
@@ -930,6 +1036,7 @@ final class PlaybackEngine: ObservableObject {
                 stopGapPlayback()
                 stopAllAudioClips()
                 currentPlayer?.pause()
+                hasScheduledChaseLock = false
                 settleAtLastMTCPosition(wasSynced: wasSynced)
             } else if isPlaying && isInGap {
                 // Continue manual playback on the internal clock after MTC ends.
@@ -971,6 +1078,198 @@ final class PlaybackEngine: ObservableObject {
         }
     }
 
+    /// Pauses picture because timecode has gone quiet, keeping everything else.
+    ///
+    /// Not a stop: `isPlaying` and `isMTCSynced` are untouched, so if timecode
+    /// was only interrupted this reverses in one `play()`. Priming while held
+    /// makes that resume immediate.
+    /// Milliseconds between now and a `mach_absolute_time` value.
+    ///
+    /// `DispatchTime.rawValue` is in mach units, not nanoseconds - on this
+    /// machine one unit is 41.667ns (`mach_timebase_info` numer 125, denom 3).
+    /// Dividing the raw difference by a million reports a lead 41x shorter than
+    /// it is, which is exactly the mistake that made an 83ms lead read as 2ms
+    /// and a 41ms lead read as zero.
+    ///
+    /// - Parameter hostTime: A `mach_absolute_time` value.
+    /// - Returns: Milliseconds until it, negative if already past.
+    nonisolated static func millisecondsUntil(hostTime: UInt64) -> Double {
+        var timebase = mach_timebase_info_data_t()
+        mach_timebase_info(&timebase)
+        let ticks = Double(hostTime) - Double(DispatchTime.now().rawValue)
+        return ticks * Double(timebase.numer) / Double(timebase.denom) / 1_000_000
+    }
+
+    /// Schedules playback to begin exactly at a predicted lock.
+    ///
+    /// This is the chase proper, and it replaces starting playback when `.sync`
+    /// arrives. `.sync` means the lock instant has *already passed*, so starting
+    /// there is late by construction and no sync policy can fix it - which is
+    /// why shortening `lockFrames` from 8 to 2 reduced the late start without
+    /// removing it. MIDIKit's own reference receiver schedules playback on
+    /// `preSync` and does nothing at `.sync`, for this reason.
+    ///
+    /// `AVPlayer.setRate(_:time:atHostTime:)` is the documented API for it. Per
+    /// AVPlayer.h: "The current item's timebase is adjusted so that its time
+    /// will be (or was) itemTime when host time is (or was) hostClockTime...
+    /// if hostClockTime is in the future, the timebase will immediately start
+    /// running at the requested rate from an earlier time so that it will reach
+    /// the requested itemTime at the requested hostClockTime." That is precisely
+    /// a chase: picture starts now and *arrives* in sync, instead of starting
+    /// late and being dragged into place by corrective seeks.
+    ///
+    /// Requires `automaticallyWaitsToMinimizeStalling == false`, which the
+    /// player is constructed with - AVPlayer.h raises `NSInvalidArgument`
+    /// otherwise.
+    ///
+    /// - Parameter lock: When the transport reaches a timecode, and which.
+    func scheduleChaseLock(_ lock: MTCChaseLock) {
+        let frame = timeline.config.frame(for: lock.timecode)
+
+        guard let reel = timeline.videoReel(at: frame),
+              reel.id == currentReelId,
+              let itemTime = reel.sourceCMTime(at: frame),
+              let player = currentPlayer,
+              player.currentItem?.status == .readyToPlay else {
+            syncTrace("chase lock not schedulable for \(lock.timecode.stringValue())")
+            return
+        }
+
+        // The receiver's lock time is `DispatchTime.rawValue`, and
+        // `CMClockMakeHostTimeFromSystemUnits` is documented as converting
+        // "from the units of mach_absolute_time". Same clock, so this is the
+        // whole conversion.
+        let hostTime = CMClockMakeHostTimeFromSystemUnits(lock.hostTime)
+
+        let leadMs = Self.millisecondsUntil(hostTime: lock.hostTime)
+        syncTrace("CHASE LOCK: \(lock.timecode.stringValue()) (frame \(frame)) lead \(String(format: "%.1f", leadMs))ms")
+
+        isPictureParked = false
+        advancesWhileParked = 0
+        isPlaying = true
+        activeReel = reel
+        isInGap = false
+        currentFrame = frame
+        mtcTargetFrame = frame
+        updateCurrentTimecode()
+
+        player.setRate(1.0, time: itemTime, atHostTime: hostTime)
+        hasPrerolled = false
+
+        hasScheduledChaseLock = true
+
+        startActiveAudioClips(atHostTime: lock.hostTime)
+    }
+
+    /// Stops picture and holds it at `frame`, without tearing the transport down.
+    ///
+    /// ## Why picture parks instead of coasting
+    ///
+    /// Three separate mechanisms used to move picture on a single stop: the
+    /// locate seeked it back, the player then rolled on from there because a
+    /// seek does not stop a playing item, and the settle dragged it back again
+    /// 300ms later. Traced against a DAW, one stop moved picture to 19052,
+    /// replayed forward to 19055, and snapped back - the stutter, and the
+    /// reason the settle sometimes landed on a different frame from the one the
+    /// transport had located to.
+    ///
+    /// Parking makes position a single decision. Picture moves when the
+    /// transport is demonstrably rolling and at no other time, so a locate
+    /// leaves it exactly where the locate said.
+    ///
+    /// The park is cheap and reversible - the item stays loaded, positioned and
+    /// primed - which is what lets it be this eager without costing anything
+    /// when timecode merely hiccups.
+    ///
+    /// - Parameters:
+    ///   - frame: Where picture is being held.
+    ///   - reason: For the trace only.
+    private func parkPicture(at frame: Int, reason: String) {
+        // The frame observer checks silence once per displayed frame. A hold is
+        // an edge, not a heartbeat: re-entering it would continuously reset the
+        // dwell clock and make a recovered MTC feed wait longer than intended.
+        if isPictureParked, parkedAtFrame == frame {
+            return
+        }
+        isPictureParked = true
+        parkedAtFrame = frame
+        parkedAt = Date()
+        advancesWhileParked = 0
+
+        if let player = currentPlayer, player.rate != 0 {
+            syncTrace("PARK at \(frame) (\(reason))")
+            player.pause()
+        }
+        pauseAllAudioClips()
+        prerollForImminentPlay()
+    }
+
+    /// Whether silence should be read as the transport having stopped.
+    ///
+    /// Only ever consulted for the *inferred* park. "Timecode is quiet" is
+    /// measured where `syncToMTC` runs - on the main queue, behind a 50ms
+    /// throttle - so it measures delivery, and a seek congests that queue.
+    ///
+    /// A locate must never consult this. It is a command, not an inference, and
+    /// gating it here is what let a locate arriving mid-seek skip its park
+    /// entirely - picture rolled straight on through the frame it was told to
+    /// stop at.
+    private var canInferStopFromSilence: Bool {
+        !isSeekingVideo
+    }
+
+    /// Releases a park once timecode has proved the transport is rolling.
+    ///
+    /// Requires ``advancesToUnpark`` consecutive updates that advance from the
+    /// parked frame at roughly real time. One update is not evidence: a receiver
+    /// draining its pre-stop position produces exactly one, and acting on it is
+    /// what restarted picture behind a stop.
+    ///
+    /// - Parameter frame: The frame the newest timecode reports.
+    private func releaseParkIfRolling(reportedFrame frame: Int) {
+        guard isPictureParked else { return }
+
+        let elapsed = Date().timeIntervalSince(parkedAt)
+
+        // Let the drain finish before believing anything it says.
+        guard elapsed >= Self.parkDwellBeforeUnpark else { return }
+
+        let advanced = Double(frame - parkedAtFrame)
+
+        // Rolling means moving forward, by about as much as the clock did.
+        let isRolling = Self.isRollingAfterHold(
+            from: parkedAtFrame,
+            to: frame,
+            elapsed: elapsed,
+            framesPerSecond: timeline.config.frameRate.fps
+        )
+
+        guard isRolling else {
+            advancesWhileParked = 0
+            return
+        }
+
+        advancesWhileParked += 1
+        guard advancesWhileParked >= Self.advancesToUnpark else { return }
+
+        syncTrace("UNPARK: timecode advancing (\(Int(advanced)) frames in \(Int(elapsed * 1000))ms)")
+        unparkPicture()
+    }
+
+    /// Clears a park and resumes picture if the transport is rolling.
+    private func unparkPicture() {
+        guard isPictureParked else { return }
+        isPictureParked = false
+        advancesWhileParked = 0
+
+        guard isPlaying else { return }
+        if let player = currentPlayer, player.rate == 0 {
+            player.play()
+            hasPrerolled = false
+        }
+        syncAudioClips()
+    }
+
     /// Puts picture on the last frame MTC actually reported, once it has stopped.
     ///
     /// Freewheeling lets picture run past the DAW's stop point - up to
@@ -987,6 +1286,7 @@ final class PlaybackEngine: ObservableObject {
     ///   freshly-opened project would be seeked to frame zero before any DAW had
     ///   said anything.
     private func settleAtLastMTCPosition(wasSynced: Bool) {
+        isPictureParked = false
         guard wasSynced, hasReceivedMTC, let reel = activeReel else {
             syncTrace("settle skipped: wasSynced=\(wasSynced) hasReceivedMTC=\(hasReceivedMTC) reel=\(activeReel == nil ? "nil" : "set")")
             return
@@ -1061,6 +1361,17 @@ final class PlaybackEngine: ObservableObject {
         pendingLocateFrame = frame
         pendingLocateAt = Date()
         mtcTargetFrame = frame
+
+        // Park, so picture stops where the locate put it. A seek does not stop
+        // a rolling item, so without this the locate is only where picture
+        // *passes through* on its way onward - which is what replayed a second
+        // of the reel on every stop.
+        //
+        // If the transport located and kept rolling, timecode says so within a
+        // couple of updates and the park releases. Preferring to stop and be
+        // corrected is the right way round: a needless pause of 80ms is
+        // invisible, and a needless replay is the bug being fixed.
+        parkPicture(at: frame, reason: "locate")
     }
 
     /// Syncs to an MTC timecode received from external sync.
@@ -1088,14 +1399,33 @@ final class PlaybackEngine: ObservableObject {
 
         // A locate outstanding? Then timecode that disagrees with it is the
         // receiver draining its pre-stop position, not the transport's opinion.
+        //
+        // The test cannot be "does one message agree", which is what it was
+        // first written as. A DAW sends a Full Frame *at* the locate and then
+        // keeps draining the old position behind it, so the very first message
+        // agrees, the guard drops, and the drain that follows arrives
+        // unguarded - traced as 13:20 (agreeing), then 16:02, then 16:22, whose
+        // 19-frame step read as a fresh locate and seeked picture forward three
+        // seconds with playback resumed.
+        //
+        // So the guard holds for the whole window, and what it admits is
+        // anything the transport could actually be doing from the locate:
+        // sitting on it, or playing forward from it. The drain is neither -
+        // it is wherever picture happened to be when the locate was issued.
         if let locate = pendingLocateFrame {
             if Date().timeIntervalSince(pendingLocateAt) > Self.locateAuthorityWindow {
                 pendingLocateFrame = nil
-            } else if abs(targetFrame - locate) <= Self.locateAgreementFrames {
-                pendingLocateFrame = nil
             } else {
-                syncTrace("ignoring stale MTC \(targetFrame); locate says \(locate)")
-                return
+                let elapsed = Date().timeIntervalSince(pendingLocateAt)
+                guard Self.acceptsMTCFrame(
+                    targetFrame,
+                    afterLocate: locate,
+                    elapsed: elapsed,
+                    framesPerSecond: timeline.config.frameRate.fps
+                ) else {
+                    syncTrace("ignoring drain \(targetFrame) after locate \(locate)")
+                    return
+                }
             }
         }
 
@@ -1118,6 +1448,8 @@ final class PlaybackEngine: ObservableObject {
             mtcJump > Self.mtcForwardLocateFrames ||
             mtcJump < -Self.mtcBackwardLocateFrames
         )
+
+        releaseParkIfRolling(reportedFrame: targetFrame)
 
         // Update MTC target (used by time observer for drift detection)
         mtcTargetFrame = targetFrame
@@ -1295,7 +1627,10 @@ final class PlaybackEngine: ObservableObject {
                 if let pending = self.pendingVideoSeekFrame {
                     self.pendingVideoSeekFrame = nil
                     self.seekWithinReel(reel, timelineFrame: pending, resumeAfterSeek: resumeAfterSeek) {}
-                } else if completed && resumeAfterSeek && self.isPlaying {
+                } else if completed && resumeAfterSeek && self.isPlaying
+                            && !self.isPictureParked {
+                    // Not while held: timecode has gone quiet, and a seek
+                    // completing is no reason to start picture moving again.
                     self.currentPlayer?.play()
                 } else if completed, self.isMTCSynced, !self.isPlaying {
                     // Re-prime after landing, because the seek just threw away
@@ -1445,7 +1780,7 @@ final class PlaybackEngine: ObservableObject {
     // MARK: - Private Methods - Audio
 
     /// Start playing active audio clips at current position
-    private func startActiveAudioClips() {
+    private func startActiveAudioClips(atHostTime hostTime: UInt64? = nil) {
         let activeClips = timeline.audioClipsAtPlayhead(at: currentFrame)
         let totalClips = timeline.audioLanes.flatMap { $0.clips }.count
 
@@ -1459,7 +1794,22 @@ final class PlaybackEngine: ObservableObject {
         for (lane, clip) in activeClips {
             debugPrint("startActiveAudioClips: loading clip \(clip.id) from lane \(lane.name)")
             if let playback = audioPlayers[clip.id] {
-                syncAudioPlayer(playback, for: clip, lane: lane, shouldPlay: isPlaying)
+                if let hostTime {
+                    scheduleAudioPlayback(
+                        playback,
+                        clip: clip,
+                        lane: lane,
+                        shouldPlay: shouldMediaRoll,
+                        atHostTime: hostTime
+                    )
+                } else {
+                    syncAudioPlayer(
+                        playback,
+                        for: clip,
+                        lane: lane,
+                        shouldPlay: shouldMediaRoll
+                    )
+                }
             } else {
                 loadAudioClip(clip, lane: lane)
             }
@@ -1539,7 +1889,7 @@ final class PlaybackEngine: ObservableObject {
                         playback,
                         clip: clipSnapshot,
                         lane: laneSnapshot,
-                        shouldPlay: self.isPlaying
+                        shouldPlay: self.shouldMediaRoll
                     )
                 }
             } catch {
@@ -1565,6 +1915,13 @@ final class PlaybackEngine: ObservableObject {
         }
     }
 
+    /// Holds every audio node without clearing its scheduled region.
+    private func pauseAllAudioClips() {
+        for playback in audioPlayers.values where playback.player.isPlaying {
+            playback.player.pause()
+        }
+    }
+
     /// Sync audio clips to current position
     ///
     /// The player set follows the *playhead*, not the mix. A muted or
@@ -1586,7 +1943,7 @@ final class PlaybackEngine: ObservableObject {
         // Seek active clips
         for (lane, clip) in activeClips {
             if let playback = audioPlayers[clip.id] {
-                syncAudioPlayer(playback, for: clip, lane: lane, shouldPlay: isPlaying)
+                syncAudioPlayer(playback, for: clip, lane: lane, shouldPlay: shouldMediaRoll)
             } else {
                 loadAudioClip(clip, lane: lane)
             }
@@ -1710,7 +2067,8 @@ final class PlaybackEngine: ObservableObject {
         _ playback: AudioClipPlayback,
         clip: AudioClip,
         lane: AudioLane,
-        shouldPlay: Bool
+        shouldPlay: Bool,
+        atHostTime hostTime: UInt64? = nil
     ) {
         guard let sourceTime = clip.sourceTime(at: currentFrame, masterFrameRate: frameRate) else {
             debugPrint("SCHEDULE: clip \(clip.id) not active at frame \(currentFrame) - nothing scheduled")
@@ -1753,7 +2111,11 @@ final class PlaybackEngine: ObservableObject {
                 outputCount: playback.outputChannelCount,
                 isolatedChannel: playback.isolatedChannel
             )
-            playback.player.play()
+            if let hostTime {
+                playback.player.play(at: AVAudioTime(hostTime: hostTime))
+            } else {
+                playback.player.play()
+            }
         }
     }
 
@@ -2683,9 +3045,25 @@ final class PlaybackEngine: ObservableObject {
             // finally arrived.
             //
             // Freewheeling means "ride it out", not "snap back to a position the
-            // DAW has left". Let picture run; `setMTCSynced(false,...)` settles
-            // it in one move when idle arrives.
-            guard Date().timeIntervalSince(lastMTCArrival) < Self.mtcStaleAfter else { return }
+            // DAW has left".
+            //
+            // But riding it out cannot mean free-running either. Traced against a
+            // DAW, picture ran 285ms past the stop - seven frames - before idle
+            // was declared, and the settle then snapped those seven frames back.
+            // That snap was the stutter: the overshoot was being corrected
+            // instead of prevented.
+            //
+            // So picture is *held* once timecode goes quiet, and released the
+            // moment it returns. The hold is reversible and keeps the player
+            // loaded and primed, which is why it can be this eager without
+            // costing anything when timecode simply hiccups.
+            let mtcAge = Date().timeIntervalSince(lastMTCArrival)
+            if mtcAge >= Self.mtcQuietBeforeHold, canInferStopFromSilence {
+                parkPicture(at: mtcTargetFrame, reason: "timecode quiet")
+                return
+            }
+
+            guard mtcAge < Self.mtcStaleAfter else { return }
 
             // Use integer arithmetic to avoid floating-point drift over time.
             // Frame = time * fps = (value/timescale) * (num/denom) = (value * num) / (timescale * denom)
@@ -2707,7 +3085,24 @@ final class PlaybackEngine: ObservableObject {
                 seekWithinReel(reel, timelineFrame: mtcTargetFrame, resumeAfterSeek: true) {}
             }
 
+            // Audio shares the chase position instead of free-running forever
+            // from its initial lock. `syncAudioPlayer` only reschedules beyond
+            // its 200ms rolling threshold, so this once-per-second check is
+            // cheap when aligned and repairs genuine long-take drift.
+            let framesSinceLastAudioSync = abs(currentFrame - lastAudioSyncFrame)
+            if framesSinceLastAudioSync >= 30 || lastAudioSyncFrame < 0 {
+                syncAudioClips()
+                lastAudioSyncFrame = currentFrame
+            }
+
             #if DEBUG
+            // Frame-by-frame ground truth for what picture actually does, so the
+            // stop transition can be read instead of inferred. Only logs on
+            // change, so a parked picture costs one line, not one per frame.
+            if videoFrame != traceLastVideoFrame {
+                syncTrace("pic \(videoFrame) | mtc \(mtcTargetFrame) | rate \(currentPlayer?.rate ?? -1) | parked \(isPictureParked)")
+            }
+
             // Kept out of release entirely: `handleTimeUpdate` fires at frame
             // rate, and measurement scaffolding has no business there.
             if let started = tracePlayStart, videoFrame != traceLastVideoFrame {

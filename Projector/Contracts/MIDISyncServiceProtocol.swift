@@ -50,6 +50,18 @@ public protocol MIDISyncServiceProtocol: Sendable {
     /// - Note: High-frequency during MTC sync (up to 120 updates/sec at 30fps)
     var syncStateStream: AsyncStream<MIDISyncState> { get }
 
+    /// Installs the timing-critical chase callback.
+    ///
+    /// Unlike ``syncStateStream``, this callback is invoked directly from the
+    /// receiver callback and does not pass through UI observation state. It is
+    /// reserved for predicted transport locks whose host-time deadline would be
+    /// lost across the normal actor/stream/view-model delivery path.
+    ///
+    /// - Parameter handler: Main-actor callback receiving predicted locks.
+    func setChaseLockHandler(
+        _ handler: (@MainActor @Sendable (MTCChaseLock) -> Void)?
+    ) async
+
     // MARK: - Commands (UI → Logic)
 
     /// Selects a MIDI input port by name.
@@ -142,7 +154,46 @@ public enum IncomingMIDISignal: String, Sendable, Equatable {
     }
 }
 
+/// A lock the receiver has predicted: where the transport will be, and when.
+///
+/// MIDIKit's `preSync` state carries both, and they are what a chase is
+/// actually made of. `AVPlayer.setRate(_:time:atHostTime:)` takes exactly this
+/// pair - "be at this item time when the host clock reads this" - so the
+/// receiver's prediction and AVFoundation's scheduling API meet without either
+/// side having to guess.
+///
+/// Starting playback when `.sync` arrives instead cannot be on time: `.sync`
+/// means the lock instant has already passed. No sync policy makes that early
+/// enough, which is why shortening `lockFrames` reduced the late start without
+/// removing it.
+public struct MTCChaseLock: Sendable, Equatable {
+
+    /// When the transport reaches ``timecode``, in `mach_absolute_time` units.
+    ///
+    /// Taken from `DispatchTime.rawValue`, which is documented in MIDIKit's own
+    /// receiver as "same as `DispatchTime(rawValue: mach_absolute_time())`", and
+    /// consumed by `CMClockMakeHostTimeFromSystemUnits`, documented as
+    /// converting "from the units of mach_absolute_time". The two agree, so no
+    /// conversion beyond that call is needed.
+    public let hostTime: UInt64
+
+    /// The timecode the transport will be at, at ``hostTime``.
+    public let timecode: Timecode
+
+    public init(hostTime: UInt64, timecode: Timecode) {
+        self.hostTime = hostTime
+        self.timecode = timecode
+    }
+}
+
 public struct MIDISyncState: Sendable, Equatable {
+
+    /// A lock the receiver has predicted, or `nil` when none is pending.
+    ///
+    /// Published on entering `preSync`, which is the only warning a chase gets
+    /// that playback should already be starting.
+    public let pendingLock: MTCChaseLock?
+
 
     /// Current MTC receiver state (idle, locking, synced, etc.)
     public let mtcState: MTCSyncState
@@ -223,6 +274,7 @@ public struct MIDISyncState: Sendable, Equatable {
 
     /// Creates a new MIDI sync state.
     public init(
+        pendingLock: MTCChaseLock? = nil,
         mtcState: MTCSyncState,
         mtcTimecode: Timecode?,
         isReceivingMTC: Bool,
@@ -242,6 +294,7 @@ public struct MIDISyncState: Sendable, Equatable {
         driftFrames: Double = 0.0,
         driftStatus: DriftStatus = .excellent
     ) {
+        self.pendingLock = pendingLock
         self.mtcState = mtcState
         self.mtcTimecode = mtcTimecode
         self.isReceivingMTC = isReceivingMTC
