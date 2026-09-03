@@ -87,8 +87,8 @@ between steps:
 2. **Push** to the remote.
 3. **Build the DMG** — `./scripts/build-release.sh`, which signs, notarizes and
    verifies it.
-4. **Update the download links** — GitHub release (tagged `v<version>`), the
-   Google Drive copy, and the Dropbox copy. All three, not one of them.
+4. **Update the download links** — GitHub release (tagged `v<version>`) and the
+   Dropbox copy. Both, not one of them.
 5. **Publish the appcast** so installed copies are offered the update.
 6. **Replace `/Applications/Projector.app`** with the new build.
 

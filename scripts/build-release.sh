@@ -10,14 +10,13 @@
 # Usage: ./scripts/build-release.sh [version] [--no-publish] [--no-upload] [--no-install]
 #   version:      Optional version string (e.g., "1.0.0"). Defaults to the current date.
 #   --no-publish: Do not create a GitHub release.
-#   --no-upload:  Do not copy to the Google Drive or Dropbox mirrors.
+#   --no-upload:  Do not copy to the Dropbox mirror.
 #   --no-install: Do not replace /Applications/Projector.app.
 #
 # On success the DMG replaces the copy in /Applications, is attached to a GitHub
-# release tagged v<version>, and is copied to both Google Drive and Dropbox - so
-# the machine and all three links move together. The DMG itself is never
-# committed: it is ~11MB, git keeps every version forever, and `release-build/`
-# is ignored.
+# release tagged v<version>, and is copied to Dropbox - so the machine and both
+# links move together. The DMG itself is never committed: it is ~11MB, git keeps
+# every version forever, and `release-build/` is ignored.
 
 set -e
 
@@ -33,13 +32,12 @@ DMG_NAME="Projector"
 TEAM_ID="G398H44H6X"
 DEVELOPER_ID="Developer ID Application: Keegan DeWitt (${TEAM_ID})"
 NOTARY_PROFILE="notary"
-DRIVE_REMOTE="gdrive"
-DRIVE_FOLDER="Projector Builds"
 INSTALL_PATH="/Applications/${APP_NAME}"
 
 # Dropbox is a synced folder on this machine, not an API: the copy is a plain
-# `cp` and the Dropbox client uploads it in the background. No OAuth, no rclone
-# remote, and nothing to re-authorise when a token expires.
+# `cp` and the Dropbox client uploads it in the background. No OAuth, no remote
+# to configure, and nothing to re-authorise when a token expires - which is why
+# it is the mirror that stayed when the Google Drive upload was dropped.
 #
 # DROPBOX_SHARE_URL is the "anyone with the link" URL for the permanent copy,
 # read once from Finder (right-click Projector.dmg > Copy Dropbox Link) and
@@ -47,7 +45,7 @@ INSTALL_PATH="/Applications/${APP_NAME}"
 # Dropbox has no CLI to ask for it - and it never changes, for the reason given
 # at the copy step below.
 DROPBOX_ROOT="/Volumes/Samples/So Pitted Dropbox"
-DROPBOX_DIR="${DROPBOX_ROOT}/So Pitted - Team Folder/Projector Builds"
+DROPBOX_DIR="${DROPBOX_ROOT}/So Pitted - Team Folder/_Projector Builds"
 DROPBOX_SHARE_URL=""
 
 # Arguments
@@ -462,62 +460,16 @@ else
     fi
 fi
 
-# Upload to Google Drive
-#
-# Alongside the GitHub release rather than instead of it: two links cost nothing
-# and either one surviving is better than a single point of failure. The Drive
-# link is "anyone with the link" - unlisted, not private.
-#
-# Skipped with --no-upload, or when the rclone remote is not configured.
-DRIVE_URL=""
-DRIVE_STABLE_URL=""
-if [ "${UPLOAD}" -eq 0 ]; then
-    echo ""
-    echo "[upload] Skipped (--no-upload)."
-elif ! command -v rclone >/dev/null 2>&1 \
-     || ! rclone listremotes 2>/dev/null | grep -q "^${DRIVE_REMOTE}:$"; then
-    echo ""
-    echo "[upload] Skipped: rclone remote '${DRIVE_REMOTE}' is not configured."
-    echo "          Set one up with: rclone config create ${DRIVE_REMOTE} drive scope=drive"
-else
-    echo ""
-    echo "[upload] Uploading to Google Drive (${DRIVE_FOLDER})..."
-    rclone mkdir "${DRIVE_REMOTE}:${DRIVE_FOLDER}" 2>/dev/null || true
-
-    if rclone copy "${DMG_PATH}" "${DRIVE_REMOTE}:${DRIVE_FOLDER}" --stats-one-line; then
-        DRIVE_URL="$(rclone link \
-            "${DRIVE_REMOTE}:${DRIVE_FOLDER}/${DMG_FILENAME}" 2>/dev/null || true)"
-    else
-        echo "[upload] WARNING: upload failed. The DMG and any release link are still good."
-    fi
-
-    # The same DMG again under a constant name, which is the link worth handing
-    # out. `copyto` **updates the existing file** rather than replacing it, so the
-    # Drive file id survives - and since a Drive share link is just that id, the
-    # link keeps working forever. Measured before relying on it: two uploads of
-    # different content to the same destination returned the same id.
-    #
-    # A plain `rclone copy` cannot do this: the versioned name differs every
-    # release, so it creates a new file with a new id and a new link each time.
-    if rclone copyto "${DMG_PATH}" \
-            "${DRIVE_REMOTE}:${DRIVE_FOLDER}/${DMG_NAME}.dmg" --stats-one-line; then
-        DRIVE_STABLE_URL="$(rclone link \
-            "${DRIVE_REMOTE}:${DRIVE_FOLDER}/${DMG_NAME}.dmg" 2>/dev/null || true)"
-    else
-        echo "[upload] WARNING: the permanent-link copy failed; versioned copy is still good."
-    fi
-fi
-
 # Copy to Dropbox
 #
-# The third mirror, alongside GitHub and Drive rather than instead of either:
-# each link is a separate point of failure and none of them cost anything.
+# The second mirror, alongside the GitHub release rather than instead of it:
+# each link is a separate point of failure and neither one costs anything.
 #
-# Two names again, for the same reason Drive keeps two. The versioned file is the
-# archive; `Projector.dmg` is the link worth handing out. A Dropbox share link is
-# bound to the file at that path, so writing over `Projector.dmg` keeps the link
-# alive - which holds only because `cp` truncates the existing file in place. A
-# delete-then-write would hand out a link to a file that no longer exists.
+# Two names, for two jobs. The versioned file is the archive; `Projector.dmg` is
+# the link worth handing out. A Dropbox share link is bound to the file at that
+# path, so writing over `Projector.dmg` keeps the link alive - which holds only
+# because `cp` truncates the existing file in place. A delete-then-write would
+# hand out a link to a file that no longer exists.
 DROPBOX_COPIED=0
 if [ "${UPLOAD}" -eq 0 ]; then
     echo ""
@@ -560,18 +512,14 @@ fi
 if [ -n "${DOWNLOAD_URL}" ]; then
     echo "GitHub:       ${DOWNLOAD_URL}"
 fi
-if [ -n "${DRIVE_URL}" ]; then
-    echo "Drive:        ${DRIVE_URL}"
-fi
 if [ "${DROPBOX_COPIED}" -eq 1 ]; then
     echo "Dropbox:      ${DROPBOX_DIR}/${DMG_FILENAME}"
 fi
-if [ -n "${STABLE_URL}" ] || [ -n "${DRIVE_STABLE_URL}" ] \
+if [ -n "${STABLE_URL}" ] \
    || { [ "${DROPBOX_COPIED}" -eq 1 ] && [ -n "${DROPBOX_SHARE_URL}" ]; }; then
     echo ""
     echo "PERMANENT LINKS - these never change, hand these out:"
-    [ -n "${STABLE_URL}" ]       && echo "  GitHub:     ${STABLE_URL}"
-    [ -n "${DRIVE_STABLE_URL}" ] && echo "  Drive:      ${DRIVE_STABLE_URL}"
+    [ -n "${STABLE_URL}" ] && echo "  GitHub:     ${STABLE_URL}"
     [ "${DROPBOX_COPIED}" -eq 1 ] && [ -n "${DROPBOX_SHARE_URL}" ] \
         && echo "  Dropbox:    ${DROPBOX_SHARE_URL}"
 fi
