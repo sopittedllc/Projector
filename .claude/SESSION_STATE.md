@@ -1,8 +1,8 @@
 # Session State
 
-> **Last Updated**: 2026-08-26
-> **Status**: HANDING OFF — sync work to be reverted by the user; symptom unresolved
-> **Branch**: main (2 local commits, nothing pushed, no DMG built)
+> **Last Updated**: 2026-09-03
+> **Status**: IDLE — 2026.09.03 shipped
+> **Branch**: main, clean, in sync with origin
 
 ---
 
@@ -15,37 +15,57 @@ have been used, and what to keep vs revert.
 
 The single most important line in it: `DispatchTime.rawValue` is in
 `mach_absolute_time` units, not nanoseconds (41.667ns each on this machine), so
-every lead time logged this session was **41x too small**. Decisions were made on
+every lead time logged that session was **41x too small**. Decisions were made on
 those numbers.
 
 ---
 
-## State of the tree
+## Shipped 2026-09-03 — release 2026.09.03
 
-| Commit | Verdict |
+Everything through `68e8f4c` is released. `build-release.sh` completed all six
+ship steps and exited 0.
+
+| Step | Result |
 |---|---|
-| `a2d34fd` timeline: stem lane reuse + vertical region drag | **Good.** Tested, 7 new unit tests, unrelated to sync. Runtime verification still owed. |
-| `c706501` sync + MIDI port rename | **Mixed.** Port rename verified at the CoreMIDI layer and worth keeping; all chase changes should go. |
-| uncommitted | Park model, scheduled chase lock, `MTCChaseLock` contract, frame-by-frame tracing. All chase work. |
+| Commit + push | Clean; `2a4b982 release: add 2026.09.03 to the appcast` is the head |
+| DMG | `Projector-2026.09.03.dmg`, 13M, signed and notarized (app and DMG both Accepted) |
+| GitHub release | `v2026.09.03`, marked Latest |
+| Appcast | Entry `20260903.1300` signed and pushed; installed copies will offer it |
+| Google Drive | Versioned + permanent-link copy uploaded |
+| Dropbox | Copied; client syncs in the background |
+| /Applications | Replaced with 2026.09.03 |
 
-Reset commands are in the incident doc. The port rename is worth lifting out of
-`c706501` rather than losing to a hard reset — it spans `MIDISyncActor.swift`,
-`SettingsView.swift`, `OnboardingView.swift`, `WelcomeOverlayView.swift`,
-`MIDISyncViewModel.swift`.
+**Permanent links** (these never change):
+- GitHub: `https://github.com/sopittedllc/Projector/releases/latest/download/Projector.dmg`
+- Drive: `https://drive.google.com/open?id=13vseAdxL3EPIMFMhKl4yemjkwbzGLGo7`
 
-## Still outstanding, unrelated to sync
+**The one thing the script skipped**: `DROPBOX_SHARE_URL` is still empty, so the
+Dropbox permanent link is not printed and is not in README's Download section.
+Once Dropbox finishes syncing, right-click `Projector.dmg` in Finder > Copy
+Dropbox Link, then set it at the top of `scripts/build-release.sh` and in
+`README.md`. The DMG itself did reach the folder — only the link is missing.
 
-- **Runtime verification of the timeline fixes.** Two turnovers should make three
-  lanes not six; reused lanes rename to DX/FX/MX; a hand-typed lane name survives;
-  regions drag vertically, diagonally, across several lanes, and refuse an
-  occupied timecode; undo restores lane and frame.
-- **The launch page work is uncommitted**: README screenshot + rebuilt feature
-  list, Dropbox mirror in `build-release.sh`, `FEATURES.md` Timecode OCR marked
-  Removed, `CLAUDE.md` ship steps.
-- **Blocked on the Dropbox share URL** — needed for `DROPBOX_SHARE_URL` in
-  `scripts/build-release.sh` and a mirrors line in README's Download section.
-  `2026.08.25` is already seeded at
-  `/Volumes/Samples/So Pitted Dropbox/So Pitted - Team Folder/Projector Builds/`.
+What is in this release, since 2026.08.25:
+
+| Commit | Change |
+|---|---|
+| `a2d34fd` | Timeline: one lane per stem across drops; regions can change lane |
+| `c706501` | Sync: tighter chase; MIDI ports named after what they carry |
+| `9753f3c` | Docs: launch page, Dropbox mirror alongside Drive |
+| `f327fa6` | Docs: the unresolved MTC stop stutter write-up |
+| `68e8f4c` | Sync: audio and picture stop together under MTC |
+
+---
+
+## Still outstanding
+
+- **Runtime verification is owed on this release.** It shipped on the user's
+  explicit instruction with the gap stated, not verified. Two turnovers should
+  make three lanes not six; reused lanes rename to DX/FX/MX; a hand-typed lane
+  name survives; regions drag vertically, diagonally, across several lanes, and
+  refuse an occupied timecode; undo restores lane and frame. Verify against
+  `/Applications/Projector.app` — it is now 2026.09.03.
+- **Dropbox share URL**, as above.
 - The README screenshot shows client material. Raised against the "Never Reference
   Client Material" rule; the user chose to ship it anyway on 2026-08-25. Recorded
   because the repo is public and the decision is not visible from the diff.
