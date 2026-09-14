@@ -31,13 +31,7 @@ Installed copies check for updates on their own and ask before installing one.
 ## What Projector is for
 
 Projector is a macOS video player built for one job: **running picture for a scoring or
-spotting session** and keeping it locked to the room.
-
-Composers, music editors and supervisors get sent a reel and a cue sheet, and then spend
-the session fighting the tools — a player that will not chase timecode, an editor that
-takes a minute to open a 90-minute QuickTime, or a stem delivery that plays hard left and
-hard right because the two halves were never meant to be heard together. Projector exists
-to make that part disappear so the session can be about the music.
+spotting session** and keeping it separate from your DAW.
 
 The workflow it is built around is deliberately narrow:
 
