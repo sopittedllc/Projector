@@ -1,14 +1,14 @@
 # Session State
 
 > **Last Updated**: 2026-09-14
-> **Status**: ACTIVE — shipping 2026.09.14
+> **Status**: IDLE — 2026.09.14 shipped
 > **Branch**: main, clean, in sync with origin
 
 ---
 
 ## 2026-09-14 — MTC chase fixed, shipping
 
-**Status**: shipping as 2026.09.14. Play and stop verified clean against the
+**Status**: SHIPPED as 2026.09.14 (`63bcd01` + appcast `7247089`, all six ship steps completed, nothing skipped). Play and stop verified clean against the
 user's DAW over ~20 cycles, first play included.
 
 Done this session:
