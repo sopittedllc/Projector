@@ -1,6 +1,6 @@
 # Projector
 
-**Projector is free, and the source is right here. It always will be.**
+**Projector is free, hope it helps you!**
 
 If it saves you time, please put money toward [**Altadena Girls**](https://www.altadenagirls.org/) instead of toward us.
 
