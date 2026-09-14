@@ -2,7 +2,7 @@
 
 **Date**: 2026-08-26
 **Severity**: HIGH (core workflow: chasing a DAW)
-**Status**: UNRESOLVED — sync work to be reverted, symptom still present
+**Status**: RESOLVED 2026-09-14 — see the last section. The write-up below is left as it was.
 
 ## Summary
 
@@ -232,3 +232,21 @@ research done.
    at `.sync`.
 3. **If audio:** investigate `syncAudioClips()` never running during chase.
 4. **Before either:** give position and roll state a single owner.
+
+## Resolution (2026-09-14)
+
+Both symptoms were closed in one session by tracing every play/stop against
+the DAW and fixing only what the trace showed, one defect per rebuild, with the
+user confirming each at runtime. Four defects, none of them the chase
+architecture - the scheduled lock from `68e8f4c` was arming correctly all along.
+
+| Symptom | Trace evidence | Defect | Fix |
+|---|---|---|---|
+| Stop: rewind, replay, stop | `PARK at 768 (locate)` then `pic 769 … rate 1.0 \| parked true` | `performPendingSeekIfNeeded` resumed `play()` on `isPlaying`, which is still true under MTC; it never knew about the park | Resume on `shouldMediaRoll` |
+| Stop: only sometimes | 6 Locates received by the actor, 3 `PARK (locate)` in the engine | MMC commands rode the state snapshot through `AsyncStream(bufferingPolicy: .bufferingNewest(1))`; the next timecode snapshot overwrote the one carrying the command | Direct `setMMCCommandHandler`, one `Task` per command, like the chase lock |
+| Stop: 3-frame hop after settling | `PARK at 768` then `SETTLE to 771` | The DAW flushes 2-3 quarter-frames after its Full Frame; they "agreed" with the locate and moved `mtcTargetFrame` | Settle on the parked frame |
+| Play: hiccup ~300ms in, first play only | `PARK at 775 (timecode quiet)` with the DAW rolling, `UNPARK` 315ms later, `DRIFT CORRECT … drift=6` | "Quiet" was inferred from main-queue delivery age, which stalls under first-play load | Park on the receiver's `.sync -> .freewheeling` transition, which MIDIKit measures on its own queue 50ms after the last quarter-frame |
+
+What made the difference from the August session: one trace per change, read
+before the next change, and the user at the DAW to say what each build did.
+The instrumentation section above is still the way to do it.

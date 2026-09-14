@@ -46,7 +46,7 @@ INSTALL_PATH="/Applications/${APP_NAME}"
 # at the copy step below.
 DROPBOX_ROOT="/Volumes/Samples/So Pitted Dropbox"
 DROPBOX_DIR="${DROPBOX_ROOT}/So Pitted - Team Folder/_Projector Builds"
-DROPBOX_SHARE_URL=""
+DROPBOX_SHARE_URL="https://www.dropbox.com/scl/fi/xyai0iiwqpumwgvpuxelw/Projector.dmg?rlkey=lc8er7qall0nl1fnd0i56jeui&dl=1"
 
 # Arguments
 #

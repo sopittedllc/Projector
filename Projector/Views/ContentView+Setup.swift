@@ -14,6 +14,21 @@ extension ContentView {
                 await midiSyncActor.setChaseLockHandler { [weak playbackEngine] lock in
                     playbackEngine?.scheduleChaseLock(lock)
                 }
+                await midiSyncActor.setMMCCommandHandler { [weak playbackEngine] command in
+                    guard let engine = playbackEngine else { return }
+                    switch command {
+                    case .stop:
+                        engine.stop()
+                    case .play, .deferredPlay:
+                        engine.play()
+                    case .pause:
+                        engine.pause()
+                    case .locate(let timecode):
+                        engine.seekToTimecode(timecode)
+                    case .fastForward, .rewind:
+                        break
+                    }
+                }
                 // Configure the decoder before constructing MIDIKit's MTC receiver.
                 // The actor defaults to 30 fps, while new projects default to 24 fps.
                 await midiSyncActor.setLocalFrameRate(initialFrameRate)
@@ -31,10 +46,13 @@ extension ContentView {
         // Observe MTC state changes - simple: play when synced, pause when idle
         midiSyncViewModel.$mtcState
             .removeDuplicates()
-            .sink { [weak playbackEngine] state in
+            .scan((previous: MTCSyncState.idle, current: MTCSyncState.idle)) { pair, state in
+                (previous: pair.current, current: state)
+            }
+            .sink { [weak playbackEngine] transition in
                 guard let engine = playbackEngine else { return }
 
-                switch state {
+                switch transition.current {
                 case .sync:
                     engine.setMTCSynced(
                         true,
@@ -43,6 +61,12 @@ extension ContentView {
                         // is not a mode worth offering.
                         controlPlayback: true
                     )
+                case .freewheeling where transition.previous == .sync:
+                    // Quarter-frames stopped while locked: the DAW has stopped
+                    // or is about to say where it went. Hold picture where
+                    // timecode left it rather than rolling out the dropout.
+                    engine.setMTCSynced(true, controlPlayback: false)
+                    engine.holdForTimecodeDropout()
                 case .preSync, .freewheeling:
                     // Track incoming timecode while acquiring/freewheeling, but
                     // do not generate an additional transport transition.
@@ -89,26 +113,9 @@ extension ContentView {
             }
             .store(in: &midiCancellables)
 
-        // Observe MMC transport commands
-        midiSyncViewModel.$lastMMCCommand
-            .compactMap { $0 }
-            .sink { [weak playbackEngine] command in
-                guard let engine = playbackEngine else { return }
-
-                switch command {
-                case .stop:
-                    engine.stop()
-                case .play, .deferredPlay:
-                    engine.play()
-                case .pause:
-                    engine.pause()
-                case .locate(let timecode):
-                    engine.seekToTimecode(timecode)
-                case .fastForward, .rewind:
-                    break
-                }
-            }
-            .store(in: &midiCancellables)
+        // MMC transport commands are executed by the handler installed above,
+        // not observed from `$lastMMCCommand`: that property rides the
+        // latest-wins state stream and lost about every other Locate.
     }
 
     func setupAudioCallback() {

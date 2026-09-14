@@ -20,6 +20,8 @@ If it saves you time, please put money toward [**Altadena Girls**](https://www.a
 
 **[⬇︎ Get the latest release](https://github.com/sopittedllc/Projector/releases/latest)** — a signed and notarized `.dmg`.
 
+Mirror: [Download from Dropbox](https://www.dropbox.com/scl/fi/xyai0iiwqpumwgvpuxelw/Projector.dmg?rlkey=lc8er7qall0nl1fnd0i56jeui&dl=1) — the same `.dmg`, if GitHub is blocked where you are.
+
 Drag Projector to your Applications folder and open it. No account, no license key, no trial.
 
 Installed copies check for updates on their own and ask before installing one.

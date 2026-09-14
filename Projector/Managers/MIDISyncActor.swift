@@ -177,6 +177,12 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// Direct delivery for timing-critical predicted locks.
     private var chaseLockHandler: (@MainActor @Sendable (MTCChaseLock) -> Void)?
 
+    /// Direct delivery for MMC commands, installed by the UI layer.
+    ///
+    /// See `MIDISyncServiceProtocol.setMMCCommandHandler(_:)` for why a
+    /// command cannot ride in the state snapshot.
+    private var mmcCommandHandler: (@MainActor @Sendable (MMCCommand) -> Void)?
+
     /// The lock the receiver has predicted, if one is pending.
     private var pendingLock: MTCChaseLock?
 
@@ -550,6 +556,12 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         _ handler: (@MainActor @Sendable (MTCChaseLock) -> Void)?
     ) async {
         chaseLockHandler = handler
+    }
+
+    public func setMMCCommandHandler(
+        _ handler: (@MainActor @Sendable (MMCCommand) -> Void)?
+    ) async {
+        mmcCommandHandler = handler
     }
 
     // MARK: - MTC Receiver Setup
@@ -1227,13 +1239,26 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     ///
     /// - Parameter command: The MMC command received.
     private func handleMMCCommand(_ command: MMCCommand) {
+        midiLog("MMC COMMAND RECEIVED: \(command.displayName)")
+
+        // Execution goes straight to the handler, one Task per command, so a
+        // command can never be overwritten by the snapshot that follows it.
+        // Traced before this existed: six stops, three Locates delivered.
+        if let mmcCommandHandler {
+            Task { @MainActor in
+                mmcCommandHandler(command)
+            }
+        } else {
+            midiLog("MMC command dropped: no handler installed")
+        }
+
         lastMMCCommand = command
         noteExternalControl()
         emitState()
         // MMC is an event, not persistent state. Keeping the last command in
-        // subsequent MTC snapshots caused Play/Stop/Locate to execute repeatedly.
+        // subsequent MTC snapshots would report it as current indefinitely to
+        // anything that reads the snapshot; nothing executes from it now.
         lastMMCCommand = nil
-        midiLog("MMC COMMAND RECEIVED: \(command.displayName)")
     }
 
     // MARK: - Utility Methods

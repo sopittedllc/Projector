@@ -1,14 +1,44 @@
 # Session State
 
-> **Last Updated**: 2026-09-03
-> **Status**: IDLE — 2026.09.03 shipped
+> **Last Updated**: 2026-09-14
+> **Status**: ACTIVE — shipping 2026.09.14
 > **Branch**: main, clean, in sync with origin
+
+---
+
+## 2026-09-14 — MTC chase fixed, shipping
+
+**Status**: shipping as 2026.09.14. Play and stop verified clean against the
+user's DAW over ~20 cycles, first play included.
+
+Done this session:
+- Four trace-verified chase fixes; the table in
+  `docs/incidents/2026-08-26-mtc-stop-stutter.md` (Resolution section) is the record.
+- Dropbox permanent link set in `scripts/build-release.sh` and README.
+- `docs/research/2026-09-14-daw-mmc-output.md` — thomas's verified per-DAW MMC
+  master setup (Logic / Pro Tools / Cubase solid; Studio One and REAPER not).
+- Timeline lane behaviour: user exercised the app all session with two reels of
+  stems; no lane complaints raised. Not formally walked through the checklist.
+
+Still open, in priority order:
+1. **Port confusion**: `Projector MMC OUT` shows up in the DAW's machine-control
+   *input* list, which is where the user looked for "where to point MMC". The
+   trace shows the DAW sends Identity Requests at launch (Logic-style control
+   surface scan), so the reply port is in use for that only. Decide: drop the
+   port, or rename it so it cannot be mistaken for the MMC destination.
+2. **Onboarding MMC step** — implement from the research doc for Logic, Pro
+   Tools, Cubase only (joseph, then clare).
+3. **README screenshot shows client material** — take one from the neutral
+   fixture (regenerate with `scripts/make-reference-reel.swift` + ffmpeg BWF
+   stems named `_DX/_FX/_MX`; the recipe is in the session, not committed).
+4. The DAW occasionally sends no MMC Locate on a very short play (1 of 9 cycles);
+   Projector then rests where timecode stopped. Nothing to do on our side.
 
 ---
 
 ## READ THIS FIRST
 
-**`docs/incidents/2026-08-26-mtc-stop-stutter-unresolved.md`** is the full write-up
+**`docs/incidents/2026-08-26-mtc-stop-stutter.md`** is the full write-up
 of the MTC stop-stutter investigation: what was ruled out, the measurement error
 that invalidated the session's readings, the documented architecture that should
 have been used, and what to keep vs revert.

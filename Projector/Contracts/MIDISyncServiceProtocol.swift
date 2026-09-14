@@ -62,6 +62,22 @@ public protocol MIDISyncServiceProtocol: Sendable {
         _ handler: (@MainActor @Sendable (MTCChaseLock) -> Void)?
     ) async
 
+    /// Installs the callback that executes MMC transport commands.
+    ///
+    /// A command is an event, and ``syncStateStream`` is a latest-wins channel
+    /// for state: it buffers one snapshot, and the next timecode update
+    /// replaces it. A Locate carried in a snapshot survived only if the
+    /// consumer drained it before the receiver's very next frame, which it did
+    /// about half the time. The command therefore has its own path, invoked
+    /// once per command with nothing to overwrite it. The snapshot's
+    /// ``MIDISyncState/lastMMCCommand`` is still published, but nothing
+    /// executes from it any more.
+    ///
+    /// - Parameter handler: Main-actor callback receiving each command once.
+    func setMMCCommandHandler(
+        _ handler: (@MainActor @Sendable (MMCCommand) -> Void)?
+    ) async
+
     // MARK: - Commands (UI → Logic)
 
     /// Selects a MIDI input port by name.

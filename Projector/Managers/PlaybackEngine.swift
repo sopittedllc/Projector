@@ -217,20 +217,6 @@ final class PlaybackEngine: ObservableObject {
     /// on every stop.
     private static let parkDwellBeforeUnpark: TimeInterval = 0.25
 
-    /// How long timecode may go quiet before picture is held.
-    ///
-    /// Deliberately much shorter than the receiver's dropout window, because the
-    /// two answer different questions. "Has the transport stopped?" must be
-    /// answered slowly and only once - it tears the transport down. "Should
-    /// picture still be moving?" can be answered fast and reversibly, and
-    /// answering it fast is what keeps picture from running past the stop.
-    ///
-    /// Timecode arrives about every 42ms, so this rides out three missed
-    /// updates. It has to clear the worst-case *delivery* gap without reaching
-    /// the receiver's dropout window, which is what would let picture overshoot
-    /// again - so it lives between the two, nearer the bottom.
-    private static let mtcQuietBeforeHold: TimeInterval = 0.15
-
     /// A position the transport located to, which outranks MTC until timecode
     /// agrees with it.
     ///
@@ -452,7 +438,6 @@ final class PlaybackEngine: ObservableObject {
 
     /// Seconds before reel boundary to start preloading
     private let preloadThreshold: Double = 5.0
-
 
     /// Sendable wrapper for AVAssetExportSession used in legacy export.
     private struct ExportSessionBox: @unchecked Sendable {
@@ -975,8 +960,16 @@ final class PlaybackEngine: ObservableObject {
                 // `.sync` confirms the preSync schedule. Starting either media
                 // path here would replace the shared host-time start with two
                 // unrelated immediate starts.
-                syncTrace("lock confirmed; media already armed")
                 hasScheduledChaseLock = false
+                if isPictureParked {
+                    // Lock is the transport saying it is rolling, which
+                    // outranks a park here exactly as it does on the unarmed
+                    // path below. Late, but not waiting on the unpark dwell.
+                    syncTrace("lock confirmed; releasing park")
+                    unparkPicture()
+                } else {
+                    syncTrace("lock confirmed; media already armed")
+                }
                 return
             }
 
@@ -1161,6 +1154,28 @@ final class PlaybackEngine: ObservableObject {
         startActiveAudioClips(atHostTime: lock.hostTime)
     }
 
+    /// Holds picture where timecode left it, on the receiver reporting a dropout.
+    ///
+    /// Called when the MTC receiver leaves `.sync` for `.freewheeling`, which
+    /// MIDIKit declares 50ms after the last quarter-frame on its own queue -
+    /// the one measurement of "timecode stopped" that a busy main thread
+    /// cannot fake. The receiver then spends `dropOutFrames` freewheeling
+    /// before declaring idle, and without this hold picture rolls through all
+    /// of it and the settle snaps it back.
+    ///
+    /// Reversible: if quarter-frames resume, ``releaseParkIfRolling`` lets
+    /// picture go again once timecode has proved the transport is moving.
+    ///
+    /// A park already in place is left where it is. A locate parks first - it
+    /// arrives with the stop, this transition ~130ms later - and the flushed
+    /// quarter-frames in between move `mtcTargetFrame` a few frames past the
+    /// locate. Re-parking there would settle picture on the flush instead of
+    /// the locate, the three-frame hop after every stop.
+    func holdForTimecodeDropout() {
+        guard isMTCSynced, !hasScheduledChaseLock, !isPictureParked else { return }
+        parkPicture(at: mtcTargetFrame, reason: "freewheeling")
+    }
+
     /// Stops picture and holds it at `frame`, without tearing the transport down.
     ///
     /// ## Why picture parks instead of coasting
@@ -1202,20 +1217,6 @@ final class PlaybackEngine: ObservableObject {
         }
         pauseAllAudioClips()
         prerollForImminentPlay()
-    }
-
-    /// Whether silence should be read as the transport having stopped.
-    ///
-    /// Only ever consulted for the *inferred* park. "Timecode is quiet" is
-    /// measured where `syncToMTC` runs - on the main queue, behind a 50ms
-    /// throttle - so it measures delivery, and a seek congests that queue.
-    ///
-    /// A locate must never consult this. It is a command, not an inference, and
-    /// gating it here is what let a locate arriving mid-seek skip its park
-    /// entirely - picture rolled straight on through the frame it was told to
-    /// stop at.
-    private var canInferStopFromSilence: Bool {
-        !isSeekingVideo
     }
 
     /// Releases a park once timecode has proved the transport is rolling.
@@ -1286,15 +1287,26 @@ final class PlaybackEngine: ObservableObject {
     ///   freshly-opened project would be seeked to frame zero before any DAW had
     ///   said anything.
     private func settleAtLastMTCPosition(wasSynced: Bool) {
+        // A park that was never released is the resting position. Timecode
+        // that arrived after the park but never proved the transport rolling
+        // - the two or three frames a DAW flushes after a locate - moved
+        // `mtcTargetFrame` past the locate without ever moving picture, and
+        // settling on it hopped picture three frames after every stop. The
+        // park rule already decided that burst was not motion; the settle
+        // has to agree with it.
+        let restingFrame = isPictureParked ? parkedAtFrame : mtcTargetFrame
         isPictureParked = false
         guard wasSynced, hasReceivedMTC, let reel = activeReel else {
             syncTrace("settle skipped: wasSynced=\(wasSynced) hasReceivedMTC=\(hasReceivedMTC) reel=\(activeReel == nil ? "nil" : "set")")
             return
         }
-        syncTrace("SETTLE to \(mtcTargetFrame)")
+        syncTrace("SETTLE to \(restingFrame) (mtc \(mtcTargetFrame))")
         hasReceivedMTC = false
 
-        seekWithinReel(reel, timelineFrame: mtcTargetFrame, resumeAfterSeek: false) {}
+        mtcTargetFrame = restingFrame
+        currentFrame = restingFrame
+        updateCurrentTimecode()
+        seekWithinReel(reel, timelineFrame: restingFrame, resumeAfterSeek: false) {}
     }
 
     private func resetSeekState() {
@@ -1902,11 +1914,6 @@ final class PlaybackEngine: ObservableObject {
             }
         }
     }
-
-
-
-
-
 
     /// Stop all audio clips
     private func stopAllAudioClips() {
@@ -2861,7 +2868,6 @@ final class PlaybackEngine: ObservableObject {
         }
     }
 
-
     private static func exportAudioLegacy(_ export: AVAssetExportSession) async throws {
         let box = ExportSessionBox(session: export)
         try await withCheckedThrowingContinuation { continuation in
@@ -3054,15 +3060,16 @@ final class PlaybackEngine: ObservableObject {
             // instead of prevented.
             //
             // So picture is *held* once timecode goes quiet, and released the
-            // moment it returns. The hold is reversible and keeps the player
-            // loaded and primed, which is why it can be this eager without
-            // costing anything when timecode simply hiccups.
+            // moment it returns - see ``holdForTimecodeDropout()``. Quiet used
+            // to be inferred here, from how long ago `syncToMTC` last ran.
+            // That measures main-queue delivery, not the transport: on the
+            // first play after a drop the main thread is busy scheduling
+            // audio and drawing waveforms, delivery stalled past the window
+            // with the DAW rolling, and picture was parked, released 315ms
+            // later and dragged six frames forward by a drift seek. The
+            // receiver measures the real gap on its own queue and reports it
+            // as `.freewheeling`; that is the signal now.
             let mtcAge = Date().timeIntervalSince(lastMTCArrival)
-            if mtcAge >= Self.mtcQuietBeforeHold, canInferStopFromSilence {
-                parkPicture(at: mtcTargetFrame, reason: "timecode quiet")
-                return
-            }
-
             guard mtcAge < Self.mtcStaleAfter else { return }
 
             // Use integer arithmetic to avoid floating-point drift over time.
@@ -3221,7 +3228,13 @@ final class PlaybackEngine: ObservableObject {
                 return
             }
 
-            if wasPlaying, self.isPlaying {
+            // `shouldMediaRoll`, not `isPlaying`: a locate parks picture and
+            // then seeks to the located frame, and under MTC `isPlaying` is
+            // still true throughout. Resuming here on `isPlaying` alone undid
+            // the park - traced as `rate 1.0 | parked true`, picture rolling
+            // on from the locate point until the receiver declared idle. That
+            // was the rewind-then-replay on every stop.
+            if wasPlaying, self.shouldMediaRoll {
                 if self.isInGap {
                     self.startGapPlayback()
                 } else {

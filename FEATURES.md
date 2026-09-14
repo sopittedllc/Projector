@@ -288,7 +288,7 @@ Verified at the CoreMIDI layer, not just in the app: `MIDIGetDestination` report
 
 Seven changes were made to the chase path on 2026-08-26 and then reverted. Each
 removed a real defect; none changed the reported symptom. The write-up is
-**`docs/incidents/2026-08-26-mtc-stop-stutter-unresolved.md`** and it is required
+**`docs/incidents/2026-08-26-mtc-stop-stutter.md`** and it is required
 reading before touching this path again.
 
 It records what was ruled out, a measurement error that invalidated the session's
