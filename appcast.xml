@@ -6,6 +6,16 @@
     <description>Updates for Projector</description>
     <language>en</language>
     <item>
+      <title>2026.09.15.2</title>
+      <pubDate>Tue, 15 Sep 2026 15:49:44 +0000</pubDate>
+      <sparkle:version>20260915.0847</sparkle:version>
+      <sparkle:shortVersionString>2026.09.15.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>12.0</sparkle:minimumSystemVersion>
+      <link>https://github.com/sopittedllc/Projector/releases/tag/v2026.09.15.2</link>
+      <description>Signed, notarized, universal (x86_64 + arm64). Requires macOS 12.0 or later.</description>
+      <enclosure url="https://github.com/sopittedllc/Projector/releases/download/v2026.09.15.2/Projector-2026.09.15.2.dmg" length="12409589" type="application/octet-stream" sparkle:edSignature="9MdSrJHNVL0vNnQlRkZiqfyL032q86IkdoZtExfd15+b+dInGQmVEh4hLu3qu9nMobVJS4H0wKi1YN/7TRQ/AQ==" />
+    </item>
+    <item>
       <title>2026.09.15</title>
       <pubDate>Tue, 15 Sep 2026 15:41:18 +0000</pubDate>
       <sparkle:version>20260915.0838</sparkle:version>
