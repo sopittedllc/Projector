@@ -2,7 +2,6 @@ import SwiftUI
 import Foundation
 import UniformTypeIdentifiers
 import SwiftTimecodeCore
-import AVFoundation
 import AppKit
 
 /// Audio lane container showing clips and lane controls
@@ -769,10 +768,9 @@ struct AudioLaneView: View {
             isDropAllowed = true
             updateDropPreview(location: latestDropLocation ?? location)
             Task {
-                let asset = AVAsset(url: url)
                 do {
-                    let duration = try await asset.load(.duration)
-                    let frames = max(1, Int(duration.seconds * frameRate.fps))
+                    let duration = try await MediaInspection.duration(of: url)
+                    let frames = max(1, Int(duration * frameRate.fps))
                     dropPreviewDurationFrames = frames
                 } catch {
                     dropPreviewDurationFrames = nil
@@ -855,10 +853,9 @@ struct AudioLaneView: View {
         // Load duration async for Finder drags
         if let url = candidate.urls.first {
             Task {
-                let asset = AVAsset(url: url)
                 do {
-                    let duration = try await asset.load(.duration)
-                    let frames = max(1, Int(duration.seconds * frameRate.fps))
+                    let duration = try await MediaInspection.duration(of: url)
+                    let frames = max(1, Int(duration * frameRate.fps))
                     await MainActor.run {
                         dropPreviewDurationFrames = frames
                         isLoadingDropPreview = false

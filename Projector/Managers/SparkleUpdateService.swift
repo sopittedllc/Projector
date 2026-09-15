@@ -218,6 +218,20 @@ final class UpdateRelaunchHandoff {
     }
 }
 
+/// Transfers Sparkle's legacy callback to the main actor.
+///
+/// The box provides no synchronization. Its narrow unchecked conformance is
+/// valid only because the nonisolated delegate creates it and immediately
+/// submits it to the main queue; `handler` is read and invoked exclusively from
+/// the main-actor-isolated relaunch handoff.
+private final class UpdateInstallHandlerBox: @unchecked Sendable {
+    let handler: () -> Void
+
+    init(_ handler: @escaping () -> Void) {
+        self.handler = handler
+    }
+}
+
 // MARK: - SPUUpdaterDelegate
 
 /// Logging only.
@@ -298,9 +312,10 @@ extension SparkleUpdateService: SPUUpdaterDelegate {
         shouldPostponeRelaunchForUpdate item: SUAppcastItem,
         untilInvokingBlock installHandler: @escaping () -> Void
     ) -> Bool {
+        let installHandlerBox = UpdateInstallHandlerBox(installHandler)
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                let handoff = UpdateRelaunchHandoff(installHandler: installHandler)
+                let handoff = UpdateRelaunchHandoff(installHandler: installHandlerBox.handler)
 
                 // The interface closes its own modals - windows and sheets are the
                 // UI layer's business, and this file must not reach for AppKit.

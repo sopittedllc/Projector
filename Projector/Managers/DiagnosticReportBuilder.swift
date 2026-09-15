@@ -29,36 +29,52 @@ public enum DiagnosticUnits {
 /// built off the main actor and the Logic layer never has to know the
 /// Presentation layer's types.
 public struct DiagnosticSnapshot: Sendable {
-    // App
+    /// Marketing version of the running app.
     public var appVersion: String
+    /// Internal build identifier.
     public var appBuild: String
+    /// Application bundle identifier.
     public var bundleIdentifier: String
 
-    // System
+    /// Operating-system version description.
     public var osVersion: String
+    /// Hardware model identifier.
     public var hardwareModel: String
+    /// Architecture of the running process.
     public var architecture: String
+    /// Installed physical memory in gigabytes.
     public var physicalMemoryGB: Double
+    /// Length of the current app session.
     public var uptime: TimeInterval
 
-    // Audio
+    /// Names of available audio outputs.
     public var audioOutputs: [String]
 
-    // MIDI
+    /// Names of available MIDI inputs.
     public var midiInputs: [String]
+    /// Currently selected MIDI input, if any.
     public var selectedMIDIInput: String?
+    /// Human-readable MIDI synchronization state.
     public var midiSyncState: String
 
-    // Project
+    /// Current project path, if saved.
     public var projectPath: String?
+    /// Whether the current project has unsaved changes.
     public var hasUnsavedChanges: Bool
+    /// Number of video reels in the timeline.
     public var videoReelCount: Int
+    /// Number of audio lanes in the timeline.
     public var audioLaneCount: Int
+    /// Total number of audio clips.
     public var audioClipCount: Int
+    /// Timeline frame-rate description.
     public var timelineFrameRate: String
+    /// Timeline length in frames.
     public var timelineDurationFrames: Int
+    /// Media paths referenced by the project.
     public var mediaPaths: [String]
 
+    /// Creates a complete diagnostic snapshot.
     public init(
         appVersion: String,
         appBuild: String,

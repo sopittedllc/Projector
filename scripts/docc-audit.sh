@@ -5,19 +5,33 @@
 echo "=== DocC Coverage Audit ==="
 echo ""
 
-# Function to calculate coverage for a file
+# Print "documented total". A declaration is documented only when a DocC
+# block immediately precedes it (attributes between the block and declaration
+# are allowed). Counting comment *lines* made the old script report 5,500%.
+coverage_counts() {
+    awk '
+        /^[[:space:]]*\/\/\// { has_docc = 1; next }
+        /^[[:space:]]*@[A-Za-z]/ { next }
+        /^[[:space:]]*public[[:space:]]+(final[[:space:]]+)?(func|class|struct|enum|actor|protocol|var|let)[[:space:]]/ {
+            total++
+            if (has_docc) documented++
+            has_docc = 0
+            next
+        }
+        /^[[:space:]]*$/ { next }
+        { has_docc = 0 }
+        END { print documented + 0, total + 0 }
+    ' "$1"
+}
+
 audit_file() {
     local file="$1"
+    local documented total
+    read -r documented total < <(coverage_counts "$file")
 
-    # Count public/internal APIs (functions, classes, structs, enums, properties)
-    local total_apis=$(grep -E "^\s*(public|internal)\s+(func|class|struct|enum|actor|protocol|var|let)" "$file" | wc -l | tr -d ' ')
-
-    # Count DocC comments (lines starting with ///)
-    local docc_comments=$(grep -c "^\s*///" "$file" || echo 0)
-
-    if [ "$total_apis" -gt 0 ]; then
-        local percent=$((docc_comments * 100 / total_apis))
-        printf "%-60s %3d/%3d APIs (%3d%%)\n" "$file" "$docc_comments" "$total_apis" "$percent"
+    if [ "$total" -gt 0 ]; then
+        local percent=$((documented * 100 / total))
+        printf "%-60s %3d/%3d APIs (%3d%%)\n" "$file" "$documented" "$total" "$percent"
     fi
 }
 
@@ -68,8 +82,7 @@ echo "⚠️  Files with <50% DocC coverage:"
 echo "───────────────────────────────────────────────────────────────────"
 
 find Projector -name "*.swift" -type f | while read -r file; do
-    total_apis=$(grep -E "^\s*(public|internal)\s+(func|class|struct|enum|actor|protocol|var|let)" "$file" | wc -l | tr -d ' ')
-    docc_comments=$(grep -c "^\s*///" "$file" || echo 0)
+    read -r docc_comments total_apis < <(coverage_counts "$file")
 
     if [ "$total_apis" -gt 0 ]; then
         percent=$((docc_comments * 100 / total_apis))

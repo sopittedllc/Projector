@@ -2,7 +2,6 @@ import SwiftUI
 import Foundation
 import SwiftTimecodeCore
 import UniformTypeIdentifiers
-import AVFoundation
 import AppKit
 
 /// Simple triangle shape for playhead
@@ -890,7 +889,7 @@ struct MultiTrackTimelineView: View {
     private var startTCBox: some View {
         HStack(spacing: Spacing.xs) {
             Text("Start TC:")
-                .font(.system(size: 10, weight: .medium))
+                .font(Typography.label)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .fixedSize()
@@ -952,7 +951,7 @@ struct MultiTrackTimelineView: View {
     private var positionBox: some View {
         HStack(spacing: Spacing.xs) {
             Text("Position:")
-                .font(.system(size: 10, weight: .medium))
+                .font(Typography.label)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .fixedSize()
@@ -1374,10 +1373,10 @@ struct MultiTrackTimelineView: View {
                                 .overlay {
                                     if isDragging {
                                         RoundedRectangle(cornerRadius: 4)
-                                            .fill(Color(red: 0.0, green: 1.0, blue: 0.0).opacity(0.25))
+                                            .fill(AppColors.validDrop.opacity(0.25))
                                             .overlay {
                                                 RoundedRectangle(cornerRadius: 4)
-                                                    .stroke(Color(red: 0.0, green: 1.0, blue: 0.0), lineWidth: 2)
+                                                    .stroke(AppColors.validDrop, lineWidth: 2)
                                             }
                                     }
                                 }
@@ -1894,7 +1893,7 @@ struct MultiTrackTimelineView: View {
     /// Play/stop indicator for video lane header
     private var videoHeaderPlaybackIndicator: some View {
         Image(systemName: playbackEngine.isPlaying ? "play.fill" : "stop.fill")
-            .font(.system(size: 10, weight: .medium))
+            .font(Typography.label)
             .foregroundColor(playbackEngine.isPlaying ? AppColors.accentGreen : .secondary)
     }
 
@@ -1902,7 +1901,7 @@ struct MultiTrackTimelineView: View {
     private var videoHeaderFpsControl: some View {
         HStack(spacing: Spacing.xs) {
             Text("FPS")
-                .font(.system(size: 10, weight: .medium))
+                .font(Typography.label)
                 .foregroundColor(.secondary)
 
             Menu {
@@ -1913,7 +1912,7 @@ struct MultiTrackTimelineView: View {
                 }
             } label: {
                 Text(timeline.config.frameRate.displayName)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .font(Typography.monoControl)
                     .foregroundColor(.secondary)
             }
             .menuStyle(.borderlessButton)
@@ -2178,7 +2177,7 @@ struct MultiTrackTimelineView: View {
 
                     HStack(spacing: Spacing.sm) {
                         Image(systemName: "plus.circle")
-                            .font(.system(size: 16))
+                            .font(Typography.iconMedium)
                             .foregroundColor(.secondary.opacity(0.4))
 
                         Text("Click \"+Audio Lane\" to add a lane, or drop audio files here")
@@ -2239,10 +2238,10 @@ struct MultiTrackTimelineView: View {
                 .overlay(
                     VStack(spacing: Spacing.xs) {
                         Text("New Lane")
-                            .font(.system(size: 9, weight: .medium))
+                            .font(Typography.labelSmall)
                             .foregroundColor(.secondary)
                         Image(systemName: "waveform.badge.plus")
-                            .font(.system(size: 14))
+                            .font(Typography.bodyLarge)
                             .foregroundColor(.secondary.opacity(0.7))
                     }
                     .opacity(isActive ? 1 : 0)
@@ -2390,10 +2389,9 @@ struct MultiTrackTimelineView: View {
             if emptyAudioDropPreviewDurationFrames == nil && !isEmptyAudioDropLoading {
                 isEmptyAudioDropLoading = true
                 Task {
-                    let asset = AVAsset(url: url)
                     do {
-                        let duration = try await asset.load(.duration)
-                        emptyAudioDropPreviewDurationFrames = max(1, Int(duration.seconds * timeline.config.frameRate.fps))
+                        let duration = try await MediaInspection.duration(of: url)
+                        emptyAudioDropPreviewDurationFrames = max(1, Int(duration * timeline.config.frameRate.fps))
                     } catch {
                         emptyAudioDropPreviewDurationFrames = nil
                     }
@@ -3781,4 +3779,3 @@ private struct TimelineDebugFlags {
         )
     }
 }
-

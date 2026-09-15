@@ -1277,7 +1277,7 @@ struct SettingsMenu<Content: View>: View {
                     .lineLimit(1)
                 Spacer(minLength: Spacing.xs)
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 9, weight: .medium))
+                    .font(Typography.labelSmall)
                     .foregroundColor(.secondary)
             }
             .padding(.horizontal, SettingsDesign.controlTextInset)

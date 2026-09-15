@@ -65,6 +65,7 @@ public actor DiagnosticLog: DiagnosticLogService {
         buffer = Array(repeating: nil, count: max(1, capacity))
     }
 
+    /// Add an entry to the bounded diagnostic ring.
     public func record(_ entry: DiagnosticEntry) {
         if buffer[writeIndex] != nil {
             overwritten += 1
@@ -84,10 +85,12 @@ public actor DiagnosticLog: DiagnosticLogService {
             .sorted { $0.timestamp < $1.timestamp }
     }
 
+    /// Number of entries displaced since the last clear.
     public func overwrittenCount() -> Int {
         overwritten
     }
 
+    /// Remove every retained entry and reset overwrite accounting.
     public func clear() {
         buffer = Array(repeating: nil, count: buffer.count)
         writeIndex = 0

@@ -95,6 +95,7 @@ public enum TimelineError: Error, Sendable, LocalizedError {
 
     // MARK: - LocalizedError Implementation
 
+    /// Human-readable explanation of the timeline failure.
     public var errorDescription: String? {
         switch self {
         case .fileAccessDenied:

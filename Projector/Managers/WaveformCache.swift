@@ -1,5 +1,5 @@
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import Accelerate
 import DSWaveformImage
 
@@ -181,10 +181,10 @@ final class WaveformCache: ObservableObject {
     ///
     /// Only stereo. Beyond two channels there is no settled way to stack traces
     /// in a lane, so wider sources keep the single summed trace.
-    fileprivate static let stereoChannelCount = 2
+    nonisolated fileprivate static let stereoChannelCount = 2
 
     /// Rate assumed when a track's format description cannot be read.
-    fileprivate static let defaultSampleRate: Double = 48000
+    nonisolated fileprivate static let defaultSampleRate: Double = 48000
 
     // MARK: - Clip-Based Waveform Methods
 

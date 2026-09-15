@@ -80,7 +80,7 @@ struct FullScreenToggleButton: View {
             Image(systemName: isFullScreen
                   ? "arrow.down.right.and.arrow.up.left"
                   : "arrow.up.left.and.arrow.down.right")
-                .font(.system(size: 14, weight: .medium))
+                .font(Typography.buttonLarge)
                 .foregroundColor(.white)
                 .frame(width: 32, height: 32)
                 .background(Color.white.opacity(0.10))

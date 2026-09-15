@@ -38,10 +38,19 @@ public actor CueListExportService: CueListExportServiceProtocol {
 
     // MARK: - Initialization
 
+    /// Creates a cue-list export service.
     public init() {}
 
     // MARK: - Protocol Methods
 
+    /// Detect active audio regions in the MX lane.
+    ///
+    /// - Parameters:
+    ///   - lanes: Timeline audio lanes to inspect.
+    ///   - frameRate: Timeline frames per second.
+    ///   - startTimecodeFrames: Absolute frame address of timeline frame zero.
+    ///   - config: Silence-detection thresholds.
+    /// - Returns: Detected cues in timeline order.
     public func detectCues(
         in lanes: [AudioLane],
         frameRate: Double,
@@ -80,6 +89,11 @@ public actor CueListExportService: CueListExportServiceProtocol {
         return allCues
     }
 
+    /// Write cues as a CSV file.
+    ///
+    /// - Parameters:
+    ///   - cues: Cues to write.
+    ///   - destinationURL: User-selected output URL.
     public func exportToCSV(
         cues: [DetectedCue],
         to destinationURL: URL

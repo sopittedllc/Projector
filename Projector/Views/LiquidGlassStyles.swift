@@ -516,7 +516,7 @@ extension Color {
                     .font(Typography.caption)
                     .foregroundColor(.secondary)
                 Text("01:00:00:00")
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(Typography.mono)
             }
             .padding(.horizontal, Spacing.md)
             .padding(.vertical, Spacing.sm)
@@ -527,7 +527,7 @@ extension Color {
                     .font(Typography.caption)
                     .foregroundColor(.secondary)
                 Text("24")
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(Typography.mono)
             }
             .padding(.horizontal, Spacing.md)
             .padding(.vertical, Spacing.sm)

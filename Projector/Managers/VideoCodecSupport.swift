@@ -45,6 +45,113 @@ public struct CodecSupport: Sendable, Equatable {
     }
 }
 
+/// Small AVFoundation probes used by presentation code without exposing media
+/// framework types across the layer boundary.
+enum MediaInspection {
+    /// Video metadata needed by presentation code without exposing AVFoundation types.
+    struct VideoProperties: Sendable {
+        /// The track's declared playback rate in frames per second.
+        let nominalFrameRate: Double
+        /// The asset duration in seconds.
+        let duration: Double
+        /// Decoder availability and installation guidance, when inspection succeeds.
+        let codecSupport: CodecSupport?
+    }
+
+    /// Audio format metadata needed to construct timeline lanes.
+    struct AudioTrackProperties: Sendable {
+        /// The number of interleaved or non-interleaved audio channels.
+        let channelCount: Int
+        /// The track sample rate in hertz.
+        let sampleRate: Double
+    }
+
+    /// Duration of a media file in seconds.
+    ///
+    /// - Parameter url: The media file to inspect.
+    /// - Returns: The asset duration in seconds.
+    static func duration(of url: URL) async throws -> Double {
+        try await AVURLAsset(url: url).load(.duration).seconds
+    }
+
+    /// Loads the video metadata required by timeline presentation.
+    ///
+    /// - Parameter url: The media file containing a video track.
+    /// - Returns: Neutral video properties that do not expose AVFoundation types.
+    /// - Throws: If the asset cannot be read or contains no video track.
+    static func videoProperties(of url: URL) async throws -> VideoProperties {
+        let asset = AVURLAsset(url: url)
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+            throw NSError(
+                domain: "Projector",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "No video track found"]
+            )
+        }
+        return VideoProperties(
+            nominalFrameRate: Double(try await track.load(.nominalFrameRate)),
+            duration: try await asset.load(.duration).seconds,
+            codecSupport: try? await VideoCodecSupport.inspect(asset)
+        )
+    }
+
+    /// Loads the nominal frame rate of the first video track.
+    ///
+    /// - Parameter url: The media file containing a video track.
+    /// - Returns: The nominal rate in frames per second.
+    /// - Throws: If the asset cannot be read or contains no video track.
+    static func nominalVideoFrameRate(of url: URL) async throws -> Double {
+        let asset = AVURLAsset(url: url)
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+            throw NSError(domain: "Projector", code: 1)
+        }
+        return Double(try await track.load(.nominalFrameRate))
+    }
+
+    /// Loads format metadata for every audio track in a media file.
+    ///
+    /// - Parameter url: The media file to inspect.
+    /// - Returns: One neutral property value per audio track.
+    /// - Throws: If the asset's audio tracks or format descriptions cannot be loaded.
+    static func audioTracks(of url: URL) async throws -> [AudioTrackProperties] {
+        let tracks = try await AVURLAsset(url: url).loadTracks(withMediaType: .audio)
+        return try await tracks.asyncMap { track in
+            let descriptions = try await track.load(.formatDescriptions)
+            guard let description = descriptions.first,
+                  let format = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee else {
+                return AudioTrackProperties(channelCount: 2, sampleRate: 48_000)
+            }
+            return AudioTrackProperties(
+                channelCount: Int(format.mChannelsPerFrame),
+                sampleRate: format.mSampleRate
+            )
+        }
+    }
+
+    /// Calculates the displayed video size after applying its preferred transform.
+    ///
+    /// - Parameter url: The media file containing a video track.
+    /// - Returns: The positive, transformed display size, or zero when no video track exists.
+    /// - Throws: If the asset or track properties cannot be loaded.
+    static func videoDisplaySize(of url: URL) async throws -> CGSize {
+        let asset = AVURLAsset(url: url)
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else { return .zero }
+        let naturalSize = try await track.load(.naturalSize)
+        let transform = try await track.load(.preferredTransform)
+        let display = CGRect(origin: .zero, size: naturalSize).applying(transform).standardized
+        return CGSize(width: abs(display.width), height: abs(display.height))
+    }
+}
+
+private extension Array {
+    func asyncMap<T>(_ transform: (Element) async throws -> T) async rethrows -> [T] {
+        var values: [T] = []
+        values.reserveCapacity(count)
+        for element in self { values.append(try await transform(element)) }
+        return values
+    }
+}
+
 /// Identifies video codecs and reports whether this Mac can decode them.
 ///
 /// macOS decodes only the codecs whose decoders ship in

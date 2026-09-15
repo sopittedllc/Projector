@@ -390,7 +390,7 @@ struct FileManagerView: View {
                     .foregroundColor(.secondary)
 
                 Text("Media")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Typography.subheading)
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
@@ -488,7 +488,7 @@ struct FileManagerView: View {
     private func filterButton(title: String, type: MediaType?) -> some View {
         Button(action: { filterType = type }) {
             Text(title)
-                .font(.system(size: 10, weight: filterType == type ? .semibold : .regular))
+                .font(filterType == type ? Typography.selectedFilterLabel : Typography.caption)
                 .foregroundColor(filterType == type ? .accentColor : .secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
@@ -533,7 +533,7 @@ struct FileManagerView: View {
     private var emptyStateView: some View {
         VStack(spacing: Spacing.sm) {
             Image(systemName: "film")
-                .font(.system(size: 32))
+                .font(Typography.displayMedium)
                 .foregroundColor(.secondary.opacity(0.5))
 
             Text("No media files")
@@ -551,7 +551,7 @@ struct FileManagerView: View {
     private var noMatchesStateView: some View {
         VStack(spacing: Spacing.sm) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 32))
+                .font(Typography.displayMedium)
                 .foregroundColor(.secondary.opacity(0.5))
 
             Text(noMatchesTitle)
@@ -703,7 +703,7 @@ struct FileManagerView: View {
                         .foregroundColor(.accentColor)
 
                     Text("Drop to import")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(Typography.buttonLarge)
                         .foregroundColor(.accentColor)
                 }
             )
@@ -957,7 +957,7 @@ struct MediaGridCell: View {
                             .foregroundColor(.secondary.opacity(0.6))
                         // Type badge
                         Text(item.fileExtension.uppercased())
-                            .font(.system(size: 7, weight: .bold))
+                            .font(Typography.statusMarker)
                             .foregroundColor(.white)
                             .padding(.horizontal, 3)
                             .padding(.vertical, 1)

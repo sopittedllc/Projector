@@ -17,7 +17,7 @@ func syncTrace(_ message: @autoclosure () -> String) {
     #endif
 }
 
-import AVFoundation
+@preconcurrency import AVFoundation
 import os
 import Combine
 import SwiftTimecodeCore
@@ -444,6 +444,17 @@ final class PlaybackEngine: ObservableObject {
         let session: AVAssetExportSession
     }
 
+    /// Carries a main-actor completion through AVFoundation's legacy callback.
+    ///
+    /// This box does not synchronize the closure. Its narrow unchecked
+    /// conformance is valid because the AVFoundation callback never invokes or
+    /// reads `completion` directly; it transfers the box into a `Task` and the
+    /// closure is read and invoked only after entering `MainActor`.
+    private final class SeekCompletionBox: @unchecked Sendable {
+        let completion: () -> Void
+        init(_ completion: @escaping () -> Void) { self.completion = completion }
+    }
+
     /// State container for an actively playing audio clip.
     ///
     /// Keeps sandbox access to a file open for as long as it is needed.
@@ -494,7 +505,12 @@ final class PlaybackEngine: ObservableObject {
         }
     }
 
-    /// Holds references to the audio graph nodes and scheduling state for a single clip.
+    /// Holds the audio graph and scheduling state for a single clip.
+    ///
+    /// Every read and mutation occurs through the main-actor-isolated playback
+    /// engine. Declaring that confinement directly avoids claiming the mutable
+    /// graph state is safe to use from arbitrary concurrent executors.
+    @MainActor
     private final class AudioClipPlayback {
         let clipId: UUID
         let player: AVAudioPlayerNode
@@ -1616,6 +1632,7 @@ final class PlaybackEngine: ObservableObject {
 
         syncTrace("seek -> frame \(timelineFrame), resume=\(resumeAfterSeek), isPlaying=\(isPlaying)")
         isSeekingVideo = true
+        let completionBox = SeekCompletionBox(completion)
         pendingVideoSeekFrame = nil
         hasPrerolled = false  // A seek discards the primed pipelines.
 
@@ -1656,7 +1673,7 @@ final class PlaybackEngine: ObservableObject {
                     // preroll survives to the lock that follows.
                     self.prerollForImminentPlay()
                 }
-                completion()
+                completionBox.completion()
             }
         }
     }

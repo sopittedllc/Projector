@@ -6,6 +6,24 @@ private struct ProviderBox: @unchecked Sendable {
     let provider: NSItemProvider
 }
 
+/// Resumes an item-provider continuation at most once across callback paths.
+private final class URLContinuationBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<URL?, Never>?
+
+    init(_ continuation: CheckedContinuation<URL?, Never>) {
+        self.continuation = continuation
+    }
+
+    func finish(_ url: URL?) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume(returning: url)
+    }
+}
+
 /// Coordinates media import operations including drag-and-drop handling,
 /// URL extraction, and duplicate detection.
 ///
@@ -184,17 +202,12 @@ final class MediaImportCoordinator: ObservableObject {
     func loadURL(from provider: NSItemProvider) async -> URL? {
         let boxedProvider = ProviderBox(provider: provider)
         return await withCheckedContinuation { continuation in
-            var didFinish = false
-            func finish(_ url: URL?) {
-                guard !didFinish else { return }
-                didFinish = true
-                continuation.resume(returning: url)
-            }
+            let completion = URLContinuationBox(continuation)
 
             // Try loading as NSURL first (works for most Finder and internal drags)
             boxedProvider.provider.loadObject(ofClass: NSURL.self) { object, _ in
                 if let url = object as? NSURL {
-                    finish(url as URL)
+                    completion.finish(url as URL)
                     return
                 }
 
@@ -204,7 +217,7 @@ final class MediaImportCoordinator: ObservableObject {
                     options: nil
                 ) { item, _ in
                     if let url = Self.extractURL(from: item) {
-                        finish(url)
+                        completion.finish(url)
                         return
                     }
 
@@ -214,7 +227,7 @@ final class MediaImportCoordinator: ObservableObject {
                         options: nil
                     ) { item, _ in
                         if let url = Self.extractURL(from: item) {
-                            finish(url)
+                            completion.finish(url)
                             return
                         }
 
@@ -224,7 +237,7 @@ final class MediaImportCoordinator: ObservableObject {
                             options: nil
                         ) { item, _ in
                             if let url = Self.extractURL(from: item) {
-                                finish(url)
+                                completion.finish(url)
                                 return
                             }
 
@@ -232,7 +245,7 @@ final class MediaImportCoordinator: ObservableObject {
                             boxedProvider.provider.loadDataRepresentation(
                                 forTypeIdentifier: UTType.projectorMediaItem.identifier
                             ) { data, _ in
-                                finish(Self.extractProjectorMediaURL(from: data))
+                                completion.finish(Self.extractProjectorMediaURL(from: data))
                             }
                         }
                     }

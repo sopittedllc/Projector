@@ -202,6 +202,7 @@ public struct MTCChaseLock: Sendable, Equatable {
     }
 }
 
+/// Complete observable state of MIDI synchronization.
 public struct MIDISyncState: Sendable, Equatable {
 
     /// A lock the receiver has predicted, or `nil` when none is pending.

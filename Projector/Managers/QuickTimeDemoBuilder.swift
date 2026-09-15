@@ -108,6 +108,35 @@ struct QuickTimeDemo {
     /// instead would restart the preview from the top every time a fader moved,
     /// which is exactly when you want to keep listening to the same moment.
     let laneTrackIDs: [UUID: CMPersistentTrackID]
+    fileprivate let securityScopedResources: [QuickTimeDemoSecurityScope]
+
+    /// Copy the demo with updated levels while retaining its media access.
+    func replacingAudioMix(_ audioMix: AVAudioMix) -> QuickTimeDemo {
+        QuickTimeDemo(
+            composition: composition,
+            audioMix: audioMix,
+            span: span,
+            hasPicture: hasPicture,
+            mixTrackID: mixTrackID,
+            laneTrackIDs: laneTrackIDs,
+            securityScopedResources: securityScopedResources
+        )
+    }
+}
+
+/// Balances one sandbox resource acquisition when a demo is released.
+fileprivate final class QuickTimeDemoSecurityScope {
+    let url: URL
+    private let didStart: Bool
+
+    init(url: URL) {
+        self.url = url
+        didStart = url.startAccessingSecurityScopedResource()
+    }
+
+    deinit {
+        if didStart { url.stopAccessingSecurityScopedResource() }
+    }
 }
 
 enum QuickTimeDemoError: LocalizedError {
@@ -178,12 +207,14 @@ struct QuickTimeDemoBuilder {
         var inputParameters: [AVAudioMixInputParameters] = []
         var mixTrackID: CMPersistentTrackID?
         var laneTrackIDs: [UUID: CMPersistentTrackID] = [:]
+        var securityScopedResources: [QuickTimeDemoSecurityScope] = []
 
         let hasPicture = try await insertPicture(
             from: timeline,
             span: span,
             rate: rate,
-            into: composition
+            into: composition,
+            securityScopedResources: &securityScopedResources
         )
 
         // The supplied mix first, so it is the demo's primary audio track and
@@ -196,7 +227,8 @@ struct QuickTimeDemoBuilder {
             durationFrames: spec.wavDurationFrames,
             span: span,
             rate: rate,
-            into: composition
+            into: composition,
+            securityScopedResources: &securityScopedResources
         ) {
             inputParameters.append(mixParameters(for: mixTrack, gainDB: spec.wavGainDB))
             mixTrackID = mixTrack.trackID
@@ -222,7 +254,8 @@ struct QuickTimeDemoBuilder {
                     clip: clip,
                     span: span,
                     rate: rate,
-                    into: laneTrack
+                    into: laneTrack,
+                    securityScopedResources: &securityScopedResources
                 )
             }
 
@@ -255,7 +288,8 @@ struct QuickTimeDemoBuilder {
             span: span,
             hasPicture: hasPicture,
             mixTrackID: mixTrackID,
-            laneTrackIDs: laneTrackIDs
+            laneTrackIDs: laneTrackIDs,
+            securityScopedResources: securityScopedResources
         )
     }
 
@@ -366,7 +400,8 @@ struct QuickTimeDemoBuilder {
         from timeline: Timeline,
         span: QuickTimeDemoSpan,
         rate: TimecodeFrameRate,
-        into composition: AVMutableComposition
+        into composition: AVMutableComposition,
+        securityScopedResources: inout [QuickTimeDemoSecurityScope]
     ) async throws -> Bool {
         guard let videoTrack = composition.addMutableTrack(
             withMediaType: .video,
@@ -378,7 +413,11 @@ struct QuickTimeDemoBuilder {
             let overlapEnd = min(reel.timelineEndFrame, span.endFrame)
             guard overlapEnd > overlapStart else { continue }
 
-            let asset = try resolvedAsset(url: reel.sourceURL, bookmark: reel.sourceBookmark)
+            let asset = resolvedAsset(
+                url: reel.sourceURL,
+                bookmark: reel.sourceBookmark,
+                securityScopedResources: &securityScopedResources
+            )
             guard let sourceTrack = try await asset.loadTracks(withMediaType: .video).first else { continue }
 
             let sourceStart = reel.sourceStartFrame + (overlapStart - reel.timelineStartFrame)
@@ -408,7 +447,8 @@ struct QuickTimeDemoBuilder {
         clip: AudioClip,
         span: QuickTimeDemoSpan,
         rate: TimecodeFrameRate,
-        into track: AVMutableCompositionTrack
+        into track: AVMutableCompositionTrack,
+        securityScopedResources: inout [QuickTimeDemoSecurityScope]
     ) async throws {
         let overlapStart = max(clip.timelineStartFrame, span.startFrame)
         let overlapEnd = min(clip.timelineEndFrame, span.endFrame)
@@ -420,7 +460,11 @@ struct QuickTimeDemoBuilder {
         let url = clip.extractedAudioURL ?? clip.sourceURL
         let bookmark = clip.extractedAudioURL == nil ? clip.sourceBookmark : nil
 
-        let asset = try resolvedAsset(url: url, bookmark: bookmark)
+        let asset = resolvedAsset(
+            url: url,
+            bookmark: bookmark,
+            securityScopedResources: &securityScopedResources
+        )
         guard let sourceTrack = try await asset.loadTracks(withMediaType: .audio).first else { return }
 
         let sourceStart = clip.sourceStartFrame + (overlapStart - clip.timelineStartFrame)
@@ -447,7 +491,8 @@ struct QuickTimeDemoBuilder {
         durationFrames: Int,
         span: QuickTimeDemoSpan,
         rate: TimecodeFrameRate,
-        into composition: AVMutableComposition
+        into composition: AVMutableComposition,
+        securityScopedResources: inout [QuickTimeDemoSecurityScope]
     ) async throws -> AVMutableCompositionTrack? {
         let clip = AudioClip(
             sourceURL: url,
@@ -465,7 +510,13 @@ struct QuickTimeDemoBuilder {
             preferredTrackID: kCMPersistentTrackID_Invalid
         ) else { return nil }
 
-        try await insert(clip: clip, span: span, rate: rate, into: track)
+        try await insert(
+            clip: clip,
+            span: span,
+            rate: rate,
+            into: track,
+            securityScopedResources: &securityScopedResources
+        )
 
         if track.segments.isEmpty {
             composition.removeTrack(track)
@@ -487,11 +538,12 @@ struct QuickTimeDemoBuilder {
 
     /// An asset for a file the app may only reach through a bookmark.
     ///
-    /// Security-scoped access is started and deliberately not stopped: the
-    /// composition reads from this asset for as long as it is previewed or
-    /// exported, and revoking access at the end of this function would leave a
-    /// composition that decodes to nothing.
-    private static func resolvedAsset(url: URL, bookmark: Data?) throws -> AVURLAsset {
+    /// Access is retained by the resulting demo and released with it.
+    private static func resolvedAsset(
+        url: URL,
+        bookmark: Data?,
+        securityScopedResources: inout [QuickTimeDemoSecurityScope]
+    ) -> AVURLAsset {
         guard let bookmark else { return AVURLAsset(url: url) }
 
         var isStale = false
@@ -504,7 +556,7 @@ struct QuickTimeDemoBuilder {
             return AVURLAsset(url: url)
         }
 
-        _ = resolved.startAccessingSecurityScopedResource()
+        securityScopedResources.append(QuickTimeDemoSecurityScope(url: resolved))
         return AVURLAsset(url: resolved)
     }
 

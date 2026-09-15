@@ -275,13 +275,8 @@ final class QuickTimeDemoViewModel: ObservableObject {
 
         // The levels on screen, not the ones the composition happened to be
         // built with - a fader moved since then applied to the preview only.
-        let mixed = QuickTimeDemo(
-            composition: demo.composition,
-            audioMix: QuickTimeDemoBuilder.makeAudioMix(for: demo, spec: spec),
-            span: demo.span,
-            hasPicture: demo.hasPicture,
-            mixTrackID: demo.mixTrackID,
-            laneTrackIDs: demo.laneTrackIDs
+        let mixed = demo.replacingAudioMix(
+            QuickTimeDemoBuilder.makeAudioMix(for: demo, spec: spec)
         )
 
         do {

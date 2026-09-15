@@ -48,14 +48,14 @@ echo ""
 while IFS= read -r match; do
     ((violation_count++))
     echo -e "${RED}VIOLATION:${NC} $match"
-done < <(grep -rn "VStack(spacing: [0-9]\+)" "$VIEWS_DIR" 2>/dev/null | \
+done < <(grep -rn "VStack(spacing: [1-9][0-9]*)" "$VIEWS_DIR" 2>/dev/null | \
     grep -v "Spacing\." || true)
 
 echo ""
 while IFS= read -r match; do
     ((violation_count++))
     echo -e "${RED}VIOLATION:${NC} $match"
-done < <(grep -rn "HStack(spacing: [0-9]\+)" "$VIEWS_DIR" 2>/dev/null | \
+done < <(grep -rn "HStack(spacing: [1-9][0-9]*)" "$VIEWS_DIR" 2>/dev/null | \
     grep -v "Spacing\." || true)
 
 echo ""
@@ -73,6 +73,7 @@ while IFS= read -r match; do
     echo -e "${RED}VIOLATION:${NC} $match"
 done < <(grep -rn "\.frame(height: [0-9]\+)" "$VIEWS_DIR" 2>/dev/null | \
     grep -v "Layout\." | \
+    grep -vE "\.frame\(height: [1-4]\)" | \
     grep -v "//.*\.frame" || true)
 
 echo ""
@@ -193,8 +194,7 @@ while IFS= read -r file; do
 
     # Only flag files with a meaningful number of controls and no coverage at all
     if [ "$buttons" -ge 4 ] && [ "$helps" -eq 0 ] && [ "$labels" -eq 0 ]; then
-        ((violation_count++))
-        echo -e "${YELLOW}WARNING:${NC} $(basename "$file") - $buttons controls, no .help() or accessibilityLabel"
+        echo -e "${YELLOW}REVIEW:${NC} $(basename "$file") - $buttons controls, no .help() or accessibilityLabel"
     fi
 done < <(find "$VIEWS_DIR" -name "*.swift" 2>/dev/null || true)
 

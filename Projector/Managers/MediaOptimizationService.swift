@@ -59,6 +59,44 @@ private final class CancellationFlag: @unchecked Sendable {
     }
 }
 
+/// Synchronizes completion and progress shared by AVFoundation callback queues.
+private final class TranscodeCallbackState: @unchecked Sendable {
+    enum Stream { case video, audio, timecode }
+
+    private let lock = NSLock()
+    private var videoFinished = false
+    private var audioFinished: Bool
+    private var timecodeFinished: Bool
+    private var didComplete = false
+    private var lastReportedProgress: Double = 0
+
+    init(audioFinished: Bool, timecodeFinished: Bool) {
+        self.audioFinished = audioFinished
+        self.timecodeFinished = timecodeFinished
+    }
+
+    func finish(_ stream: Stream) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        switch stream {
+        case .video: videoFinished = true
+        case .audio: audioFinished = true
+        case .timecode: timecodeFinished = true
+        }
+        guard videoFinished && audioFinished && timecodeFinished && !didComplete else { return false }
+        didComplete = true
+        return true
+    }
+
+    func shouldReport(progress: Double) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard progress - lastReportedProgress >= 0.01 else { return false }
+        lastReportedProgress = progress
+        return true
+    }
+}
+
 // MARK: - MediaOptimizationService
 
 /// Actor that handles media optimization (analysis and transcoding).
@@ -867,25 +905,12 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         let audioQueue = DispatchQueue(label: "com.projector.audio-transcoding")
         let timecodeQueue = DispatchQueue(label: "com.projector.timecode-transcoding")
 
-        // Capture progress for async reporting
-        var lastReportedProgress: Double = 0
-        let progressLock = NSLock()
-
         // Use continuations to wait for completion
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            var videoFinished = false
-            var audioFinished = audioReaderOutput == nil  // Already finished if no audio
-            var timecodeFinished = timecodeReaderOutput == nil  // Already finished if no timecode
-            let completionLock = NSLock()
-
-            func checkCompletion() {
-                completionLock.lock()
-                let done = videoFinished && audioFinished && timecodeFinished
-                completionLock.unlock()
-                if done {
-                    continuation.resume()
-                }
-            }
+            let callbackState = TranscodeCallbackState(
+                audioFinished: audioReaderOutput == nil,
+                timecodeFinished: timecodeReaderOutput == nil
+            )
 
             // Wrap AVFoundation objects for Sendable closure compatibility
             let videoWriterBox = WriterInputBox(videoWriterInput)
@@ -901,20 +926,14 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                     // Check cancellation
                     if cancelFlag.isCancelled {
                         writerInput.markAsFinished()
-                        completionLock.lock()
-                        videoFinished = true
-                        completionLock.unlock()
-                        checkCompletion()
+                        if callbackState.finish(.video) { continuation.resume() }
                         return
                     }
 
                     guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
                         // No more samples
                         writerInput.markAsFinished()
-                        completionLock.lock()
-                        videoFinished = true
-                        completionLock.unlock()
-                        checkCompletion()
+                        if callbackState.finish(.video) { continuation.resume() }
                         return
                     }
 
@@ -922,15 +941,10 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                     let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
                     let progress = min(pts.seconds / totalSeconds, 1.0)
 
-                    progressLock.lock()
-                    if progress - lastReportedProgress >= 0.01 {
-                        lastReportedProgress = progress
-                        progressLock.unlock()
+                    if callbackState.shouldReport(progress: progress) {
                         Task {
                             await progressHandler(progress)
                         }
-                    } else {
-                        progressLock.unlock()
                     }
 
                     // Append the sample buffer
@@ -950,10 +964,7 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                     while writerInput.isReadyForMoreMediaData {
                         guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
                             writerInput.markAsFinished()
-                            completionLock.lock()
-                            audioFinished = true
-                            completionLock.unlock()
-                            checkCompletion()
+                            if callbackState.finish(.audio) { continuation.resume() }
                             return
                         }
                         writerInput.append(sampleBuffer)
@@ -974,20 +985,14 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                         // Check cancellation (same as video processing)
                         if cancelFlag.isCancelled {
                             writerInput.markAsFinished()
-                            completionLock.lock()
-                            timecodeFinished = true
-                            completionLock.unlock()
-                            checkCompletion()
+                            if callbackState.finish(.timecode) { continuation.resume() }
                             return
                         }
 
                         guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
                             // No more samples - timecode track complete
                             writerInput.markAsFinished()
-                            completionLock.lock()
-                            timecodeFinished = true
-                            completionLock.unlock()
-                            checkCompletion()
+                            if callbackState.finish(.timecode) { continuation.resume() }
                             return
                         }
 

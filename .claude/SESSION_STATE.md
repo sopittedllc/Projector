@@ -1,8 +1,98 @@
 # Session State
 
 > **Last Updated**: 2026-09-15
-> **Status**: ACTIVE — 2026.09.15 shipped; shipping 2026.09.15.2 (Sparkle asks once)
+> **Status**: ACTIVE — comprehensive audit remediations complete and uncommitted; manual runtime verification owed
 > **Branch**: main
+
+---
+
+## 2026-09-15 — Claude review of the Codex audit handoff
+
+**Task**: Review the uncommitted audit diff against its report. Read-only; no
+source changed.
+
+Re-verified here: Debug build clean (no source warnings), `ProjectorTests`
+323 passed / 0 failed on this machine (the Lynx-selected one the isolation fix
+was for; `selectedAudioOutput` and mappings confirmed restored afterwards),
+UI audit zero violations, `git diff --check` clean.
+
+Findings, none blocking:
+- `ProjectMediaLibrary.swift:470` still starts security-scoped access with no
+  owner or stop - same class of bug the report says was fully remediated. Not
+  a regression; a gap in the audit's sweep.
+- `PlaybackEngine.AudioClipPlayback` is now `@unchecked Sendable` with four
+  `var`s and no documented confinement invariant, against the report's own
+  rule. `SeekCompletionBox` / `UpdateInstallHandlerBox` are warning silencers,
+  not safety.
+- `ThumbnailCache.swift` declares a class between the `import` lines.
+- The token sweep is not purely mechanical - it shifts rendering in ~6 spots:
+  timeline FPS pill 11->12pt; reel name semibold->medium; "N reels"
+  regular->medium; drag overlay pure (0,1,0) green -> system green; Onboarding
+  info tint `.blue` -> accent colour; padding 5->4 and 3->4 in the inline
+  video controls and onboarding radio. Icon tokens (`iconTiny`, `iconSmall`)
+  used on text.
+- `MediaInspection` is internal, so the "100% DocC" claim never sees it; four
+  of its five members are undocumented. The DocC audit counts only explicit
+  `public` (166 decls); the ~900 internal declarations in Managers are
+  outside its scope.
+
+**Codex follow-up (same day)**: fixed ProjectMediaLibrary scope ownership
+(per-item-ID dictionary, released on remove/load/deinit), made
+`AudioClipPlayback` `@MainActor` instead of `@unchecked Sendable`, documented
+the two callback boxes' transfer invariant, moved the ThumbnailCache imports,
+reverted the rendering shifts with exact tokens (`reelName`, `monoControl`,
+`validDrop`, `onboardingInfo`, `CompactControlLayout`, `selectedFilterLabel`,
+`statusMarker`). Re-verified by Claude: build clean, 323/0, UI audit 0
+violations, Lynx prefs restored. Two crumbs left, neither blocking:
+- Resolved by Codex follow-up: "N reels" now uses an exact 8pt-regular text
+  token; `updateItemURL` releases any scope owned by the old URL before replacing
+  it; and both `MediaInspection` value types, all stored properties, and all five
+  operations now have DocC.
+
+**Codex second follow-up**: all three crumbs closed (`Typography.reelCount`,
+`updateItemURL` releases the old scope, `MediaInspection` fully documented).
+Re-verified: build clean, 323/0, UI audit 0, whitespace clean, Lynx prefs
+intact. Nothing outstanding from review.
+
+Override log: user said "skip my test and ship" - gabriel not run and the
+runtime pass skipped for the audit diff. Risk: the token sweep is meant to be
+pixel-identical but nobody has looked; QuickTime demo scope ownership and the
+media-library scope release are exercised only by the unit suite. Shipping as
+2026.09.15.3 (2026.09.15 and .2 already exist).
+
+---
+
+## 2026-09-15 — Comprehensive audit remediation
+
+**Read first**:
+`docs/audits/2026-09-15-comprehensive-audit-remediation.md`
+
+That report is the detailed record and educational handoff. In summary, the
+current uncommitted diff fixes security-scoped URL lifetime ownership, strict
+concurrency callback state, AVFoundation layer violations, app-hosted test
+preference leakage, invalid DocC coverage math, UI-audit false positives, and
+hardcoded UI values.
+
+Verification already completed: clean Debug compile, unsigned Release compile,
+all unit tests, signed UI test, 100% public DocC audit, zero counted UI-audit
+violations, and `git diff --check`. Signed Release is blocked only by the local
+absence of the Mac Development identity/private key for team `G398H44H6X`.
+
+The macOS “ProjectorUITests-Runner is damaged” dialog was caused by applying
+`CODE_SIGNING_ALLOWED=NO` to UI tests. The normally signed UI suite passed. Do
+not disable signing for macOS UI-test runners.
+
+Still required before commit: user runtime verification of import, optimize,
+place, playback, timeline drag/drop, QuickTime demo preview/export, routing, and
+the visually changed screens. Five accessibility heuristic `REVIEW` files are
+listed in the report; they are not confirmed violations.
+
+Peer-review follow-up: `ProjectMediaLibrary.refreshAccess` was a missed
+security-scope acquisition and now owns/releases one scope per media item;
+`AudioClipPlayback` is main-actor isolated instead of `@unchecked Sendable`;
+`ThumbnailCache` imports are contiguous; unintended visual substitutions were
+replaced with exact semantic tokens; and the report now limits its DocC claim to
+the 166 public declarations actually measured.
 
 ---
 

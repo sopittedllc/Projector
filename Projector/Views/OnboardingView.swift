@@ -438,7 +438,7 @@ struct OnboardingView: View {
                     .background(
                         Circle()
                             .fill(isSelected ? Color.accentColor : Color.clear)
-                            .padding(3)
+                            .padding(CompactControlLayout.radioSelectionInset)
                     )
                     .frame(width: 18, height: 18)
 
@@ -514,7 +514,7 @@ struct OnboardingView: View {
                             .foregroundColor(.secondary)
                     }
                     .padding(Spacing.md)
-                    .background(Color.blue.opacity(0.1))
+                    .background(AppColors.onboardingInfo.opacity(0.1))
                     .cornerRadius(8)
                 }
                 .padding(.horizontal, Spacing.lg)
@@ -598,7 +598,7 @@ struct OnboardingView: View {
                         .foregroundColor(.secondary)
                 }
                 .padding(Spacing.md)
-                .background(Color.blue.opacity(0.1))
+                .background(AppColors.onboardingInfo.opacity(0.1))
                 .cornerRadius(8)
                 .padding(.horizontal, Spacing.lg)
             }

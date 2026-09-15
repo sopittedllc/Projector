@@ -552,12 +552,14 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         }
     }
 
+    /// Install the main-actor callback for predicted chase locks.
     public func setChaseLockHandler(
         _ handler: (@MainActor @Sendable (MTCChaseLock) -> Void)?
     ) async {
         chaseLockHandler = handler
     }
 
+    /// Install the main-actor callback for decoded MMC commands.
     public func setMMCCommandHandler(
         _ handler: (@MainActor @Sendable (MMCCommand) -> Void)?
     ) async {

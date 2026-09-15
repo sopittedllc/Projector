@@ -414,7 +414,7 @@ struct PlayerWindowContent: View {
     private var collapseButton: some View {
         Button(action: onCollapse) {
             Image(systemName: "pip.exit")
-                .font(.system(size: 14, weight: .medium))
+                .font(Typography.buttonLarge)
                 .foregroundColor(.white)
                 .frame(width: 32, height: 32)
                 .background(Color.white.opacity(0.10))
@@ -428,7 +428,7 @@ struct PlayerWindowContent: View {
     private var pinButton: some View {
         Button(action: onTogglePin) {
             Image(systemName: settings.playerWindowPinnedToFront ? "pin.fill" : "pin.slash")
-                .font(.system(size: 14, weight: .medium))
+                .font(Typography.buttonLarge)
                 .foregroundColor(settings.playerWindowPinnedToFront ? AppColors.accent : .white)
                 .frame(width: 32, height: 32)
                 .background(Color.white.opacity(0.10))
@@ -551,11 +551,11 @@ struct InlineVideoArea: View {
         // Controls overlay - always visible, bottom-right corner
         .overlay(alignment: .bottomTrailing) {
             if !playerWindow.isPoppedOut {
-                HStack(spacing: 4) {
+                HStack(spacing: Spacing.xs) {
                     fullScreenButton
                     popOutButton
                 }
-                .padding(5)
+                .padding(CompactControlLayout.overlayPadding)
             }
         }
     }
@@ -582,7 +582,7 @@ struct InlineVideoArea: View {
     private var playStopButton: some View {
         Button(action: { playbackEngine.togglePlayback() }) {
             Image(systemName: playbackEngine.isPlaying ? "play.fill" : "stop.fill")
-                .font(.system(size: 14, weight: .medium))
+                .font(Typography.buttonLarge)
                 .foregroundColor(playbackEngine.isPlaying ? AppColors.accentGreen : AppColors.error)
                 .frame(width: 32, height: 32)
                 .background(AppColors.overlayDarker)
@@ -594,7 +594,7 @@ struct InlineVideoArea: View {
                         Image(systemName: "link")
                             .font(Typography.iconTiny)
                             .foregroundColor(.white.opacity(0.8))
-                            .padding(3)
+                            .padding(CompactControlLayout.badgeInset)
                     }
                 }
         }
@@ -644,7 +644,7 @@ struct InlineVideoArea: View {
             Image(systemName: playerWindow.isPoppedOut
                   ? "pip.exit"
                   : "pip.enter")
-                .font(.system(size: 14, weight: .medium))
+                .font(Typography.buttonLarge)
                 .foregroundColor(.white)
                 .frame(width: 32, height: 32)
                 .background(Color.white.opacity(0.10))
@@ -691,7 +691,7 @@ struct VideoFrameRateChip: View {
         .lineLimit(1)
         .fixedSize()
         .padding(.horizontal, Spacing.sm)
-        .frame(height: 32)
+        .frame(height: TransportLayout.frameRatePillHeight)
         .background(AppColors.overlayDarker)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .help("Frame rate is set by the video file")

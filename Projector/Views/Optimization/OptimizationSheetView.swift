@@ -160,7 +160,7 @@ struct OptimizationSheetView: View {
                             viewModel.selectAll()
                         }
                     }) {
-                        HStack(spacing: 4) {
+                        HStack(spacing: Spacing.xs) {
                             Image(systemName: viewModel.allSelected ? "checkmark.square.fill" : "square")
                                 .foregroundColor(viewModel.allSelected ? .accentColor : .secondary)
                             Text(viewModel.allSelected ? "Deselect All" : "Select All Optimizable")
@@ -406,7 +406,7 @@ struct OptimizationSheetView: View {
             // Content area
             VStack(spacing: Spacing.lg) {
                 Image(systemName: "doc.badge.gearshape")
-                    .font(.system(size: 56))
+                    .font(Typography.displayEmptyState)
                     .foregroundColor(.secondary)
 
                 Text("Save Project to Optimize")
@@ -441,7 +441,7 @@ struct OptimizationSheetView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
             }
-            .frame(height: 52)
+            .frame(height: PanelLayout.actionFooterHeight)
             .padding(.horizontal)
         }
         .frame(width: 400, height: 260)
@@ -693,7 +693,7 @@ private struct CleanupOptionButton: View {
             HStack(spacing: Spacing.sm) {
                 Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                     .foregroundColor(isSelected ? .accentColor : .secondary)
-                    .font(.system(size: 14))
+                    .font(Typography.bodyLarge)
 
                 Text(title)
                     .font(Typography.body)

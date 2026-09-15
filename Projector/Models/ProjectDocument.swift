@@ -5,6 +5,8 @@ import Combine
 /// Represents a saveable Projector project document
 @MainActor
 final class ProjectDocument: ObservableObject {
+    /// Successful security-scope acquisitions for the current document.
+    private var activeSecurityScopedURLs: [URL] = []
     // MARK: - Published Properties
 
     /// Whether the project has unsaved changes
@@ -61,6 +63,7 @@ final class ProjectDocument: ObservableObject {
 
     /// Reset to a new empty project
     func newProject() {
+        releaseSecurityScopedResources()
         fileURL = nil
         timeline = .empty
         mediaLibrary = []
@@ -107,6 +110,8 @@ final class ProjectDocument: ObservableObject {
         let decoder = JSONDecoder()
         let projectData = try decoder.decode(ProjectData.self, from: data)
 
+        releaseSecurityScopedResources()
+
         timeline = projectData.timeline
         mediaLibrary = projectData.mediaLibrary
         // Projects saved before UI state existed fall back to the defaults.
@@ -132,7 +137,7 @@ final class ProjectDocument: ObservableObject {
                     relativeTo: nil,
                     bookmarkDataIsStale: &isStale
                 ) {
-                    _ = url.startAccessingSecurityScopedResource()
+                    retainSecurityScope(for: url)
                     timeline.videoReels[i].sourceURL = url
                 }
             }
@@ -148,7 +153,7 @@ final class ProjectDocument: ObservableObject {
                         relativeTo: nil,
                         bookmarkDataIsStale: &isStale
                     ) {
-                        _ = url.startAccessingSecurityScopedResource()
+                        retainSecurityScope(for: url)
                         timeline.audioLanes[laneIndex].clips[clipIndex].sourceURL = url
                     }
                 }
@@ -167,7 +172,7 @@ final class ProjectDocument: ObservableObject {
                     relativeTo: nil,
                     bookmarkDataIsStale: &isStale
                 ) {
-                    _ = url.startAccessingSecurityScopedResource()
+                    retainSecurityScope(for: url)
                     // MediaItem is a struct, need to update the entire item
                     var item = mediaLibrary[i]
                     item = MediaItem(
@@ -207,7 +212,7 @@ final class ProjectDocument: ObservableObject {
 
         // Write project data inside the package
         let dataURL = url.appendingPathComponent(Self.projectDataFilename)
-        try data.write(to: dataURL)
+        try data.write(to: dataURL, options: .atomic)
 
         fileURL = url
         hasUnsavedChanges = false
@@ -243,6 +248,25 @@ final class ProjectDocument: ObservableObject {
             case .noFileURL:
                 return "No file URL specified. Use Save As first."
             }
+        }
+    }
+
+    private func retainSecurityScope(for url: URL) {
+        if url.startAccessingSecurityScopedResource() {
+            activeSecurityScopedURLs.append(url)
+        }
+    }
+
+    private func releaseSecurityScopedResources() {
+        for url in activeSecurityScopedURLs {
+            url.stopAccessingSecurityScopedResource()
+        }
+        activeSecurityScopedURLs.removeAll()
+    }
+
+    deinit {
+        for url in activeSecurityScopedURLs {
+            url.stopAccessingSecurityScopedResource()
         }
     }
 }

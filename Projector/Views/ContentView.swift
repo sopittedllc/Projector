@@ -1,6 +1,5 @@
 import SwiftUI
 import UniformTypeIdentifiers
-import AVFoundation
 import SwiftTimecodeCore
 import AppKit
 import Combine
@@ -398,7 +397,7 @@ struct ContentView: View {
                         .accessibilityLabel(String(uiTestClipCount))
                         .accessibilityValue(String(uiTestClipCount))
                 }
-                .font(.system(size: 1))
+                .font(Typography.accessibilityProxy)
                 .opacity(0.01)
                 .allowsHitTesting(false)
             }

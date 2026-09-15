@@ -1,7 +1,6 @@
 import SwiftUI
 import Foundation
 import UniformTypeIdentifiers
-import AVFoundation
 
 /// Video track container showing all video reels on the timeline
 struct VideoTrackView: View {
@@ -147,7 +146,7 @@ struct VideoTrackView: View {
             // Same semantics as lane rename: Return commits, Escape reverts,
             // clicking away commits, existing text selected on entry.
             TextField("", text: $editedName)
-                .font(.system(size: 10, weight: .medium))
+                .font(Typography.label)
                 .textFieldStyle(.plain)
                 .multilineTextAlignment(.center)
                 .focused($isNameFieldFocused)
@@ -165,7 +164,7 @@ struct VideoTrackView: View {
         } else if let reel = soleReel {
             Button(action: {}) {
                 Text(reel.displayName)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(Typography.label)
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -178,7 +177,7 @@ struct VideoTrackView: View {
             .accessibilityLabel("Video track: \(reel.displayName)")
         } else {
             Text("Video")
-                .font(.system(size: 10, weight: .medium))
+                .font(Typography.label)
                 .foregroundColor(.primary)
         }
     }
@@ -222,7 +221,7 @@ struct VideoTrackView: View {
     private func videoMetadataView(for reel: VideoReel) -> some View {
         // Frame rate from reel
         Text(String(format: "%.2f fps", reel.sourceFrameRate.fps))
-            .font(.system(size: 9, design: .monospaced))
+            .font(Typography.monoCaption)
             .foregroundColor(.secondary)
 
         // Bitrate intentionally omitted - fps is the actionable figure here.
@@ -230,7 +229,7 @@ struct VideoTrackView: View {
         // Reel count
         if timelineManager.timeline.videoReels.count > 1 {
             Text("\(timelineManager.timeline.videoReels.count) reels")
-                .font(.system(size: 8))
+                .font(Typography.reelCount)
                 .foregroundColor(.secondary.opacity(0.7))
         }
     }
@@ -526,10 +525,9 @@ struct VideoTrackView: View {
 
         updateDropPreview(location: latestDropLocation ?? location)
         Task {
-            let asset = AVAsset(url: firstVideo)
             do {
-                let duration = try await asset.load(.duration)
-                let frames = max(1, Int(duration.seconds * timelineManager.timeline.config.frameRate.fps))
+                let duration = try await MediaInspection.duration(of: firstVideo)
+                let frames = max(1, Int(duration * timelineManager.timeline.config.frameRate.fps))
                 dropPreviewDurationFrames = frames
 
                 // Disallow drop if cursor is over an existing reel

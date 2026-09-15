@@ -6,7 +6,21 @@
 //
 
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
+
+/// AVFoundation confines these objects to one extraction queue, but its legacy
+/// declarations do not express that ownership to Swift's sendability checker.
+private final class AudioExtractionPipeline: @unchecked Sendable {
+    let readerOutput: AVAssetReaderTrackOutput
+    let writer: AVAssetWriter
+    let writerInput: AVAssetWriterInput
+
+    init(readerOutput: AVAssetReaderTrackOutput, writer: AVAssetWriter, writerInput: AVAssetWriterInput) {
+        self.readerOutput = readerOutput
+        self.writer = writer
+        self.writerInput = writerInput
+    }
+}
 
 /// Extracts individual audio tracks from video files to standalone CAF files.
 ///
@@ -136,21 +150,26 @@ enum AudioTrackExtractor {
         }
 
         writer.startSession(atSourceTime: .zero)
+        let pipeline = AudioExtractionPipeline(
+            readerOutput: readerOutput,
+            writer: writer,
+            writerInput: writerInput
+        )
 
         // Copy samples in a detached task to avoid blocking
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             writerInput.requestMediaDataWhenReady(on: DispatchQueue(label: "com.projector.audioExtraction")) {
-                while writerInput.isReadyForMoreMediaData {
-                    if let sampleBuffer = readerOutput.copyNextSampleBuffer() {
-                        writerInput.append(sampleBuffer)
+                while pipeline.writerInput.isReadyForMoreMediaData {
+                    if let sampleBuffer = pipeline.readerOutput.copyNextSampleBuffer() {
+                        pipeline.writerInput.append(sampleBuffer)
                     } else {
                         // Done reading
-                        writerInput.markAsFinished()
-                        writer.finishWriting {
-                            if writer.status == .completed {
+                        pipeline.writerInput.markAsFinished()
+                        pipeline.writer.finishWriting {
+                            if pipeline.writer.status == .completed {
                                 continuation.resume()
                             } else {
-                                continuation.resume(throwing: ExtractionError.writerFailed(writer.error))
+                                continuation.resume(throwing: ExtractionError.writerFailed(pipeline.writer.error))
                             }
                         }
                         return

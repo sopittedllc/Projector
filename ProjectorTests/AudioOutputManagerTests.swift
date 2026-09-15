@@ -37,6 +37,9 @@ final class AudioOutputManagerTests: XCTestCase {
         try await super.setUp()
         originalSelectedAudioOutput = AppSettings.shared.selectedAudioOutput
         originalMappings = UserDefaults.standard.string(forKey: Self.mappingsKey)
+        // Every test begins from the documented system-default state rather
+        // than inheriting the device selected in the user's installed app.
+        AppSettings.shared.selectedAudioOutput = ""
         manager = AudioOutputManager()
     }
 

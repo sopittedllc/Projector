@@ -20,6 +20,8 @@ import SwiftTimecodeCore
 ///     .font(Typography.mono)
 /// ```
 enum Typography {
+    /// Effectively invisible text used only to expose an accessibility action.
+    static let accessibilityProxy = Font.system(size: 1)
     // MARK: - Display (Onboarding, Welcome, Large UI)
 
     /// Hero display text for onboarding (28pt bold rounded)
@@ -33,6 +35,12 @@ enum Typography {
 
     /// Large icon/placeholder text (48pt regular)
     static let displayLarge = Font.system(size: 48, weight: .regular)
+
+    /// Oversized empty-state symbol (56pt regular).
+    static let displayEmptyState = Font.system(size: 56)
+
+    /// Medium empty-state symbol (32pt regular).
+    static let displayMedium = Font.system(size: 32)
 
     /// Extra large icon text (64pt regular)
     static let displayIcon = Font.system(size: 64, weight: .regular)
@@ -90,6 +98,18 @@ enum Typography {
     /// Display monospace for timeline position (14pt medium)
     static let monoDisplay = Font.system(size: 14, weight: .medium, design: .monospaced)
 
+    /// Mid-sized monospace metadata (13pt regular).
+    static let monoMedium = Font.system(size: 13, design: .monospaced)
+
+    /// Small regular monospace label (9pt).
+    static let monoCaption = Font.system(size: 9, design: .monospaced)
+
+    /// Tiny regular monospace label (8pt).
+    static let monoMicro = Font.system(size: 8, weight: .medium, design: .monospaced)
+
+    /// Compact frame-rate control value (11pt medium monospace).
+    static let monoControl = Font.system(size: 11, weight: .medium, design: .monospaced)
+
     /// Small monospace for metadata (10pt regular)
     static let monoSmall = Font.system(size: 10, weight: .regular, design: .monospaced)
 
@@ -101,8 +121,20 @@ enum Typography {
     /// Large button text for primary actions (14pt medium)
     static let buttonLarge = Font.system(size: 14, weight: .medium)
 
+    /// Prominent semibold action label (14pt).
+    static let action = Font.system(size: 14, weight: .semibold)
+
+    /// Regular 14pt supporting text or symbol.
+    static let bodyLarge = Font.system(size: 14)
+
     /// Button text (11pt medium)
     static let button = Font.system(size: 11, weight: .medium)
+
+    /// Completed reel label (11pt semibold).
+    static let reelName = Font.system(size: 11, weight: .semibold)
+
+    /// Secondary reel-count metadata (8pt regular).
+    static let reelCount = Font.system(size: 8, weight: .regular)
 
     /// Small button text (10pt medium)
     static let buttonSmall = Font.system(size: 10, weight: .medium)
@@ -117,6 +149,15 @@ enum Typography {
 
     /// Tiny icon size (8pt)
     static let iconTiny = Font.system(size: 8, weight: .medium)
+
+    /// Micro status glyph (7pt bold).
+    static let iconMicro = Font.system(size: 7, weight: .bold)
+
+    /// Selected filter label (10pt semibold).
+    static let selectedFilterLabel = Font.system(size: 10, weight: .semibold)
+
+    /// Tiny textual status marker (7pt bold).
+    static let statusMarker = Font.system(size: 7, weight: .bold)
 
     /// Secondary icon on the macOS HIG scale (16pt)
     static let iconMedium = Font.system(size: 16)
@@ -209,6 +250,9 @@ enum AppColors {
     /// Success/active state
     static let success = Color.green
 
+    /// High-visibility valid-drop outline used by the timeline.
+    static let validDrop = Color(red: 0, green: 1, blue: 0)
+
     /// Warning state
     static let warning = Color.yellow
 
@@ -217,6 +261,9 @@ enum AppColors {
 
     /// Info/accent state
     static let info = Color.accentColor
+
+    /// Informational panel tint used by onboarding instructions.
+    static let onboardingInfo = Color.blue
 
     // MARK: - Glass Fallback
 
@@ -901,6 +948,8 @@ enum TimelineLayout {
 
 /// Standard panel layout constants - USE THESE for all collapsible panels
 enum PanelLayout {
+    /// Footer row containing regular-size sheet actions.
+    static let actionFooterHeight: CGFloat = 52
     /// Standard header height for all collapsible panels
     /// Provides enough vertical space for buttons without crowding
     static let headerHeight: CGFloat = 44
@@ -919,6 +968,13 @@ enum PanelLayout {
 
     /// Standard border opacity
     static let borderOpacity: CGFloat = 0.2
+}
+
+/// Exact insets for compact controls whose geometry is part of their design.
+enum CompactControlLayout {
+    static let overlayPadding: CGFloat = 5
+    static let badgeInset: CGFloat = 3
+    static let radioSelectionInset: CGFloat = 3
 }
 
 /// File manager panel constants
@@ -1053,6 +1109,8 @@ enum TransportTypography {
 }
 
 enum TransportLayout {
+    /// Height of the compact frame-rate readout pill.
+    static let frameRatePillHeight: CGFloat = 32
     /// Height of control boxes
     static let controlBoxHeight: CGFloat = 48
 

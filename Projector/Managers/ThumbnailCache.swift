@@ -3,6 +3,19 @@ import AVFoundation
 import ImageIO
 import UniformTypeIdentifiers
 
+/// Lock-protected counter used by concurrent image-generator callbacks.
+private final class ThumbnailCompletionCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment(reaches target: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
+        return count == target
+    }
+}
+
 // MARK: - ThumbnailCache
 
 /// A multi-resolution thumbnail cache for video reels with lazy generation.
@@ -365,8 +378,7 @@ final class ThumbnailCache: ObservableObject {
 
         let timesCount = times.count
         let _: Void = await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            var completedCount = 0
-            let lock = NSLock()
+            let completionCounter = ThumbnailCompletionCounter()
 
             generator.generateCGImagesAsynchronously(forTimes: times) { requestedTime, cgImage, _, _, _ in
                 if let cgImage = cgImage,
@@ -374,12 +386,7 @@ final class ThumbnailCache: ObservableObject {
                     collector.add(time: requestedTime.seconds, data: data)
                 }
 
-                lock.lock()
-                completedCount += 1
-                let done = completedCount >= timesCount
-                lock.unlock()
-
-                if done {
+                if completionCounter.increment(reaches: timesCount) {
                     continuation.resume()
                 }
             }

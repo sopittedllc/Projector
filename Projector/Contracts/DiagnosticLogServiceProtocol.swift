@@ -52,10 +52,14 @@ public struct DiagnosticEntry: Sendable, Equatable {
     /// When the event happened, captured at the call site rather than when the
     /// entry reaches the buffer - see ``DiagnosticLogService`` for why.
     public let timestamp: Date
+    /// Severity assigned at the call site.
     public let level: DiagnosticLevel
+    /// Subsystem that emitted the entry.
     public let category: DiagnosticCategory
+    /// Bounded human-readable diagnostic message.
     public let message: String
 
+    /// Creates one immutable diagnostic entry.
     public init(
         timestamp: Date,
         level: DiagnosticLevel,

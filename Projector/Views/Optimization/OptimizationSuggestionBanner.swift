@@ -116,7 +116,7 @@ struct OptimizationSuggestionBanner: View {
 
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(Typography.label)
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)

@@ -69,6 +69,7 @@ public struct PanningAnalysis: Sendable, Equatable {
 
     /// RMS level of each channel, 0...1.
     public let leftRMS: Float
+    /// RMS level of the right channel, 0...1.
     public let rightRMS: Float
 
     /// Whether this looks like two unrelated mono signals sharing a file.

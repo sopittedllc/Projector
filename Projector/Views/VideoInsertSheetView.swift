@@ -57,14 +57,14 @@ struct VideoInsertSheetView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             Text("Place Video")
-                .font(.system(size: 14, weight: .semibold))
+                .font(Typography.action)
 
             Text("Enter the timecode where the video should start.")
                 .font(Typography.body)
                 .foregroundColor(.secondary)
 
             TextField("00:00:00:00", text: $timecodeText)
-                .font(.system(size: 13, design: .monospaced))
+                .font(Typography.monoMedium)
                 .textFieldStyle(.roundedBorder)
                 .focused($isTimecodeFocused)
                 .onChangeCompat(of: timecodeText) { newValue in

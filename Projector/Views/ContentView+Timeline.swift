@@ -1,5 +1,4 @@
 import SwiftUI
-import AVFoundation
 import SwiftTimecodeCore
 
 // MARK: - Timeline Operations
@@ -507,22 +506,15 @@ extension ContentView {
 
         do {
             // Detect video frame rate and duration first
-            let asset = AVAsset(url: url)
-            let videoTracks = try await asset.loadTracks(withMediaType: .video)
-            guard let videoTrack = videoTracks.first else {
-                throw NSError(domain: "Projector", code: 1, userInfo: [NSLocalizedDescriptionKey: "No video track found"])
-            }
+            let videoProperties = try await MediaInspection.videoProperties(of: url)
 
             // Probed before placement but reported after it. A reel whose codec is
             // missing still has valid timecode, duration and frame rate, so it is
             // placed normally and the audio can be laid against it; interrupting here
             // would cost the user that while changing nothing about the outcome.
-            let codecSupport = try? await VideoCodecSupport.inspect(asset)
-
-            let nominalFrameRate = try await videoTrack.load(.nominalFrameRate)
-            let videoFPS = closestTimecodeFrameRate(to: Double(nominalFrameRate))
-            let duration = try await asset.load(.duration)
-            let videoDurationFrames = Int(duration.seconds * videoFPS.fps)
+            let codecSupport = videoProperties.codecSupport
+            let videoFPS = closestTimecodeFrameRate(to: videoProperties.nominalFrameRate)
+            let videoDurationFrames = Int(videoProperties.duration * videoFPS.fps)
 
             // Check for FPS conflict
             let hasExistingReels = !timelineManager.timeline.videoReels.isEmpty
@@ -878,9 +870,8 @@ extension ContentView {
     /// - Parameter reel: The video reel to check for audio tracks.
     /// - Returns: Array of results, one per audio track. Empty if no audio tracks.
     private func prepareAudioLanesForAllTracks(for reel: VideoReel) async -> [AudioTrackResult] {
-        let asset = AVAsset(url: reel.sourceURL)
         do {
-            let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+            let audioTracks = try await MediaInspection.audioTracks(of: reel.sourceURL)
             guard !audioTracks.isEmpty else {
                 debugPrint("prepareAudioLanesForAllTracks: No audio tracks found")
                 return []
@@ -889,18 +880,8 @@ extension ContentView {
             var results: [AudioTrackResult] = []
 
             for (trackIndex, audioTrack) in audioTracks.enumerated() {
-                // Get channel count and sample rate from audio format
-                let formatDescriptions = try await audioTrack.load(.formatDescriptions)
-                var channelCount = 2
-                var sampleRate: Double = 48000
-
-                if let formatDesc = formatDescriptions.first {
-                    let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)
-                    if let format = asbd?.pointee {
-                        channelCount = Int(format.mChannelsPerFrame)
-                        sampleRate = format.mSampleRate
-                    }
-                }
+                let channelCount = audioTrack.channelCount
+                let sampleRate = audioTrack.sampleRate
 
                 // Determine lane name: first track gets the video name, others get Track N suffix
                 let trackName: String
@@ -1478,10 +1459,8 @@ extension ContentView {
         var rates: [URL: TimecodeFrameRate] = [:]
 
         for url in urls {
-            let asset = AVAsset(url: url)
-            guard let track = try? await asset.loadTracks(withMediaType: .video).first,
-                  let nominal = try? await track.load(.nominalFrameRate) else { continue }
-            rates[url] = closestTimecodeFrameRate(to: Double(nominal))
+            guard let nominal = try? await MediaInspection.nominalVideoFrameRate(of: url) else { continue }
+            rates[url] = closestTimecodeFrameRate(to: nominal)
         }
 
         return rates
@@ -1538,15 +1517,7 @@ extension ContentView {
             return
         }
 
-        let asset = AVURLAsset(url: reel.sourceURL)
-        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
-              let naturalSize = try? await track.load(.naturalSize),
-              let transform = try? await track.load(.preferredTransform) else { return }
-
-        // Same display-size derivation the library uses: rotated footage encodes
-        // its dimensions the other way round.
-        let display = CGRect(origin: .zero, size: naturalSize).applying(transform).standardized
-        let size = CGSize(width: abs(display.width), height: abs(display.height))
+        guard let size = try? await MediaInspection.videoDisplaySize(of: reel.sourceURL) else { return }
         guard size.width > 0, size.height > 0 else { return }
         PlayerWindowController.shared.sizeToMedia(size)
     }
@@ -1677,8 +1648,8 @@ extension ContentView {
     ) async -> AudioPlacementOutcome {
         let fps = timelineManager.timeline.config.frameRate.fps
         var durationFrames = 1
-        if let duration = try? await AVURLAsset(url: url).load(.duration) {
-            durationFrames = max(1, Int(duration.seconds * fps))
+        if let duration = try? await MediaInspection.duration(of: url) {
+            durationFrames = max(1, Int(duration * fps))
         }
 
         guard let preferred = timelineManager.timeline.audioLanes.first(where: { $0.id == preferredLaneId }) else {

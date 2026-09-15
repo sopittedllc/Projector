@@ -1,4 +1,17 @@
-# Settings UI Handoff
+# Current Audit Handoff
+
+The current repository-wide engineering handoff is:
+
+- [`docs/audits/2026-09-15-comprehensive-audit-remediation.md`](docs/audits/2026-09-15-comprehensive-audit-remediation.md)
+
+It documents the security-scope, concurrency, architecture, test-isolation,
+DocC, UI-audit, and signing/test-runner work; the verification already
+completed; and the manual runtime checks still owed. The changes are
+uncommitted. Read that report before modifying or discarding the current diff.
+
+---
+
+# Historical Settings UI Handoff
 
 ## Current State
 Settings UI changes are live in the build. Git shows clean but changes exist in DerivedData.

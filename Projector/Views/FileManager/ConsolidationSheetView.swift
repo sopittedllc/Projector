@@ -53,7 +53,7 @@ struct ConsolidationSheetView: View {
         VStack(spacing: 0) {
             VStack(spacing: Spacing.lg) {
                 Image(systemName: "doc.badge.arrow.up")
-                    .font(.system(size: 56))
+                    .font(Typography.displayEmptyState)
                     .foregroundColor(.secondary)
 
                 Text("Save Project to Consolidate")
@@ -86,7 +86,7 @@ struct ConsolidationSheetView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
             }
-            .frame(height: 52)
+            .frame(height: PanelLayout.actionFooterHeight)
             .padding(.horizontal)
         }
         .frame(width: 400, height: 260)

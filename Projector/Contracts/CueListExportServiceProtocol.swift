@@ -113,8 +113,10 @@ public struct CueListExportError: LocalizedError, Sendable {
     /// Human-readable error message
     public let message: String
 
+    /// The message presented to the user.
     public var errorDescription: String? { message }
 
+    /// Creates an export error with a user-facing message.
     public init(_ message: String) {
         self.message = message
     }

@@ -92,13 +92,13 @@ struct VideoReelClipView: View {
                         // marking finished work rather than anything the user
                         // could act on.
                         Text(reel.displayName)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(Typography.reelName)
                             .foregroundColor(.white)
                             .lineLimit(1)
                             .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 1)
 
                         Text(formattedDuration)
-                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .font(Typography.monoTiny)
                             .foregroundColor(.white.opacity(0.9))
                             .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 1)
                     }
@@ -114,7 +114,7 @@ struct VideoReelClipView: View {
                 if let tc = timelineStartTimecode, reelWidth > 80 {
                     HStack {
                         Text(tc)
-                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .font(Typography.monoMicro)
                             .foregroundColor(.white.opacity(0.7))
                             .padding(.horizontal, Spacing.xs)
                             .padding(.vertical, 1)

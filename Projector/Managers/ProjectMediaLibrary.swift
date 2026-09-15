@@ -148,6 +148,9 @@ final class ProjectMediaLibrary: ObservableObject {
     /// Currently importing items (for progress display)
     @Published private(set) var importingCount: Int = 0
 
+    /// Successful security-scope acquisitions owned by their media item.
+    private var activeSecurityScopedURLs: [UUID: URL] = [:]
+
     // MARK: - Computed Properties
 
     /// Video items only
@@ -179,6 +182,12 @@ final class ProjectMediaLibrary: ObservableObject {
     /// - Parameter items: Initial media items to populate the library (default empty).
     init(items: [MediaItem] = []) {
         self.items = items
+    }
+
+    deinit {
+        for url in activeSecurityScopedURLs.values {
+            url.stopAccessingSecurityScopedResource()
+        }
     }
 
     // MARK: - Change Tracking
@@ -387,6 +396,7 @@ final class ProjectMediaLibrary: ObservableObject {
     /// - Parameter id: The unique identifier of the item to remove.
     /// - Note: This does not delete the source file from disk.
     func removeItem(id: UUID) {
+        releaseAccess(for: id)
         items.removeAll { $0.id == id }
         markDirty()
     }
@@ -396,6 +406,9 @@ final class ProjectMediaLibrary: ObservableObject {
     /// - Parameter ids: Set of unique identifiers for items to remove.
     /// - Note: This does not delete source files from disk.
     func removeItems(ids: Set<UUID>) {
+        for id in ids {
+            releaseAccess(for: id)
+        }
         items.removeAll { ids.contains($0.id) }
         markDirty()
     }
@@ -416,6 +429,11 @@ final class ProjectMediaLibrary: ObservableObject {
         debugPrint("ProjectMediaLibrary.updateItemURL: id=\(id), oldURL=\(item.url.lastPathComponent), newURL=\(newURL.lastPathComponent), oldIsOptimized=\(item.isOptimized), newIsOptimized=\(newIsOptimized)")
 
         let bookmark = newBookmark ?? (try? newURL.bookmarkData(options: .withSecurityScope))
+
+        // Any active scope belongs to the old URL. Releasing it before the
+        // replacement ensures a later refresh resolves and acquires the new
+        // bookmark instead of returning a stale success for the old file.
+        releaseAccess(for: id)
 
         items[index] = MediaItem(
             id: item.id,
@@ -453,6 +471,10 @@ final class ProjectMediaLibrary: ObservableObject {
     /// - Returns: `true` if access was successfully restored, `false` otherwise.
     /// - Note: Returns `false` if the item doesn't exist, has no bookmark, or the file was moved.
     func refreshAccess(for itemId: UUID) -> Bool {
+        if activeSecurityScopedURLs[itemId] != nil {
+            return true
+        }
+
         guard let index = items.firstIndex(where: { $0.id == itemId }),
               let bookmark = items[index].bookmark else {
             return false
@@ -468,6 +490,7 @@ final class ProjectMediaLibrary: ObservableObject {
             )
 
             if url.startAccessingSecurityScopedResource() {
+                activeSecurityScopedURLs[itemId] = url
                 return true
             }
         } catch {
@@ -475,6 +498,12 @@ final class ProjectMediaLibrary: ObservableObject {
         }
 
         return false
+    }
+
+    /// Releases a security scope previously acquired for a media item.
+    private func releaseAccess(for itemId: UUID) {
+        activeSecurityScopedURLs.removeValue(forKey: itemId)?
+            .stopAccessingSecurityScopedResource()
     }
 
     // MARK: - Thumbnail Generation
@@ -593,6 +622,10 @@ final class ProjectMediaLibrary: ObservableObject {
     ///
     /// - Parameter items: Array of `MediaItem` objects from saved data.
     func load(items: [MediaItem]) {
+        for url in activeSecurityScopedURLs.values {
+            url.stopAccessingSecurityScopedResource()
+        }
+        activeSecurityScopedURLs.removeAll()
         self.items = items
         hasChanges = false
     }
