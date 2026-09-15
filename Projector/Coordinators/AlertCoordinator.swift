@@ -75,6 +75,16 @@ final class AlertCoordinator: ObservableObject {
         /// say where it belongs, and only the person who cut it knows.
         case filesNotPlaced(files: [HeldBackFile])
 
+        /// A stem whose own timecode put it where no reel plays.
+        ///
+        /// Offers rather than decides. The stamp is honoured on import because
+        /// it is what the file says; but a stem against no picture is almost
+        /// always a mis-stamped bounce, and the reel it belongs to is right
+        /// there, so the move is one button rather than a trip to the region's
+        /// menu. Leaving it is equally one button, for the delivery that really
+        /// does have audio before the picture.
+        case stemOffPicture(report: StemOffPictureReport, onMoveToPicture: () -> Void)
+
         // MARK: Sheets
         case videoInsert(
             url: Binding<URL?>,
@@ -102,6 +112,7 @@ final class AlertCoordinator: ObservableObject {
             case .fpsConflict: return "fpsConflict"
             case .batchFrameRateMismatch: return "batchFrameRateMismatch"
             case .filesNotPlaced: return "filesNotPlaced"
+            case .stemOffPicture: return "stemOffPicture"
             case .videoInsert: return "videoInsert"
             case .saveProject: return "saveProject"
             case .settings: return "settings"
@@ -120,7 +131,7 @@ final class AlertCoordinator: ObservableObject {
             switch self {
             case .error, .videoAlreadyInTimeline, .audioAlreadyInTimeline,
                  .duplicateMedia, .codecUnavailable, .missingFile, .fpsConflict,
-                 .batchFrameRateMismatch, .filesNotPlaced:
+                 .batchFrameRateMismatch, .filesNotPlaced, .stemOffPicture:
                 return false
             case .videoInsert, .saveProject, .settings, .proVideoFormatsInstall,
                  .quickTimeDemo:
@@ -300,6 +311,14 @@ private struct AlertCoordinatorModifier: ViewModifier {
                         title: Text(ImportHoldBackReport.title),
                         message: Text(ImportHoldBackReport.message(for: files) ?? ""),
                         dismissButton: .default(Text("OK"))
+                    )
+
+                case .stemOffPicture(let report, let onMoveToPicture):
+                    return Alert(
+                        title: Text(StemOffPictureReport.title),
+                        message: Text(report.message),
+                        primaryButton: .default(Text("Move to Picture"), action: onMoveToPicture),
+                        secondaryButton: .cancel(Text("Leave It"))
                     )
 
                 default:

@@ -322,7 +322,10 @@ extension ContentView {
                     preferredLaneId: laneId,
                     atFrame: target
                 ) {
-                case .placed:
+                case .placed(let clip):
+                    if item.detectedTimecode != nil {
+                        clipsPlacedByTimecode.insert(clip.id)
+                    }
                     debugPrint("handleMixedBatchDrop: placed '\(item.url.lastPathComponent)' at \(target)")
                 case .laneOccupied:
                     overlapping.append(item.url)
@@ -792,8 +795,10 @@ extension ContentView {
 
         // Place at the file's own timecode when it has one - BWF stems carry it,
         // and a stem's timestamp is the whole point of the delivery.
+        var placedByTimecode = false
         if checkTimecode, let result = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil) {
             atFrame = placementFrame(metadata: result, dropFrame: atFrame ?? 0)
+            placedByTimecode = true
             debugPrint("addAudioToTimeline: '\(url.lastPathComponent)' timecode \(result.formattedTimecode) -> frame \(atFrame ?? 0)")
         }
 
@@ -813,6 +818,9 @@ extension ContentView {
                 return nil
             }
             debugPrint("addAudioToTimeline: clip created id=\(clip.id.uuidString)")
+            if placedByTimecode {
+                clipsPlacedByTimecode.insert(clip.id)
+            }
 
             // Every audio import funnels through here, so routing from the file
             // name lives here too - one place rather than one per drop handler.
@@ -1364,6 +1372,75 @@ extension ContentView {
         registerImportUndoIfNeeded()
         snapTimelineStartToContent()
         timelineViewModel.requestZoomToFitContent()
+        reportStemsOffPicture()
+    }
+
+    // MARK: - Stems Off Picture
+
+    /// Point out any stem whose timecode put it where no reel plays.
+    ///
+    /// Runs after every import rather than only after audio ones, because the
+    /// disagreement only becomes visible once both sides are on the timeline:
+    /// a stem imported before its picture is fine until the picture arrives
+    /// somewhere else. Each clip is reported once.
+    ///
+    /// Only clips placed by their own timecode are candidates. Audio from a
+    /// reel's own tracks is on picture by construction, and a file the user
+    /// dropped by hand is where they put it.
+    private func reportStemsOffPicture() {
+        let timeline = timelineManager.timeline
+        let reels = timeline.videoReels
+        guard !reels.isEmpty else { return }
+        let frameRate = timeline.config.frameRate
+
+        for lane in timeline.audioLanes {
+            for clip in lane.clips
+            where clipsPlacedByTimecode.contains(clip.id) && !reportedOffPictureClipIds.contains(clip.id) {
+                let onPicture = reels.contains {
+                    $0.timelineStartFrame < clip.timelineEndFrame && clip.timelineStartFrame < $0.timelineEndFrame
+                }
+                guard !onPicture,
+                      let nearest = reels.min(by: {
+                          abs($0.timelineStartFrame - clip.timelineStartFrame)
+                              < abs($1.timelineStartFrame - clip.timelineStartFrame)
+                      }) else { continue }
+                reportedOffPictureClipIds.insert(clip.id)
+
+                let delta = nearest.timelineStartFrame - clip.timelineStartFrame
+                let report = StemOffPictureReport(
+                    stemName: clip.sourceURL.lastPathComponent,
+                    stemTimecode: timelineManager.formatTimecode(forFrame: clip.timelineStartFrame),
+                    reelName: nearest.name ?? nearest.sourceURL.lastPathComponent,
+                    reelTimecode: timelineManager.formatTimecode(forFrame: nearest.timelineStartFrame),
+                    offset: Timecode(.frames(abs(delta)), at: frameRate, by: .clamping).stringValue(),
+                    reelIsEarlier: delta < 0,
+                    sameLength: abs(clip.durationFrames - nearest.durationFrames) <= Int(frameRate.fps.rounded())
+                )
+                let clipId = clip.id
+                let laneId = lane.id
+                let reelId = nearest.id
+                alerts.show(.stemOffPicture(report: report, onMoveToPicture: {
+                    moveStemToPicture(clipId: clipId, laneId: laneId, reelId: reelId)
+                }))
+            }
+        }
+    }
+
+    /// Put a stem at a reel's start, as one undoable move.
+    ///
+    /// The reel is looked up again rather than captured: the alert can sit
+    /// behind another for a while, and the reel may have been moved meanwhile.
+    private func moveStemToPicture(clipId: UUID, laneId: UUID, reelId: UUID) {
+        guard let reel = timelineManager.timeline.videoReels.first(where: { $0.id == reelId }) else { return }
+
+        let previousTimeline = timelineManager.timeline
+        undoManager?.registerUndo(withTarget: timelineManager) { manager in
+            manager.timeline = previousTimeline
+        }
+        undoManager?.setActionName("Move Stem to Picture")
+
+        timelineManager.moveAudioClip(clipId: clipId, inLane: laneId, to: reel.timelineStartFrame)
+        syncTimelineToPlaybackEngine()
     }
 
     /// Move the timeline's start to the earliest reel or clip on it.
@@ -1384,7 +1461,7 @@ extension ContentView {
     /// Uses the same shift as "Set Timeline Start to Region", so content keeps
     /// its absolute timecode and the duration is preserved.
     private func snapTimelineStartToContent() {
-        guard let earliest = timelineManager.timeline.earliestContentFrame, earliest > 0 else { return }
+        guard let earliest = timelineManager.timeline.earliestContentFrame, earliest != 0 else { return }
         timelineManager.setTimelineStart(toFrame: earliest)
     }
 
@@ -1657,6 +1734,9 @@ extension ContentView {
 
             switch await addAudioToTimelineAvoidingOverlap(url: item.url, preferredLaneId: laneId, atFrame: targetFrame) {
             case .placed(let clip):
+                if item.hasTimecode {
+                    clipsPlacedByTimecode.insert(clip.id)
+                }
                 nextSequentialFrame = clip.timelineEndFrame
             case .laneOccupied:
                 overlapping.append(item.url)
@@ -1730,6 +1810,13 @@ extension ContentView {
     /// delivered at 01:00:00:00 lands at frame 0 on a timeline that starts there
     /// rather than an hour along it.
     ///
+    /// A file stamped *before* the start moves the start back to meet it. This
+    /// used to clamp to frame 0, which threw the timecode away: a stem imported
+    /// first put the start at its own 01:26:02:00, and the picture that followed
+    /// at 00:59:52:00 was dropped at the stem's timecode with nothing said. The
+    /// timeline has no fixed head - "Set Timeline Start to Region" moves it
+    /// freely - so a file that belongs earlier is allowed to be earlier.
+    ///
     /// - Parameters:
     ///   - metadata: Embedded timecode, if the file has any. Preferred: it is the
     ///     recorder's own answer.
@@ -1745,13 +1832,23 @@ extension ContentView {
         let startFrames = config.startTimecode.frameCount.wholeFrames
 
         if let metadata {
-            return max(0, metadata.convertedFrames(to: config.frameRate.fps) - startFrames)
+            return makingRoom(for: metadata.convertedFrames(to: config.frameRate.fps) - startFrames)
         }
         if let filenameTimecode,
            let parsed = try? Timecode(.string(filenameTimecode), at: config.frameRate, by: .clamping) {
-            return max(0, parsed.frameCount.wholeFrames - startFrames)
+            return makingRoom(for: parsed.frameCount.wholeFrames - startFrames)
         }
         return dropFrame
+    }
+
+    /// A frame that is on the timeline, moving the start earlier if it has to.
+    ///
+    /// - Parameter frame: A frame relative to the current start, possibly negative.
+    /// - Returns: The same moment relative to the start after the move.
+    private func makingRoom(for frame: Int) -> Int {
+        guard frame < 0 else { return frame }
+        timelineManager.setTimelineStart(toFrame: frame)
+        return 0
     }
 
     // MARK: - Output Routing from File Names

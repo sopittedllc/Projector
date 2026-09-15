@@ -3661,20 +3661,28 @@ private struct PlayheadView: View {
     let totalHeight: CGFloat
 
     var body: some View {
-        let documentX = TimelineLayout.headerWidth + (CGFloat(playbackEngine.currentFrame) * pixelsPerFrame)
-        let xOffset = documentX - horizontalScrollOffset - 1
+        // Screen x of the frame boundary, using the same transform as the
+        // clips, ruler and seek: header gutter + frame * scale - scroll.
+        let lineX = TimelineLayout.headerWidth
+            + CGFloat(playbackEngine.currentFrame) * pixelsPerFrame
+            - horizontalScrollOffset
 
-        if xOffset >= TimelineLayout.headerWidth - TimelineLayout.playheadTriangleWidth {
+        if lineX >= TimelineLayout.headerWidth {
             VStack(spacing: 0) {
                 Triangle()
                     .fill(Color.accentColor)
                     .frame(width: TimelineLayout.playheadTriangleWidth, height: TimelineLayout.playheadTriangleHeight)
                 Rectangle()
                     .fill(Color.accentColor)
-                    .frame(width: 2)
+                    .frame(width: TimelineLayout.playheadLineWidth)
             }
             .frame(height: totalHeight)
-            .offset(x: xOffset)
+            // The triangle sets this stack's width and the line is centred in
+            // it, so the stack's leading edge goes half a triangle left of the
+            // frame boundary. Offsetting by the raw x put the line's centre
+            // half a triangle *right* of frame 0 - a visible gap between the
+            // playhead and the start of every clip.
+            .offset(x: lineX - TimelineLayout.playheadTriangleWidth / 2)
             .allowsHitTesting(false)
         }
     }

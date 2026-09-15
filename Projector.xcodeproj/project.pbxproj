@@ -82,6 +82,7 @@
 		TCFRNEAREST00002 /* TimecodeFrameRate+Nearest.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCFRNEAREST00001 /* TimecodeFrameRate+Nearest.swift */; };
 		STEMGROUP0000002 /* AudioStemGrouping.swift in Sources */ = {isa = PBXBuildFile; fileRef = STEMGROUP0000001 /* AudioStemGrouping.swift */; };
 		TCLESSRPT0000002 /* ImportHoldBackReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCLESSRPT0000001 /* ImportHoldBackReport.swift */; };
+		STEMOFFPIC000002 /* StemOffPictureReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = STEMOFFPIC000001 /* StemOffPictureReport.swift */; };
 		B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */; };
 		B19B58BD2F088AEA00FA33EC /* MIDISyncActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */; };
 		B19B58BF2F088BFF00FA33EC /* TimelineViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */; };
@@ -266,6 +267,7 @@
 		TCFRNEAREST00001 /* TimecodeFrameRate+Nearest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TimecodeFrameRate+Nearest.swift"; sourceTree = "<group>"; };
 		STEMGROUP0000001 /* AudioStemGrouping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioStemGrouping.swift; sourceTree = "<group>"; };
 		TCLESSRPT0000001 /* ImportHoldBackReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportHoldBackReport.swift; sourceTree = "<group>"; };
+		STEMOFFPIC000001 /* StemOffPictureReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StemOffPictureReport.swift; sourceTree = "<group>"; };
 		B19B58B62F0889F200FA33EC /* MIDISyncViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncViewModel.swift; sourceTree = "<group>"; };
 		B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncActor.swift; sourceTree = "<group>"; };
 		B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineViewModel.swift; sourceTree = "<group>"; };
@@ -632,6 +634,7 @@
 				TCFRNEAREST00001 /* TimecodeFrameRate+Nearest.swift */,
 				STEMGROUP0000001 /* AudioStemGrouping.swift */,
 				TCLESSRPT0000001 /* ImportHoldBackReport.swift */,
+				STEMOFFPIC000001 /* StemOffPictureReport.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -944,6 +947,7 @@
 		TCFRNEAREST00002 /* TimecodeFrameRate+Nearest.swift in Sources */,
 		STEMGROUP0000002 /* AudioStemGrouping.swift in Sources */,
 		TCLESSRPT0000002 /* ImportHoldBackReport.swift in Sources */,
+		STEMOFFPIC000002 /* StemOffPictureReport.swift in Sources */,
 				B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */,
 				BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */,
 				67053C082F0B787BAEF7B06D /* EmbeddedTimecodeService.swift in Sources */,

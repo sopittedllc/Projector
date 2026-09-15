@@ -171,6 +171,16 @@ struct ContentView: View {
     /// removed again once it finishes.
     @State var batchCreatedLaneIds: Set<UUID> = []
 
+    /// Audio clips an import placed at their own embedded timecode.
+    ///
+    /// Only these are checked against the picture: a clip the user dropped
+    /// somewhere by hand is where they put it.
+    @State var clipsPlacedByTimecode: Set<UUID> = []
+
+    /// Clips already reported as off picture, so a later import does not
+    /// raise the same alert again.
+    @State var reportedOffPictureClipIds: Set<UUID> = []
+
     /// The timeline as it stood before the import now running.
     ///
     /// One undo step per drop, however many files it places - see

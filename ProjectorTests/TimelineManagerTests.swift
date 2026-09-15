@@ -323,6 +323,84 @@ final class TimelineManagerTests: XCTestCase {
         XCTAssertEqual(manager.timeline.config.startTimecode.frameCount.wholeFrames, before)
     }
 
+    /// A file stamped before the start moves the start back to meet it, and the
+    /// content already there moves later by the same amount. `placementFrame`
+    /// relies on this to place a picture that precedes a stem imported first.
+    func testSetTimelineStartToANegativeFrameMovesTheStartEarlier() {
+        // The fixture starts at 00:00:00:00, where nothing can be earlier.
+        var config = manager.timeline.config
+        config.startTimecode = Timecode(.components(h: 1, m: 0, s: 0, f: 0), at: .fps24, by: .clamping)
+        config.endTimecode = Timecode(.components(h: 2, m: 0, s: 0, f: 0), at: .fps24, by: .clamping)
+        manager.timeline.config = config
+        let originalStart = manager.timeline.config.startTimecode.frameCount.wholeFrames
+        let originalDuration = manager.timeline.config.durationFrames
+        let lane = manager.addAudioLane(name: "MX")
+        manager.timeline.addClip(Self.makeClip(startFrame: 0), toLane: lane.id)
+
+        manager.setTimelineStart(toFrame: -240)
+
+        XCTAssertEqual(manager.timeline.config.startTimecode.frameCount.wholeFrames, originalStart - 240)
+        XCTAssertEqual(manager.timeline.config.durationFrames, originalDuration)
+        XCTAssertEqual(manager.timeline.audioLanes[0].clips[0].timelineStartFrame, 240)
+    }
+
+    /// Changing the frame rate re-expresses the same start timecode, and that
+    /// changes its frame count. That is not the start moving. A stem sitting at
+    /// frame 0 before the first reel set the rate must still be at frame 0 after
+    /// - it was drawn under the track headers when this was read as a shift.
+    func testChangingTheFrameRateDoesNotShiftContent() {
+        var config = manager.timeline.config
+        config.setFrameRate(.fps24)
+        config.startTimecode = Timecode(.components(h: 1, m: 26, s: 2, f: 0), at: .fps24, by: .clamping)
+        config.endTimecode = Timecode(.components(h: 2, m: 26, s: 2, f: 0), at: .fps24, by: .clamping)
+        manager.timeline.config = config
+
+        let lane = manager.addAudioLane(name: "MX")
+        var clip = Self.makeClip(startFrame: 0)
+        clip.durationFrames = 24 * 10 // ten seconds at 24
+        manager.timeline.addClip(clip, toLane: lane.id)
+
+        config.setFrameRate(.fps25)
+        manager.updateConfig(config)
+
+        let after = manager.timeline.audioLanes[0].clips[0]
+        XCTAssertEqual(after.timelineStartFrame, 0, "Same timecode at a new rate is not a move")
+        XCTAssertEqual(after.durationFrames, 25 * 10, "Ten seconds is ten seconds at the new rate")
+        XCTAssertEqual(manager.timeline.config.startTimecode.stringValue(), "01:26:02:00")
+    }
+
+    /// Content keeps its real time across a rate change: a clip ten seconds in
+    /// is at frame 240 at 24 fps and frame 250 at 25.
+    func testChangingTheFrameRateRegridsPositions() {
+        var config = manager.timeline.config
+        config.setFrameRate(.fps24)
+        manager.timeline.config = config
+        let lane = manager.addAudioLane(name: "MX")
+        manager.timeline.addClip(Self.makeClip(startFrame: 240), toLane: lane.id)
+
+        manager.setFrameRate(.fps25)
+
+        XCTAssertEqual(manager.timeline.audioLanes[0].clips[0].timelineStartFrame, 250)
+    }
+
+    /// 23.976 and 24 count the same 24 frames per second, so a switch between
+    /// them is a relabelling, not a move. Scaling by the real ratio (the mistake
+    /// `convertedFrames(to:)` already corrected for embedded timecode) would
+    /// slide a clip at the two-hour mark by ~173 frames.
+    func testSwitchingWithinAPulldownPairLeavesContentWhereItIs() {
+        var config = manager.timeline.config
+        config.setFrameRate(.fps24)
+        manager.timeline.config = config
+        let lane = manager.addAudioLane(name: "MX")
+        let twoHours = 2 * 60 * 60 * 24
+        manager.timeline.addClip(Self.makeClip(startFrame: twoHours), toLane: lane.id)
+
+        manager.setFrameRate(.fps23_976)
+
+        XCTAssertEqual(manager.timeline.audioLanes[0].clips[0].timelineStartFrame, twoHours)
+        XCTAssertEqual(manager.timeline.audioLanes[0].clips[0].durationFrames, 120)
+    }
+
     // MARK: - Earliest Content (timeline start snaps to it on import)
 
     /// Nothing on the timeline is distinct from content sitting at frame 0 - the

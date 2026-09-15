@@ -59,24 +59,46 @@ final class AppSettings: ObservableObject {
     /// instead of always falling back to Documents.
     @AppStorage("lastProjectSaveLocationBookmark") private var lastProjectSaveLocationBookmark: Data = Data()
 
+    /// The save location resolved from the bookmark, with security-scoped access
+    /// started. Resolved once per launch and held for the life of the process, the
+    /// way `ProjectDocument` holds access to its media - the sheet, the folder
+    /// creation and every later Cmd+S into that folder all need the same access.
+    private var resolvedProjectSaveLocation: URL?
+
     /// The last directory used to save a project, resolved from a security-scoped bookmark.
+    ///
+    /// Resolving a bookmark only yields a URL; the sandbox does not let the app
+    /// write there until `startAccessingSecurityScopedResource()` is called. Without
+    /// that, a project saved in one session cannot be replaced in the next: the folder
+    /// is visible (metadata reads are allowed) but removing or recreating it is denied.
     var lastProjectSaveLocation: URL? {
         get {
+            if let resolved = resolvedProjectSaveLocation { return resolved }
             guard !lastProjectSaveLocationBookmark.isEmpty else { return nil }
             var isStale = false
-            return try? URL(
+            guard let url = try? URL(
                 resolvingBookmarkData: lastProjectSaveLocationBookmark,
                 options: .withSecurityScope,
                 relativeTo: nil,
                 bookmarkDataIsStale: &isStale
-            )
+            ) else { return nil }
+            _ = url.startAccessingSecurityScopedResource()
+            if isStale, let refreshed = try? url.bookmarkData(options: .withSecurityScope) {
+                lastProjectSaveLocationBookmark = refreshed
+            }
+            resolvedProjectSaveLocation = url
+            return url
         }
         set {
             if let url = newValue,
                let bookmark = try? url.bookmarkData(options: .withSecurityScope) {
                 lastProjectSaveLocationBookmark = bookmark
+                // The caller's URL already carries access (open panel or container),
+                // so it can stand in for the resolved one until the next launch.
+                resolvedProjectSaveLocation = url
             } else {
                 lastProjectSaveLocationBookmark = Data()
+                resolvedProjectSaveLocation = nil
             }
         }
     }

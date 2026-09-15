@@ -835,6 +835,70 @@ no zoom presets. Scoped out on 2026-08-08: fix the anchor only.
 
 ---
 
+### Stem Off Picture Report
+
+**Status**: Active
+**Added**: 2026-09-15
+
+#### Description
+After every import, any audio clip that was placed by its own embedded timecode
+and overlaps *no* video reel is reported once: the stem's stamp, the nearest
+reel's start, the offset between them, and - when the two run the same length
+to within a second - that the stem's timestamp is almost certainly the mistake.
+The alert offers **Move to Picture** (an undoable move to that reel's start) or
+**Leave It**. Import still honours the stamp; the report is how a mis-stamped
+bounce stops being a silent 26-minute gap.
+
+Two placement defects were fixed alongside, because the report only makes sense
+once content is where its timecode says:
+
+- `TimelineManager.updateConfig` treated a frame-rate change as a start move.
+  `setFrameRate` re-expresses the same timecode at the new rate, which changes
+  its *frame count* (01:26:02:00 is 123888 frames at 24, 129050 at 25); the
+  difference was applied as a shift, so a stem at frame 0 ended up 5162 frames
+  before the timeline and was drawn under the track headers. Starts are now
+  compared on one grid, and `regridContent` re-expresses clip frames at the new
+  rate so they keep their real time.
+- `placementFrame` clamped a file stamped *before* the timeline start to frame
+  0, discarding its timecode. It now moves the start earlier to meet it
+  (`makingRoom(for:)`, the same shift as "Set Timeline Start to Region").
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Utility | `Utilities/StemOffPictureReport.swift` | The report's fields and alert copy |
+| View | `Views/ContentView+Timeline.swift` | `reportStemsOffPicture()`, `moveStemToPicture(clipId:laneId:reelId:)`, `makingRoom(for:)` |
+| Service | `Managers/TimelineManager.swift` | `updateConfig` grid comparison, `regridContent(from:to:)` |
+| Coordinator | `Coordinators/AlertCoordinator.swift` | `.stemOffPicture(report:onMoveToPicture:)` |
+
+#### State Properties
+
+| File | Property | Type | Purpose |
+|------|----------|------|---------|
+| `ContentView.swift` | `@State var clipsPlacedByTimecode` | `Set<UUID>` | Only clips placed by their own timecode are candidates |
+| `ContentView.swift` | `@State var reportedOffPictureClipIds` | `Set<UUID>` | Each clip is reported once |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `ContentView+Timeline.swift` | `frameImportedContent()` | Runs the check after every import |
+| `ContentView+Timeline.swift` | `addAudioToTimeline`, mixed-batch and embedded-timecode batch `.placed` cases | Records clips placed by timecode |
+
+#### Tests
+- `TimelineManagerTests`: `testSetTimelineStartToANegativeFrameMovesTheStartEarlier`,
+  `testChangingTheFrameRateDoesNotShiftContent`, `testChangingTheFrameRateRegridsPositions`
+
+#### Removal Checklist
+- [ ] Delete `Utilities/StemOffPictureReport.swift` (and its pbxproj entries)
+- [ ] Remove `.stemOffPicture` from `AlertCoordinator`
+- [ ] Remove `reportStemsOffPicture`, `moveStemToPicture` and the `clipsPlacedByTimecode` bookkeeping
+- [ ] Remove the two `@State` sets from `ContentView.swift`
+- [ ] Keep the two placement fixes - they are correct without the report
+
+---
+
 ### Create QT Demo (review QuickTime)
 
 **Status**: Active (UI not yet runtime-verified - see below)

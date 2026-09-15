@@ -166,9 +166,28 @@ final class TimelineManager: ObservableObject {
     /// If the start timecode changes, all content (video reels and audio clips)
     /// is shifted to maintain their absolute timecode positions.
     ///
+    /// A frame-rate change is not a start change. `TimelineConfig.setFrameRate`
+    /// re-expresses the same start timecode at the new rate, which changes its
+    /// frame *count* - 01:26:02:00 is 123888 frames at 24 and 129050 at 25 -
+    /// and comparing raw counts read that as the start moving 5162 frames
+    /// earlier. Every clip was shifted by that much, so a stem placed at frame
+    /// 0 before the first reel arrived ended up 3:26 before the timeline began,
+    /// drawn under the track headers. The two starts are compared on one grid
+    /// instead, and existing content is re-gridded to the new rate so it keeps
+    /// its real time.
+    ///
     /// - Parameter config: The new timeline configuration
     func updateConfig(_ config: TimelineConfig) {
-        let oldStartFrames = timeline.config.startTimecode.frameCount.wholeFrames
+        let oldConfig = timeline.config
+        if config.frameRate != oldConfig.frameRate {
+            regridContent(from: oldConfig.frameRate, to: config.frameRate)
+        }
+
+        let oldStartFrames = Timecode(
+            .components(oldConfig.startTimecode.components),
+            at: config.frameRate,
+            by: .clamping
+        ).frameCount.wholeFrames
         let newStartFrames = config.startTimecode.frameCount.wholeFrames
         let delta = oldStartFrames - newStartFrames
 
@@ -177,6 +196,46 @@ final class TimelineManager: ObservableObject {
         // If start timecode changed, shift all content to maintain absolute timecode positions
         if delta != 0 {
             shiftAllContent(by: delta)
+        }
+    }
+
+    /// Re-express every frame position on the timeline at a new frame rate.
+    ///
+    /// A clip ten seconds in is at frame 240 at 24 fps and frame 250 at 25.
+    /// Without this the number would stay 240 and the clip would move 0.4
+    /// seconds earlier. Audio lengths and in-points are frame counts on the
+    /// same grid and move with it; a reel's length is in its source's frames
+    /// and is left alone.
+    ///
+    /// The ratio is between *counting grids* - 24 for both 23.976 and 24, 30
+    /// for both 29.97 and 30 - not between real rates, the same rule as
+    /// `EmbeddedTimecodeResult.convertedFrames(to:)`. Timecode addresses frames
+    /// by count, so switching within a pulldown pair changes nothing; scaling by
+    /// the real ratio there would slide content ~7 seconds at the two-hour mark.
+    ///
+    /// Rounding is monotonic, so order and sign are preserved; two positions a
+    /// fraction of a frame apart can land on one frame, which is the grid's
+    /// resolution and not a defect.
+    ///
+    /// - Parameters:
+    ///   - oldRate: The rate the positions are currently expressed at.
+    ///   - newRate: The rate to express them at.
+    private func regridContent(from oldRate: TimecodeFrameRate, to newRate: TimecodeFrameRate) {
+        let ratio = newRate.fps.rounded() / oldRate.fps.rounded()
+        guard ratio != 1 else { return }
+        func regrid(_ frames: Int) -> Int { Int((Double(frames) * ratio).rounded()) }
+
+        for i in timeline.videoReels.indices {
+            timeline.videoReels[i].timelineStartFrame = regrid(timeline.videoReels[i].timelineStartFrame)
+        }
+        for laneIndex in timeline.audioLanes.indices {
+            for clipIndex in timeline.audioLanes[laneIndex].clips.indices {
+                var clip = timeline.audioLanes[laneIndex].clips[clipIndex]
+                clip.timelineStartFrame = regrid(clip.timelineStartFrame)
+                clip.durationFrames = regrid(clip.durationFrames)
+                clip.sourceStartFrame = regrid(clip.sourceStartFrame)
+                timeline.audioLanes[laneIndex].clips[clipIndex] = clip
+            }
         }
     }
 
@@ -221,7 +280,8 @@ final class TimelineManager: ObservableObject {
     func setFrameRate(_ frameRate: TimecodeFrameRate) {
         var config = timeline.config
         config.setFrameRate(frameRate)
-        timeline.config = config
+        // Through `updateConfig`, so content is re-gridded with the bounds.
+        updateConfig(config)
     }
 
     /// Set the timeline bounds.

@@ -874,6 +874,10 @@ enum TimelineLayout {
     /// Playhead triangle width
     static let playheadTriangleWidth: CGFloat = 10
 
+    /// Width of the playhead's vertical line. Even, so it centres on a whole
+    /// point under the triangle's apex.
+    static let playheadLineWidth: CGFloat = 2
+
     /// Playhead triangle height
     static let playheadTriangleHeight: CGFloat = 8
 

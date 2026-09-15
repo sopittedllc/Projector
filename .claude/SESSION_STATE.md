@@ -1,8 +1,34 @@
 # Session State
 
-> **Last Updated**: 2026-09-14
-> **Status**: IDLE — 2026.09.14 shipped
-> **Branch**: main, clean, in sync with origin
+> **Last Updated**: 2026-09-15
+> **Status**: ACTIVE — shipping 2026.09.15
+> **Branch**: main
+
+---
+
+## 2026-09-15 — Save-As replace, playhead, stem off picture
+
+**Task**: Ship four fixes, all runtime-verified by the user.
+
+Done:
+- `AppSettings.lastProjectSaveLocation` starts security-scoped access (Replace
+  on a project from an earlier session failed with a permissions error).
+- Playhead line centred on the frame boundary (was 4pt right - the 10pt
+  triangle set the stack width and the line was centred in it).
+- `TimelineManager.updateConfig`: frame-rate change no longer read as a start
+  move; `regridContent` keeps clip real time. `placementFrame` moves the start
+  earlier instead of clamping to 0.
+- New "Stem Is Off Picture" report with Move to Picture / Leave It
+  (`StemOffPictureReport.swift`, `.stemOffPicture`). FEATURES.md entry added.
+- Update pipeline verified end-to-end (feed, enclosure, EdDSA signature vs
+  `SUPublicEDKey`, installed Sparkle 2.9.5 with XPC services).
+
+Lesson (saved to memory): never run xcodebuild while the Debug app is running -
+ScopedBookmarkAgent then rejects the pid (-67034) and every drop fails with
+"The file couldn't be opened."
+
+Next: gabriel QA → commit → `./scripts/build-release.sh` → reinstall the
+2026.09.14 DMG and let Sparkle offer/install today's build as the real test.
 
 ---
 
