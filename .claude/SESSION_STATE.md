@@ -1,7 +1,7 @@
 # Session State
 
 > **Last Updated**: 2026-09-15
-> **Status**: ACTIVE — one port `TO PROJECTOR`, verified in Cubase by user, clare PASS; shipping as 2026.09.15.4
+> **Status**: IDLE — one port `TO PROJECTOR` SHIPPED as 2026.09.15.4 (`58999b4` + appcast `87ba3b8`); nothing skipped
 > **Branch**: main
 
 ---
