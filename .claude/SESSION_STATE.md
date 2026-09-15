@@ -1,7 +1,7 @@
 # Session State
 
 > **Last Updated**: 2026-09-15
-> **Status**: ACTIVE — shipping 2026.09.15
+> **Status**: ACTIVE — 2026.09.15 shipped; shipping 2026.09.15.2 (Sparkle asks once)
 > **Branch**: main
 
 ---
@@ -27,8 +27,18 @@ Lesson (saved to memory): never run xcodebuild while the Debug app is running -
 ScopedBookmarkAgent then rejects the pid (-67034) and every drop fails with
 "The file couldn't be opened."
 
-Next: gabriel QA → commit → `./scripts/build-release.sh` → reinstall the
-2026.09.14 DMG and let Sparkle offer/install today's build as the real test.
+2026.09.15 SHIPPED (`5a95570`, appcast pushed by the script; first
+`build-release.sh` run died in create-dmg's Finder AppleScript with -10006,
+retry was clean). Update path proven end to end: 2026.09.14 reinstalled,
+found 2026.09.15, downloaded, installed, relaunched.
+
+2026.09.15.2: `SUAutomaticallyUpdate` YES - the user saw Sparkle's two
+dialogs and wants only the "ready to install" one. Takes effect for updates
+*from* this version onward.
+
+Override log: gabriel not run for 2026.09.15.2 - the change is one plist
+boolean plus its docs, validated with plutil; the behaviour is Sparkle's own.
+Risk: none beyond the policy change itself, which the user chose.
 
 ---
 

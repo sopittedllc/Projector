@@ -79,8 +79,11 @@
 
 	     Checks are on by default (no permission prompt), at most hourly - the
 	     shortest interval Sparkle honours - so a launch finds a new version
-	     without nagging on every relaunch. Downloads are never silent:
-	     SUAutomaticallyUpdate stays NO so the user is asked first. -->
+	     without nagging on every relaunch. A found update is downloaded in the
+	     background and the user is asked once, when it is ready to install
+	     (SUAutomaticallyUpdate YES). It used to ask before downloading as well;
+	     the first update through the feed showed that as two dialogs for one
+	     decision, and the "ready to install" one is the one worth having. -->
 	<key>SUFeedURL</key>
 	<string>https://raw.githubusercontent.com/sopittedllc/Projector/main/appcast.xml</string>
 	<key>SUPublicEDKey</key>
@@ -92,7 +95,7 @@
 	<key>SUScheduledCheckInterval</key>
 	<integer>3600</integer>
 	<key>SUAutomaticallyUpdate</key>
-	<false/>
+	<true/>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

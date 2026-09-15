@@ -128,7 +128,7 @@ exists.
 |---------|-------|-----|
 | `SUEnableAutomaticChecks` | `YES` | Checks are on without a first-launch permission prompt |
 | `SUScheduledCheckInterval` | `3600` | One hour, the shortest Sparkle honours — so a launch finds a new version without re-checking on every relaunch |
-| `SUAutomaticallyUpdate` | `NO` | The user is always asked before anything downloads |
+| `SUAutomaticallyUpdate` | `YES` | A found update downloads in the background; the user is asked once, when it is ready to install (2026-09-15: was `NO`, which asked twice) |
 
 The user can turn checks off in **Settings → Updates**, or check on demand there
 or from **Projector → Check for Updates…**.
