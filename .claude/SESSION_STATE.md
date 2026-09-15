@@ -1,8 +1,51 @@
 # Session State
 
 > **Last Updated**: 2026-09-15
-> **Status**: IDLE — audit remediation SHIPPED as 2026.09.15.3 (`fe1e207` + appcast); runtime pass skipped by user
+> **Status**: ACTIVE — one port `TO PROJECTOR`, verified in Cubase by user, clare PASS; shipping as 2026.09.15.4
 > **Branch**: main
+
+---
+
+## 2026-09-15 — Back to one MIDI port
+
+**Task**: Resolve the "port confusion" item from the 2026-09-14 open list.
+
+Went in two steps. First removed `Projector MMC OUT` (user's framing, which is
+right: Projector is only ever the MMC slave, so a DAW only needs Projector
+*destinations*; a source would only matter if Projector controlled the DAW).
+Then the user asked for `MMC IN` to appear only in the DAW's MMC picker, not
+its MTC one - which no port can do, because Cubase (checked against
+Steinberg's Machine Control page docs) lists every destination in every
+output picker. `MMC OUT` had only *looked* MMC-specific because it was a
+source and so appeared only in the "MMC Input" popup under Output Settings -
+the port Cubase *receives* MMC on. Decision: one port, so every picker has exactly one Projector entry; user
+then named it `TO PROJECTOR` (reads as an instruction in an outputs list).
+
+**Done**:
+- `MIDISyncActor.swift`: one virtual input `TO PROJECTOR` (`inputName`, old
+  UID key `ProjectorMIDIInputUID`), `legacyInputNames` = the three old names. Removed
+  the virtual output, Identity Request/Reply, `mmcDeviceID`, and the
+  non-real-time branch in both SysEx handlers.
+- Copy: `SettingsView` MIDI section, `WelcomeOverlayView` DAW step,
+  `OnboardingView` (all seven per-DAW MTC steps + the info note),
+  `MIDISyncViewModel` doc comments.
+- `FEATURES.md`: rewrote the port section with the history.
+- Debug build clean. Verified at CoreMIDI: `MIDIGetDestination` reports
+  `TO PROJECTOR` only; `MIDIGetSource` nothing. (Killed the
+  /Applications copy to launch the Debug build.)
+
+**QA**: user verified in Cubase (one entry per picker, transport + chase OK).
+clare: PASS, three doc-wording warnings, all fixed before commit. cecilia not
+run - the change is a port rename the user exercised directly.
+
+**Not done**: Orphaned defaults keys
+`ProjectorMMCInputUID` / `ProjectorMIDIOutputUID` left in place - harmless.
+Onboarding still has no MMC step (open item 2 on the 2026-09-14 list); its
+copy would now be "same port as MTC".
+
+**User to verify in Cubase**: MTC Destinations and MMC Output each show one
+Projector entry; point both at it; sync + transport still work. The 08-26
+rename by UID should mean Cubase is already routed.
 
 ---
 

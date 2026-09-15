@@ -255,34 +255,37 @@ mutates two lanes.
 #### Description
 MIDI Time Code (MTC) and MIDI Machine Control (MMC) synchronization for external device control. Runs on dedicated actor for thread safety. Includes live drift monitoring, configurable sync thresholds, and auto-play/pause settings.
 
-#### One port per protocol (2026-08-26)
+#### One port, `TO PROJECTOR` (2026-09-15; two ports 2026-08-26 to 2026-09-15)
 
-There was one input, `Projector MIDI IN`, carrying both protocols, and one
-output, `Projector MIDI OUT`. A DAW asks for its MTC destination and its MMC
-destination in two different dialogs and neither says which of Projector's ports
-it wants, so setting up machine control meant reading two names that described
-direction rather than content and guessing which end of the arrow was being asked
-about.
+Projector is only ever the receiving end - the DAW sends MTC and MMC, Projector
+listens - so it publishes one CoreMIDI destination and no source.
 
-Now `Projector MTC IN`, `Projector MMC IN` and `Projector MMC OUT`. The names
-answer the DAW's dialogs.
+**What was tried in between.** On 2026-08-26 the single port was split into
+`Projector MTC IN` and `Projector MMC IN`, plus a source `Projector MMC OUT`,
+on the theory that the names would answer the DAW's two dialogs. They cannot:
+a DAW lists every destination it can see in every output picker (Cubase's MTC
+Destinations page and its MMC Output popup show the same list), because a port
+carries nothing that says what it is for. Two destinations meant a second,
+wrong-looking entry in every picker. And `MMC OUT`, being a source, showed up
+only in the DAW's MMC *input* picker - the one for the DAW to *receive* MMC
+from a device, where choosing Projector sends nothing to Projector - which
+made it look like the port to point machine control at. It carried nothing but
+an Identity Reply to the DAW's launch-time device scan, which nothing needs.
 
-**Both inputs accept everything.** The split is a label for the operator, not a
-filter: a DAW that sends MTC and MMC down one port still works. Refusing traffic
-on the "wrong" port would turn a cosmetic improvement into a way to break a
-working session. Said explicitly in Settings, because the split invites exactly
-the opposite worry.
+**Now**: one destination, so there is exactly one Projector entry anywhere the
+DAW asks; point timecode and machine control at the same place. Named
+`TO PROJECTOR` because it sits in a list of the DAW's *outputs*, where an
+instruction reads better than a description of Projector's end (`... IN`). No
+source; non-real-time Universal SysEx (Identity Request) is ignored.
 
-The MTC port keeps the UID key the single port used (`ProjectorMIDIInputUID`).
-CoreMIDI routing is by unique ID, so from the DAW's side this is a rename of a
-port it is already pointed at rather than a port disappearing and a new one
-arriving. A DAW that stores routing by *name* still needs re-pointing once.
-`legacyInputName` keeps a `selectedMIDIInput` stored by an older version
-resolving to "the built-in ports" instead of being hunted for among the hardware.
+The port keeps the UID key it has always had (`ProjectorMIDIInputUID`), so a
+DAW routed to it by unique ID sees a rename, not a disappearance. A DAW that
+stores routing by *name* needs re-pointing once. `legacyInputNames` (`Projector MIDI IN`, `Projector MTC IN`,
+`Projector MMC IN`) keeps a `selectedMIDIInput` stored by an older version
+resolving to "the built-in port".
 
-Verified at the CoreMIDI layer, not just in the app: `MIDIGetDestination` reports
-`Projector MTC IN` and `Projector MMC IN`, `MIDIGetSource` reports
-`Projector MMC OUT`.
+Verified at the CoreMIDI layer, not just in the app: `MIDIGetDestination`
+reports `TO PROJECTOR`; `MIDIGetSource` reports nothing from Projector.
 
 #### Stop stutter and start lag — investigated, unresolved (2026-08-26)
 
@@ -324,9 +327,9 @@ was inert, and the audio path that was never examined.
 |------|----------|------------------|
 | `ContentView.swift` | initialization | Actor creation |
 | `SettingsView.swift` | Sync accordion section | Configuration UI |
-| `SettingsView.swift` | `midiInfoSection` | Names the three ports and says either input accepts both |
-| `OnboardingView.swift` | per-DAW setup steps | MTC destinations name `Projector MTC IN` |
-| `WelcomeOverlayView.swift` | MIDI sync row | Names both input ports |
+| `SettingsView.swift` | `midiInfoSection` | Names `TO PROJECTOR`, says point MTC and MMC at it, and that Projector has no MIDI output |
+| `OnboardingView.swift` | per-DAW setup steps | MTC destinations name `TO PROJECTOR` |
+| `WelcomeOverlayView.swift` | MIDI sync row | Names `TO PROJECTOR` |
 
 #### Dependencies
 - Depends on: MIDIKit (external package)

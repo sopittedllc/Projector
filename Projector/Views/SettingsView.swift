@@ -222,15 +222,15 @@ struct SettingsView: View {
             Label("MIDI", systemImage: "pianokeys")
                 .font(Typography.heading)
 
-            Text("On launch, Projector creates two ports: **Projector MTC IN** and **Projector MMC IN**. In your DAW, point its timecode output at the first and its machine control output at the second.")
+            Text("On launch, Projector creates one MIDI port: **TO PROJECTOR**. In your DAW, point both its timecode output and its machine control output at it.")
                 .font(Typography.body)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // Said plainly because the split invites the opposite worry - that
-            // sending the wrong thing to the wrong port will break sync. The
-            // names are there to answer the DAW's dialogs, not to filter.
-            Text("Either port accepts both, so a DAW that sends everything to one still works. Projector answers device enquiries on **Projector MMC OUT**.")
+            // Said plainly because the DAW's machine control page usually has
+            // an *input* picker right next to the output one, and Projector
+            // deliberately has nothing to offer there.
+            Text("Projector only listens - it has no MIDI output, so there is nothing to choose in your DAW's MIDI or machine control *input* settings.")
                 .font(Typography.caption)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

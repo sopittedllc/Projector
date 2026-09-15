@@ -68,7 +68,7 @@ enum DAWType: String, CaseIterable, Identifiable {
                 DAWSetupStep(
                     step: 3,
                     title: "Select Destination",
-                    detail: "Set the destination to \"Projector MTC IN\"",
+                    detail: "Set the destination to \"TO PROJECTOR\"",
                     imageName: nil
                 ),
                 DAWSetupStep(
@@ -101,7 +101,7 @@ enum DAWType: String, CaseIterable, Identifiable {
                 DAWSetupStep(
                     step: 4,
                     title: "Enable MTC Output",
-                    detail: "Enable MTC Generation and select \"Projector MTC IN\" as output",
+                    detail: "Enable MTC Generation and select \"TO PROJECTOR\" as output",
                     imageName: nil
                 )
             ]
@@ -116,7 +116,7 @@ enum DAWType: String, CaseIterable, Identifiable {
                 DAWSetupStep(
                     step: 2,
                     title: "Enable Timecode Output",
-                    detail: "Check \"MIDI Timecode Destination\" and select \"Projector MTC IN\"",
+                    detail: "Check \"MIDI Timecode Destination\" and select \"TO PROJECTOR\"",
                     imageName: nil
                 ),
                 DAWSetupStep(
@@ -143,7 +143,7 @@ enum DAWType: String, CaseIterable, Identifiable {
                 DAWSetupStep(
                     step: 3,
                     title: "Select Output",
-                    detail: "Choose \"Projector MTC IN\" as the MIDI output",
+                    detail: "Choose \"TO PROJECTOR\" as the MIDI output",
                     imageName: nil
                 )
             ]
@@ -158,7 +158,7 @@ enum DAWType: String, CaseIterable, Identifiable {
                 DAWSetupStep(
                     step: 2,
                     title: "Enable Output",
-                    detail: "Right-click \"Projector MTC IN\" and enable it",
+                    detail: "Right-click \"TO PROJECTOR\" and enable it",
                     imageName: nil
                 ),
                 DAWSetupStep(
@@ -170,7 +170,7 @@ enum DAWType: String, CaseIterable, Identifiable {
                 DAWSetupStep(
                     step: 4,
                     title: "Enable MTC",
-                    detail: "Check \"Send MTC\" and select \"Projector MTC IN\" as the output device",
+                    detail: "Check \"Send MTC\" and select \"TO PROJECTOR\" as the output device",
                     imageName: nil
                 )
             ]
@@ -191,7 +191,7 @@ enum DAWType: String, CaseIterable, Identifiable {
                 DAWSetupStep(
                     step: 3,
                     title: "Select Projector",
-                    detail: "Set the MTC output destination to \"Projector MTC IN\"",
+                    detail: "Set the MTC output destination to \"TO PROJECTOR\"",
                     imageName: nil
                 ),
                 DAWSetupStep(
@@ -509,7 +509,7 @@ struct OnboardingView: View {
                             .font(Typography.title)
                             .foregroundColor(.blue)
 
-                        Text("Projector creates two virtual MIDI ports automatically, \"Projector MTC IN\" and \"Projector MMC IN\". Both should appear in your DAW's MIDI output list.")
+                        Text("Projector creates one virtual MIDI port automatically, \"TO PROJECTOR\". It should appear in your DAW's MIDI output list - send both timecode and machine control to it.")
                             .font(Typography.caption)
                             .foregroundColor(.secondary)
                     }

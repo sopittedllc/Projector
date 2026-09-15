@@ -82,7 +82,7 @@ func midiLog(_ message: @autoclosure () -> String) {
 /// }
 ///
 /// // Select an input
-/// await midiSync.selectInput("Projector MTC IN")
+/// await midiSync.selectInput("TO PROJECTOR")
 /// ```
 ///
 /// ## Performance Considerations
@@ -94,61 +94,51 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
     // MARK: - Constants
 
-    /// Name of the virtual MIDI input a DAW sends timecode to.
-    public static let mtcInputName = "Projector MTC IN"
+    /// Name of the one virtual MIDI input a DAW sends everything to.
+    ///
+    /// ## Why one port, not one per protocol
+    ///
+    /// Projector is only ever the receiving end: the DAW sends MTC and MMC,
+    /// Projector listens. So Projector publishes CoreMIDI *destinations* and
+    /// nothing else - a source would only matter if Projector controlled the
+    /// DAW, which it never does.
+    ///
+    /// For a while there were two destinations, `Projector MTC IN` and
+    /// `Projector MMC IN`, on the theory that the names would answer the DAW's
+    /// two dialogs. They cannot: a DAW lists every destination it can see in
+    /// every output picker - Cubase's MTC Destinations page and its MMC Output
+    /// popup show the same list - because a port carries nothing that says
+    /// what it is for. Two ports meant a second, wrong-looking entry in every
+    /// picker. One port means there is exactly one Projector entry anywhere
+    /// the DAW asks, so there is nothing to mis-pick: point timecode and
+    /// machine control at the same place.
+    ///
+    /// The name reads as an instruction in the DAW's picker rather than as a
+    /// description of Projector's end of the cable: "IN" in a list of the
+    /// DAW's *outputs* made people stop and think. The CoreMIDI unique ID is
+    /// persisted under the key the port has always used, so a DAW already
+    /// routed to it sees a rename rather than a port disappearing.
+    public static let inputName = "TO PROJECTOR"
 
-    /// Name of the virtual MIDI input a DAW sends machine control to.
-    ///
-    /// ## Why two ports rather than one
-    ///
-    /// There was one port, `Projector MIDI IN`, carrying both. A DAW asks for
-    /// its MTC destination and its MMC destination in two different dialogs, and
-    /// neither says which of Projector's ports it wants - so setting up machine
-    /// control meant reading `Projector MIDI IN` and `Projector MIDI OUT` and
-    /// guessing which end of the arrow you were being asked about. Naming the
-    /// ports after what they carry answers the question in the dialog.
-    ///
-    /// Both ports accept anything. Splitting them is a label for the operator,
-    /// not a filter: a DAW that sends MTC and MMC down one of them still works,
-    /// and refusing traffic on the "wrong" port would turn a cosmetic
-    /// improvement into a way to break a working session.
-    public static let mmcInputName = "Projector MMC IN"
-
-    /// Name of the virtual MIDI output Projector answers on.
-    ///
-    /// Only ever carries MMC replies - an Identity Reply to a device enquiry -
-    /// so it is named for that. Left as `Projector MIDI OUT` it would have been
-    /// the one port still named after nothing in particular, next to two that
-    /// say what they are.
-    public static let mmcOutputName = "Projector MMC OUT"
-
-    /// What the single input port was called before it was split in two.
+    /// Names the built-in port has gone by before.
     ///
     /// Kept so a `selectedMIDIInput` stored by an older version still resolves
-    /// to "the built-in ports" instead of being hunted for among the hardware
+    /// to "the built-in port" instead of being hunted for among the hardware
     /// and logged as missing.
-    private static let legacyInputName = "Projector MIDI IN"
+    private static let legacyInputNames: Set<String> = [
+        "Projector MIDI IN", "Projector MTC IN", "Projector MMC IN"
+    ]
 
-    /// Every name that means one of Projector's own always-on ports.
+    /// Every name that means Projector's own always-on port.
     private static var builtInInputNames: Set<String> {
-        [mtcInputName, mmcInputName, legacyInputName]
+        legacyInputNames.union([inputName])
     }
 
-    /// Tag for the MTC virtual input in MIDIKit.
-    private static let mtcInputTag = "ProjectorVirtualInput"
-
-    /// Tag for the MMC virtual input in MIDIKit.
-    private static let mmcInputTag = "ProjectorVirtualMMCInput"
-
-    /// Tag for the virtual MIDI output in MIDIKit.
-    private static let mmcOutputTag = "ProjectorVirtualOutput"
+    /// Tag for the virtual input in MIDIKit.
+    private static let inputTag = "ProjectorVirtualInput"
 
     /// Tag for external MIDI input connections.
     private static let inputConnectionTag = "ProjectorMIDIInput"
-
-    /// MMC Device ID (1-126, or 127 for all-call).
-    /// Using 0x7F (127) means respond to all MMC messages.
-    private static let mmcDeviceID: UInt8 = 0x7F
 
     // MARK: - Actor State
 
@@ -314,7 +304,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// try await midiSync.start()
     /// ```
     public init() {
-        self.selectedInputName = Self.mtcInputName
+        self.selectedInputName = Self.inputName
     }
 
     // MARK: - Lifecycle
@@ -360,9 +350,6 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
             setupVirtualInput()
             midiLog("Virtual input created")
-
-            setupVirtualOutput()
-            midiLog("Virtual output created")
 
             await refreshAvailableInputs()
             midiLog("Available inputs: \(availableInputs)")
@@ -454,7 +441,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// await midiSync.selectInput("Pro Tools MIDI Out")
     ///
     /// // Use the virtual input
-    /// await midiSync.selectInput(MIDISyncActor.mtcInputName)
+    /// await midiSync.selectInput(MIDISyncActor.inputName)
     ///
     /// // Disconnect all inputs
     /// await midiSync.selectInput(nil)
@@ -483,13 +470,13 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
     /// ```
     public func refreshAvailableInputs() async {
         guard let manager = midiManager else {
-            availableInputs = [Self.mtcInputName, Self.mmcInputName]
+            availableInputs = [Self.inputName]
             emitState()
             return
         }
 
-        // Our own always-on ports first, then the hardware.
-        var inputs = [Self.mtcInputName, Self.mmcInputName]
+        // Our own always-on port first, then the hardware.
+        var inputs = [Self.inputName]
 
         // Add external MIDI outputs (sources) - these are where MIDI data comes FROM
         let externalSources = manager.endpoints.outputs.map { $0.displayName }
@@ -607,36 +594,20 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         midiLog("MTC receiver configured")
     }
 
-    /// Sets up the virtual MIDI input ports that DAWs can send to.
+    /// Sets up the virtual MIDI input port that DAWs send to.
     ///
-    /// Both ports route into the same handler. See ``mmcInputName`` for why
-    /// there are two.
+    /// See ``inputName`` for why there is exactly one.
     private func setupVirtualInput() {
         guard let manager = midiManager else { return }
 
-        // The MTC port keeps the UID key the single port used, so a DAW that
-        // already had a destination saved keeps working. CoreMIDI routing is by
-        // unique ID, not by name, so from the DAW's side this is a rename of a
-        // port it is already pointed at rather than a port disappearing.
-        let mtcFailure = addVirtualInput(
+        // Surfaced, not swallowed: without the port nothing a DAW sends can
+        // ever arrive, and the failure was previously invisible.
+        virtualInputError = addVirtualInput(
             to: manager,
-            name: Self.mtcInputName,
-            tag: Self.mtcInputTag,
+            name: Self.inputName,
+            tag: Self.inputTag,
             uniqueIDKey: "ProjectorMIDIInputUID"
         )
-
-        let mmcFailure = addVirtualInput(
-            to: manager,
-            name: Self.mmcInputName,
-            tag: Self.mmcInputTag,
-            uniqueIDKey: "ProjectorMMCInputUID"
-        )
-
-        // Surfaced, not swallowed: without a port nothing a DAW sends can ever
-        // arrive, and the failure was previously invisible. Either one failing
-        // is worth reporting - a session with timecode but no transport control
-        // is as broken as one with neither, just less obviously.
-        virtualInputError = mtcFailure ?? mmcFailure
     }
 
     /// Creates one always-on virtual input.
@@ -675,22 +646,6 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         }
     }
 
-    /// Sets up the virtual MIDI output port for sending responses (Identity Reply, etc.).
-    private func setupVirtualOutput() {
-        guard let manager = midiManager else { return }
-
-        do {
-            try manager.addOutput(
-                name: Self.mmcOutputName,
-                tag: Self.mmcOutputTag,
-                uniqueID: .userDefaultsManaged(key: "ProjectorMIDIOutputUID")
-            )
-            midiLog("Virtual MIDI output '\(Self.mmcOutputName)' created")
-        } catch {
-            midiLog("Failed to create virtual MIDI output: \(error)")
-        }
-    }
-
     /// Sets up notification observers for MIDI setup changes.
     private func setupNotificationObservers() {
         // Note: NotificationCenter observers need careful handling with actors
@@ -719,10 +674,10 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
         guard let inputName = selectedInputName else { return }
 
-        // Selecting one of our own ports connects nothing: they are created by
-        // `setupVirtualInput()` and receive continuously, whatever is selected.
-        // The legacy name counts, so a selection stored before the split is not
-        // hunted for among the hardware and logged as missing.
+        // Selecting our own port connects nothing: it is created by
+        // `setupVirtualInput()` and receives continuously, whatever is selected.
+        // The legacy names count, so a selection stored by a version with two
+        // ports is not hunted for among the hardware and logged as missing.
         if Self.builtInInputNames.contains(inputName) {
             midiLog("Using built-in MIDI input: \(inputName)")
             return
@@ -769,7 +724,7 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
             // Feed to MTC receiver for timecode parsing
             mtcReceiver?.midiIn(event: event)
 
-            // Check for SysEx messages (MTC Full Frame, MMC commands, Identity Request)
+            // Check for SysEx messages (MTC Full Frame, MMC commands)
             switch event {
             case .sysEx7(let sysEx):
                 midiLog("SysEx7: \(sysEx.data.map { String(format: "%02X", $0) }.joined(separator: " "))")
@@ -850,67 +805,6 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
            Date().timeIntervalSince(last) > Self.externalControlTimeout {
             isExternallyControlled = false
             midiLog("External control RELEASED - local transport re-enabled")
-        }
-    }
-
-    // MARK: - Identity Request/Reply
-
-    /// Handles MIDI Identity Request and sends Identity Reply.
-    ///
-    /// Identity Request format: F0 7E <channel> 06 01 F7
-    /// Identity Reply format: F0 7E <channel> 06 02 <manufacturer> <family> <model> <version> F7
-    ///
-    /// - Parameter channel: The channel/device ID from the request.
-    private func handleIdentityRequest(channel: UInt8) {
-        // Only respond if the request is for us (our device ID) or all-call (0x7F)
-        guard channel == Self.mmcDeviceID || channel == 0x7F else { return }
-
-        midiLog("Received Identity Request, sending reply")
-
-        // Send Identity Reply
-        // Using non-commercial manufacturer ID (0x7D) for development
-        // Family: 0x0001 (arbitrary), Model: 0x0001 (arbitrary), Version: 0x01 0x00 0x00 0x00
-        sendIdentityReply(channel: channel)
-    }
-
-    /// Sends an Identity Reply message.
-    ///
-    /// - Parameter channel: The channel to respond on.
-    private func sendIdentityReply(channel: UInt8) {
-        guard let manager = midiManager,
-              let output = manager.managedOutputs[Self.mmcOutputTag] else {
-            midiLog("Cannot send Identity Reply - no output port")
-            return
-        }
-
-        // Identity Reply data (after F0 and before F7):
-        // 7E <channel> 06 02 <manufacturer-id> <family-lsb> <family-msb> <model-lsb> <model-msb> <ver1> <ver2> <ver3> <ver4>
-        // Using 0x7D (non-commercial/educational manufacturer ID)
-        let replyData: [UInt8] = [
-            0x7D,       // Manufacturer ID (non-commercial)
-            0x01, 0x00, // Family (Projector)
-            0x01, 0x00, // Model
-            0x01, 0x00, 0x00, 0x00  // Version 1.0.0.0
-        ]
-
-        // Built with MIDIKit's Universal SysEx constructor rather than raw
-        // bytes. The previous version hand-assembled the message starting at
-        // 0x7E and passed it to `sysEx7(rawBytes:)`, which expects a COMPLETE
-        // message including the 0xF0 / 0xF7 framing - so every reply was
-        // rejected as `malformed` and the app never answered a device enquiry.
-        // This constructor supplies the framing and the 0x7E itself.
-        do {
-            let sysExEvent = try MIDIEvent.universalSysEx7(
-                universalType: .nonRealTime,
-                deviceID: UInt7(channel & 0x7F),
-                subID1: 0x06,   // General Information
-                subID2: 0x02,   // Identity Reply
-                data: replyData
-            )
-            try output.send(event: sysExEvent)
-            midiLog("Sent Identity Reply on channel \(channel)")
-        } catch {
-            midiLog("Failed to send Identity Reply: \(error)")
         }
     }
 
@@ -1028,19 +922,13 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
 
     // MARK: - SysEx Parsing
 
-    /// Handles raw SysEx data for MTC Full Frame, MMC commands, and Identity Request.
+    /// Handles raw SysEx data for MTC Full Frame and MMC commands.
+    ///
+    /// Non-real-time messages (the DAW's Identity Request among them) are
+    /// ignored: Projector has no output port to answer on, by design.
     ///
     /// - Parameter data: The SysEx data (F0/F7 already stripped by MIDIKit).
     private func handleSysEx(_ data: [UInt8]) {
-        guard data.count >= 3 else { return }
-
-        // Check for Universal Non-Real Time SysEx (Identity Request)
-        // Format: 7E <device-id> 06 01
-        if data[0] == 0x7E && data.count >= 4 && data[2] == 0x06 && data[3] == 0x01 {
-            handleIdentityRequest(channel: data[1])
-            return
-        }
-
         // Universal Real-Time SysEx format: F0 7F <device-id> <sub-id-1> <sub-id-2> ... F7
         // Note: MIDIKit strips F0/F7, so data starts at 7F
         guard data.count >= 4, data[0] == 0x7F else { return }
@@ -1058,20 +946,12 @@ public actor MIDISyncActor: MIDISyncServiceProtocol {
         handleMMCFromSysEx(data)
     }
 
-    /// Handles Universal SysEx messages for MTC, MMC, and Identity Request.
+    /// Handles Universal SysEx messages for MTC and MMC.
+    ///
+    /// Non-real-time messages (Identity Request) are ignored - see ``handleSysEx(_:)``.
     ///
     /// - Parameter sysEx: The parsed Universal SysEx event.
     private func handleUniversalSysEx(_ sysEx: MIDIEvent.UniversalSysEx7) {
-        // Handle Non-Real Time messages (Identity Request)
-        if sysEx.universalType == .nonRealTime {
-            // Identity Request: subID1 = 0x06 (General Information), subID2 = 0x01 (Identity Request)
-            if sysEx.subID1.uInt8Value == 0x06 && sysEx.subID2.uInt8Value == 0x01 {
-                handleIdentityRequest(channel: sysEx.deviceID.uInt8Value)
-            }
-            return
-        }
-
-        // Handle Real Time messages (MTC, MMC)
         guard sysEx.universalType == .realTime else { return }
 
         if sysEx.subID1.uInt8Value == 0x01 && sysEx.subID2.uInt8Value == 0x01 {
