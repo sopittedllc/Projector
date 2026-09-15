@@ -1,7 +1,7 @@
 # Session State
 
 > **Last Updated**: 2026-09-15
-> **Status**: ACTIVE — comprehensive audit remediations complete and uncommitted; manual runtime verification owed
+> **Status**: IDLE — audit remediation SHIPPED as 2026.09.15.3 (`fe1e207` + appcast); runtime pass skipped by user
 > **Branch**: main
 
 ---
