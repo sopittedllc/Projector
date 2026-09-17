@@ -103,6 +103,113 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    // MARK: - Recent Projects
+
+    /// JSON-encoded array of recent projects.
+    @AppStorage("recentProjectsJSON") private var recentProjectsJSON: String = ""
+
+    /// Maximum number of recent projects to keep.
+    private static let maxRecentProjects = 10
+
+    /// The list of recently opened or saved projects, most recent first.
+    var recentProjects: [RecentProject] {
+        guard !recentProjectsJSON.isEmpty,
+              let data = recentProjectsJSON.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([RecentProject].self, from: data)) ?? []
+    }
+
+    /// Adds a project to the recent list, moving it to the front if already present.
+    ///
+    /// - Parameter url: The URL of the project file to add.
+    func addRecentProject(url: URL) {
+        guard let bookmark = try? url.bookmarkData(options: .withSecurityScope) else {
+            return
+        }
+
+        let name = url.deletingPathExtension().lastPathComponent
+        let newProject = RecentProject(
+            name: name,
+            bookmarkData: bookmark,
+            lastOpened: Date()
+        )
+
+        var projects = recentProjects
+
+        // Remove if already in list (will re-add at front)
+        projects.removeAll { project in
+            var isStale = false
+            let existingURL = try? URL(
+                resolvingBookmarkData: project.bookmarkData,
+                options: [.withSecurityScope, .withoutUI, .withoutMounting],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            )
+            return existingURL?.standardizedFileURL == url.standardizedFileURL
+        }
+
+        // Add to front
+        projects.insert(newProject, at: 0)
+
+        // Limit to max
+        if projects.count > Self.maxRecentProjects {
+            projects = Array(projects.prefix(Self.maxRecentProjects))
+        }
+
+        writeRecentProjects(projects)
+    }
+
+    /// Removes a project from the recent list by index.
+    func removeRecentProject(at index: Int) {
+        var projects = recentProjects
+        guard projects.indices.contains(index) else { return }
+        projects.remove(at: index)
+        writeRecentProjects(projects)
+    }
+
+    /// Clears all recent projects.
+    func clearRecentProjects() {
+        recentProjectsJSON = ""
+    }
+
+    /// Resolves a bookmark; the caller owns security-scoped access to the returned URL.
+    ///
+    /// - Parameter project: The recent project to resolve.
+    /// - Returns: The resolved URL if valid, or nil if the project no longer exists.
+    func resolveRecentProject(_ project: RecentProject) -> URL? {
+        var isStale = false
+        guard let url = try? URL(
+            resolvingBookmarkData: project.bookmarkData,
+            options: [.withSecurityScope, .withoutUI, .withoutMounting],
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        ) else { return nil }
+
+        // Refresh stale bookmark
+        if isStale, let index = recentProjects.firstIndex(of: project) {
+            let didStart = url.startAccessingSecurityScopedResource()
+            defer {
+                if didStart { url.stopAccessingSecurityScopedResource() }
+            }
+            if let refreshed = try? url.bookmarkData(options: .withSecurityScope) {
+                var projects = recentProjects
+                projects[index] = RecentProject(
+                    name: url.deletingPathExtension().lastPathComponent,
+                    bookmarkData: refreshed,
+                    lastOpened: project.lastOpened
+                )
+                writeRecentProjects(projects)
+            }
+        }
+
+        return url
+    }
+
+    private func writeRecentProjects(_ projects: [RecentProject]) {
+        guard let data = try? JSONEncoder().encode(projects),
+              let json = String(data: data, encoding: .utf8) else { return }
+        recentProjectsJSON = json
+    }
+
     // MARK: - Frame Rate Settings
 
     /// Default frame rate for videos without detected frame rate
@@ -119,7 +226,9 @@ final class AppSettings: ObservableObject {
 
     // MARK: - Initialization
 
-    private init() {}
+    init(recentProjectsStore: UserDefaults = .standard) {
+        _recentProjectsJSON = AppStorage(wrappedValue: "", "recentProjectsJSON", store: recentProjectsStore)
+    }
 
     /// Saved output profiles, JSON-encoded.
     @AppStorage("audioOutputProfiles") private var audioOutputProfilesJSON: String = ""
@@ -240,12 +349,27 @@ final class AppSettings: ObservableObject {
         selectedAudioOutput = ""
         audioOutputMappingsJSON = ""
         audioOutputProfilesJSON = ""
+        recentProjectsJSON = ""
         showTimecodeOverlay = true
         timecodeOverlayOpacity = 0.8
         timecodeOverlayPosition = .bottomCenter
         syncDriftThreshold = 5
         defaultFrameRateRaw = TimecodeFrameRate.fps24.stringValue
     }
+}
+
+// MARK: - Recent Project
+
+/// A recently opened project, stored as a security-scoped bookmark.
+struct RecentProject: Codable, Equatable {
+    /// The project name (filename without extension).
+    let name: String
+
+    /// Security-scoped bookmark data for sandbox access.
+    let bookmarkData: Data
+
+    /// When the project was last opened.
+    let lastOpened: Date
 }
 
 struct MappedAudioOutput: Identifiable, Codable, Hashable {

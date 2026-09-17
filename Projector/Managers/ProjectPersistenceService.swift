@@ -141,6 +141,9 @@ final class ProjectPersistenceService: ObservableObject {
             try projectDocument.load(from: url)
             diagnosticLog(.info, .project, "Opened project \(url.lastPathComponent)")
 
+            // Add to recent projects list
+            AppSettings.shared.addRecentProject(url: url)
+
             // Restore timeline and media library
             timelineManager.replaceProjectTimeline(projectDocument.timeline)
             mediaLibrary.load(items: projectDocument.mediaLibrary)

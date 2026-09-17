@@ -59,7 +59,7 @@ struct ProjectorApp: App {
 
 // MARK: - App Delegate
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSWindowDelegate, NSMenuDelegate {
     private var hasSetupMenus = false
 
     /// Retained so the checkmark can be refreshed when the pin is toggled from
@@ -286,6 +286,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         openItem.target = self
         openItem.isEnabled = true
         newFileMenu.addItem(openItem)
+
+        // Open Recent submenu
+        let recentMenu = NSMenu(title: "Open Recent")
+        recentMenu.delegate = self
+        rebuildRecentProjectsMenu(recentMenu)
+        let recentItem = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
+        recentItem.submenu = recentMenu
+        newFileMenu.addItem(recentItem)
 
         newFileMenu.addItem(NSMenuItem.separator())
 
@@ -815,6 +823,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         return true
     }
 
+    // MARK: - NSMenuDelegate
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        // Rebuild the Open Recent submenu when it's about to be shown
+        if menu.title == "Open Recent" {
+            rebuildRecentProjectsMenu(menu)
+        }
+    }
+
     // MARK: - Save Actions (called via selector from menu commands)
 
     @objc func saveProject(_ sender: Any?) {
@@ -838,6 +855,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         NotificationCenter.default.post(name: .newProject, object: nil)
     }
 
+    // MARK: - Recent Projects
+
+    /// Rebuilds the Open Recent submenu with current recent projects.
+    private func rebuildRecentProjectsMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+
+        let recents = AppSettings.shared.recentProjects
+        if recents.isEmpty {
+            let emptyItem = NSMenuItem(title: "No Recent Projects", action: nil, keyEquivalent: "")
+            emptyItem.isEnabled = false
+            menu.addItem(emptyItem)
+        } else {
+            let nameCounts = Dictionary(grouping: recents, by: \.name).mapValues(\.count)
+            for (index, project) in recents.enumerated() {
+                let url = AppSettings.shared.resolveRecentProject(project)
+                let title: String
+                if nameCounts[project.name, default: 0] > 1, let url {
+                    title = "\(project.name) — \(url.deletingLastPathComponent().path)"
+                } else {
+                    title = project.name
+                }
+                let item = NSMenuItem(
+                    title: title,
+                    action: #selector(openRecentProject(_:)),
+                    keyEquivalent: ""
+                )
+                item.tag = index
+                item.target = self
+                item.toolTip = url?.path
+                menu.addItem(item)
+            }
+
+            menu.addItem(NSMenuItem.separator())
+
+            let clearItem = NSMenuItem(
+                title: "Clear Menu",
+                action: #selector(clearRecentProjects(_:)),
+                keyEquivalent: ""
+            )
+            clearItem.target = self
+            menu.addItem(clearItem)
+        }
+    }
+
+    @objc private func openRecentProject(_ sender: NSMenuItem) {
+        let index = sender.tag
+        let recents = AppSettings.shared.recentProjects
+        guard recents.indices.contains(index) else { return }
+
+        let project = recents[index]
+        guard let url = AppSettings.shared.resolveRecentProject(project) else {
+            // Project no longer exists - ask to remove
+            let alert = NSAlert()
+            alert.messageText = "Project Not Found"
+            alert.informativeText = "The project \"\(project.name)\" could not be found. It may have been moved or deleted.\n\nRemove it from the recent projects list?"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Remove")
+            alert.addButton(withTitle: "Cancel")
+
+            if alert.runModal() == .alertFirstButtonReturn {
+                AppSettings.shared.removeRecentProject(at: index)
+            }
+            return
+        }
+
+        debugPrint("openRecentProject: opening \(url.path)")
+        NotificationCenter.default.post(name: .openProjectFile, object: url)
+    }
+
+    @objc private func clearRecentProjects(_ sender: NSMenuItem) {
+        AppSettings.shared.clearRecentProjects()
+    }
 
     // MARK: - Edit Actions
 
