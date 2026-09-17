@@ -812,6 +812,63 @@ enum TimelineLayout {
     /// and by its lack of a lane header, not by being short.
     static let linkedAudioStripHeight: CGFloat = audioLaneHeight
 
+    /// Height of a lane's volume-automation sub-lane.
+    ///
+    /// Shorter than a full lane: the envelope is a line and some nodes, not a
+    /// waveform, and it reads as an attachment to the lane above it rather
+    /// than a peer row.
+    static let automationLaneHeight: CGFloat = 48
+
+    /// Height of the collapsed "add / show automation" strip drawn under a
+    /// standalone lane when its automation sub-lane is not shown.
+    static let automationStripHeight: CGFloat = 18
+
+    /// Radius, in points, of an automation node's drawn circle.
+    static let automationNodeRadius: CGFloat = 4
+
+    /// Radius, in points, of an automation node's mouse hit area. Larger than
+    /// the drawn circle so a node stays easy to grab without drawing an
+    /// oversized dot.
+    static let automationNodeHitRadius: CGFloat = 8
+
+    /// Stroke width of the automation envelope line.
+    static let automationLineWidth: CGFloat = 1.5
+
+    /// Dash pattern for the 0 dB reference line drawn across the top of an
+    /// automation sub-lane.
+    static let automationReferenceDash: [CGFloat] = [4, 4]
+
+    /// Stroke of the dashed 0 dB reference line in the automation editor.
+    static let automationReferenceLineWidth: CGFloat = 1
+
+    /// Ring drawn around each automation node so it separates from the line.
+    static let automationNodeRingWidth: CGFloat = 1
+
+    /// How much larger the node under the mouse draws while it is dragged.
+    static let automationDraggedNodeScale: CGFloat = 1.5
+
+    /// Gain change per point of vertical mouse movement while Option-dragging
+    /// an automation node, in decibels. Applied as a delta from the node's
+    /// current gain rather than mapping the cursor's absolute position, so a
+    /// held Option key turns the whole 32pt editable band into fine control
+    /// instead of the coarse ~1.9 dB/pt the full -60...0 range gives it.
+    static let automationFineDragDBPerPoint: Float = 0.1
+
+    /// How close a dragged automation node's gain must be to 0 dB before it
+    /// snaps there, in decibels. Only applies to an ordinary (non-Option)
+    /// drag - Option disables the snap along with switching to fine control,
+    /// so a deliberately fine adjustment near unity is never overridden.
+    static let automationUnitySnapDB: Float = 1
+
+    /// How far past a neighbouring row's centre a dragged lane's edge must
+    /// cross before `LaneReorder` changes its target, in points.
+    ///
+    /// Chosen to feel the same as the value it replaced - 0.18 of the old
+    /// fixed 81pt row (`0.18 * 81 ≈ 14.6`, rounded to 14) - now that rows no
+    /// longer share one height and the rule works in points instead of a
+    /// fraction of a row.
+    static let laneReorderHysteresis: CGFloat = 14
+
     /// Height shared by every control in a lane header.
     ///
     /// One height for the M/S toggles and the output picker, so the two rows

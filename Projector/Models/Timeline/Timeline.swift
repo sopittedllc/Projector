@@ -29,10 +29,14 @@ struct LaneChangePreview: Equatable, Sendable {
     let timelineStartFrame: Int
     /// Duration of the clip in frames
     let durationFrames: Int
-    /// Index of the lane the clip is being dragged from
-    let sourceLaneIndex: Int
-    /// Index of the lane the clip will be dropped into
-    let targetLaneIndex: Int
+    /// ID of the lane the clip is being dragged from.
+    ///
+    /// An id, not an index: row order on screen (visible ordinals) and model
+    /// order (`Timeline.audioLanes` indices) are not the same list once linked
+    /// lanes are excluded, so an index here could name the wrong lane.
+    let sourceLaneId: UUID
+    /// ID of the lane the clip will be dropped into.
+    let targetLaneId: UUID
     /// Whether the drop target is valid (no overlapping clips)
     let isValidDrop: Bool
 }
@@ -373,33 +377,124 @@ extension Timeline {
 /// midpoint - exactly what a hand does while deciding - flipped the target between
 /// two values, and each flip re-animated every lane being pushed aside. The shake
 /// was those lanes, not the one in hand. Hence the hysteresis.
-struct LaneReorder: Equatable {
-    /// Height of one lane row, including the divider under it.
-    let rowHeight: CGFloat
+///
+/// Rows are no longer a uniform height - a standalone lane now carries either an
+/// 18pt "add automation" strip or a 48pt automation sub-lane along its bottom
+/// edge - so a lane count and a fixed row height are no longer enough to say
+/// where anything is. `rows` is the frozen geometry of every visible row at the
+/// moment the drag began; it is never recomputed mid-drag, so the animated
+/// displacement of the rows being pushed aside cannot feed back into where the
+/// dragged row is judged to be.
+public struct LaneRowMetric: Equatable, Sendable {
+    /// The lane this row belongs to.
+    public let id: UUID
+    /// Distance from the top of the visible row list to this row's top edge.
+    public let top: CGFloat
+    /// This row's own content height - the lane plus its automation strip or
+    /// sub-lane - excluding the divider drawn under it.
+    public let height: CGFloat
+    /// `height` plus the divider under this row; equal to `height` for the
+    /// last row, which has no divider to add.
+    public let pitch: CGFloat
 
-    /// How far past a boundary the drag must go before the target changes, in rows.
-    let hysteresisRows: CGFloat
+    public init(id: UUID, top: CGFloat, height: CGFloat, pitch: CGFloat) {
+        self.id = id
+        self.top = top
+        self.height = height
+        self.pitch = pitch
+    }
+}
+
+struct LaneReorder: Equatable {
+    /// Every visible row's geometry, frozen at the moment the drag began, in
+    /// on-screen (visible) order.
+    let rows: [LaneRowMetric]
+
+    /// Height of the divider drawn between rows (not after the last).
+    let separator: CGFloat
+
+    /// How far past a neighbour's centre the dragged row's edge must cross
+    /// before the target changes, in points.
+    let hysteresis: CGFloat
 
     /// - Parameters:
-    ///   - source: Index the lane started at.
-    ///   - held: Target currently chosen, if any. Passing `nil` means none yet.
-    ///   - dragOffset: How far the lane has been dragged vertically, in points.
-    ///   - laneCount: How many lanes there are to land among.
-    /// - Returns: The index the lane would be inserted at.
-    func target(source: Int, held: Int?, dragOffset: CGFloat, laneCount: Int) -> Int {
-        guard laneCount > 0, rowHeight > 0 else { return source }
+    ///   - sourceOrdinal: Visible position the lane started at, an index into
+    ///     `rows`.
+    ///   - heldOrdinal: Target currently chosen, if any. Passing `nil` means
+    ///     none yet, so the search starts from `sourceOrdinal`.
+    ///   - dragOffset: How far the lane has been dragged vertically, in
+    ///     points, from its frozen starting position.
+    /// - Returns: The visible ordinal the dragged row would be inserted at,
+    ///   clamped to the rows that exist.
+    func target(sourceOrdinal: Int, heldOrdinal: Int?, dragOffset: CGFloat) -> Int {
+        guard !rows.isEmpty, rows.indices.contains(sourceOrdinal) else { return 0 }
 
-        let rows = dragOffset / rowHeight
-        let heldRows = CGFloat((held ?? source) - source)
+        // The dragged row's frame under a continuous drag - not the frame of
+        // whichever row `current` names, which only tells the search where to
+        // resume, not where the hand actually is.
+        let sourceRow = rows[sourceOrdinal]
+        let draggedTop = sourceRow.top + dragOffset
+        let draggedBottom = draggedTop + sourceRow.height
 
-        let movedRows: CGFloat
-        if rows > heldRows + 0.5 + hysteresisRows || rows < heldRows - 0.5 - hysteresisRows {
-            movedRows = rows.rounded()
-        } else {
-            movedRows = heldRows
+        var current = max(0, min(heldOrdinal ?? sourceOrdinal, rows.count - 1))
+
+        // Both edges are checked on every pass, not chosen once by the sign of
+        // `dragOffset`: a hand that dragged three rows down and is easing back
+        // up still has a positive offset overall, and has to be able to
+        // retreat one row at a time on the way, not just advance.
+        while true {
+            if current < rows.count - 1 {
+                let below = rows[current + 1]
+                let belowCentre = below.top + below.height / 2
+                if draggedBottom > belowCentre + hysteresis {
+                    current += 1
+                    continue
+                }
+            }
+            if current > 0 {
+                let above = rows[current - 1]
+                let aboveCentre = above.top + above.height / 2
+                if draggedTop < aboveCentre - hysteresis {
+                    current -= 1
+                    continue
+                }
+            }
+            break
         }
 
-        return max(0, min(source + Int(movedRows), laneCount - 1))
+        return current
+    }
+
+    /// How far a row at `ordinal` should be displaced while `sourceOrdinal` is
+    /// dragged toward `targetOrdinal`.
+    ///
+    /// Only the rows strictly between source and target move, and they move by
+    /// exactly the dragged row's own pitch - the space it vacates or demands is
+    /// its own height plus its divider, whatever height the rows around it are.
+    ///
+    /// - Returns: A negative offset (rows slide up) when the drag moves the row
+    ///   down past them, a positive offset (rows slide down) when it moves the
+    ///   row up past them, or `0` for every row not between the two.
+    func displacement(forOrdinal ordinal: Int, sourceOrdinal: Int, targetOrdinal: Int) -> CGFloat {
+        guard sourceOrdinal != targetOrdinal, rows.indices.contains(sourceOrdinal) else { return 0 }
+        // Height plus a separator, never the row's own pitch: the last row
+        // has no divider under it, but once it moves up it gains one and the
+        // row it displaces loses one, so the space that changes hands is
+        // always one full row-with-divider. Taking the last row's pitch put
+        // every preview a point short of where the rows would land.
+        let pitch = rows[sourceOrdinal].height + separator
+
+        if sourceOrdinal < targetOrdinal {
+            if ordinal > sourceOrdinal && ordinal <= targetOrdinal {
+                return -pitch
+            }
+        } else {
+            if ordinal >= targetOrdinal && ordinal < sourceOrdinal {
+                return pitch
+            }
+        }
+
+        return 0
     }
 }
 

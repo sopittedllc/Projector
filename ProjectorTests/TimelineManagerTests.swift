@@ -774,63 +774,201 @@ final class TimelineSnapshotUndoTests: XCTestCase {
 /// The reorder rule, which has been wrong twice and cannot be judged by eye: the
 /// failures are a few points wide and the only symptom a person can report is
 /// "it feels jumpy".
+///
+/// `LaneReorder` used to take a single `rowHeight` because every row was the
+/// same height. Since a standalone lane always carries an 18pt "add
+/// automation" strip or a 48pt sub-lane along its bottom edge, rows differ in
+/// height, so the rule now works from each row's actual frame (`LaneRowMetric`)
+/// rather than a shared constant.
 final class LaneReorderTests: XCTestCase {
 
-    /// The real thing: an 80pt lane, a 1pt divider, 0.18 of a row of stickiness.
-    private let reorder = LaneReorder(rowHeight: 81, hysteresisRows: 0.18)
+    /// `count` rows, each `height` points tall with a 1pt divider under every
+    /// row but the last - matches `TrackGeometry`'s own convention exactly, so
+    /// a test built from this reproduces what the real layout produces.
+    private func uniformRows(count: Int, height: CGFloat = 80, divider: CGFloat = 1) -> [LaneRowMetric] {
+        rows(heights: Array(repeating: height, count: count), divider: divider)
+    }
+
+    /// Rows of the given heights, in order, with a 1pt divider under every row
+    /// but the last.
+    private func rows(heights: [CGFloat], divider: CGFloat = 1) -> [LaneRowMetric] {
+        var result: [LaneRowMetric] = []
+        var top: CGFloat = 0
+        for (index, height) in heights.enumerated() {
+            let isLast = index == heights.count - 1
+            let pitch = height + (isLast ? 0 : divider)
+            result.append(LaneRowMetric(id: UUID(), top: top, height: height, pitch: pitch))
+            top += pitch
+        }
+        return result
+    }
+
+    /// Five equal 80pt rows (81pt pitch, bar the last) - the uniform case the
+    /// old single `rowHeight` covered, kept as the baseline for most tests.
+    private lazy var reorder = LaneReorder(rows: uniformRows(count: 5), separator: 1, hysteresis: TimelineLayout.laneReorderHysteresis)
 
     func testNoDragKeepsTheLaneWhereItIs() {
-        XCTAssertEqual(reorder.target(source: 2, held: nil, dragOffset: 0, laneCount: 5), 2)
+        XCTAssertEqual(reorder.target(sourceOrdinal: 2, heldOrdinal: nil, dragOffset: 0), 2)
     }
 
     /// Short of halfway is not a move - that was the old fixed 20pt trigger.
     func testShortOfHalfwayDoesNotMove() {
-        XCTAssertEqual(reorder.target(source: 2, held: nil, dragOffset: 30, laneCount: 5), 2)
-        XCTAssertEqual(reorder.target(source: 2, held: nil, dragOffset: -30, laneCount: 5), 2)
+        XCTAssertEqual(reorder.target(sourceOrdinal: 2, heldOrdinal: nil, dragOffset: 30), 2)
+        XCTAssertEqual(reorder.target(sourceOrdinal: 2, heldOrdinal: nil, dragOffset: -30), 2)
     }
 
     /// Past halfway plus the sticky margin, it commits - down and up alike.
     func testPastHalfwayMovesOneLane() {
-        XCTAssertEqual(reorder.target(source: 2, held: nil, dragOffset: 57, laneCount: 5), 3)
-        XCTAssertEqual(reorder.target(source: 2, held: nil, dragOffset: -57, laneCount: 5), 1)
+        XCTAssertEqual(reorder.target(sourceOrdinal: 2, heldOrdinal: nil, dragOffset: 57), 3)
+        XCTAssertEqual(reorder.target(sourceOrdinal: 2, heldOrdinal: nil, dragOffset: -57), 1)
     }
 
     /// Every step costs the same, which the fixed-threshold version did not: its
-    /// first swap took 20pt and every later one a full row.
+    /// first swap took 20pt and every later one a full row. Also a multi-row
+    /// jump: a single, large drag lands several rows away in one call, not one
+    /// row at a time.
     func testStepsAreEvenlySpaced() {
-        XCTAssertEqual(reorder.target(source: 0, held: nil, dragOffset: 81, laneCount: 6), 1)
-        XCTAssertEqual(reorder.target(source: 0, held: nil, dragOffset: 162, laneCount: 6), 2)
-        XCTAssertEqual(reorder.target(source: 0, held: nil, dragOffset: 243, laneCount: 6), 3)
+        let six = LaneReorder(rows: uniformRows(count: 6), separator: 1, hysteresis: TimelineLayout.laneReorderHysteresis)
+        XCTAssertEqual(six.target(sourceOrdinal: 0, heldOrdinal: nil, dragOffset: 81), 1)
+        XCTAssertEqual(six.target(sourceOrdinal: 0, heldOrdinal: nil, dragOffset: 162), 2)
+        XCTAssertEqual(six.target(sourceOrdinal: 0, heldOrdinal: nil, dragOffset: 243), 3)
     }
 
     /// The jumpiness itself: a hand holding a lane on the boundary must not flip
     /// the target back and forth, because every flip re-animates the other lanes.
     func testSittingOnTheBoundaryDoesNotFlipTheTarget() {
+        let four = LaneReorder(rows: uniformRows(count: 4), separator: 1, hysteresis: TimelineLayout.laneReorderHysteresis)
         let boundary: CGFloat = 81 * 0.5
 
         // Not yet committed: hovering either side of halfway holds at the source.
-        XCTAssertEqual(reorder.target(source: 1, held: 1, dragOffset: boundary - 1, laneCount: 4), 1)
-        XCTAssertEqual(reorder.target(source: 1, held: 1, dragOffset: boundary + 1, laneCount: 4), 1)
+        XCTAssertEqual(four.target(sourceOrdinal: 1, heldOrdinal: 1, dragOffset: boundary - 1), 1)
+        XCTAssertEqual(four.target(sourceOrdinal: 1, heldOrdinal: 1, dragOffset: boundary + 1), 1)
 
-        // Committed to the next lane, then jittering back across halfway: it stays.
-        XCTAssertEqual(reorder.target(source: 1, held: 2, dragOffset: boundary + 1, laneCount: 4), 2)
-        XCTAssertEqual(reorder.target(source: 1, held: 2, dragOffset: boundary - 1, laneCount: 4), 2)
+        // Committed to the next lane, then jittering back across halfway: it stays -
+        // this is the reversal case: the held ordinal keeps until the *opposite*
+        // threshold is crossed, not the one that produced it.
+        XCTAssertEqual(four.target(sourceOrdinal: 1, heldOrdinal: 2, dragOffset: boundary + 1), 2)
+        XCTAssertEqual(four.target(sourceOrdinal: 1, heldOrdinal: 2, dragOffset: boundary - 1), 2)
     }
 
     /// Dragged clear of the boundary in the other direction, it does change back.
     func testDraggingClearOfTheBoundaryChangesBack() {
-        XCTAssertEqual(reorder.target(source: 1, held: 2, dragOffset: 20, laneCount: 4), 1)
+        let four = LaneReorder(rows: uniformRows(count: 4), separator: 1, hysteresis: TimelineLayout.laneReorderHysteresis)
+        XCTAssertEqual(four.target(sourceOrdinal: 1, heldOrdinal: 2, dragOffset: 20), 1)
     }
 
     func testTargetIsClampedToTheLanesThatExist() {
-        XCTAssertEqual(reorder.target(source: 3, held: nil, dragOffset: 900, laneCount: 4), 3)
-        XCTAssertEqual(reorder.target(source: 0, held: nil, dragOffset: -900, laneCount: 4), 0)
+        let four = LaneReorder(rows: uniformRows(count: 4), separator: 1, hysteresis: TimelineLayout.laneReorderHysteresis)
+        XCTAssertEqual(four.target(sourceOrdinal: 3, heldOrdinal: nil, dragOffset: 900), 3)
+        XCTAssertEqual(four.target(sourceOrdinal: 0, heldOrdinal: nil, dragOffset: -900), 0)
     }
 
     func testDegenerateInputsAreLeftAlone() {
-        let zeroHeight = LaneReorder(rowHeight: 0, hysteresisRows: 0.18)
-        XCTAssertEqual(zeroHeight.target(source: 2, held: nil, dragOffset: 500, laneCount: 5), 2)
-        XCTAssertEqual(reorder.target(source: 0, held: nil, dragOffset: 500, laneCount: 0), 0)
+        let empty = LaneReorder(rows: [], separator: 1, hysteresis: TimelineLayout.laneReorderHysteresis)
+        XCTAssertEqual(empty.target(sourceOrdinal: 2, heldOrdinal: nil, dragOffset: 500), 0)
+
+        // A source ordinal outside the frozen rows - nothing to reason from,
+        // so the safe answer is the top, not a guess.
+        XCTAssertEqual(reorder.target(sourceOrdinal: 99, heldOrdinal: nil, dragOffset: 500), 0)
+    }
+
+    // MARK: - Mixed heights
+
+    /// Rows `[80, 128, 80, 80]` - one automation sub-lane much taller than its
+    /// neighbours, as `TrackGeometry` produces once a lane's envelope is
+    /// shown. Pitches are `[81, 129, 81, 80]`: every row but the last carries
+    /// the 1pt divider, and the last row's pitch equals its own height.
+    private var mixedRows: [LaneRowMetric] { rows(heights: [80, 128, 80, 80]) }
+    private var mixedReorder: LaneReorder {
+        LaneReorder(rows: mixedRows, separator: 1, hysteresis: TimelineLayout.laneReorderHysteresis)
+    }
+
+    func testMixedHeightRowsHaveThePitchesTheyShould() {
+        XCTAssertEqual(mixedRows.map(\.pitch), [81, 129, 81, 80])
+        XCTAssertEqual(mixedRows.map(\.top), [0, 81, 210, 291])
+        XCTAssertEqual(mixedRows.last?.pitch, mixedRows.last?.height, "the last row has no divider to add")
+    }
+
+    /// Dragging the short first row down commits past the tall row only once
+    /// its bottom edge clears the tall row's centre by the hysteresis - not
+    /// simply "half of 80" or "half of 128", which is why this is asserted
+    /// against the mixed table rather than the uniform one.
+    func testMixedHeightRowsCommitAtTheTallRowsOwnCentre() {
+        // Tall row (ordinal 1) starts at 81 and is 128pt tall, so its centre
+        // is 145 and the dragged row's bottom edge (starting at 80) must
+        // exceed 159 (145 + the 14pt hysteresis).
+        XCTAssertEqual(mixedReorder.target(sourceOrdinal: 0, heldOrdinal: nil, dragOffset: 78), 0)
+        XCTAssertEqual(mixedReorder.target(sourceOrdinal: 0, heldOrdinal: nil, dragOffset: 80), 1)
+    }
+
+    /// A single large drag jumps two rows in one call, skipping the
+    /// intermediate ordinal entirely - `LaneReorder` never requires a caller
+    /// to visit every row in between.
+    func testMixedHeightRowsSupportAMultiRowJump() {
+        XCTAssertEqual(mixedReorder.target(sourceOrdinal: 0, heldOrdinal: nil, dragOffset: 185), 2)
+    }
+
+    /// Only the rows strictly between source and target move, and they move by
+    /// the *dragged* row's own pitch - not the height of whatever row they
+    /// happen to be - since that pitch is exactly the space the dragged row
+    /// vacates or demands.
+    func testDisplacementUsesTheDraggedRowsOwnPitch() {
+        XCTAssertEqual(mixedReorder.displacement(forOrdinal: 1, sourceOrdinal: 0, targetOrdinal: 2), -81)
+        XCTAssertEqual(mixedReorder.displacement(forOrdinal: 2, sourceOrdinal: 0, targetOrdinal: 2), -81)
+        XCTAssertEqual(mixedReorder.displacement(forOrdinal: 3, sourceOrdinal: 0, targetOrdinal: 2), 0)
+        XCTAssertEqual(mixedReorder.displacement(forOrdinal: 0, sourceOrdinal: 0, targetOrdinal: 2), 0, "the dragged row is not displaced by this formula - it follows the drag directly")
+    }
+
+    // MARK: - Last row
+
+    /// The last row (ordinal 3) has no divider under it, so its pitch equals
+    /// its height (80, not 81) - dragging it should still commit at the same
+    /// edge-crossing rule as any other row.
+    func testDraggingTheLastRowUpPastAShorterNeighbourCommits() {
+        XCTAssertEqual(mixedReorder.target(sourceOrdinal: 3, heldOrdinal: nil, dragOffset: -54), 3)
+        XCTAssertEqual(mixedReorder.target(sourceOrdinal: 3, heldOrdinal: nil, dragOffset: -56), 2)
+    }
+
+    /// When the last row is dragged upward, the rows it passes move down by
+    /// its height *plus a divider*: once it is no longer last it gains the
+    /// divider under it, and the row that becomes last loses one - so the
+    /// space that changes hands is a full row-with-divider, not the last
+    /// row's divider-less pitch. Using the pitch put previews 1pt short.
+    func testDisplacementWhenTheLastRowIsDragged() {
+        XCTAssertEqual(mixedReorder.displacement(forOrdinal: 2, sourceOrdinal: 3, targetOrdinal: 2), 81)
+        XCTAssertEqual(mixedReorder.displacement(forOrdinal: 1, sourceOrdinal: 3, targetOrdinal: 2), 0)
+        XCTAssertEqual(mixedReorder.displacement(forOrdinal: 0, sourceOrdinal: 3, targetOrdinal: 2), 0)
+    }
+
+    /// The preview must land rows exactly where the committed order will put
+    /// them: for first↔last swaps, every displaced row's previewed top equals
+    /// its top in the recomputed final geometry.
+    func testDisplacedPreviewMatchesRecomputedFinalGeometryForFirstLastSwaps() {
+        let heights: [CGFloat] = [80, 128, 80, 80]
+        func tops(for order: [Int]) -> [Int: CGFloat] {
+            // Rows laid out in `order`, divider after every row but the last.
+            var y: CGFloat = 0
+            var result: [Int: CGFloat] = [:]
+            for (position, original) in order.enumerated() {
+                result[original] = y
+                y += heights[original] + (position == order.count - 1 ? 0 : 1)
+            }
+            return result
+        }
+
+        // First row dragged to last: rows 1...3 all move up.
+        let firstToLast = tops(for: [1, 2, 3, 0])
+        for ordinal in 1...3 {
+            let previewed = mixedRows[ordinal].top + mixedReorder.displacement(forOrdinal: ordinal, sourceOrdinal: 0, targetOrdinal: 3)
+            XCTAssertEqual(previewed, firstToLast[ordinal], "row \(ordinal) first→last")
+        }
+
+        // Last row dragged to first: rows 0...2 all move down.
+        let lastToFirst = tops(for: [3, 0, 1, 2])
+        for ordinal in 0...2 {
+            let previewed = mixedRows[ordinal].top + mixedReorder.displacement(forOrdinal: ordinal, sourceOrdinal: 3, targetOrdinal: 0)
+            XCTAssertEqual(previewed, lastToFirst[ordinal], "row \(ordinal) last→first")
+        }
     }
 }
 

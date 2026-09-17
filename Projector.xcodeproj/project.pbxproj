@@ -95,12 +95,25 @@
 		C1TIMELINE00000013 /* VideoReel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000003 /* VideoReel.swift */; };
 		C1TIMELINE00000014 /* AudioClip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000004 /* AudioClip.swift */; };
 		C1TIMELINE00000015 /* AudioLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000005 /* AudioLane.swift */; };
+		VOLAUTO000000000002 /* VolumeAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTO000000000001 /* VolumeAutomation.swift */; };
+		VOLAUTOVIEW00000002 /* VolumeAutomationEnvelopeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOVIEW00000001 /* VolumeAutomationEnvelopeView.swift */; };
+		VOLAUTOVIEW00000004 /* VolumeAutomationLaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOVIEW00000003 /* VolumeAutomationLaneView.swift */; };
+		VOLAUTOVIEW00000006 /* VolumeAutomationStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOVIEW00000005 /* VolumeAutomationStripView.swift */; };
+		VOLAUTOVIEW00000008 /* TrackGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOVIEW00000007 /* TrackGeometry.swift */; };
+		VOLAUTOVIEW00000010 /* AutomationUndo.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOVIEW00000009 /* AutomationUndo.swift */; };
+		VOLAUTOTEST00000002 /* VolumeAutomationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOTEST00000001 /* VolumeAutomationTests.swift */; };
+		VOLAUTOGAINTEST0002 /* AutomationGainTableTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOGAINTEST0001 /* AutomationGainTableTests.swift */; };
+		VOLAUTOQTTEST000002 /* QuickTimeDemoBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOQTTEST000001 /* QuickTimeDemoBuilderTests.swift */; };
+		VOLAUTOVIDFACT00002 /* TestVideoFileFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOVIDFACT00001 /* TestVideoFileFactory.swift */; };
+		VOLAUTOGEOTEST00002 /* LaneRowGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOGEOTEST00001 /* LaneRowGeometryTests.swift */; };
+		VOLAUTOUNDOTEST0002 /* VolumeAutomationUndoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOUNDOTEST0001 /* VolumeAutomationUndoTests.swift */; };
 		C1TIMELINE00000016 /* Timeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000006 /* Timeline.swift */; };
 		C1TIMELINE00000017 /* TimelineManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000007 /* TimelineManager.swift */; };
 		C1TIMELINE00000018 /* MediaItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000008 /* MediaItem.swift */; };
 		C1TIMELINE00000019 /* ProjectMediaLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000009 /* ProjectMediaLibrary.swift */; };
 		C1TIMELINE0000001A /* WaveformCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000A /* WaveformCache.swift */; };
 		C1TIMELINE0000001B /* PlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000B /* PlaybackEngine.swift */; };
+		VOLAUTOGAIN00000002 /* AutomationGainTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOGAIN00000001 /* AutomationGainTable.swift */; };
 		C1TIMELINE0000001C /* VideoReelClipView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000C /* VideoReelClipView.swift */; };
 		C1TIMELINE0000001D /* VideoTrackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000D /* VideoTrackView.swift */; };
 		C1TIMELINE0000001E /* AudioClipView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000E /* AudioClipView.swift */; };
@@ -279,12 +292,25 @@
 		C1TIMELINE00000003 /* VideoReel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoReel.swift; sourceTree = "<group>"; };
 		C1TIMELINE00000004 /* AudioClip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClip.swift; sourceTree = "<group>"; };
 		C1TIMELINE00000005 /* AudioLane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLane.swift; sourceTree = "<group>"; };
+		VOLAUTO000000000001 /* VolumeAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeAutomation.swift; sourceTree = "<group>"; };
+		VOLAUTOVIEW00000001 /* VolumeAutomationEnvelopeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeAutomationEnvelopeView.swift; sourceTree = "<group>"; };
+		VOLAUTOVIEW00000003 /* VolumeAutomationLaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeAutomationLaneView.swift; sourceTree = "<group>"; };
+		VOLAUTOVIEW00000005 /* VolumeAutomationStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeAutomationStripView.swift; sourceTree = "<group>"; };
+		VOLAUTOVIEW00000007 /* TrackGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackGeometry.swift; sourceTree = "<group>"; };
+		VOLAUTOVIEW00000009 /* AutomationUndo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationUndo.swift; sourceTree = "<group>"; };
+		VOLAUTOTEST00000001 /* VolumeAutomationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeAutomationTests.swift; sourceTree = "<group>"; };
+		VOLAUTOGAINTEST0001 /* AutomationGainTableTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationGainTableTests.swift; sourceTree = "<group>"; };
+		VOLAUTOQTTEST000001 /* QuickTimeDemoBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickTimeDemoBuilderTests.swift; sourceTree = "<group>"; };
+		VOLAUTOVIDFACT00001 /* TestVideoFileFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestVideoFileFactory.swift; sourceTree = "<group>"; };
+		VOLAUTOGEOTEST00001 /* LaneRowGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneRowGeometryTests.swift; sourceTree = "<group>"; };
+		VOLAUTOUNDOTEST0001 /* VolumeAutomationUndoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeAutomationUndoTests.swift; sourceTree = "<group>"; };
 		C1TIMELINE00000006 /* Timeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Timeline.swift; sourceTree = "<group>"; };
 		C1TIMELINE00000007 /* TimelineManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineManager.swift; sourceTree = "<group>"; };
 		C1TIMELINE00000008 /* MediaItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaItem.swift; sourceTree = "<group>"; };
 		C1TIMELINE00000009 /* ProjectMediaLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectMediaLibrary.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000A /* WaveformCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformCache.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000B /* PlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEngine.swift; sourceTree = "<group>"; };
+		VOLAUTOGAIN00000001 /* AutomationGainTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationGainTable.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000C /* VideoReelClipView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoReelClipView.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000D /* VideoTrackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoTrackView.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000E /* AudioClipView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClipView.swift; sourceTree = "<group>"; };
@@ -407,6 +433,12 @@
 				B1294F572F7C9F1600783FA8 /* TimelineActorTests.swift */,
 				B1294F582F7C9F1600783FA8 /* TimelineManagerTests.swift */,
 				HPS001SPLITTEST0001 /* HardPannedSplitTests.swift */,
+				VOLAUTOTEST00000001 /* VolumeAutomationTests.swift */,
+				VOLAUTOGAINTEST0001 /* AutomationGainTableTests.swift */,
+				VOLAUTOQTTEST000001 /* QuickTimeDemoBuilderTests.swift */,
+				VOLAUTOVIDFACT00001 /* TestVideoFileFactory.swift */,
+				VOLAUTOGEOTEST00001 /* LaneRowGeometryTests.swift */,
+				VOLAUTOUNDOTEST0001 /* VolumeAutomationUndoTests.swift */,
 				APA001PANTEST000001 /* AudioPanningAnalyzerTests.swift */,
 				TCFRTEST0000001 /* TimecodeFrameRateNearestTests.swift */,
 				STEMGRPTEST00001 /* AudioStemGroupingTests.swift */,
@@ -514,6 +546,7 @@
 				C1TIMELINE0000000A /* WaveformCache.swift */,
 				C1TIMELINE0000003A /* ThumbnailCache.swift */,
 				C1TIMELINE0000000B /* PlaybackEngine.swift */,
+				VOLAUTOGAIN00000001 /* AutomationGainTable.swift */,
 			
 				DC464AD144D744A481F09CC4 /* CueListExportService.swift */,
 				DLOG01MANAGER00001 /* DiagnosticLog.swift */,
@@ -585,6 +618,11 @@
 				C1TIMELINE0000000D /* VideoTrackView.swift */,
 				C1TIMELINE0000000E /* AudioClipView.swift */,
 				C1TIMELINE0000000F /* AudioLaneView.swift */,
+				VOLAUTOVIEW00000001 /* VolumeAutomationEnvelopeView.swift */,
+				VOLAUTOVIEW00000003 /* VolumeAutomationLaneView.swift */,
+				VOLAUTOVIEW00000005 /* VolumeAutomationStripView.swift */,
+				VOLAUTOVIEW00000007 /* TrackGeometry.swift */,
+				VOLAUTOVIEW00000009 /* AutomationUndo.swift */,
 				C1TIMELINE00000011 /* MultiTrackTimelineView.swift */,
 			);
 			path = Timeline;
@@ -660,6 +698,7 @@
 				C1TIMELINE00000005 /* AudioLane.swift */,
 				C1TIMELINE00000006 /* Timeline.swift */,
 				C1TIMELINE0000002B /* ThumbnailStrip.swift */,
+				VOLAUTO000000000001 /* VolumeAutomation.swift */,
 			);
 			path = Timeline;
 			sourceTree = "<group>";
@@ -879,6 +918,12 @@
 				B1294F5B2F7C9F1600783FA8 /* PlaybackEngineTests.swift in Sources */,
 				B1294F5C2F7C9F1600783FA8 /* TimelineManagerTests.swift in Sources */,
 				HPS001SPLITTEST0002 /* HardPannedSplitTests.swift in Sources */,
+				VOLAUTOTEST00000002 /* VolumeAutomationTests.swift in Sources */,
+				VOLAUTOGAINTEST0002 /* AutomationGainTableTests.swift in Sources */,
+				VOLAUTOQTTEST000002 /* QuickTimeDemoBuilderTests.swift in Sources */,
+				VOLAUTOVIDFACT00002 /* TestVideoFileFactory.swift in Sources */,
+				VOLAUTOGEOTEST00002 /* LaneRowGeometryTests.swift in Sources */,
+				VOLAUTOUNDOTEST0002 /* VolumeAutomationUndoTests.swift in Sources */,
 				APA001PANTEST000002 /* AudioPanningAnalyzerTests.swift in Sources */,
 		TCFRTEST0000002 /* TimecodeFrameRateNearestTests.swift in Sources */,
 		STEMGRPTEST00002 /* AudioStemGroupingTests.swift in Sources */,
@@ -976,17 +1021,24 @@
 				C1TIMELINE00000015 /* AudioLane.swift in Sources */,
 				C1TIMELINE00000016 /* Timeline.swift in Sources */,
 				C1TIMELINE0000002C /* ThumbnailStrip.swift in Sources */,
+				VOLAUTO000000000002 /* VolumeAutomation.swift in Sources */,
 				C1TIMELINE00000017 /* TimelineManager.swift in Sources */,
 				C1TIMELINE00000018 /* MediaItem.swift in Sources */,
 				C1TIMELINE00000019 /* ProjectMediaLibrary.swift in Sources */,
 				C1TIMELINE0000001A /* WaveformCache.swift in Sources */,
 				C1TIMELINE0000003B /* ThumbnailCache.swift in Sources */,
 				C1TIMELINE0000001B /* PlaybackEngine.swift in Sources */,
+				VOLAUTOGAIN00000002 /* AutomationGainTable.swift in Sources */,
 				C1TIMELINE0000001C /* VideoReelClipView.swift in Sources */,
 				B19B58BD2F088AEA00FA33EC /* MIDISyncActor.swift in Sources */,
 				C1TIMELINE0000001D /* VideoTrackView.swift in Sources */,
 				C1TIMELINE0000001E /* AudioClipView.swift in Sources */,
 				C1TIMELINE0000001F /* AudioLaneView.swift in Sources */,
+				VOLAUTOVIEW00000002 /* VolumeAutomationEnvelopeView.swift in Sources */,
+				VOLAUTOVIEW00000004 /* VolumeAutomationLaneView.swift in Sources */,
+				VOLAUTOVIEW00000006 /* VolumeAutomationStripView.swift in Sources */,
+				VOLAUTOVIEW00000008 /* TrackGeometry.swift in Sources */,
+				VOLAUTOVIEW00000010 /* AutomationUndo.swift in Sources */,
 				C1TIMELINE00000021 /* MultiTrackTimelineView.swift in Sources */,
 				B1294F4D2F7C94C400783FA8 /* TransportViewModel.swift in Sources */,
 				C1TIMELINE00000025 /* MediaItemRow.swift in Sources */,

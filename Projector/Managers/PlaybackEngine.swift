@@ -112,7 +112,13 @@ final class PlaybackEngine: ObservableObject {
     @Published private(set) var isPlaying = false
 
     /// Current position on the master timeline (in frames)
-    @Published private(set) var currentFrame: Int = 0
+    ///
+    /// Every seek, MTC jump, gap-timer tick and playback advance assigns
+    /// this, so `didSet` is the one place that reconciles automated lane
+    /// volume with position - see ``applyAutomationGainIfNeeded()``.
+    @Published private(set) var currentFrame: Int = 0 {
+        didSet { applyAutomationGainIfNeeded() }
+    }
 
     /// Current timecode based on timeline position
     @Published private(set) var currentTimecode: Timecode
@@ -364,6 +370,27 @@ final class PlaybackEngine: ObservableObject {
 
     /// Audio players for active clips
     private var audioPlayers: [UUID: AudioClipPlayback] = [:]
+
+    /// Base gains and volume envelopes for the currently loaded timeline.
+    ///
+    /// Rebuilt in ``updateTimelineProperties()`` on every ``timeline``
+    /// assignment - see ``AutomationGainTable`` for why a per-frame hook
+    /// needs this precomputed rather than reading the timeline directly.
+    /// The `.empty` timeline here is a placeholder overwritten by that
+    /// rebuild before `init` returns; it exists only so the property has a
+    /// value during Swift's stored-property initialization order.
+    private var automationGains = AutomationGainTable(timeline: .empty)
+
+    #if DEBUG
+    /// Measurement seam for the plan's §3.3 gate: records `(hostTime,
+    /// frame, clipId, linear volume)` for every player
+    /// ``applyAutomationGainIfNeeded()`` sets. `nil` by default, so a
+    /// project with no automation - or a normal run outside a test - pays
+    /// nothing for it. A test or a debug session assigns a closure to
+    /// capture the trajectory of a fade, step, seek, MTC jump, or
+    /// output-mapping change against the intended envelope.
+    var automationGainTrace: ((_ hostTime: TimeInterval, _ frame: Int, _ clipId: UUID, _ volume: Float) -> Void)?
+    #endif
 
     /// Time observer for periodic updates
     private var timeObserver: Any?
@@ -1974,7 +2001,8 @@ final class PlaybackEngine: ObservableObject {
         }
     }
 
-    /// The gain a clip's player should run at, with mute and solo folded in.
+    /// The gain a clip's player should run at, with mute, solo and volume
+    /// automation folded in.
     ///
     /// Silence is zero gain rather than a torn-down player. `removeAudioPlayback`
     /// detaches the player, the rate converter and the matrix mixer, and
@@ -1983,14 +2011,58 @@ final class PlaybackEngine: ObservableObject {
     /// A player held at zero gain keeps its scheduled position, and restoring
     /// the gain is heard on the next buffer.
     ///
+    /// Reads ``automationGains`` rather than recomputing mute/solo/volume
+    /// here, so this and ``applyAutomationGainIfNeeded()`` agree on the
+    /// gain a clip plays at by construction. The one exception is a clip
+    /// added within the same timeline mutation that produced the current
+    /// `timeline`, before ``updateTimelineProperties()``'s rebuild of
+    /// ``automationGains`` runs - `automationGains.knowsClip(_:)` is `false`
+    /// for it, and this falls back to the pre-automation formula (mute and
+    /// `Timeline.isLaneAudible(_:)` only, no envelope) so that clip is never
+    /// silenced by a stale table.
+    ///
     /// - Parameters:
     ///   - clip: The clip being played.
     ///   - lane: The lane it belongs to.
     /// - Returns: Zero if the clip or its lane is silenced, otherwise the
-    ///   product of the two volumes.
+    ///   product of clip and lane volume, attenuated by the lane's volume
+    ///   automation (if any) at ``currentFrame``.
     private func playbackGain(for clip: AudioClip, lane: AudioLane) -> Float {
-        guard !clip.isMuted, timeline.isLaneAudible(lane) else { return 0 }
-        return clip.volume * lane.volume
+        guard automationGains.knowsClip(clip.id) else {
+            guard !clip.isMuted, timeline.isLaneAudible(lane) else { return 0 }
+            return clip.volume * lane.volume
+        }
+        return automationGains.gain(forClip: clip.id, at: currentFrame)
+    }
+
+    /// Reconciles automated lane volume with ``currentFrame``.
+    ///
+    /// Called from `currentFrame`'s `didSet`, so this runs on every seek,
+    /// MTC jump, gap-timer tick and playback advance. It must stay cheap on
+    /// that path: no timeline traversal (``automationGains`` already has
+    /// what it needs), no file or routing work, and no scheduling - it only
+    /// ever writes `AVAudioPlayerNode.volume` on players that are already
+    /// loaded and already scheduled.
+    ///
+    /// This is frame-stepped (one update per `currentFrame` change, e.g.
+    /// ~41.7 ms at 24 fps on the main queue), not sample-accurate - see the
+    /// plan's §3.3 measurement gate for what that costs and when a scheduled-
+    /// ramp approach would be needed instead.
+    private func applyAutomationGainIfNeeded() {
+        guard automationGains.hasAutomation else { return }
+
+        let loadedAutomatedClipIds = automationGains.automatedClipIds().filter { audioPlayers[$0] != nil }
+        guard !loadedAutomatedClipIds.isEmpty else { return }
+
+        let frame = currentFrame
+        let gains = automationGains.gains(at: frame, forClips: loadedAutomatedClipIds)
+        for clipId in loadedAutomatedClipIds {
+            guard let playback = audioPlayers[clipId], let gain = gains[clipId] else { continue }
+            playback.player.volume = gain
+            #if DEBUG
+            automationGainTrace?(ProcessInfo.processInfo.systemUptime, frame, clipId, gain)
+            #endif
+        }
     }
 
     /// Re-apply gain and routing to every loaded player, without rescheduling.
@@ -3308,6 +3380,18 @@ final class PlaybackEngine: ObservableObject {
             let outputChannelOffset: Int
             let outputChannelCount: Int
             let clips: [ClipMix]
+            /// So a committed automation edit - or removing the last
+            /// envelope - is diffed here like any other mixer change and
+            /// reaches ``applyMixToLoadedPlayers()`` immediately, at the
+            /// current playhead, rather than waiting for the next throttled
+            /// sync (plan §3.4).
+            ///
+            /// This is the *effective* envelope - `nil` unless the lane is
+            /// standalone - and not the stored one: a lane that becomes
+            /// linked keeps its stored envelope but stops being automated,
+            /// and diffing the stored value would call that "no change" and
+            /// leave a loaded player holding the last attenuation.
+            let effectiveAutomation: VolumeAutomation?
         }
 
         /// The part of a clip that decides how loud it is.
@@ -3320,6 +3404,7 @@ final class PlaybackEngine: ObservableObject {
         let lanes: [LaneMix]
 
         init(_ timeline: Timeline) {
+            let standaloneIds = Set(timeline.standaloneAudioLanes.map(\.id))
             lanes = timeline.audioLanes.map { lane in
                 LaneMix(
                     id: lane.id,
@@ -3332,7 +3417,8 @@ final class PlaybackEngine: ObservableObject {
                     outputChannelCount: lane.outputChannelCount,
                     clips: lane.clips.map {
                         ClipMix(id: $0.id, isMuted: $0.isMuted, volume: $0.volume)
-                    }
+                    },
+                    effectiveAutomation: standaloneIds.contains(lane.id) ? lane.automation : nil
                 )
             }
         }
@@ -3366,6 +3452,14 @@ final class PlaybackEngine: ObservableObject {
         // The throttle is right for playback advancing and wrong for a user
         // pressing a button, so a mixer change skips it. Applying the mix
         // reschedules nothing, so this stays cheap even under a dragged fader.
+        //
+        // The gain table is rebuilt first, before the `MixState` diff below:
+        // `applyMixToLoadedPlayers()` reads gains through `playbackGain(for:lane:)`,
+        // which reads `automationGains`, so an automation edit must be in the
+        // table *before* that call runs or it would apply the previous gain
+        // for one more pass.
+        automationGains = AutomationGainTable(timeline: timeline)
+
         let mix = MixState(timeline)
         defer { lastMixState = mix }
         if let lastMixState, lastMixState != mix {

@@ -233,7 +233,7 @@ extension ContentView {
         projectDocument.newProject()
 
         // Sync timeline manager with the new empty timeline
-        timelineManager.timeline = projectDocument.timeline
+        timelineManager.replaceProjectTimeline(projectDocument.timeline)
         timelineManager.currentFrame = 0
         timelineManager.markClean()
 

@@ -64,6 +64,23 @@ public struct AudioLane: Identifiable, Codable, Equatable, Sendable {
     /// identifies it - there is no single owning reel to name.
     public var splitChannel: SplitChannel?
 
+    /// The lane's volume envelope, once added.
+    ///
+    /// `nil` means an automation sub-lane was never added; that is different
+    /// from an added-but-flat envelope, which is a non-`nil` value with zero
+    /// or unity-only points. A hidden envelope is still applied during
+    /// playback and export - showing the sub-lane is view state, not bypass;
+    /// only a non-standalone lane's automation is bypassed (see
+    /// `Timeline.standaloneAudioLanes`).
+    public var automation: VolumeAutomation?
+
+    /// Whether the automation sub-lane is drawn under this lane's header.
+    ///
+    /// Meaningless while `automation == nil`; kept as its own flag rather
+    /// than folded into `automation` so hiding the sub-lane never touches
+    /// the envelope data itself.
+    public var isAutomationShown: Bool
+
     /// Whether this lane belongs to video audio and cannot stand alone.
     ///
     /// True for a split lane whatever its clips, and for the single-owner lanes
@@ -87,7 +104,9 @@ public struct AudioLane: Identifiable, Codable, Equatable, Sendable {
         isOutputDisabled: Bool = false,
         colorIndex: Int = 0,
         ownerVideoReelId: UUID? = nil,
-        splitChannel: SplitChannel? = nil
+        splitChannel: SplitChannel? = nil,
+        automation: VolumeAutomation? = nil,
+        isAutomationShown: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -103,6 +122,8 @@ public struct AudioLane: Identifiable, Codable, Equatable, Sendable {
         self.colorIndex = colorIndex
         self.ownerVideoReelId = ownerVideoReelId
         self.splitChannel = splitChannel
+        self.automation = automation
+        self.isAutomationShown = isAutomationShown
     }
 
     /// Get all clips active at a given timeline frame
@@ -186,6 +207,8 @@ extension AudioLane {
         case ownerVideoReelId
         case splitChannel
         case colorIndex
+        case automation
+        case isAutomationShown
     }
 
     public init(from decoder: Decoder) throws {
@@ -205,6 +228,10 @@ extension AudioLane {
         ownerVideoReelId = try container.decodeIfPresent(UUID.self, forKey: .ownerVideoReelId)
         splitChannel = try container.decodeIfPresent(SplitChannel.self, forKey: .splitChannel)
         colorIndex = try container.decode(Int.self, forKey: .colorIndex)
+        // Absent in projects saved before automation existed, which had no
+        // envelope and no sub-lane shown.
+        automation = try container.decodeIfPresent(VolumeAutomation.self, forKey: .automation)
+        isAutomationShown = try container.decodeIfPresent(Bool.self, forKey: .isAutomationShown) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -223,5 +250,7 @@ extension AudioLane {
         try container.encodeIfPresent(ownerVideoReelId, forKey: .ownerVideoReelId)
         try container.encodeIfPresent(splitChannel, forKey: .splitChannel)
         try container.encode(colorIndex, forKey: .colorIndex)
+        try container.encodeIfPresent(automation, forKey: .automation)
+        try container.encode(isAutomationShown, forKey: .isAutomationShown)
     }
 }

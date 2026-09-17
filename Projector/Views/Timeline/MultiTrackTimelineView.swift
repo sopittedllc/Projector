@@ -165,6 +165,20 @@ struct MultiTrackTimelineView: View {
 
     // Marquee selection state
     @State private var isMarqueeSelecting = false
+
+    /// A node in an automation sub-lane is being dragged. AppKit gives the
+    /// marquee's recognizer the mouse-down before the sub-lane's NSView sees
+    /// it, so the marquee has to be told to stand down rather than relying on
+    /// the NSView having "taken" the event.
+    @State private var isEditingAutomation = false
+
+    /// The envelope captured when the in-progress automation edit gesture
+    /// began (`onBeginEdit`), restored by `onCommit`/`onRemove` to build the
+    /// undo step and to check the stale-edit guard. `nil` outside a gesture.
+    /// Not lane-scoped: only one automation gesture can be in progress at a
+    /// time, the same premise `isEditingAutomation` already relies on.
+    @State private var automationEditOldValue: VolumeAutomation?
+    @State private var automationEditSessionID: UUID?
     @State private var marqueeStartPoint: CGPoint = .zero
     @State private var marqueeCurrentPoint: CGPoint = .zero
 
@@ -187,10 +201,15 @@ struct MultiTrackTimelineView: View {
 
     // Lane reorder state
     @State private var draggingLaneId: UUID?
-    @State private var draggingLaneSourceIndex: Int?
+    @State private var draggingLaneSourceOrdinal: Int?
     @State private var draggingLaneOffset: CGFloat = 0
-    @State private var laneReorderTargetIndex: Int?
+    @State private var laneReorderTargetOrdinal: Int?
     @State private var laneDragCursor = LaneDragCursor()
+    /// Every visible row's geometry, frozen the moment a reorder press
+    /// registers. `nil` outside a drag. See `LaneReorder`'s own documentation
+    /// for why this must not be rebuilt from the live (displaced) layout on
+    /// every drag tick.
+    @State private var activeLaneReorder: LaneReorder?
 
     // Unified multi-file drop state
     @State private var isMultiFileDropTargeted = false
@@ -337,13 +356,6 @@ struct MultiTrackTimelineView: View {
 
     private var timeline: Timeline {
         timelineManager.timeline
-    }
-
-    private var totalHeight: CGFloat {
-        var height = TimelineLayout.toolbarHeight + TimelineLayout.rulerHeight + 1 // Toolbar + ruler + divider
-        height += TimelineLayout.videoTrackHeight + 1 // Video track + divider
-        height += max(TimelineLayout.audioLaneHeight, CGFloat(timeline.audioLanes.count) * (TimelineLayout.audioLaneHeight + 1)) // Audio lanes
-        return height
     }
 
     /// Active audio clip IDs - uses cached value to avoid recalculation on scroll
@@ -1122,14 +1134,16 @@ struct MultiTrackTimelineView: View {
             let totalContentWidth = timelineContentWidth(for: geometry.size.width)
             let ppf = pixelsPerFrame(for: geometry.size.width)
             let scrollHeight = max(0, geometry.size.height - TimelineLayout.rulerHeight - 1)
-            let audioLanesHeight: CGFloat = {
-                if timeline.audioLanes.isEmpty {
-                    return TimelineLayout.audioLaneHeight
-                }
-                let dividers = max(0, timeline.audioLanes.count - 1)
-                return (CGFloat(timeline.audioLanes.count) * TimelineLayout.audioLaneHeight) + CGFloat(dividers)
-            }()
-            let baseTracksHeight = 4 + TimelineLayout.videoTrackHeight + 1 + audioLanesHeight
+            // Named `trackGeometry`, not `geometry` - this GeometryReader's own
+            // `geometry: GeometryProxy` already owns that name in this scope.
+            //
+            // The single source of truth for every row's vertical position:
+            // reorder, cross-lane clip drags, the last-row border, this
+            // drop-zone height and marquee selection all read from it, so none
+            // of them can disagree about where a row is. See `TrackGeometry`.
+            let trackGeometry = TrackGeometry(timeline: timeline, isVideoAudioExpanded: isVideoAudioExpanded)
+            let baseTracksHeight = trackGeometry.videoGroupHeight
+                + trackGeometry.metrics.reduce(0) { $0 + $1.pitch }
             let availableNewLaneHeight = max(0, scrollHeight - baseTracksHeight - 8)
 
             VStack(spacing: 0) {
@@ -1194,10 +1208,14 @@ struct MultiTrackTimelineView: View {
                         // Audio lanes the user added. The video file's own audio
                         // is excluded - it is part of the track above, and would
                         // otherwise appear twice.
-                        ForEach(Array(timeline.standaloneAudioLanes.enumerated()), id: \.element.id) { _, lane in
-                            let index = timeline.audioLanes.firstIndex(where: { $0.id == lane.id }) ?? 0
+                        ForEach(Array(timeline.standaloneAudioLanes.enumerated()), id: \.element.id) { ordinal, lane in
+                            // `trackGeometry.rows` is built from this same
+                            // `standaloneAudioLanes` enumeration, in the same
+                            // order, so the ordinal indexes both directly.
+                            let row = trackGeometry.rows[ordinal]
+                            let index = row.modelIndex
                             let isDragging = draggingLaneId == lane.id
-                            let displacementOffset = isDragging ? 0 : laneDisplacementOffset(for: index)
+                            let displacementOffset = isDragging ? 0 : laneDisplacementOffset(for: ordinal)
 
                             VStack(spacing: 0) {
                                 AudioLaneView(
@@ -1270,13 +1288,9 @@ struct MultiTrackTimelineView: View {
                                         registerTimelineUndo(actionName: "Delete Lane")
                                         timelineManager.removeAudioLane(id: lane.id)
                                     },
-                                    onClipLaneChangeRequested: { clipId, laneOffset, frame in
+                                    onClipLaneChangeRequested: { clipId, targetLaneId, frame in
                                         defer { laneChangePreview = nil }
-                                        guard let targetIndex = laneChangeTarget(
-                                            from: index,
-                                            offset: laneOffset
-                                        ) else { return }
-                                        let targetLane = timeline.audioLanes[targetIndex]
+                                        guard let targetLane = laneChangeTarget(id: targetLaneId) else { return }
                                         guard var clip = lane.clips.first(where: { $0.id == clipId }) else { return }
 
                                         // Overlap is judged where the clip is
@@ -1299,25 +1313,26 @@ struct MultiTrackTimelineView: View {
                                             at: frame
                                         )
                                     },
-                                    onClipLaneChangePreview: { clip, laneOffset in
-                                        guard let offset = laneOffset else {
-                                            // Clear preview
+                                    onClipLaneChangePreview: { clip, targetLaneId in
+                                        guard let targetLaneId, let targetLane = laneChangeTarget(id: targetLaneId) else {
                                             laneChangePreview = nil
                                             return
                                         }
-                                        guard let targetIndex = laneChangeTarget(from: index, offset: offset) else {
-                                            laneChangePreview = nil
-                                            return
-                                        }
-                                        let isValid = !timeline.audioLanes[targetIndex].hasOverlap(with: clip)
+                                        let isValid = !targetLane.hasOverlap(with: clip)
                                         laneChangePreview = LaneChangePreview(
                                             clipId: clip.id,
                                             timelineStartFrame: clip.timelineStartFrame,
                                             durationFrames: clip.durationFrames,
-                                            sourceLaneIndex: index,
-                                            targetLaneIndex: targetIndex,
+                                            sourceLaneId: lane.id,
+                                            targetLaneId: targetLane.id,
                                             isValidDrop: isValid
                                         )
+                                    },
+                                    laneIdForVerticalDrag: { offset in
+                                        let targetY = row.clipRect.midY + offset
+                                        guard let targetRow = trackGeometry.row(containingY: targetY),
+                                              targetRow.id != lane.id else { return nil }
+                                        return targetRow.id
                                     },
                                     laneChangePreview: laneChangePreview,
                                     selectedClipIds: selectedAudioClipIds
@@ -1345,6 +1360,11 @@ struct MultiTrackTimelineView: View {
                                         // right-clicking its name simply stopped
                                         // working when this handle arrived.
                                         .contextMenu {
+                                            // Same commands as the lane's own menu
+                                            // (`AudioLaneView`): this overlay sits on
+                                            // the lane name, which is where people
+                                            // right-click, so a command missing here
+                                            // is a command they cannot find.
                                             Button(lane.deleteMenuTitle, role: .destructive) {
                                                 registerTimelineUndo(actionName: "Delete Lane")
                                                 timelineManager.removeAudioLane(id: lane.id)
@@ -1362,35 +1382,106 @@ struct MultiTrackTimelineView: View {
                                         // together only because a long press and a
                                         // drag are primary-button gestures, so a
                                         // right-click still falls through to the menu.
-                                        .highPriorityGesture(laneReorderGesture(laneId: lane.id, laneIndex: index))
+                                        .highPriorityGesture(laneReorderGesture(laneId: lane.id, sourceOrdinal: ordinal, rows: trackGeometry.metrics))
                                 }
-                                .overlay(alignment: .bottom) {
-                                    if index == timeline.audioLanes.count - 1 {
-                                        laneBorder
-                                    }
-                                }
-                                // Visual feedback when dragging - neon green overlay
-                                .overlay {
-                                    if isDragging {
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .fill(AppColors.validDrop.opacity(0.25))
-                                            .overlay {
-                                                RoundedRectangle(cornerRadius: 4)
-                                                    .stroke(AppColors.validDrop, lineWidth: 2)
-                                            }
-                                    }
-                                }
-                                .offset(y: isDragging ? draggingLaneOffset : displacementOffset)
-                                .zIndex(isDragging ? 100 : 0)
-                                .animation(isDragging ? nil : AppAnimations.quick, value: displacementOffset)
-                            }
 
-                            if index < timeline.audioLanes.count - 1 {
+                                // The automation row under every standalone lane:
+                                // the 48pt editor when shown, else the 18pt
+                                // "+ Add Automation" strip.
+                                if lane.automation != nil, lane.isAutomationShown {
+                                    VolumeAutomationLaneView(
+                                        lane: lane,
+                                        laneIndex: index,
+                                        pixelsPerFrame: ppf,
+                                        durationFrames: timeline.config.durationFrames,
+                                        totalContentWidth: totalContentWidth,
+                                        playheadFrame: playbackEngine.currentFrame,
+                                        formatTimecode: { timelineManager.formatTimecode(forFrame: $0) },
+                                        onBeginEdit: {
+                                            isEditingAutomation = true
+                                            automationEditOldValue = lane.automation
+                                            automationEditSessionID = timelineManager.documentSessionID
+                                        },
+                                        onEndEdit: {
+                                            isEditingAutomation = false
+                                            automationEditOldValue = nil
+                                            automationEditSessionID = nil
+                                        },
+                                        onCommit: { new, actionName in
+                                            commitAutomationEdit(laneId: lane.id, new: new, actionName: actionName)
+                                        },
+                                        onRemove: {
+                                            removeAutomationEdit(laneId: lane.id)
+                                        },
+                                        onHide: { timelineManager.setAutomationShown(false, laneId: lane.id) }
+                                    )
+                                    // Reopening even the same project must dismiss
+                                    // popovers and cancel gestures from the old one.
+                                    .id(timelineManager.documentSessionID)
+                                } else {
+                                    VolumeAutomationStripView(
+                                        lane: lane,
+                                        laneIndex: index,
+                                        totalContentWidth: totalContentWidth,
+                                        onActivate: {
+                                            if lane.automation == nil {
+                                                AutomationUndo.register(
+                                                    on: undoManager,
+                                                    manager: timelineManager,
+                                                    laneId: lane.id,
+                                                    from: nil,
+                                                    to: VolumeAutomation(),
+                                                    actionName: "Add Automation"
+                                                )
+                                                timelineManager.addAutomation(toLane: lane.id)
+                                            } else {
+                                                timelineManager.setAutomationShown(true, laneId: lane.id)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                            // The row's bottom border, dragging highlight and
+                            // reorder displacement all wrap the *whole* row -
+                            // the lane and whichever automation view is drawn
+                            // under it - not just the 80pt `AudioLaneView`, so
+                            // the automation row moves, highlights and gets
+                            // bordered together with its lane instead of being
+                            // left behind mid-row.
+                            .overlay(alignment: .bottom) {
+                                if row.ordinal == trackGeometry.rows.count - 1 {
+                                    laneBorder
+                                }
+                            }
+                            // Visual feedback when dragging - neon green overlay
+                            .overlay {
+                                if isDragging {
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(AppColors.validDrop.opacity(0.25))
+                                        .overlay {
+                                            RoundedRectangle(cornerRadius: 4)
+                                                .stroke(AppColors.validDrop, lineWidth: 2)
+                                        }
+                                }
+                            }
+                            .offset(y: isDragging ? draggingLaneOffset : displacementOffset)
+                            .zIndex(isDragging ? 100 : 0)
+                            .animation(isDragging ? nil : AppAnimations.quick, value: displacementOffset)
+
+                            // Divider convention: after every visible row
+                            // except the last - `row.ordinal`, not a count
+                            // over `timeline.audioLanes`, which also includes
+                            // any lane locked to video.
+                            if row.ordinal < trackGeometry.rows.count - 1 {
                                 Divider()
                             }
                         }
 
-                        if timeline.audioLanes.isEmpty {
+                        if trackGeometry.rows.isEmpty {
+                            // Standalone rows only - a project holding just the
+                            // video's own (locked) lane still reads as "no
+                            // audio lanes" here, since there is nothing in
+                            // this list to drop onto.
                             emptyAudioLanesPlaceholder(pixelsPerFrame: ppf, laneIndex: 0)
                                 .frame(width: totalContentWidth)
                                 .overlay(alignment: .bottom) {
@@ -1420,7 +1511,22 @@ struct MultiTrackTimelineView: View {
                     // Marquee selection gesture on scroll content
                     // Using simultaneousGesture so it doesn't block scrolling
                     // Requires Option key to activate
-                    .simultaneousGesture(marqueeSelectionGesture(pixelsPerFrame: ppf))
+                    .simultaneousGesture(marqueeSelectionGesture(pixelsPerFrame: ppf, trackGeometry: trackGeometry))
+                    // The marquee's coordinate space is the scroll *content*,
+                    // not the panel: the rows in `TrackGeometry` are measured
+                    // from the content's top, and the content scrolls under
+                    // the ruler in both axes. Anchoring the space on the
+                    // outer panel (as this once did) put every selection off
+                    // by the ruler height and by however far the content had
+                    // scrolled. The rectangle is drawn here for the same
+                    // reason, so it stays over the clips it was dragged over
+                    // while auto-scroll moves the content beneath the mouse.
+                    .coordinateSpace(name: "timelineTracks")
+                    .overlay {
+                        if isMarqueeSelecting {
+                            marqueeSelectionRectangle
+                        }
+                    }
                 }
             }
             // The width the zoom curve above was computed from. `onAppear` sets
@@ -1469,24 +1575,20 @@ struct MultiTrackTimelineView: View {
                     }
                 )
             }
-            .coordinateSpace(name: "timelineTracks")
-            // Marquee selection overlay (rendered above everything)
-            .overlay {
-                if isMarqueeSelecting {
-                    marqueeSelectionRectangle
-                }
-            }
         }
     }
 
     /// Marquee selection gesture for selecting multiple clips
     /// Uses simultaneousGesture so it doesn't block scrolling
     /// Includes auto-scroll when cursor is near scroll view edges
-    private func marqueeSelectionGesture(pixelsPerFrame: CGFloat) -> some Gesture {
+    private func marqueeSelectionGesture(pixelsPerFrame: CGFloat, trackGeometry: TrackGeometry) -> some Gesture {
         DragGesture(minimumDistance: 5, coordinateSpace: .named("timelineTracks"))
             .onChanged { value in
                 // Don't start marquee during multi-file drag operations
                 guard !isMultiFileDrag, externalDragItemCount == 0 else { return }
+
+                // Nor under a node drag in an automation sub-lane.
+                guard !isEditingAutomation else { return }
 
                 // Don't start marquee if drag started in header area (lane reorder zone)
                 guard value.startLocation.x >= TimelineLayout.headerWidth else { return }
@@ -1503,7 +1605,7 @@ struct MultiTrackTimelineView: View {
                     startAutoScrollTimer(pixelsPerFrame: pixelsPerFrame)
                 }
                 marqueeCurrentPoint = value.location
-                updateMarqueeSelection(pixelsPerFrame: pixelsPerFrame)
+                updateMarqueeSelection(pixelsPerFrame: pixelsPerFrame, trackGeometry: trackGeometry)
             }
             .onEnded { _ in
                 isMarqueeSelecting = false
@@ -2126,11 +2228,6 @@ struct MultiTrackTimelineView: View {
         Rectangle()
             .fill(Color(nsColor: .separatorColor))
             .frame(height: TimelineLayout.laneSeparatorHeight)
-    }
-
-    private var tracksHeight: CGFloat {
-        let audioHeight = max(50, CGFloat(timeline.audioLanes.count) * (TimelineLayout.audioLaneHeight + 1))
-        return TimelineLayout.videoTrackHeight + 1 + audioHeight + 8 // +8 for bottom padding
     }
 
     private func emptyAudioLanesPlaceholder(pixelsPerFrame: CGFloat, laneIndex: Int) -> some View {
@@ -2850,91 +2947,100 @@ struct MultiTrackTimelineView: View {
         undoManager?.setActionName("Move Video Reel")
     }
 
+    // MARK: - Automation undo
+
+    /// Applies a committed automation edit (a drag, "Delete Node", "Reset
+    /// Automation", "Set Level…") from the sub-lane's `onCommit`.
+    ///
+    /// Plan §5.5's two guards, in order: discard silently if the lane's
+    /// envelope changed since ``automationEditOldValue`` was captured (an
+    /// undo/redo or other change raced this edit), then discard silently if
+    /// `new` did not actually change anything (a no-op click must not add an
+    /// undo step). Only past both does this register the inverse and apply.
+    private func commitAutomationEdit(laneId: UUID, new: VolumeAutomation, actionName: String) {
+        guard automationEditSessionID == timelineManager.documentSessionID else { return }
+        guard let old = automationEditOldValue else { return }
+        let current = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId })?.automation
+        guard !AutomationUndo.isStale(current: current, captured: old) else { return }
+        guard new != old else { return }
+
+        AutomationUndo.register(on: undoManager, manager: timelineManager, laneId: laneId, from: old, to: new, actionName: actionName)
+        timelineManager.setAutomation(new, laneId: laneId)
+    }
+
+    /// Applies "Remove Automation" from the sub-lane's `onRemove` - the same
+    /// stale-edit guard as ``commitAutomationEdit(laneId:new:actionName:)``,
+    /// but with no "did anything change" check: the sub-lane only exists
+    /// while the lane has automation, so removing it is never a no-op.
+    private func removeAutomationEdit(laneId: UUID) {
+        guard automationEditSessionID == timelineManager.documentSessionID else { return }
+        guard let old = automationEditOldValue else { return }
+        let current = timelineManager.timeline.audioLanes.first(where: { $0.id == laneId })?.automation
+        guard !AutomationUndo.isStale(current: current, captured: old) else { return }
+
+        AutomationUndo.register(on: undoManager, manager: timelineManager, laneId: laneId, from: old, to: nil, actionName: "Remove Automation")
+        timelineManager.removeAutomation(fromLane: laneId)
+    }
+
     // MARK: - Lane Reorder
 
-    /// Where a lane would land, given how far it has been dragged.
+    /// The lane a clip drag targets, given its id - resolved once here so the
+    /// preview and the committed move can never disagree.
     ///
-    /// **Rounding, not a threshold.** A lane changes places once it has been
-    /// dragged past the halfway point of its neighbour, which is how every list
-    /// with draggable rows behaves and what makes the movement feel proportional
-    /// to the hand.
-    ///
-    /// The previous version fired at a fixed 20pt and then counted whole rows on
-    /// top of that, so the *first* swap needed 20pt while every later one needed a
-    /// full 81pt row - four times less sensitive after the first step. Worse, at
-    /// exactly 20pt the target flipped between two values on the smallest movement,
-    /// and each flip animated every other lane: the jumpiness was the lanes
-    /// underneath being re-animated, not the lane in hand.
-    ///
-    /// - Parameters:
-    ///   - sourceLaneIndex: Index of the lane being dragged, in `audioLanes`.
-    ///   - dragOffset: How far it has been dragged vertically, in points.
-    /// - Returns: The index it would be inserted at, clamped to the lane count.
-    /// The lane index a clip dragged `offset` lanes from `sourceIndex` lands on.
-    ///
-    /// Resolving this in one place keeps the drag preview and the committed
-    /// move honest with each other: a preview computed by different rules will
-    /// eventually highlight a lane the drop does not use.
-    ///
-    /// - Parameters:
-    ///   - sourceIndex: Index of the lane the clip is on now.
-    ///   - offset: Lanes crossed by the drag; positive is downward.
-    /// - Returns: The target index, or `nil` when the drag runs off either end
-    ///   of the timeline, or lands on a lane that is not a valid destination.
-    private func laneChangeTarget(from sourceIndex: Int, offset: Int) -> Int? {
-        let target = sourceIndex + offset
-        guard target != sourceIndex,
-              timeline.audioLanes.indices.contains(target) else { return nil }
-
+    /// - Parameter targetLaneId: The id `laneIdForVerticalDrag` resolved the
+    ///   drag onto.
+    /// - Returns: The target lane, or `nil` if it no longer exists or is not a
+    ///   valid destination.
+    private func laneChangeTarget(id targetLaneId: UUID) -> AudioLane? {
         // A video's audio lane is owned by its reel and moves with it, so a
         // clip parked there would be dragged around by a reel it has nothing
         // to do with. Refusing is better than accepting and surprising later.
-        guard !timeline.audioLanes[target].isLockedToVideo else { return nil }
-
-        return target
+        //
+        // `standaloneAudioLanes` is exactly "not locked to video", so this
+        // also excludes the derived (unlabelled) case that predates
+        // `isLockedToVideo` being stored.
+        timeline.standaloneAudioLanes.first { $0.id == targetLaneId }
     }
 
-    private func calculateLaneReorderTarget(from sourceLaneIndex: Int, dragOffset: CGFloat) -> Int {
-        // Indices are into `audioLanes` while the rows on screen are
-        // `standaloneAudioLanes` - the video file's own audio is drawn as a strip
-        // under the picture, not as a row here. The two agree because an import
-        // creates a video's lanes before any stems, so the stems are contiguous at
-        // the end of the array. If a video lane ever ends up *between* stems, one
-        // row of movement would stop meaning one index, and this is the place that
-        // has to change.
-        Self.laneReorder.target(
-            source: sourceLaneIndex,
-            held: laneReorderTargetIndex,
-            dragOffset: dragOffset,
-            laneCount: timeline.audioLanes.count
+    /// Where a lane would land, given how far it has been dragged.
+    ///
+    /// **Edge-crossing, not a fixed threshold.** A lane changes places once
+    /// its own edge has been dragged past a neighbour's centre - plus a sticky
+    /// margin - which is how every list with draggable rows behaves and what
+    /// makes the movement feel proportional to the hand. See ``LaneReorder``
+    /// for the exact rule and why rows can no longer share one height.
+    ///
+    /// Reasons entirely in visible ordinals against `activeLaneReorder`, the
+    /// geometry frozen when the press began - never against a live
+    /// recomputation, which would feed the other rows' own displacement
+    /// animation back into the target and reproduce the oscillation
+    /// `LaneReorder`'s documentation describes.
+    ///
+    /// - Parameters:
+    ///   - sourceOrdinal: Visible position of the lane being dragged.
+    ///   - dragOffset: How far it has been dragged vertically, in points.
+    /// - Returns: The visible ordinal it would be inserted at.
+    private func calculateLaneReorderTarget(sourceOrdinal: Int, dragOffset: CGFloat) -> Int {
+        guard let activeLaneReorder else { return sourceOrdinal }
+        return activeLaneReorder.target(
+            sourceOrdinal: sourceOrdinal,
+            heldOrdinal: laneReorderTargetOrdinal,
+            dragOffset: dragOffset
         )
     }
 
-    /// The reorder rule. See ``LaneReorder`` for why it is a type of its own.
-    ///
-    /// 0.18 of a row is about 15pt at the current height - enough to absorb the
-    /// hand's own movement while holding a lane near the point where it locks in,
-    /// small enough that a deliberate drag does not feel resisted.
-    private static let laneReorder = LaneReorder(rowHeight: laneRowHeight, hysteresisRows: 0.18)
-
-    /// One lane row, including the divider drawn under it.
-    ///
-    /// The reorder maths and the displacement of the lanes being pushed aside must
-    /// use the same number, or the lane you are dragging and the gap it is heading
-    /// for disagree about where a row begins.
-    private static var laneRowHeight: CGFloat {
-        TimelineLayout.audioLaneHeight + laneDividerHeight
-    }
-
-    /// The hairline between two lanes.
-    private static let laneDividerHeight: CGFloat = 1
-
     /// Create a long-press + drag gesture for lane reordering.
     ///
-    /// - Parameter laneId: The ID of the lane this gesture is attached to
-    /// - Parameter laneIndex: The index of the lane in audioLanes array
-    /// - Returns: A gesture that handles lane reordering
-    private func laneReorderGesture(laneId: UUID, laneIndex: Int) -> some Gesture {
+    /// - Parameters:
+    ///   - laneId: The id of the lane this gesture is attached to.
+    ///   - sourceOrdinal: The lane's position among the rows currently drawn -
+    ///     an index into `rows`, not into `Timeline.audioLanes`.
+    ///   - rows: Every visible row's geometry for this layout pass. Captured
+    ///     into `activeLaneReorder` the instant the press registers (`.first(true)`,
+    ///     before any drag translation exists), so the whole gesture reasons
+    ///     about one undisplaced layout throughout.
+    /// - Returns: A gesture that handles lane reordering.
+    private func laneReorderGesture(laneId: UUID, sourceOrdinal: Int, rows: [LaneRowMetric]) -> some Gesture {
         LongPressGesture(minimumDuration: 0.15)
             // `.global` IS LOAD-BEARING, and the default `.local` is a bug.
             //
@@ -2957,17 +3063,19 @@ struct MultiTrackTimelineView: View {
             .onChanged { value in
                 switch value {
                 case .first(true):
-                    // Long press started - immediately show closed hand cursor
+                    // Long press started - immediately show closed hand cursor,
+                    // and freeze this drag's geometry before anything can move.
                     laneDragCursor.grab()
+                    activeLaneReorder = LaneReorder(rows: rows, separator: TimelineLayout.laneSeparatorHeight, hysteresis: TimelineLayout.laneReorderHysteresis)
                 case .second(true, let drag):
                     guard let drag = drag else { return }
                     if draggingLaneId == nil {
                         draggingLaneId = laneId
-                        draggingLaneSourceIndex = laneIndex
+                        draggingLaneSourceOrdinal = sourceOrdinal
                     }
                     draggingLaneOffset = drag.translation.height
-                    laneReorderTargetIndex = calculateLaneReorderTarget(
-                        from: laneIndex,
+                    laneReorderTargetOrdinal = calculateLaneReorderTarget(
+                        sourceOrdinal: sourceOrdinal,
                         dragOffset: drag.translation.height
                     )
                 default:
@@ -2977,17 +3085,28 @@ struct MultiTrackTimelineView: View {
             .onEnded { value in
                 laneDragCursor.release()
                 if case .second(true, _) = value,
-                   let targetIndex = laneReorderTargetIndex,
-                   targetIndex != laneIndex {
-                    // Perform the reorder
-                    registerTimelineUndo(actionName: "Reorder Lane")
-                    timelineManager.moveAudioLane(from: laneIndex, to: targetIndex)
+                   let targetOrdinal = laneReorderTargetOrdinal,
+                   targetOrdinal != sourceOrdinal,
+                   rows.indices.contains(sourceOrdinal),
+                   rows.indices.contains(targetOrdinal) {
+                    // Commit by id, resolved to model indices here: the
+                    // visible ordinal and `Timeline.audioLanes`'s index are
+                    // not the same list once a linked lane sits between two
+                    // stems, so only an id survives the translation.
+                    let sourceId = rows[sourceOrdinal].id
+                    let targetId = rows[targetOrdinal].id
+                    if let fromIndex = timeline.audioLanes.firstIndex(where: { $0.id == sourceId }),
+                       let toIndex = timeline.audioLanes.firstIndex(where: { $0.id == targetId }) {
+                        registerTimelineUndo(actionName: "Reorder Lane")
+                        timelineManager.moveAudioLane(from: fromIndex, to: toIndex)
+                    }
                 }
                 // Reset state
                 draggingLaneId = nil
-                draggingLaneSourceIndex = nil
+                draggingLaneSourceOrdinal = nil
                 draggingLaneOffset = 0
-                laneReorderTargetIndex = nil
+                laneReorderTargetOrdinal = nil
+                activeLaneReorder = nil
             }
     }
 
@@ -3001,30 +3120,19 @@ struct MultiTrackTimelineView: View {
 
     /// Calculate the displacement offset for a lane during drag reorder.
     /// When dragging a lane to a new position, other lanes slide out of the way.
-    private func laneDisplacementOffset(for laneIndex: Int) -> CGFloat {
-        guard let sourceIndex = draggingLaneSourceIndex,
-              let targetIndex = laneReorderTargetIndex,
-              sourceIndex != targetIndex,
-              laneIndex != sourceIndex else {
+    ///
+    /// - Parameter ordinal: Visible position of the row in question - not
+    ///   the one being dragged, which follows the drag directly instead.
+    private func laneDisplacementOffset(for ordinal: Int) -> CGFloat {
+        guard let activeLaneReorder,
+              let sourceOrdinal = draggingLaneSourceOrdinal,
+              let targetOrdinal = laneReorderTargetOrdinal,
+              sourceOrdinal != targetOrdinal,
+              ordinal != sourceOrdinal else {
             return 0
         }
 
-        let laneHeight = Self.laneRowHeight
-
-        // Dragging down (source < target): lanes between source and target move UP
-        if sourceIndex < targetIndex {
-            if laneIndex > sourceIndex && laneIndex <= targetIndex {
-                return -laneHeight
-            }
-        }
-        // Dragging up (source > target): lanes between target and source move DOWN
-        else {
-            if laneIndex >= targetIndex && laneIndex < sourceIndex {
-                return laneHeight
-            }
-        }
-
-        return 0
+        return activeLaneReorder.displacement(forOrdinal: ordinal, sourceOrdinal: sourceOrdinal, targetOrdinal: targetOrdinal)
     }
 
     // MARK: - Marquee Selection
@@ -3052,7 +3160,13 @@ struct MultiTrackTimelineView: View {
     /// - Parameters:
     ///   - pixelsPerFrame: Current pixels per frame for calculating clip positions
     ///   - scrollOffset: Current horizontal scroll offset (for position adjustment)
-    private func updateMarqueeSelection(pixelsPerFrame: CGFloat, scrollOffset: CGFloat = 0) {
+    /// - Parameter trackGeometry: This layout pass's row table - the single
+    ///   source of the picture's, each linked strip's and each standalone
+    ///   row's vertical band. Picture and linked clips are tested against
+    ///   their own rects; standalone clips are tested against `clipRect`
+    ///   alone, so a marquee drawn entirely over a lane's automation strip or
+    ///   sub-lane selects nothing from it.
+    private func updateMarqueeSelection(pixelsPerFrame: CGFloat, trackGeometry: TrackGeometry, scrollOffset: CGFloat = 0) {
         var newVideoSelection: Set<UUID> = []
         var newAudioSelection: Set<UUID> = []
 
@@ -3062,23 +3176,12 @@ struct MultiTrackTimelineView: View {
             newAudioSelection = selectedAudioClipIds
         }
 
-        // The marquee coordinates are relative to the scroll content VStack which contains:
-        // - 4px spacer at top
-        // - Video track (height: videoTrackHeight)
-        // - 1px divider
-        // - Audio lanes (each height: audioLaneHeight with 1px dividers between)
-        // - 8px spacer at bottom
-        //
         // The X coordinate needs to account for the header width since clips are positioned
         // starting after the header
 
         // Adjust marquee X for header (clips start after header)
         let marqueeMinX = marqueeRect.minX - TimelineLayout.headerWidth
         let marqueeMaxX = marqueeRect.maxX - TimelineLayout.headerWidth
-
-        // Video track Y positions in scroll content coordinates
-        let videoTrackTop: CGFloat = 4 // After 4px spacer
-        let videoTrackBottom = videoTrackTop + TimelineLayout.videoTrackHeight
 
         for reel in timeline.videoReels {
             let reelX = CGFloat(reel.timelineStartFrame) * pixelsPerFrame
@@ -3087,35 +3190,54 @@ struct MultiTrackTimelineView: View {
 
             // Check X overlap
             let xOverlap = marqueeMaxX > reelX && marqueeMinX < reelMaxX
-            // Check Y overlap
-            let yOverlap = marqueeRect.maxY > videoTrackTop && marqueeRect.minY < videoTrackBottom
+            // Check Y overlap against the picture strip alone - never the
+            // linked audio drawn under it.
+            let yOverlap = marqueeRect.maxY > trackGeometry.pictureRect.minY
+                && marqueeRect.minY < trackGeometry.pictureRect.maxY
 
             if xOverlap && yOverlap {
                 newVideoSelection.insert(reel.id)
             }
         }
 
-        // Audio lanes Y positions in scroll content coordinates
-        var audioLaneTop = videoTrackBottom + 1 // After 1px divider
-        for lane in timeline.audioLanes {
-            let audioLaneBottom = audioLaneTop + TimelineLayout.audioLaneHeight
+        // Linked audio: each expanded strip's own band, by lane id. Empty
+        // (and so selecting nothing) while the strips are collapsed - there is
+        // nothing on screen to have marqueed.
+        for (laneId, stripRect) in trackGeometry.linkedStripRects {
+            guard let lane = timeline.audioLanes.first(where: { $0.id == laneId }) else { continue }
 
             for clip in lane.clips {
                 let clipX = CGFloat(clip.timelineStartFrame) * pixelsPerFrame
                 let clipWidth = CGFloat(clip.durationFrames) * pixelsPerFrame
                 let clipMaxX = clipX + clipWidth
 
-                // Check X overlap
                 let xOverlap = marqueeMaxX > clipX && marqueeMinX < clipMaxX
-                // Check Y overlap
-                let yOverlap = marqueeRect.maxY > audioLaneTop && marqueeRect.minY < audioLaneBottom
+                let yOverlap = marqueeRect.maxY > stripRect.minY && marqueeRect.minY < stripRect.maxY
 
                 if xOverlap && yOverlap {
                     newAudioSelection.insert(clip.id)
                 }
             }
+        }
 
-            audioLaneTop = audioLaneBottom + 1 // Move to next lane (with 1px divider)
+        // Standalone lanes: `clipRect` only, never the row's full band - a
+        // marquee over the automation strip or sub-lane must not also select
+        // the lane's clips just because it shares the row.
+        for row in trackGeometry.rows {
+            guard let lane = timeline.audioLanes.first(where: { $0.id == row.id }) else { continue }
+
+            for clip in lane.clips {
+                let clipX = CGFloat(clip.timelineStartFrame) * pixelsPerFrame
+                let clipWidth = CGFloat(clip.durationFrames) * pixelsPerFrame
+                let clipMaxX = clipX + clipWidth
+
+                let xOverlap = marqueeMaxX > clipX && marqueeMinX < clipMaxX
+                let yOverlap = marqueeRect.maxY > row.clipRect.minY && marqueeRect.minY < row.clipRect.maxY
+
+                if xOverlap && yOverlap {
+                    newAudioSelection.insert(clip.id)
+                }
+            }
         }
 
         selectedVideoReelIds = newVideoSelection

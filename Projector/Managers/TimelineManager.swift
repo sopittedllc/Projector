@@ -79,6 +79,15 @@ final class TimelineManager: ObservableObject {
         didSet { markDirty() }
     }
 
+    /// Changes only when opening/replacing a project, including reopening the
+    /// same file. Edits and snapshot undo keep this identity.
+    @Published private(set) var documentSessionID = UUID()
+
+    func replaceProjectTimeline(_ replacement: Timeline) {
+        documentSessionID = UUID()
+        timeline = replacement
+    }
+
     /// Current playhead position in timeline frames
     @Published var currentFrame: Int = 0
 
@@ -236,6 +245,9 @@ final class TimelineManager: ObservableObject {
                 clip.sourceStartFrame = regrid(clip.sourceStartFrame)
                 timeline.audioLanes[laneIndex].clips[clipIndex] = clip
             }
+            // A node's timecode must survive a frame-rate change exactly
+            // like a clip's does - same transform, same reasoning.
+            timeline.audioLanes[laneIndex].automation?.mapFrames(regrid)
         }
     }
 
@@ -324,6 +336,9 @@ final class TimelineManager: ObservableObject {
             for clipIndex in timeline.audioLanes[laneIndex].clips.indices {
                 timeline.audioLanes[laneIndex].clips[clipIndex].timelineStartFrame += delta
             }
+            // Same shift as clips, so a node's absolute timecode is
+            // preserved (plan §2.6); reversible, including negative results.
+            timeline.audioLanes[laneIndex].automation?.mapFrames { $0 + delta }
         }
     }
 
@@ -758,6 +773,100 @@ final class TimelineManager: ObservableObject {
     func setLaneVolume(id: UUID, volume: Float) {
         if var lane = timeline.audioLanes.first(where: { $0.id == id }) {
             lane.volume = max(0, min(1, volume))
+            timeline.updateAudioLane(lane)
+        }
+    }
+
+    /// Adds a volume-automation envelope to a lane and shows its sub-lane.
+    ///
+    /// Automation is **standalone lanes only** (plan §2.4/§2.5): a lane
+    /// carrying video audio has no independent level to ride, so the guard
+    /// lives here rather than only in the header well that calls this - a
+    /// menu command or a future caller gets the same refusal, not just the
+    /// button.
+    ///
+    /// If the lane already has an envelope this only shows it; it does not
+    /// discard existing points, since "Add Automation" on an already-added
+    /// lane is reachable from the lane menu even while the sub-lane is
+    /// hidden.
+    ///
+    /// - Parameter id: The lane to add automation to. A no-op if the lane
+    ///   does not exist or is not standalone.
+    func addAutomation(toLane id: UUID) {
+        guard timeline.standaloneAudioLanes.contains(where: { $0.id == id }) else { return }
+        guard var lane = timeline.audioLanes.first(where: { $0.id == id }) else { return }
+        if lane.automation == nil {
+            lane.automation = VolumeAutomation()
+        }
+        lane.isAutomationShown = true
+        timeline.updateAudioLane(lane)
+    }
+
+    /// Shows or hides a lane's automation sub-lane. Purely view state - the
+    /// envelope, if any, is still applied to playback and export either way
+    /// (plan §2.2).
+    ///
+    /// - Parameters:
+    ///   - shown: Whether the sub-lane should be drawn.
+    ///   - laneId: The lane to change.
+    func setAutomationShown(_ shown: Bool, laneId: UUID) {
+        if var lane = timeline.audioLanes.first(where: { $0.id == laneId }) {
+            lane.isAutomationShown = shown
+            timeline.updateAudioLane(lane)
+        }
+    }
+
+    /// Removes a lane's automation entirely and hides its sub-lane.
+    ///
+    /// - Parameter id: The lane to remove automation from.
+    func removeAutomation(fromLane id: UUID) {
+        if var lane = timeline.audioLanes.first(where: { $0.id == id }) {
+            lane.automation = nil
+            lane.isAutomationShown = false
+            timeline.updateAudioLane(lane)
+        }
+    }
+
+    /// Replaces a lane's envelope outright.
+    ///
+    /// Guarded the same way as ``addAutomation(toLane:)`` - a non-standalone
+    /// lane's automation cannot be edited (plan §2.4).
+    ///
+    /// - Parameters:
+    ///   - automation: The envelope to store.
+    ///   - laneId: The lane to change. A no-op if it does not exist or is
+    ///     not standalone.
+    func setAutomation(_ automation: VolumeAutomation, laneId: UUID) {
+        guard timeline.standaloneAudioLanes.contains(where: { $0.id == laneId }) else { return }
+        guard var lane = timeline.audioLanes.first(where: { $0.id == laneId }) else { return }
+        lane.automation = automation
+        timeline.updateAudioLane(lane)
+    }
+
+    /// Restores a previously captured envelope, for undo.
+    ///
+    /// Unlike ``setAutomation(_:laneId:)`` this has no standalone guard: it
+    /// is used to put back whatever was there before an edit, including on
+    /// a lane that has since stopped being standalone, and refusing that
+    /// would make undo lossy. Restoring `nil` also hides the sub-lane, since
+    /// there is nothing to show; restoring a value onto a lane that has none
+    /// shows it, and otherwise leaves the lane's current shown state alone.
+    ///
+    /// - Parameters:
+    ///   - automation: The envelope to restore, or `nil` to remove it.
+    ///   - laneId: The lane to change.
+    func applyAutomation(_ automation: VolumeAutomation?, laneId: UUID) {
+        if var lane = timeline.audioLanes.first(where: { $0.id == laneId }) {
+            // Bringing an envelope back to a lane that has none (undoing a
+            // Remove, redoing an Add) shows it: the user is asking to see
+            // what came back, not to be told it exists behind a strip.
+            if automation != nil, lane.automation == nil {
+                lane.isAutomationShown = true
+            }
+            lane.automation = automation
+            if automation == nil {
+                lane.isAutomationShown = false
+            }
             timeline.updateAudioLane(lane)
         }
     }

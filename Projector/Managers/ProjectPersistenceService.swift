@@ -142,7 +142,7 @@ final class ProjectPersistenceService: ObservableObject {
             diagnosticLog(.info, .project, "Opened project \(url.lastPathComponent)")
 
             // Restore timeline and media library
-            timelineManager.timeline = projectDocument.timeline
+            timelineManager.replaceProjectTimeline(projectDocument.timeline)
             mediaLibrary.load(items: projectDocument.mediaLibrary)
 
             // Sync to playback engine

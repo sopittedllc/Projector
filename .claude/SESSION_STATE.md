@@ -1,10 +1,75 @@
 # Session State
 
-> **Last Updated**: 2026-09-15
-> **Status**: IDLE — one port `TO PROJECTOR` SHIPPED as 2026.09.15.4 (`58999b4` + appcast `87ba3b8`); nothing skipped
+> **Last Updated**: 2026-09-16
+> **Status**: ACTIVE — Volume automation steps 1–7 built; awaiting clare (5–6) + user runtime sign-off, then commit
 > **Branch**: main
 
 ---
+
+## 2026-09-16 — Per-lane volume automation (feature)
+
+**Plan**: `docs/plans/VOLUME-AUTOMATION-PLAN.md` (revision 3, approved after two Codex
+review rounds recorded in `docs/audits/VOLUME_AUTOMATION_PLAN_AUDIT.md`).
+
+**Decisions (user)**: envelope range −60…0 dB (attenuate only); standalone lanes only;
+apply-on-release (no live audition); the sidechain ducker is a separate follow-up feature
+that will reuse this renderer; the demo's mix WAV is not automated by this feature.
+
+**Codex follow-through (2026-09-16, user requested takeover of remaining fixes):**
+- Positive-trim PCM test now asserts +6/−6/+6 dB plateaus, rather than printing ratios.
+- Added real `makeDemo` → mix replacement → `.mov` export → decode regression: validates
+  picture, duration, nonzero timeline origin, head/tail handles, automation, positive trim,
+  and exclusion of a loud lane. Passed on this machine.
+- Set Level captures the envelope when opened and rejects stale/non-finite submissions.
+- `TimelineManager.replaceProjectTimeline` changes `documentSessionID` on project open/new;
+  editor state and automation undo are scoped to that session (including same-file reopen).
+- Full unit bundle: **429 passed**, no failures. Result:
+  `/private/tmp/Projector-Automation-Fixes-Full-2.xcresult`. Existing XCTest deployment-target
+  linker warnings remain. No commit made; manual runtime gates below remain outstanding.
+- Current audit status is the first section of
+  `docs/audits/VOLUME_AUTOMATION_IMPLEMENTATION_AUDIT.md`; older findings below it are historical.
+
+**Steps** (each builds + tests green before the next):
+- [x] 1. Model: `VolumeAutomation.swift`, `AudioLane` fields + Codable,
+      `TimelineManager` mutations + regrid/shift, unit tests (clare PASS after fixes; `LaneReorder` moved to step 5)
+- [x] 2. Editor prototype in the real timeline (NSView) — user: "UI is working great" (2026-09-16)
+- [x] 2b. UI: 18pt "+ Add Automation" strip under each standalone lane replaces the `A` well + menu items (plan §5.2 rewritten); cursor feedback; marquee stand-down via onBeginEdit/onEndEdit (GP-030)
+- [x] 3. Playback: `AutomationGainTable`, `currentFrame.didSet` hook, `MixState` (clare PASS; warnings fixed). §3.3 measurement gate a–g NOT formally recorded — user reports it audibly works; DEBUG trace hook exists
+- [x] 4. Export: ramps in `mixParameters`, `QuickTimeDemo` snapshot, PCM harness, +6 trim measurement
+      - `mixParameters(for:trimDB:automation:span:rate:)` replaces the old `gainDB:` overload;
+        made `internal` (was `private`) so `QuickTimeDemoBuilderTests` can drive it directly.
+      - `QuickTimeDemo` gained `rate` and `laneAutomation`; its `securityScopedResources`
+        property and `QuickTimeDemoSecurityScope` class were changed `fileprivate` → `internal`
+        (same reason) — this is the only access-level change, no behavior change.
+      - §4.4 trim contract resolved by measurement, not left open: a +6 dB trim over a
+        0→−12→0 dB envelope renders at ~1.994× (theory 1.995×) and ~0.501× (theory 0.5012×) —
+        AVFoundation does **not** clamp a combined level above unity. No cap was added.
+      - PCM reference test found the plan's ±1 ms boundary-exclusion margin (§7) is too
+        tight for a one-frame (~41.7 ms) step: settling bleed measured up to ~0.075 dB for
+        several ms after such a fast transition, above its own 0.05 dB hold tolerance at
+        ±1 ms. Widened to ±15 ms around that one boundary only; every other boundary is
+        clean at ±1 ms. Measured max errors: holds 0.0 dB, the 1 s/60 dB dip slope ~0.098 dB,
+        the one-frame step ~0.009 dB (bound 0.15 dB throughout).
+      - The original ratios above came from a standalone harness; the earlier positive-trim
+        test only printed them. Codex replaced it with assertions and added real QuickTime
+        output verification (see follow-through above), so the current gate enforces gain.
+- [x] 5. `TrackGeometry` row table; reorder/marquee/lane-change/heights through it; marquee coordinate space moved onto the scroll content (was off by ruler + both scroll axes). GP-031
+- [x] 6. Editor: `AutomationUndo` (real redo, stale guard), Set Level… popover, Option fine drag, 0 dB snap, Remove Automation, node accessibility — clare review in flight; user runtime check pending
+- [~] 7. FEATURES.md entry + KNOWLEDGE_BASE GP-029/030/031 written; commit pending user sign-off on step 6 runtime checks
+
+**Xcode project**: files are registered by hand in `project.pbxproj` (not synchronized
+groups) — every new .swift needs PBXBuildFile + PBXFileReference + group child + Sources entry.
+
+**Open items**: (1) §3.3 live-gain measurement gate not formally recorded (audible OK);
+(2) sidechain ducker = separate follow-up plan (user wants it; questions: target = mix WAV
+and/or a lane; generated envelope editable or a separate layer); (3) a one-off main-thread
+stall under the "Stem Is Off Picture" alert did not reproduce — console capture is at the
+scratchpad `projector-stdout.log` if it recurs.
+
+**Resume**: read the plan's §8 for the step list and §10 for recovery; `git status` shows the
+in-progress step. Nothing is committed yet — the whole feature is one uncommitted tree.
+
+
 
 ## 2026-09-15 — Back to one MIDI port
 

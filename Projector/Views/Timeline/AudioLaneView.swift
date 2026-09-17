@@ -72,18 +72,30 @@ struct AudioLaneView: View {
     ///
     /// - Parameters:
     ///   - clipId: The clip being moved.
-    ///   - laneOffset: Lanes crossed; positive is downward. Not limited to
-    ///     &#177;1 - a drag across four lanes reports 4, because landing one lane
-    ///     down from where it was released reads as the app ignoring the drag.
+    ///   - targetLaneId: The lane the drag landed in - resolved by the parent
+    ///     from `laneIdForVerticalDrag`, so this and the preview always agree
+    ///     on the same lane, whatever the two rows' heights are.
     ///   - frame: Where the clip should start once it lands. A drag is
     ///     diagonal as often as not, and dropping the horizontal half of it
     ///     would slide a stem out of sync with picture to change its lane.
     ///     Video-linked clips report their existing frame, since those stay
     ///     locked to their reel.
-    let onClipLaneChangeRequested: ((_ clipId: UUID, _ laneOffset: Int, _ frame: Int) -> Void)?
-    /// Called during vertical drag to show preview in target lane
-    /// Parameters: clip, targetLaneOffset (nil to clear preview)
-    let onClipLaneChangePreview: ((AudioClip, Int?) -> Void)?
+    let onClipLaneChangeRequested: ((_ clipId: UUID, _ targetLaneId: UUID, _ frame: Int) -> Void)?
+    /// Called during vertical drag to show preview in target lane.
+    /// Parameters: clip, id of the lane the drag currently targets (`nil` to
+    /// clear the preview - still this lane, or off the track entirely).
+    let onClipLaneChangePreview: ((AudioClip, UUID?) -> Void)?
+    /// Resolves the lane a vertical clip drag would land in, given how far it
+    /// has been dragged from this lane's own clip band.
+    ///
+    /// Standalone lane rows no longer share one height - a lane's automation
+    /// strip or sub-lane can be taller than the plain 80pt clip band above it
+    /// - so "lanes crossed" can no longer be found by dividing the drag by a
+    /// fixed row height. The parent already builds `TrackGeometry` for the
+    /// whole layout pass, so it resolves the target row there and hands back
+    /// its lane id; this view never reasons about other rows' geometry
+    /// itself. Returns `nil` for "still this lane, or off the track".
+    var laneIdForVerticalDrag: (CGFloat) -> UUID? = { _ in nil }
     /// Preview of a clip being dragged to this lane from another lane
     let laneChangePreview: LaneChangePreview?
     /// Set of clip IDs selected via marquee selection (from parent)
@@ -317,7 +329,7 @@ struct AudioLaneView: View {
                 clipsContent
 
                 // Lane change preview ghost (orange)
-                if let preview = laneChangePreview, preview.targetLaneIndex == laneIndex {
+                if let preview = laneChangePreview, preview.targetLaneId == lane.id {
                     laneChangePreviewGhost(preview: preview, height: geometry.size.height)
                 }
 
@@ -466,8 +478,8 @@ struct AudioLaneView: View {
                         // `sourceType == .videoTrack`, which left the ordinary
                         // case - dragging a stem off the lane it landed on -
                         // with no vertical behaviour at all.
-                        let crossed = laneOffset(forVerticalDrag: dragVerticalOffset)
-                        onClipLaneChangePreview?(clip, crossed == 0 ? nil : crossed)
+                        let targetLaneId = laneIdForVerticalDrag(dragVerticalOffset)
+                        onClipLaneChangePreview?(clip, targetLaneId)
 
                         // Only the linked preview is drawn from a callback.
                         // A regular clip already follows the drag through
@@ -480,14 +492,14 @@ struct AudioLaneView: View {
                     .onEnded { _ in
                         guard draggingClipId == clip.id else { return }
 
-                        let crossed = laneOffset(forVerticalDrag: dragVerticalOffset)
+                        let targetLaneId = laneIdForVerticalDrag(dragVerticalOffset)
                         let landing = draggedFrame(for: clip)
 
-                        if crossed != 0 {
+                        if let targetLaneId {
                             // The lane change carries the horizontal move with
                             // it, so a diagonal drag lands where it was let go
                             // rather than snapping back to its old timecode.
-                            onClipLaneChangeRequested?(clip.id, crossed, landing)
+                            onClipLaneChangeRequested?(clip.id, targetLaneId, landing)
                         } else if clip.sourceType != .videoTrack {
                             onClipMove(clip.id, landing)
                         }
@@ -503,20 +515,6 @@ struct AudioLaneView: View {
                     }
             )
         }
-    }
-
-    /// How many lanes a vertical drag of `offset` points has crossed.
-    ///
-    /// Rounded against the lane pitch rather than clamped to a single step, so
-    /// dragging a clip down past four lanes moves it four lanes. `rounded()`
-    /// also gives the commit threshold for free: half a lane in either
-    /// direction is where the result stops being zero.
-    ///
-    /// - Parameter offset: Vertical drag translation, in points.
-    /// - Returns: Lanes crossed; positive is downward, `0` for a drag that has
-    ///   not travelled far enough to count.
-    private func laneOffset(forVerticalDrag offset: CGFloat) -> Int {
-        Int((offset / max(laneHeight, 1)).rounded())
     }
 
     /// Where the clip currently being dragged would start if released now.

@@ -108,7 +108,27 @@ struct QuickTimeDemo {
     /// instead would restart the preview from the top every time a fader moved,
     /// which is exactly when you want to keep listening to the same moment.
     let laneTrackIDs: [UUID: CMPersistentTrackID]
-    fileprivate let securityScopedResources: [QuickTimeDemoSecurityScope]
+
+    /// The timeline rate the composition was built at. `mixParameters` needs
+    /// this to place ramp boundaries in composition time, and `makeAudioMix`
+    /// only has `demo` to get it from - the timeline itself is not kept.
+    let rate: TimecodeFrameRate
+
+    /// Envelopes captured at build time for standalone lanes whose automation
+    /// is not unity, keyed by lane id.
+    ///
+    /// A snapshot, not a live reference: `makeAudioMix` rebuilds the mix from
+    /// whatever is here, so a lane's envelope changing after the demo was
+    /// built has no effect until the demo (and this snapshot) is rebuilt -
+    /// same contract as `QuickTimeDemoLaneChoice.gainDB` already has for a
+    /// lane's trim.
+    let laneAutomation: [UUID: VolumeAutomation]
+
+    /// Internal, rather than the usual `private`/`fileprivate`, only so the
+    /// test target (`ProjectorTests`) can build a `QuickTimeDemo` by hand
+    /// around a composition it assembles itself, without a real import or a
+    /// video asset. Nothing outside this module can see it either way.
+    let securityScopedResources: [QuickTimeDemoSecurityScope]
 
     /// Copy the demo with updated levels while retaining its media access.
     func replacingAudioMix(_ audioMix: AVAudioMix) -> QuickTimeDemo {
@@ -119,13 +139,19 @@ struct QuickTimeDemo {
             hasPicture: hasPicture,
             mixTrackID: mixTrackID,
             laneTrackIDs: laneTrackIDs,
+            rate: rate,
+            laneAutomation: laneAutomation,
             securityScopedResources: securityScopedResources
         )
     }
 }
 
 /// Balances one sandbox resource acquisition when a demo is released.
-fileprivate final class QuickTimeDemoSecurityScope {
+///
+/// Internal (see ``QuickTimeDemo/securityScopedResources``) rather than
+/// `fileprivate`, purely so the test target can pass an empty array by name
+/// when building a `QuickTimeDemo` by hand.
+final class QuickTimeDemoSecurityScope {
     let url: URL
     private let didStart: Bool
 
@@ -181,10 +207,25 @@ struct QuickTimeDemoBuilder {
     /// Frames per decibel is not a thing - this is the conversion from the
     /// decibels the user sets to the linear scalar AVFoundation wants.
     ///
+    /// Forwards to ``VolumeAutomation/linearVolume(fromDB:)`` so there is one
+    /// definition, shared with the volume-automation model and playback.
+    ///
     /// - Parameter dB: Level in decibels.
     /// - Returns: A linear volume, 1.0 at 0 dB.
     static func linearVolume(fromDB dB: Float) -> Float {
-        pow(10, dB / 20)
+        VolumeAutomation.linearVolume(fromDB: dB)
+    }
+
+    /// Constants governing how an envelope is rendered into export ramps.
+    ///
+    /// See ``mixParameters(for:trimDB:automation:span:rate:)`` and
+    /// ``VolumeAutomation/rampCount(forDeltaDB:toleranceDB:)`` for the maths
+    /// this drives.
+    enum AutomationExport {
+        /// Maximum deviation, in decibels, of a rendered ramp's piecewise-
+        /// linear-amplitude approximation from the intended linear-in-decibel
+        /// envelope. Passed to ``VolumeAutomation/rampCount(forDeltaDB:toleranceDB:)``.
+        static let toleranceDB: Float = 0.1
     }
 
     /// Build the composition and mix for a demo.
@@ -209,6 +250,19 @@ struct QuickTimeDemoBuilder {
         var laneTrackIDs: [UUID: CMPersistentTrackID] = [:]
         var securityScopedResources: [QuickTimeDemoSecurityScope] = []
 
+        // Only standalone lanes are ever automated (a non-standalone lane's
+        // automation is retained on the model but bypassed everywhere - see
+        // the volume-automation plan §2.5), and only a non-unity envelope is
+        // worth carrying: a unity one renders identically to no automation at
+        // all, so `mixParameters` treats it that way rather than building a
+        // mix's worth of no-op ramps.
+        let laneAutomation: [UUID: VolumeAutomation] = Dictionary(
+            uniqueKeysWithValues: timeline.standaloneAudioLanes.compactMap { lane -> (UUID, VolumeAutomation)? in
+                guard let automation = lane.automation, !automation.isUnity else { return nil }
+                return (lane.id, automation)
+            }
+        )
+
         let hasPicture = try await insertPicture(
             from: timeline,
             span: span,
@@ -230,7 +284,15 @@ struct QuickTimeDemoBuilder {
             into: composition,
             securityScopedResources: &securityScopedResources
         ) {
-            inputParameters.append(mixParameters(for: mixTrack, gainDB: spec.wavGainDB))
+            // The supplied mix is never automated - see the volume-automation
+            // plan §1, "What it does not do".
+            inputParameters.append(mixParameters(
+                for: mixTrack,
+                trimDB: spec.wavGainDB,
+                automation: nil,
+                span: span,
+                rate: rate
+            ))
             mixTrackID = mixTrack.trackID
         }
 
@@ -270,8 +332,18 @@ struct QuickTimeDemoBuilder {
             // is deliberately left out: there is no control for it anywhere in
             // the app, so folding it in would mean the printed level differed
             // from the one on screen for a reason the user could not see.
+            //
+            // An excluded lane is silenced and its automation bypassed - a lane
+            // nobody hears has no envelope to ride.
             let gain = choice.isIncluded ? choice.gainDB : Self.silentDB
-            inputParameters.append(mixParameters(for: laneTrack, gainDB: gain))
+            let automation = choice.isIncluded ? laneAutomation[lane.id] : nil
+            inputParameters.append(mixParameters(
+                for: laneTrack,
+                trimDB: gain,
+                automation: automation,
+                span: span,
+                rate: rate
+            ))
             laneTrackIDs[lane.id] = laneTrack.trackID
         }
 
@@ -289,6 +361,8 @@ struct QuickTimeDemoBuilder {
             hasPicture: hasPicture,
             mixTrackID: mixTrackID,
             laneTrackIDs: laneTrackIDs,
+            rate: rate,
+            laneAutomation: laneAutomation,
             securityScopedResources: securityScopedResources
         )
     }
@@ -301,9 +375,9 @@ struct QuickTimeDemoBuilder {
     /// not how loud it is.
     ///
     /// - Parameters:
-    ///   - demo: A demo from ``makeDemo(timeline:spec:)``.
+    ///   - demo: A demo from ``makeDemo(timeline:spec:)``, which supplies the
+    ///     rate and the automation snapshot this rebuild renders against.
     ///   - spec: The levels to apply.
-    ///   - timeline: Source of each lane's own recorded level.
     /// - Returns: A mix to hand to the player item or the export session.
     static func makeAudioMix(
         for demo: QuickTimeDemo,
@@ -313,7 +387,15 @@ struct QuickTimeDemoBuilder {
 
         if let mixTrackID = demo.mixTrackID,
            let track = demo.composition.track(withTrackID: mixTrackID) {
-            inputParameters.append(mixParameters(for: track, gainDB: spec.wavGainDB))
+            // The supplied mix is never automated - see the volume-automation
+            // plan §1, "What it does not do".
+            inputParameters.append(mixParameters(
+                for: track,
+                trimDB: spec.wavGainDB,
+                automation: nil,
+                span: demo.span,
+                rate: demo.rate
+            ))
         }
 
         for choice in spec.lanes {
@@ -321,9 +403,17 @@ struct QuickTimeDemoBuilder {
                   let track = demo.composition.track(withTrackID: trackID) else { continue }
 
             // An excluded lane is silenced rather than removed - the composition
-            // is not being rebuilt here, and silence is the same result.
+            // is not being rebuilt here, and silence is the same result. Its
+            // automation is bypassed along with it.
             let gain = choice.isIncluded ? choice.gainDB : Self.silentDB
-            inputParameters.append(mixParameters(for: track, gainDB: gain))
+            let automation = choice.isIncluded ? demo.laneAutomation[choice.id] : nil
+            inputParameters.append(mixParameters(
+                for: track,
+                trimDB: gain,
+                automation: automation,
+                span: demo.span,
+                rate: demo.rate
+            ))
         }
 
         let mix = AVMutableAudioMix()
@@ -525,12 +615,114 @@ struct QuickTimeDemoBuilder {
         return track
     }
 
-    private static func mixParameters(
+    /// Builds one track's volume instructions for the mix: a flat trim, or -
+    /// when a non-unity envelope is supplied - the envelope rendered as a
+    /// sequence of holds and piecewise-linear ramps, with the trim folded
+    /// into every value.
+    ///
+    /// Internal, rather than `private`, only so the test target
+    /// (`QuickTimeDemoBuilderTests`) can drive it directly against a
+    /// composition it assembles itself - the ramp maths is worth testing
+    /// without a full `makeDemo` call, which needs a video asset to have
+    /// anything to build against.
+    ///
+    /// ## Ramp construction
+    ///
+    /// AVFoundation's `setVolumeRamp` interpolates linearly in *amplitude*,
+    /// not in decibels, so a single ramp across a large `dB` change bows away
+    /// from the intended straight line in decibels. Each sloped segment is
+    /// therefore split into ``AutomationExport/toleranceDB``-bounded pieces
+    /// (``VolumeAutomation/rampCount(forDeltaDB:toleranceDB:)``), with
+    /// boundaries computed once as exact rationals at the composition
+    /// timescale via `CMTimeMultiplyByRatio` - never re-expressed at a
+    /// coarser timescale, which is what previously put export seeks a frame
+    /// off at 23.976.
+    ///
+    /// - Parameters:
+    ///   - track: The composition track these parameters apply to.
+    ///   - trimDB: The lane's (or the supplied mix's) trim slider value, in
+    ///     decibels. Added to every envelope value rather than applied
+    ///     separately, so the two combine exactly as a single dB scale would.
+    ///   - automation: The lane's envelope, or `nil` for a track that is
+    ///     never automated (the supplied mix) or an excluded lane. A
+    ///     non-`nil` envelope that is unity renders identically to `nil` -
+    ///     both are a single constant volume - so callers need not check
+    ///     `isUnity` themselves.
+    ///   - span: The demo's own frame range. The envelope is evaluated only
+    ///     across `[span.startFrame, span.endFrame)` and placed at
+    ///     composition-relative time, i.e. offset so `span.startFrame` is
+    ///     time zero.
+    ///   - rate: The timeline rate the composition was built at.
+    /// - Returns: The parameters for `track`.
+    static func mixParameters(
         for track: AVCompositionTrack,
-        gainDB: Float
+        trimDB: Float,
+        automation: VolumeAutomation?,
+        span: QuickTimeDemoSpan,
+        rate: TimecodeFrameRate
     ) -> AVAudioMixInputParameters {
         let parameters = AVMutableAudioMixInputParameters(track: track)
-        parameters.setVolume(linearVolume(fromDB: gainDB), at: .zero)
+
+        guard let automation, !automation.isUnity else {
+            parameters.setVolume(linearVolume(fromDB: trimDB), at: .zero)
+            return parameters
+        }
+
+        let segments = automation.segments(from: span.startFrame, to: span.endFrame)
+        for segment in segments {
+            let segmentStart = time(forFrame: span.offset(ofTimelineFrame: segment.startFrame), at: rate)
+
+            guard !segment.isHold else {
+                parameters.setVolume(linearVolume(fromDB: trimDB + segment.startDB), at: segmentStart)
+                continue
+            }
+
+            let segmentEnd = time(forFrame: span.offset(ofTimelineFrame: segment.endFrame), at: rate)
+            let deltaDB = segment.endDB - segment.startDB
+            let rampCount = VolumeAutomation.rampCount(forDeltaDB: deltaDB, toleranceDB: AutomationExport.toleranceDB)
+            let duration = CMTimeSubtract(segmentEnd, segmentStart)
+
+            // Each boundary computed once, directly from the segment's own
+            // start and duration, rather than accumulated ramp by ramp -
+            // accumulating would compound rounding across a long slope.
+            var boundaries: [CMTime] = [segmentStart]
+            boundaries.reserveCapacity(rampCount + 1)
+            for k in 1...rampCount {
+                boundaries.append(CMTimeAdd(
+                    segmentStart,
+                    CMTimeMultiplyByRatio(duration, multiplier: Int32(k), divisor: Int32(rampCount))
+                ))
+            }
+
+            // Preconditions, not asserts: a boundary that drifted off the
+            // segment's end or ran backwards would export a wrong ramp with
+            // no other symptom, and a loud failure in the field beats a
+            // demo that is quietly off. `CMTimeMultiplyByRatio` keeps the
+            // rational exact, so these only fire on a genuine logic error.
+            precondition(
+                boundaries.last == segmentEnd,
+                "The final ramp boundary must land exactly on the segment's end"
+            )
+            precondition(
+                zip(boundaries, boundaries.dropFirst()).allSatisfy(<),
+                "Ramp boundaries must be strictly increasing"
+            )
+
+            for k in 0..<rampCount {
+                // Both ends of every ramp come from the same expression, so
+                // adjacent ramps meet exactly. The last end may differ from
+                // `segment.endDB` by an ulp (`a + (b - a)` is not bit-exact
+                // in IEEE 754); the PCM test shows that is far below hearing.
+                let startDB = segment.startDB + deltaDB * Float(k) / Float(rampCount)
+                let endDB = segment.startDB + deltaDB * Float(k + 1) / Float(rampCount)
+                parameters.setVolumeRamp(
+                    fromStartVolume: linearVolume(fromDB: trimDB + startDB),
+                    toEndVolume: linearVolume(fromDB: trimDB + endDB),
+                    timeRange: CMTimeRange(start: boundaries[k], end: boundaries[k + 1])
+                )
+            }
+        }
+
         return parameters
     }
 

@@ -3219,6 +3219,95 @@ When using `.glassControl(isHighlighted:)` on text fields, the modifier applies 
 
 ---
 
+### GP-029: Rendering a dB-linear envelope with AVAudioMix ramps
+**Added**: 2026-09-16
+**Source**: Volume automation, `QuickTimeDemoBuilder.mixParameters` and the PCM harness in `QuickTimeDemoBuilderTests`
+**Category**: Audio / Export
+
+`setVolumeRamp(fromStartVolume:toEndVolume:timeRange:)` interpolates **linearly in
+amplitude**. A straight line on a dB-scaled editor is an exponential in amplitude, so
+one ramp across a large change bows away from the intended curve: −60 → 0 dB in a
+single ramp is ~27 dB off at its midpoint. The error depends on the dB change inside
+the ramp, not its duration.
+
+The rule that keeps it honest: split a slope of Δ dB into
+`n = ceil(|Δ| / maxDelta)` equal ramps, where `maxDelta` is found by bisection on the
+**true** maximum error of one ramp - with `q = ln10·|Δ|/20` and `u = 1/q − 1/expm1(q)`,
+`err = (20/ln10)·(log1p(u·expm1 q) − q·u)` (the chord of an exponential over the curve,
+maximised slightly before the midpoint). The midpoint closed form
+`20·log10(cosh(ln10·Δ/40))` with a fixed margin is *not* enough: it under-splits at loose
+tolerances (≈2.06 dB error at a 2 dB tolerance). At `tol = 0.1 dB`, `maxDelta ≈ 2.636 dB`,
+so a full 60 dB sweep is 23 ramps. Holds are one `setVolume`. Boundaries are exact rationals at
+the composition timescale via `CMTimeMultiplyByRatio` - never re-expressed at 600 -
+so a one-frame step at 23.976 subdivides into 1001/576000 s pieces.
+
+Measured through `AVAssetReaderAudioMixOutput` (lossless, no codec): holds 0.00 dB
+error, a 1 s 60 dB slope 0.098 dB, a one-frame step 0.009 dB. **Positive trim**:
+AVFoundation documents volume as 0…1, but +6 dB trim on top of an envelope measured
+1.994× (theory 1.995) on macOS 26 - it renders, undocumented. Nothing in Projector
+clamps it; if a future SDK does, the fallback in the plan is to cap trim at 0 dB on
+automated lanes.
+
+Live playback is different: `AVAudioPlayerNode.volume` is stepped once per timeline
+frame from `currentFrame.didSet` through `AutomationGainTable` (base mute/solo/level
+product × envelope, precomputed per timeline). That is frame-stepped monitoring, not
+sample-accurate rendering; the export is the accurate one.
+
+---
+
+### GP-030: An NSView inside a SwiftUI ScrollView does not own the mouse
+**Added**: 2026-09-16
+**Source**: Volume automation editor (`VolumeAutomationEnvelopeView`) vs the timeline marquee
+**Category**: UI / AppKit interop
+
+`hitTest(_:)` returning `self` makes an `NSViewRepresentable` receive `mouseDown`, but
+AppKit offers the event to the **gesture recognizers of ancestor views first** - and
+SwiftUI installs its `DragGesture`s as recognizers on the hosting view. So a
+`DragGesture` on the scroll content (the marquee) still tracked a node drag inside the
+editor and drew a selection box under it. Neither `acceptsFirstMouse` nor consuming
+the event in `mouseDown` changes that.
+
+What works: the NSView reports edit begin/end through callbacks
+(`onBeginEdit`/`onEndEdit`, fired on mouse-down and mouse-up/teardown), the SwiftUI
+owner stores `isEditingAutomation`, and the competing gesture's `onChanged` guards on
+it - the same shape the marquee already used for external file drags. Also from this
+work: an NSView that must *refuse* drops registers the same pasteboard types as its
+siblings and returns `[]`, because AppKit gives a drag to the deepest *registered*
+view, and an unregistered view lets the drop fall through to a parent importer.
+
+Cursor feedback in such a view needs an `NSTrackingArea` with `.mouseMoved` and
+`.cursorUpdate`-style handling in `mouseMoved`; `resetCursorRects` gives only one
+cursor for the whole band.
+
+---
+
+### GP-031: One geometry table for a timeline with variable row heights
+**Added**: 2026-09-16
+**Source**: `TrackGeometry` / `LaneRowMetric` / `LaneReorder(rows:)`
+**Category**: UI / Layout
+
+The timeline once assumed every audio-lane row was `audioLaneHeight + 1` and computed
+reorder targets, marquee hit-tests, cross-lane clip drags and the drop-zone height by
+multiplying. Six sites, two of which were already wrong whenever the video's linked
+audio strips were expanded (marquee selected the wrong clips). Once rows could be
+98 or 128pt tall (automation strip / sub-lane) all six broke.
+
+The fix is a single table built once per layout pass: `TrackGeometry(timeline:isVideoAudioExpanded:)`
+holds the picture rect, each linked strip's rect, the video group height, and one
+`LaneRowGeometry` per standalone lane with `rowRect`, `clipRect`, `automationRect`
+and a pure `LaneRowMetric` (`top`, `height`, `pitch`) the model-layer `LaneReorder`
+consumes. Rule: **layout and hit-testing work in visible ordinals or rects; mutations
+resolve a lane id and only then a model index.** Never add a row delta to an
+`audioLanes` index - the video's own lanes live in that array but are not rows.
+
+Reorder details that only show up with mixed heights: freeze the metrics at gesture
+start (animated displacement must not feed back into targeting); the target advances
+when the dragged row's *edge* crosses a neighbour's centre ± a point hysteresis
+(`laneReorderHysteresis` = 14 ≈ the old 0.18 row); displaced rows move by the dragged
+row's *pitch*, and the last row's pitch has no divider.
+
+---
+
 ## Contributing to This Document
 
 When adding new entries:

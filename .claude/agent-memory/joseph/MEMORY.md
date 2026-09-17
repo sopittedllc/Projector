@@ -1,0 +1,1 @@
+- [Volume automation plan notes](volume_automation_plan_notes.md) — status + plan-text corrections for docs/plans/VOLUME-AUTOMATION-PLAN.md steps 2/4/5/6

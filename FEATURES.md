@@ -2,7 +2,7 @@
 
 > **Purpose**: Document all features with their associated files, dependencies, and integration points.
 > This file tracks project progress and features.
-> **Last Updated**: 2026-03-31
+> **Last Updated**: 2026-09-16
 
 ---
 
@@ -1544,6 +1544,91 @@ and Help > Report a Bug...
       notification name from `ProjectorApp.swift`
 - [ ] Remove `diagnosticLog` calls listed under Integration Points
 - [ ] Remove the five file references from `project.pbxproj`
+
+---
+
+### Volume Automation (per-lane envelopes)
+
+**Status**: Active
+**Added**: 2026-09-16
+
+#### Description
+Every standalone audio lane can carry a volume envelope: an 18pt `+ Add Automation`
+strip under the lane opens a 48pt sub-lane where nodes are clicked in, dragged and
+joined by straight lines (linear in dB). The envelope is heard in playback
+(frame-stepped: the engine sets each player's gain once per timeline frame) and
+printed into the QT demo export as `AVAudioMix` volume ramps subdivided so the
+rendered level stays within 0.1 dB of the line. Range is −60…0 dB (attenuate only).
+Plan: `docs/plans/VOLUME-AUTOMATION-PLAN.md`; Codex reviews:
+`docs/audits/VOLUME_AUTOMATION_PLAN_AUDIT.md`.
+
+What it deliberately does not do: automate the demo's supplied mix WAV (it is not a
+timeline lane; envelopes duck lanes *against* it), automate the video's linked audio
+lanes (their envelopes, if ever present in a file, are retained but bypassed in both
+playback and export), curves, live audition while dragging (apply on release), or
+any limiting - the sum can clip exactly as before.
+
+Positive trim on an automated lane: the demo sheet's +6 dB trim is added to the
+envelope, so the mix can be asked for a linear gain above 1.0, which AVFoundation
+documents as out of range. Measured on this SDK it renders correctly (1.994× at
++6 dB); nothing clamps it, and `KNOWLEDGE_BASE.md` GP-029 records the measurement.
+
+Compatibility: projects saved before this build open with no automation. A project
+saved by this build and re-saved by an *older* build loses its envelopes (unknown
+keys are dropped). No format version bump - optional fields with defaults.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Model | `Models/Timeline/VolumeAutomation.swift` | Envelope: points, interpolation, `segments`, `rampCount`, normalising Codable |
+| Model | `Models/Timeline/AudioLane.swift` | `automation`, `isAutomationShown` (+ Codable, defaults nil/false) |
+| Model | `Models/Timeline/Timeline.swift` | `LaneRowMetric`, `LaneReorder(rows:hysteresis:)`, id-based `LaneChangePreview` |
+| Manager | `Managers/TimelineManager.swift` | `addAutomation`, `setAutomationShown`, `removeAutomation`, `setAutomation`, `applyAutomation`; regrid/shift map points |
+| Manager | `Managers/AutomationGainTable.swift` | Per-timeline gain table the engine reads every frame |
+| Manager | `Managers/PlaybackEngine.swift` | `automationGains`, `currentFrame.didSet` hook, `MixState.LaneMix.automation`, DEBUG `automationGainTrace` |
+| Manager | `Managers/QuickTimeDemoBuilder.swift` | `mixParameters(for:trimDB:automation:span:rate:)`, `QuickTimeDemo.rate`/`laneAutomation`, `AutomationExport` |
+| View | `Views/Timeline/VolumeAutomationEnvelopeView.swift` | AppKit node editor (drag, menus, cursor, Option fine, unity snap, accessibility) |
+| View | `Views/Timeline/VolumeAutomationLaneView.swift` | 48pt sub-lane row: header (Volume, readout, chevron), Set Level… popover |
+| View | `Views/Timeline/VolumeAutomationStripView.swift` | 18pt `+ Add / Show Automation` strip |
+| View | `Views/Timeline/TrackGeometry.swift` | Row-height table: picture, linked strips, standalone rows with clip/automation rects |
+| View | `Views/Timeline/AutomationUndo.swift` | Lane-scoped inverse-op undo with real redo; stale-edit guard |
+| Utility | `Utilities/LayoutConstants.swift` | `TimelineLayout.automation*`, `laneReorderHysteresis` |
+| Tests | `ProjectorTests/VolumeAutomationTests.swift`, `AutomationGainTableTests.swift`, `QuickTimeDemoBuilderTests.swift` (PCM harness), `LaneRowGeometryTests.swift`, `VolumeAutomationUndoTests.swift`, `TimelineManagerTests.swift` (`LaneReorder`) | |
+
+#### State Properties
+- `MultiTrackTimelineView`: `isEditingAutomation` (marquee stand-down), `automationEditOldValue` (undo capture), `activeLaneReorder` (frozen reorder geometry)
+- `VolumeAutomationLaneView`: `previewAutomation`, `levelEditor`
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `MultiTrackTimelineView.swift` | per-lane `VStack` | Sub-lane or strip under every standalone lane; reorder modifiers on the whole row |
+| `MultiTrackTimelineView.swift` | reorder / marquee / lane-change / heights | All routed through `TrackGeometry` (variable row heights) |
+| `MultiTrackTimelineView.swift` | `marqueeSelectionGesture` | Stands down while `isEditingAutomation`; coordinate space moved onto the scroll content |
+| `AudioLaneView.swift` | `laneIdForVerticalDrag` | Cross-lane clip drags resolve a lane id via geometry |
+| `PlaybackEngine.swift` | `playbackGain(for:lane:)` | Base gain × envelope from the table |
+| `QuickTimeDemoBuilder.swift` | `makeDemo` / `makeAudioMix` | Envelope snapshot captured at build, preserved through mix rebuilds |
+| `TimelineManager.swift` | `regridContent`, `shiftAllContent` | Points follow clips on rate/start changes (signed frames) |
+
+#### Dependencies
+- Depends on: Multi-Track Timeline, Create QT Demo, Audio Routing
+- Depended by: (planned) sidechain ducker - generates a `VolumeAutomation` for the same renderer
+
+#### Layout Constants
+`automationStripHeight` 18, `automationLaneHeight` 48, `automationNodeRadius` 4,
+`automationNodeHitRadius` 8, `automationLineWidth` 1.5, `automationReferenceDash` [4,4],
+`automationReferenceLineWidth` 1, `automationNodeRingWidth` 1, `automationDraggedNodeScale` 1.5,
+`automationFineDragDBPerPoint` 0.1, `automationUnitySnapDB` 1, `laneReorderHysteresis` 14.
+
+#### Removal Checklist
+- [ ] Delete the five `Views/Timeline/VolumeAutomation*`/`TrackGeometry`/`AutomationUndo` files and the sub-lane/strip branch in the per-lane `VStack`
+- [ ] Remove `automation`/`isAutomationShown` from `AudioLane` (four places) and the five `TimelineManager` methods; drop `mapFrames` calls in regrid/shift
+- [ ] Delete `AutomationGainTable`; restore the inline `playbackGain` formula; remove the `currentFrame.didSet` hook and `LaneMix.automation`
+- [ ] Restore `mixParameters(for:gainDB:)`; drop `QuickTimeDemo.rate`/`laneAutomation` and `AutomationExport`
+- [ ] Decide whether to keep `TrackGeometry`/`LaneReorder(rows:)` (they also fixed marquee over expanded linked strips) - if not, restore constant-pitch rows
+- [ ] Remove the test files and the `VOLAUTO*` entries from `project.pbxproj`
 
 ---
 
