@@ -9,6 +9,49 @@ extension UTType {
     }
 }
 
+// MARK: - Recent Projects Menu
+
+/// SwiftUI menu showing recently opened projects.
+struct RecentProjectsMenu: View {
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        Menu("Open Recent") {
+            let recents = settings.recentProjects
+            if recents.isEmpty {
+                Text("No Recent Projects")
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(Array(recents.enumerated()), id: \.offset) { index, project in
+                    Button(project.name) {
+                        openRecentProject(at: index)
+                    }
+                }
+
+                Divider()
+
+                Button("Clear Menu") {
+                    settings.clearRecentProjects()
+                }
+            }
+        }
+    }
+
+    private func openRecentProject(at index: Int) {
+        let recents = AppSettings.shared.recentProjects
+        guard index < recents.count else { return }
+
+        let project = recents[index]
+        guard let url = AppSettings.shared.resolveRecentProject(project) else {
+            // Project not found - remove from list
+            AppSettings.shared.removeRecentProject(at: index)
+            return
+        }
+
+        NotificationCenter.default.post(name: .openProjectFile, object: url)
+    }
+}
+
 @main
 struct ProjectorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -50,7 +93,7 @@ struct ProjectorApp: App {
         .windowToolbarStyle(.unified)
         .handlesExternalEvents(matching: ProjectorApp.externalEvents)
         .commands {
-            // Remove the New Window command from the system menu
+            // Remove the default New Window command - we handle file operations via NSMenu
             CommandGroup(replacing: .newItem) { }
         }
     }
@@ -240,87 +283,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
         debugPrint("setupMenus: mainMenu has %d items: %@", mainMenu.items.count, mainMenu.items.map { $0.title })
 
-        guard mainMenu.items.count > 1 else {
-            debugPrint("setupMenus: not enough menu items")
-            return
-        }
-
-        let fileMenuItem = mainMenu.items[1]
-        debugPrint("setupMenus: fileMenuItem title: %@", fileMenuItem.title)
-
         hasSetupMenus = true
 
-        // Create a completely new File menu (prevents SwiftUI from managing it)
-        let newFileMenu = NSMenu(title: "File")
-        newFileMenu.autoenablesItems = false
+        // Create File menu if it doesn't exist
+        // (SwiftUI doesn't create it for non-Document-based WindowGroup apps)
+        if mainMenu.items.firstIndex(where: { $0.title == "File" }) == nil {
+            let fileMenu = NSMenu(title: "File")
+            fileMenu.autoenablesItems = true
 
-        // Save Project
-        let saveItem = NSMenuItem(
-            title: "Save Project",
-            action: #selector(saveProject(_:)),
-            keyEquivalent: "s"
-        )
-        saveItem.target = self
-        saveItem.isEnabled = true
-        newFileMenu.addItem(saveItem)
+            // New Project
+            let newItem = NSMenuItem(
+                title: "New Project",
+                action: #selector(newProject(_:)),
+                keyEquivalent: "n"
+            )
+            newItem.target = self
+            fileMenu.addItem(newItem)
 
-        // Save Project As
-        let saveAsItem = NSMenuItem(
-            title: "Save Project As...",
-            action: #selector(saveProjectAs(_:)),
-            keyEquivalent: "S"
-        )
-        saveAsItem.keyEquivalentModifierMask = [.command, .shift]
-        saveAsItem.target = self
-        saveAsItem.isEnabled = true
-        newFileMenu.addItem(saveAsItem)
+            // Open Project
+            let openItem = NSMenuItem(
+                title: "Open Project...",
+                action: #selector(openProjectMenu(_:)),
+                keyEquivalent: "o"
+            )
+            openItem.target = self
+            fileMenu.addItem(openItem)
 
-        newFileMenu.addItem(NSMenuItem.separator())
+            // Open Recent submenu
+            let recentMenu = NSMenu(title: "Open Recent")
+            recentMenu.delegate = self
+            let recentItem = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
+            recentItem.submenu = recentMenu
+            fileMenu.addItem(recentItem)
 
-        // Open Project
-        let openItem = NSMenuItem(
-            title: "Open Project...",
-            action: #selector(openProjectMenu(_:)),
-            keyEquivalent: "o"
-        )
-        openItem.target = self
-        openItem.isEnabled = true
-        newFileMenu.addItem(openItem)
+            fileMenu.addItem(NSMenuItem.separator())
 
-        // Open Recent submenu
-        let recentMenu = NSMenu(title: "Open Recent")
-        recentMenu.delegate = self
-        rebuildRecentProjectsMenu(recentMenu)
-        let recentItem = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
-        recentItem.submenu = recentMenu
-        newFileMenu.addItem(recentItem)
+            // Save Project
+            let saveItem = NSMenuItem(
+                title: "Save Project",
+                action: #selector(saveProject(_:)),
+                keyEquivalent: "s"
+            )
+            saveItem.target = self
+            fileMenu.addItem(saveItem)
 
-        newFileMenu.addItem(NSMenuItem.separator())
+            // Save Project As
+            let saveAsItem = NSMenuItem(
+                title: "Save Project As...",
+                action: #selector(saveProjectAs(_:)),
+                keyEquivalent: "s"
+            )
+            saveAsItem.keyEquivalentModifierMask = [.command, .shift]
+            saveAsItem.target = self
+            fileMenu.addItem(saveAsItem)
 
-        // New Project (clears current and starts fresh)
-        let newProjectItem = NSMenuItem(
-            title: "New Project",
-            action: #selector(newProject(_:)),
-            keyEquivalent: "n"
-        )
-        newProjectItem.target = self
-        newProjectItem.isEnabled = true
-        newFileMenu.addItem(newProjectItem)
+            // Insert File menu after App menu (index 1)
+            let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+            fileMenuItem.submenu = fileMenu
+            mainMenu.insertItem(fileMenuItem, at: 1)
 
-        newFileMenu.addItem(NSMenuItem.separator())
+            debugPrint("setupMenus: Created File menu")
+        }
 
-        // Close (single window app, so this just closes the window)
-        let closeItem = NSMenuItem(
-            title: "Close",
-            action: #selector(NSWindow.performClose(_:)),
-            keyEquivalent: "w"
-        )
-        newFileMenu.addItem(closeItem)
-
-        // Replace the submenu entirely
-        fileMenuItem.submenu = newFileMenu
-
-        debugPrint("setupMenus: File menu replaced with: %@", newFileMenu.items.map { $0.title })
+        // Find the File menu to insert Edit after it
+        let fileMenuIndex = mainMenu.items.firstIndex(where: { $0.title == "File" }) ?? 0
 
         // Create Edit menu (insert after File menu)
         let editMenu = NSMenu(title: "Edit")
