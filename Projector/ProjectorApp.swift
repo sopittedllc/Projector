@@ -859,6 +859,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
     private static let openRecentMenuTitle = "Open Recent"
     private static let clearRecentMenuTitle = "Clear Menu"
+    private static let noRecentProjectsTitle = "No Recent Projects"
     /// Standard menu-item icon size (macOS HIG "secondary" icon).
     private static let recentItemIconSize = NSSize(width: 16, height: 16)
 
@@ -873,9 +874,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         menu.removeAllItems()
 
         let recents = NSDocumentController.shared.recentDocumentURLs
-        for url in recents {
+        if recents.isEmpty {
+            let empty = NSMenuItem(title: Self.noRecentProjectsTitle, action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+        }
+
+        // Two projects with the same name are told apart by their folder.
+        let names = recents.map { $0.deletingPathExtension().lastPathComponent }
+        let nameCounts = Dictionary(grouping: names, by: { $0 }).mapValues(\.count)
+        for (url, name) in zip(recents, names) {
+            let title = nameCounts[name, default: 0] > 1
+                ? "\(name) — \(url.deletingLastPathComponent().path)"
+                : name
             let item = NSMenuItem(
-                title: url.deletingPathExtension().lastPathComponent,
+                title: title,
                 action: #selector(openRecentProject(_:)),
                 keyEquivalent: ""
             )
@@ -902,9 +915,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     }
 
     /// Opens the project a recent-item menu entry stands for.
+    ///
+    /// A project that has been moved or deleted gets a plain explanation
+    /// rather than the generic "couldn't be opened" from the failed load.
     @objc func openRecentProject(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         debugPrint("openRecentProject: %@", url.path)
+
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            let alert = NSAlert()
+            alert.messageText = "Project Not Found"
+            alert.informativeText = "The project \"\(url.deletingPathExtension().lastPathComponent)\" "
+                + "could not be found. It may have been moved or deleted."
+            alert.alertStyle = .warning
+            alert.runModal()
+            return
+        }
         openProjectFile(url: url)
     }
 
