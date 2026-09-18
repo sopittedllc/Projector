@@ -112,6 +112,7 @@
 		C1TIMELINE00000018 /* MediaItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000008 /* MediaItem.swift */; };
 		C1TIMELINE00000019 /* ProjectMediaLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000009 /* ProjectMediaLibrary.swift */; };
 		C1TIMELINE0000001A /* WaveformCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000A /* WaveformCache.swift */; };
+		PPST00000000000000000002 /* ProjectPersistenceServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PPST00000000000000000001 /* ProjectPersistenceServiceTests.swift */; };
 		C1TIMELINE0000001B /* PlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000B /* PlaybackEngine.swift */; };
 		VOLAUTOGAIN00000002 /* AutomationGainTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOGAIN00000001 /* AutomationGainTable.swift */; };
 		C1TIMELINE0000001C /* VideoReelClipView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000C /* VideoReelClipView.swift */; };
@@ -309,6 +310,7 @@
 		C1TIMELINE00000008 /* MediaItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaItem.swift; sourceTree = "<group>"; };
 		C1TIMELINE00000009 /* ProjectMediaLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectMediaLibrary.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000A /* WaveformCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformCache.swift; sourceTree = "<group>"; };
+		PPST00000000000000000001 /* ProjectPersistenceServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectPersistenceServiceTests.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000B /* PlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEngine.swift; sourceTree = "<group>"; };
 		VOLAUTOGAIN00000001 /* AutomationGainTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationGainTable.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000C /* VideoReelClipView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoReelClipView.swift; sourceTree = "<group>"; };
@@ -453,6 +455,7 @@
 				B1294F592F7C9F1600783FA8 /* TransportActorTests.swift */,
 				14506C8D8408E65D66372269 /* TestAudioFileFactory.swift */,
 				FD5C2B42215FEBC92028DAE5 /* WaveformCacheTests.swift */,
+				PPST00000000000000000001 /* ProjectPersistenceServiceTests.swift */,
 			);
 			path = ProjectorTests;
 			sourceTree = "<group>";
@@ -941,6 +944,7 @@
 				B1294F602F7C9F1600783FA8 /* MIDISyncActorTests.swift in Sources */,
 				1218A8494ECAE07469982AFA /* TestAudioFileFactory.swift in Sources */,
 				864AAC5C94DAF8054F840B27 /* WaveformCacheTests.swift in Sources */,
+				PPST00000000000000000002 /* ProjectPersistenceServiceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

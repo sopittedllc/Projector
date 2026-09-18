@@ -349,6 +349,12 @@ extension ContentView {
     /// Wire up callbacks for the persistence service
     func setupPersistenceServiceCallbacks() {
         // Error callback - show alert when errors occur
+        persistenceService.onSaveAsRequested = { [self] completion in
+            alerts.show(.saveProject(content: AnyView(
+                SaveProjectSheet(onSave: completion)
+            )))
+        }
+
         persistenceService.onError = { [self] errorMessage in
             alerts.show(.error(errorMessage))
         }

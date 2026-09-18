@@ -59,7 +59,7 @@ struct ProjectorApp: App {
 
 // MARK: - App Delegate
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSWindowDelegate, NSMenuDelegate {
     private var hasSetupMenus = false
 
     /// Retained so the checkmark can be refreshed when the pin is toggled from
@@ -245,9 +245,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
             return
         }
 
-        let fileMenuItem = mainMenu.items[1]
-        debugPrint("setupMenus: fileMenuItem title: %@", fileMenuItem.title)
-
         hasSetupMenus = true
 
         // Create a completely new File menu (prevents SwiftUI from managing it)
@@ -287,6 +284,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         openItem.isEnabled = true
         newFileMenu.addItem(openItem)
 
+        // Open Recent. The system keeps the list (NSDocumentController), so it
+        // survives relaunches and is shared with the Dock menu. AppKit only
+        // adds this submenu on its own to a File menu whose Open item sends
+        // `openDocument:`; ours does not, so it is built here and refilled
+        // each time it opens (see `menuNeedsUpdate`).
+        let openRecentMenu = NSMenu(title: Self.openRecentMenuTitle)
+        openRecentMenu.autoenablesItems = false
+        openRecentMenu.delegate = self
+        let openRecentItem = NSMenuItem(title: Self.openRecentMenuTitle, action: nil, keyEquivalent: "")
+        openRecentItem.submenu = openRecentMenu
+        newFileMenu.addItem(openRecentItem)
+
         newFileMenu.addItem(NSMenuItem.separator())
 
         // New Project (clears current and starts fresh)
@@ -309,10 +318,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         )
         newFileMenu.addItem(closeItem)
 
-        // Replace the submenu entirely
+        // Our own menu bar item, not SwiftUI's with its submenu swapped out.
+        // SwiftUI re-syncs the items it owns, and a File item carrying a
+        // foreign submenu is removed on that pass, taking the whole menu off
+        // the bar. An item we inserted ourselves is left alone, which is why
+        // Edit and View below have always survived.
+        let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         fileMenuItem.submenu = newFileMenu
 
-        debugPrint("setupMenus: File menu replaced with: %@", newFileMenu.items.map { $0.title })
+        if let existingFileIndex = mainMenu.items.firstIndex(where: { $0.title == "File" }) {
+            mainMenu.removeItem(at: existingFileIndex)
+        }
+        mainMenu.insertItem(fileMenuItem, at: 1)
 
         // Create Edit menu (insert after File menu)
         let editMenu = NSMenu(title: "Edit")
@@ -836,6 +853,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     @objc func newProject(_ sender: Any?) {
         debugPrint("newProject called, posting notification")
         NotificationCenter.default.post(name: .newProject, object: nil)
+    }
+
+    // MARK: - Open Recent
+
+    private static let openRecentMenuTitle = "Open Recent"
+    private static let clearRecentMenuTitle = "Clear Menu"
+    /// Standard menu-item icon size (macOS HIG "secondary" icon).
+    private static let recentItemIconSize = NSSize(width: 16, height: 16)
+
+    /// Rebuilds the Open Recent submenu from the system recents list.
+    ///
+    /// Called by AppKit every time the submenu is about to open, so a
+    /// project opened or saved a moment ago is already listed. The list itself
+    /// is maintained by `ProjectPersistenceService` via
+    /// `NSDocumentController.noteNewRecentDocumentURL`.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu.title == Self.openRecentMenuTitle else { return }
+        menu.removeAllItems()
+
+        let recents = NSDocumentController.shared.recentDocumentURLs
+        for url in recents {
+            let item = NSMenuItem(
+                title: url.deletingPathExtension().lastPathComponent,
+                action: #selector(openRecentProject(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = url
+            let icon = NSWorkspace.shared.icon(forFile: url.path)
+            icon.size = Self.recentItemIconSize
+            item.image = icon
+            item.toolTip = url.path
+            menu.addItem(item)
+        }
+
+        if !recents.isEmpty {
+            menu.addItem(NSMenuItem.separator())
+        }
+        let clearItem = NSMenuItem(
+            title: Self.clearRecentMenuTitle,
+            action: #selector(clearRecentProjects(_:)),
+            keyEquivalent: ""
+        )
+        clearItem.target = self
+        clearItem.isEnabled = !recents.isEmpty
+        menu.addItem(clearItem)
+    }
+
+    /// Opens the project a recent-item menu entry stands for.
+    @objc func openRecentProject(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        debugPrint("openRecentProject: %@", url.path)
+        openProjectFile(url: url)
+    }
+
+    /// Empties the system recents list; the submenu refills on next open.
+    @objc func clearRecentProjects(_ sender: Any?) {
+        NSDocumentController.shared.clearRecentDocuments(nil)
     }
 
 

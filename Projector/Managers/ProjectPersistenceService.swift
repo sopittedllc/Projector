@@ -52,6 +52,21 @@ final class ProjectPersistenceService: ObservableObject {
     /// Callback when an error occurs.
     var onError: ((String) -> Void)?
 
+    /// Presents Save As and invokes the completion only when a destination is chosen.
+    var onSaveAsRequested: ((@escaping (URL) -> Void) -> Void)?
+
+    /// Presents the unsaved-changes decision; injectable for noninteractive tests.
+    var confirmProjectReplacement: () -> NSApplication.ModalResponse = {
+        let alert = NSAlert()
+        alert.messageText = "Save changes to your project?"
+        alert.informativeText = "Your changes will be lost if you don't save them."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Don't Save")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal()
+    }
+
     // MARK: - Initialization
 
     /// Creates a new project persistence service.
@@ -104,11 +119,16 @@ final class ProjectPersistenceService: ObservableObject {
     /// This is called from the Save Project Sheet when the user confirms a save location.
     ///
     /// - Parameter url: The URL to save the project to.
-    func handleProjectSave(to url: URL) {
+    /// - Returns: Whether the save succeeded; failed saves must not replace the project.
+    @discardableResult
+    func handleProjectSave(to url: URL) -> Bool {
         do {
             try projectDocument.save(to: url)
+            NSDocumentController.shared.noteNewRecentDocumentURL(url)
+            return true
         } catch {
             onError?(error.localizedDescription)
+            return false
         }
     }
 
@@ -137,9 +157,35 @@ final class ProjectPersistenceService: ObservableObject {
     ///
     /// - Parameter url: The URL of the .projector package to open.
     func openProject(from url: URL) {
+        if projectDocument.hasUnsavedChanges {
+            switch confirmProjectReplacement() {
+            case .alertFirstButtonReturn:
+                if projectDocument.fileURL != nil {
+                    guard saveProject() else { return }
+                } else {
+                    onSaveAsRequested? { [weak self] destination in
+                        guard let self, self.handleProjectSave(to: destination) else { return }
+                        self.loadProject(from: url)
+                    }
+                    return
+                }
+            case .alertSecondButtonReturn:
+                break
+            default:
+                return
+            }
+        }
+        loadProject(from: url)
+    }
+
+    /// Replaces the current project after the user has resolved unsaved changes.
+    private func loadProject(from url: URL) {
         do {
             try projectDocument.load(from: url)
             diagnosticLog(.info, .project, "Opened project \(url.lastPathComponent)")
+            // Every open route (Finder, Open panel, Open Recent, drop) ends
+            // here, so this is the one place the recents list is fed.
+            NSDocumentController.shared.noteNewRecentDocumentURL(url)
 
             // Restore timeline and media library
             timelineManager.replaceProjectTimeline(projectDocument.timeline)
