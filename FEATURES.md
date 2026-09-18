@@ -704,7 +704,10 @@ takes the inert path and logs
 **Still unexercised: an actual update.** That needs the EdDSA key pair generated
 (`SUPublicEDKey` is empty), and a release published through
 `scripts/build-release.sh` so there is an appcast entry to find. Installing also
-needs a Developer ID-signed build - the local Debug build is ad-hoc signed.
+needs a Developer ID-signed build. Since 2026-09-18 the Debug build is signed
+with the same Developer ID as the release (so security-scoped bookmarks resolve
+across builds); the `#if DEBUG` gate in `buildCanUpdateItself`, not code
+identity, is what keeps a Debug copy from replacing itself.
 
 #### Dependencies
 - Depends on: Sparkle 2.9.5 (SPM), the GitHub release pipeline in `build-release.sh`
@@ -1241,6 +1244,62 @@ Async waveform generation and caching for audio clips using DSWaveformImage libr
 
 ---
 
+### Persistent Waveform Cache
+
+**Status**: Active
+**Added**: 2026-09-18
+
+#### Description
+Generated waveform atlases are written to disk so each audio source is analysed
+once, not on every project open and relaunch. `WaveformCache` asks
+`WaveformDiskStore` before decoding; a hit is a file read, a miss is generated as
+before and then stored.
+
+Stored in the app's Caches directory (`<container>/Library/Caches/Waveforms`),
+not the project package: one stem in three projects is analysed once, unsaved
+projects benefit, and the project file stays portable. macOS may purge Caches;
+a purged atlas is regenerated on demand.
+
+Keyed by a SHA-256 of the source's filesystem device and file identifiers,
+creation date, size and modification date, plus track index, split channel,
+sample density, resolution ladder and a format version. Separate files cannot
+collide merely by sharing a name, size and modification date. Moves within a
+volume retain the cache; copies (including consolidation) regenerate it once.
+Split clips key on the *original* source, so re-extraction of their temporary
+mono file does not invalidate them. A rewritten source changes its key; the old
+file is never matched again.
+
+Format: binary plist of `StoredAtlas` (float arrays as raw bytes), LZFSE
+compressed. Anything that fails to decode is a miss, never an error.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Manager | `Managers/WaveformDiskStore.swift` | Key, load, store, stored form |
+| Test | `ProjectorTests/WaveformDiskStoreTests.swift` | Round-trip, miss, corrupt, key stability |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `WaveformCache.swift` | `generateAtlasForClip` / `diskStoreKey` | Load-or-compute-and-store wrapper around `computeAtlasForClip` |
+
+#### Dependencies
+- Depends on: Waveform Rendering
+- Depended by: none
+
+#### Not Done
+- No size cap or age-based trim; growth is bounded by distinct media analysed.
+
+#### Removal Checklist
+- [ ] Delete `Managers/WaveformDiskStore.swift` and its test
+- [ ] Collapse `generateAtlasForClip` back onto `computeAtlasForClip` in `WaveformCache.swift`
+- [ ] Remove both from `project.pbxproj`
+- [ ] Clean build and verify
+
+---
+
 ### Video Thumbnails
 
 **Status**: Active
@@ -1331,6 +1390,52 @@ Coordinates media file import with duplicate detection, optimization suggestions
 
 #### Dependencies
 - Depends on: ProjectMediaLibrary, TimelineManager, MediaOptimizationService
+
+---
+
+### Open Recent
+
+**Status**: Active
+**Added**: 2026-09-18
+
+#### Description
+File > Open Recent lists recently opened or saved projects and reopens one on
+click, with Clear Menu. All project-open routes prompt to save unsaved changes;
+cancelling or a failed save leaves the current project open. Untitled projects
+use the existing Save Project sheet before opening the requested project.
+The list is the system's (`NSDocumentController`), so it
+survives relaunches, is shared with the Dock icon's recents, and carries its own
+sandbox grant - a recent project opens in a fresh process without a bookmark.
+
+The custom File menu never had this. macOS adds Open Recent automatically only
+to a File menu whose Open item sends `openDocument:`; ours sends
+`openProjectMenu:`, so the submenu is built by hand and refilled each time it
+opens.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| App | `ProjectorApp.swift` | `menuNeedsUpdate` builds the submenu; `openRecentProject(_:)`, `clearRecentProjects(_:)` |
+| Service | `Managers/ProjectPersistenceService.swift` | `noteNewRecentDocumentURL` on open and Save As |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `ProjectorApp.swift` | `setupMenus`, after "Open Project..." | Submenu with `AppDelegate` as `NSMenuDelegate` |
+| `ProjectorApp.swift` | `AppDelegate` declaration | `NSMenuDelegate` conformance |
+| `ProjectPersistenceService.swift` | `openProject(from:)`, `handleProjectSave(to:)` | Feeds the recents list |
+
+#### Dependencies
+- Depends on: none
+- Depended by: none
+
+#### Removal Checklist
+- [ ] Remove the Open Recent block from `setupMenus` and the `// MARK: - Open Recent` section
+- [ ] Drop `NSMenuDelegate` from `AppDelegate`
+- [ ] Remove both `noteNewRecentDocumentURL` calls
+- [ ] Clean build and verify
 
 ---
 

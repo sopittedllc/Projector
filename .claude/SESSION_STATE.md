@@ -1,8 +1,96 @@
 # Session State
 
-> **Last Updated**: 2026-09-16
-> **Status**: ACTIVE — Volume automation steps 1–7 built; awaiting clare (5–6) + user runtime sign-off, then commit
+> **Last Updated**: 2026-09-18
+> **Status**: SHIPPING — 2026-09-18 release in progress
 > **Branch**: main
+
+---
+
+## 2026-09-18 — Codex audit fixes
+
+- All project-open routes now prompt for unsaved changes in `ProjectPersistenceService`.
+  Cancel or failed saves preserve the current project. Untitled projects use the existing
+  Save Project sheet through `onSaveAsRequested`; opening resumes only after a successful save.
+- Waveform disk keys now include filesystem device/file identity and creation date;
+  matching filenames, sizes and modification dates in separate folders cannot collide.
+  Cache format bumped to 2. Same-volume moves retain the cache; copies regenerate once.
+- Added `ProjectPersistenceServiceTests` and matching-metadata waveform regression coverage.
+- Validation: build and all 14 targeted tests passed. `git diff --check` passed.
+  Actual menu/dialog interaction still needs runtime verification. No commit made.
+
+---
+
+## 2026-09-18 — "You don't have permission to view it" on opening a project in Debug
+
+**Symptom**: Opening a project in the Xcode Debug build errored on a media file with
+NSCocoaErrorDomain 257 ("couldn't be opened because you don't have permission to view it").
+
+**Root cause**: Debug config was ad-hoc signed (`CODE_SIGN_IDENTITY = "-"`, no team), so its
+code identity was `cdhash H"…"` — unique per build. Security-scoped bookmarks are keyed to
+code identity, so bookmarks made by the release build or any earlier Debug build failed to
+resolve. `ProjectDocument` swallowed that with `try?`, the clip kept its bare path,
+`fileExists` passed, and the first read hit the sandbox.
+
+**Changes (uncommitted)**:
+- `project.pbxproj`: Debug configs for Projector and ProjectorQuickLook now sign with
+  "Developer ID Application" / team G398H44H6X (Manual) — identical designated requirement to
+  the shipped app, verified with `codesign -d -r-`. No "Apple Development" cert exists in the
+  keychain, so Release config's "Apple Development" was never actually used (build-release.sh
+  overrides on the command line).
+- `ProjectDocument.swift`: `resolveSecurityScopedBookmark(_:fallback:)` replaces three
+  copies of `try?` resolution; logs resolve failure, stale, and refused access via
+  `diagnosticLog(.project)`.
+- `MissingFileResolutionService.swift`: `isReachable(_:)` = exists && readable; an
+  unreadable file now goes through the Locate flow, which mints a fresh bookmark.
+
+**Verify (user)**: open the same project in the Debug build →
+  - existing media that still errored should now trigger "Locate Missing File" (or just open,
+    if the bookmark was made by the release build and resolves under the shared identity)
+  - after locating once and saving, reopen in Debug and in /Applications: no prompt either way
+
+**Also fixed (same session)**: File menu missing from the menu bar in the Debug build.
+`setupMenus` swapped the submenu on SwiftUI's own File item; SwiftUI's re-sync then
+dropped it (lldb on the live process showed `[Projector, Edit, Window, View, Help]`).
+Now File is our own inserted `NSMenuItem` like Edit and View. Verified via lldb after
+relaunch: `Projector File Edit View Window Help`, stable after 15 s.
+
+**Also added (same session)**: File > Open Recent. It never existed in our custom File menu;
+what the user remembered was macOS's automatic submenu in SwiftUI's *default* File menu, seen
+only when the menu race went the other way. Now an `NSMenu` with `AppDelegate` as
+`NSMenuDelegate`, refilled from `NSDocumentController.shared.recentDocumentURLs` in
+`menuNeedsUpdate`, with Clear Menu. `ProjectPersistenceService.openProject` and
+`handleProjectSave` call `noteNewRecentDocumentURL`. Sandbox verified: fresh process, recent
+URL readable and project loaded via `openRecentProject` (lldb-driven, Debug build).
+
+**Also added (same session)**: persistent waveform cache — `Managers/WaveformDiskStore.swift`
+(+ tests), wired into `WaveformCache.generateAtlasForClip`. See FEATURES.md "Persistent
+Waveform Cache". Verified: clean-cache open wrote 2 atlases (392 KB); fresh-process reopen
+left them untouched (hit). Test bundles (ProjectorTests/UITests) now also sign with the
+Developer ID + team — the hardened-runtime host refused an ad-hoc test plug-in ("different
+Team IDs") once the app itself was Developer ID signed.
+
+**clare (2026-09-18)**: PASS, 0 blockers, 3 warnings — all addressed: Release configs also
+moved to Developer ID / Manual (they pointed at a nonexistent "Apple Development" cert; a plain
+`xcodebuild -configuration Release` now succeeds); FEATURES.md Sparkle line updated (Debug is no
+longer ad-hoc; the `#if DEBUG` gate is what keeps it inert); FEATURES.md "Open Recent" entry added.
+
+**Codex follow-up (reviewed 2026-09-18, accepted)**: cache key now hashes device+inode
+(+creation date, made optional by Claude so volumes without a birth time still cache) instead of
+file name — distinct files with identical name/size/mtime can no longer share an atlas; moves on
+a volume still hit, copies (consolidation) regenerate once. `openProject` now prompts
+Save / Don't Save / Cancel when the current project has unsaved changes (New Project already
+did; Open never had it, and Open Recent made the loss one click). `onSaveAsRequested` +
+injectable `confirmProjectReplacement` for tests; `ProjectPersistenceServiceTests` (6 cases).
+Full unit bundle green. Minor duplication: the Save-changes alert now exists in both
+`ContentView+Helpers.handleNewProject` and the service — candidate for unifying later.
+
+**Shipped 2026-09-18** via `./scripts/build-release.sh` (see chat for what it skipped, if anything).
+User runtime click-through of File menu / Open Recent / unsaved prompt was not done before
+shipping; user asked to ship.
+
+**Not done**: `locateMissingFile` passes no `newBookmark` for `.mediaItem` relocations
+(`mediaLibrary.updateItemURL`), so a relocated library item is not re-bookmarked. Pre-existing
+gap, out of scope here; noted for follow-up.
 
 ---
 
