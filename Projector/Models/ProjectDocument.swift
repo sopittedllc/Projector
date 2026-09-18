@@ -129,33 +129,20 @@ final class ProjectDocument: ObservableObject {
     /// Resolve security-scoped bookmarks for timeline video reels
     private func resolveTimelineBookmarks() {
         for i in 0..<timeline.videoReels.count {
-            if let bookmark = timeline.videoReels[i].sourceBookmark {
-                var isStale = false
-                if let url = try? URL(
-                    resolvingBookmarkData: bookmark,
-                    options: .withSecurityScope,
-                    relativeTo: nil,
-                    bookmarkDataIsStale: &isStale
-                ) {
-                    retainSecurityScope(for: url)
-                    timeline.videoReels[i].sourceURL = url
-                }
+            if let bookmark = timeline.videoReels[i].sourceBookmark,
+               let url = resolveSecurityScopedBookmark(bookmark, fallback: timeline.videoReels[i].sourceURL) {
+                timeline.videoReels[i].sourceURL = url
             }
         }
 
         for laneIndex in 0..<timeline.audioLanes.count {
             for clipIndex in 0..<timeline.audioLanes[laneIndex].clips.count {
-                if let bookmark = timeline.audioLanes[laneIndex].clips[clipIndex].sourceBookmark {
-                    var isStale = false
-                    if let url = try? URL(
-                        resolvingBookmarkData: bookmark,
-                        options: .withSecurityScope,
-                        relativeTo: nil,
-                        bookmarkDataIsStale: &isStale
-                    ) {
-                        retainSecurityScope(for: url)
-                        timeline.audioLanes[laneIndex].clips[clipIndex].sourceURL = url
-                    }
+                if let bookmark = timeline.audioLanes[laneIndex].clips[clipIndex].sourceBookmark,
+                   let url = resolveSecurityScopedBookmark(
+                        bookmark,
+                        fallback: timeline.audioLanes[laneIndex].clips[clipIndex].sourceURL
+                   ) {
+                    timeline.audioLanes[laneIndex].clips[clipIndex].sourceURL = url
                 }
             }
         }
@@ -164,32 +151,23 @@ final class ProjectDocument: ObservableObject {
     /// Resolve security-scoped bookmarks for media library items
     private func resolveMediaLibraryBookmarks() {
         for i in 0..<mediaLibrary.count {
-            if let bookmark = mediaLibrary[i].bookmark {
-                var isStale = false
-                if let url = try? URL(
-                    resolvingBookmarkData: bookmark,
-                    options: .withSecurityScope,
-                    relativeTo: nil,
-                    bookmarkDataIsStale: &isStale
-                ) {
-                    retainSecurityScope(for: url)
-                    // MediaItem is a struct, need to update the entire item
-                    var item = mediaLibrary[i]
-                    item = MediaItem(
-                        id: item.id,
-                        url: url,
-                        bookmark: item.bookmark,
-                        type: item.type,
-                        duration: item.duration,
-                        frameRate: item.frameRate,
-                        videoSize: item.videoSize,
-                        channelCount: item.channelCount,
-                        sampleRate: item.sampleRate,
-                        importedAt: item.importedAt,
-                        thumbnailData: item.thumbnailData
-                    )
-                    mediaLibrary[i] = item
-                }
+            if let bookmark = mediaLibrary[i].bookmark,
+               let url = resolveSecurityScopedBookmark(bookmark, fallback: mediaLibrary[i].url) {
+                // MediaItem is a struct, need to update the entire item
+                let item = mediaLibrary[i]
+                mediaLibrary[i] = MediaItem(
+                    id: item.id,
+                    url: url,
+                    bookmark: item.bookmark,
+                    type: item.type,
+                    duration: item.duration,
+                    frameRate: item.frameRate,
+                    videoSize: item.videoSize,
+                    channelCount: item.channelCount,
+                    sampleRate: item.sampleRate,
+                    importedAt: item.importedAt,
+                    thumbnailData: item.thumbnailData
+                )
             }
         }
     }
@@ -251,10 +229,43 @@ final class ProjectDocument: ObservableObject {
         }
     }
 
-    private func retainSecurityScope(for url: URL) {
-        if url.startAccessingSecurityScopedResource() {
-            activeSecurityScopedURLs.append(url)
+    /// Resolves a stored bookmark and starts security-scoped access to it.
+    ///
+    /// Failures are logged rather than swallowed. The reference keeps its
+    /// saved path either way; `MissingFileResolutionService` then finds the
+    /// file unreadable and offers the Locate flow, which mints a fresh
+    /// bookmark. A silent failure here used to surface later as a bare
+    /// "you don't have permission to view it" on first read.
+    ///
+    /// - Parameters:
+    ///   - bookmark: Security-scoped bookmark data saved with the project.
+    ///   - fallback: The saved path, used only to name the file in the log.
+    /// - Returns: The resolved URL with access started, or nil on any failure.
+    private func resolveSecurityScopedBookmark(_ bookmark: Data, fallback: URL) -> URL? {
+        var isStale = false
+        let url: URL
+        do {
+            url = try URL(
+                resolvingBookmarkData: bookmark,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            )
+        } catch {
+            diagnosticLog(.warning, .project,
+                "Bookmark for \(fallback.lastPathComponent) failed to resolve: \(error.localizedDescription)")
+            return nil
         }
+        if isStale {
+            diagnosticLog(.info, .project, "Bookmark for \(url.lastPathComponent) is stale")
+        }
+        guard url.startAccessingSecurityScopedResource() else {
+            diagnosticLog(.warning, .project,
+                "Bookmark for \(url.lastPathComponent) resolved but access was refused")
+            return nil
+        }
+        activeSecurityScopedURLs.append(url)
+        return url
     }
 
     private func releaseSecurityScopedResources() {

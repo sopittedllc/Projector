@@ -95,7 +95,7 @@ final class MissingFileResolutionService: ObservableObject {
 
         // Check media library items
         for item in mediaLibrary.items {
-            if !FileManager.default.fileExists(atPath: item.url.path) {
+            if !Self.isReachable(item.url) {
                 missing.append(MissingFileInfo(
                     id: item.id,
                     originalPath: item.url.path,
@@ -106,7 +106,7 @@ final class MissingFileResolutionService: ObservableObject {
 
         // Check video reels
         for reel in timelineManager.timeline.videoReels {
-            if !FileManager.default.fileExists(atPath: reel.sourceURL.path) {
+            if !Self.isReachable(reel.sourceURL) {
                 missing.append(MissingFileInfo(
                     id: reel.id,
                     originalPath: reel.sourceURL.path,
@@ -118,7 +118,7 @@ final class MissingFileResolutionService: ObservableObject {
         // Check audio clips
         for lane in timelineManager.timeline.audioLanes {
             for clip in lane.clips {
-                if !FileManager.default.fileExists(atPath: clip.sourceURL.path) {
+                if !Self.isReachable(clip.sourceURL) {
                     missing.append(MissingFileInfo(
                         id: clip.id,
                         originalPath: clip.sourceURL.path,
@@ -135,6 +135,23 @@ final class MissingFileResolutionService: ObservableObject {
             return true
         }
         return false
+    }
+
+    /// Whether the app can actually open a referenced file, not merely see it.
+    ///
+    /// Existence alone is the wrong test under the sandbox. A file whose
+    /// security-scoped bookmark failed to resolve (moved, or made by a build
+    /// with a different code identity) still exists on disk, but the first read
+    /// fails with "you don't have permission to view it". Treating it as missing
+    /// routes it through the Locate flow, which re-picks the file and mints a
+    /// bookmark this build can resolve.
+    ///
+    /// - Parameter url: The referenced media file.
+    /// - Returns: `true` if the file exists and this process may read it.
+    static func isReachable(_ url: URL) -> Bool {
+        let fileManager = FileManager.default
+        return fileManager.fileExists(atPath: url.path)
+            && fileManager.isReadableFile(atPath: url.path)
     }
 
     /// Present an open panel to locate the current missing file.
