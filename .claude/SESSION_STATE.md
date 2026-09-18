@@ -1,7 +1,7 @@
 # Session State
 
 > **Last Updated**: 2026-09-18
-> **Status**: SHIPPING — 2026-09-18 release in progress
+> **Status**: IDLE — 2026.09.18 shipped (GitHub release, appcast, Dropbox, /Applications)
 > **Branch**: main
 
 ---
@@ -84,7 +84,11 @@ injectable `confirmProjectReplacement` for tests; `ProjectPersistenceServiceTest
 Full unit bundle green. Minor duplication: the Save-changes alert now exists in both
 `ContentView+Helpers.handleNewProject` and the service — candidate for unifying later.
 
-**Shipped 2026-09-18** via `./scripts/build-release.sh` (see chat for what it skipped, if anything).
+**Shipped 2026.09.18** via `./scripts/build-release.sh`: nothing skipped — notarized app + DMG,
+/Applications replaced, GitHub release v2026.09.18, appcast published (commit 214fd02), Dropbox
+mirror copied. Before shipping, origin had the user's own Open Recent (518f891, 4e30f49, 09-16,
+AppSettings bookmark list) — merged in 7bd0c8f keeping the NSDocumentController version and
+carrying over its placeholder / duplicate-name / not-found UX; AppSettings recents dropped.
 User runtime click-through of File menu / Open Recent / unsaved prompt was not done before
 shipping; user asked to ship.
 
