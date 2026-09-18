@@ -358,6 +358,63 @@ final class WaveformCache: ObservableObject {
         updateGeneratingState()
     }
 
+    /// Returns the clip's atlas from the on-disk store, or generates and
+    /// stores it.
+    ///
+    /// The key is taken from the clip's *original* source (see
+    /// ``WaveformDiskStore/key(sourceURL:trackIndex:channel:samplesPerSecond:bucketCounts:)``)
+    /// so a split clip hits the same file whether or not its temporary mono
+    /// extraction exists. If the source cannot be stat'ed the store is skipped
+    /// and the atlas is generated exactly as before.
+    ///
+    /// - Note: `nonisolated static` for background execution.
+    private nonisolated static func generateAtlasForClip(
+        clip: AudioClip,
+        samplesPerSecond: Int,
+        bucketCounts: [Int]
+    ) async throws -> WaveformAtlas {
+        let key = diskStoreKey(for: clip, samplesPerSecond: samplesPerSecond, bucketCounts: bucketCounts)
+
+        if let key, let stored = WaveformDiskStore.load(key: key) {
+            diagnosticLog(.debug, .media, "Waveform loaded from cache: \(clip.sourceURL.lastPathComponent)")
+            return stored
+        }
+
+        let atlas = try await computeAtlasForClip(
+            clip: clip,
+            samplesPerSecond: samplesPerSecond,
+            bucketCounts: bucketCounts
+        )
+        try Task.checkCancellation()
+
+        if let key {
+            WaveformDiskStore.store(atlas, key: key)
+        }
+        return atlas
+    }
+
+    /// The disk-store key for a clip, stat'ing its source under security scope.
+    private nonisolated static func diskStoreKey(
+        for clip: AudioClip,
+        samplesPerSecond: Int,
+        bucketCounts: [Int]
+    ) -> String? {
+        let source = clip.sourceURL
+        let accessGranted = source.startAccessingSecurityScopedResource()
+        defer {
+            if accessGranted {
+                source.stopAccessingSecurityScopedResource()
+            }
+        }
+        return WaveformDiskStore.key(
+            sourceURL: source,
+            trackIndex: clip.sourceTrackIndex ?? 0,
+            channel: clip.sourceChannel,
+            samplesPerSecond: samplesPerSecond,
+            bucketCounts: bucketCounts
+        )
+    }
+
     /// Generates a multi-resolution waveform atlas for an audio clip.
     ///
     /// This method:
@@ -374,7 +431,7 @@ final class WaveformCache: ObservableObject {
     /// - Throws: `WaveformCacheError` if the audio cannot be read
     ///
     /// - Note: This method is `nonisolated static` for background execution.
-    private nonisolated static func generateAtlasForClip(
+    private nonisolated static func computeAtlasForClip(
         clip: AudioClip,
         samplesPerSecond: Int,
         bucketCounts: [Int]

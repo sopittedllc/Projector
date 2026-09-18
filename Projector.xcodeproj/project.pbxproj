@@ -112,6 +112,8 @@
 		C1TIMELINE00000018 /* MediaItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000008 /* MediaItem.swift */; };
 		C1TIMELINE00000019 /* ProjectMediaLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000009 /* ProjectMediaLibrary.swift */; };
 		C1TIMELINE0000001A /* WaveformCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000A /* WaveformCache.swift */; };
+		WFDS00000000000000000002 /* WaveformDiskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = WFDS00000000000000000001 /* WaveformDiskStore.swift */; };
+		WFDT00000000000000000002 /* WaveformDiskStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = WFDT00000000000000000001 /* WaveformDiskStoreTests.swift */; };
 		PPST00000000000000000002 /* ProjectPersistenceServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PPST00000000000000000001 /* ProjectPersistenceServiceTests.swift */; };
 		C1TIMELINE0000001B /* PlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000B /* PlaybackEngine.swift */; };
 		VOLAUTOGAIN00000002 /* AutomationGainTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOGAIN00000001 /* AutomationGainTable.swift */; };
@@ -310,6 +312,8 @@
 		C1TIMELINE00000008 /* MediaItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaItem.swift; sourceTree = "<group>"; };
 		C1TIMELINE00000009 /* ProjectMediaLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectMediaLibrary.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000A /* WaveformCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformCache.swift; sourceTree = "<group>"; };
+		WFDS00000000000000000001 /* WaveformDiskStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformDiskStore.swift; sourceTree = "<group>"; };
+		WFDT00000000000000000001 /* WaveformDiskStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformDiskStoreTests.swift; sourceTree = "<group>"; };
 		PPST00000000000000000001 /* ProjectPersistenceServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectPersistenceServiceTests.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000B /* PlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEngine.swift; sourceTree = "<group>"; };
 		VOLAUTOGAIN00000001 /* AutomationGainTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationGainTable.swift; sourceTree = "<group>"; };
@@ -455,6 +459,7 @@
 				B1294F592F7C9F1600783FA8 /* TransportActorTests.swift */,
 				14506C8D8408E65D66372269 /* TestAudioFileFactory.swift */,
 				FD5C2B42215FEBC92028DAE5 /* WaveformCacheTests.swift */,
+				WFDT00000000000000000001 /* WaveformDiskStoreTests.swift */,
 				PPST00000000000000000001 /* ProjectPersistenceServiceTests.swift */,
 			);
 			path = ProjectorTests;
@@ -547,6 +552,7 @@
 				C1TIMELINE00000007 /* TimelineManager.swift */,
 				C1TIMELINE00000009 /* ProjectMediaLibrary.swift */,
 				C1TIMELINE0000000A /* WaveformCache.swift */,
+				WFDS00000000000000000001 /* WaveformDiskStore.swift */,
 				C1TIMELINE0000003A /* ThumbnailCache.swift */,
 				C1TIMELINE0000000B /* PlaybackEngine.swift */,
 				VOLAUTOGAIN00000001 /* AutomationGainTable.swift */,
@@ -944,6 +950,7 @@
 				B1294F602F7C9F1600783FA8 /* MIDISyncActorTests.swift in Sources */,
 				1218A8494ECAE07469982AFA /* TestAudioFileFactory.swift in Sources */,
 				864AAC5C94DAF8054F840B27 /* WaveformCacheTests.swift in Sources */,
+				WFDT00000000000000000002 /* WaveformDiskStoreTests.swift in Sources */,
 				PPST00000000000000000002 /* ProjectPersistenceServiceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1030,6 +1037,7 @@
 				C1TIMELINE00000018 /* MediaItem.swift in Sources */,
 				C1TIMELINE00000019 /* ProjectMediaLibrary.swift in Sources */,
 				C1TIMELINE0000001A /* WaveformCache.swift in Sources */,
+				WFDS00000000000000000002 /* WaveformDiskStore.swift in Sources */,
 				C1TIMELINE0000003B /* ThumbnailCache.swift in Sources */,
 				C1TIMELINE0000001B /* PlaybackEngine.swift in Sources */,
 				VOLAUTOGAIN00000002 /* AutomationGainTable.swift in Sources */,
