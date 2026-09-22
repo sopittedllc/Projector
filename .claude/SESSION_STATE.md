@@ -1,10 +1,23 @@
 # Session State
 
 > **Last Updated**: 2026-09-22
-> **Status**: ACTIVE — shipping Position field keyboard shortcuts as 2026.09.22
+> **Status**: IDLE — 2026.09.22 published; local install skipped because Projector remained open
 > **Branch**: main
 
 ---
+
+## 2026-09-22 — Position field keyboard shortcuts
+
+- `FocusableTextField` in `TimelineAccordionView.swift` routes Command+A and
+  Command+C to its active field editor, with focus and modifier guards.
+- Debug build and diff checks passed. Keyboard interaction has not been manually
+  verified; user requested shipping after that limitation was disclosed.
+- Shipped 2026.09.22: signed universal archive, app and DMG notarization accepted,
+  both GitHub assets published, appcast pushed, and Dropbox copies written
+  (remote availability depends on Dropbox sync).
+- `/Applications` replacement was skipped because Projector remained running
+  after the quit request. Installed version remains 2026.09.18. The verified new
+  app is in `release-build/export/Projector.app`, ready to install after quitting.
 
 ## 2026-09-18 — Codex audit fixes
 
