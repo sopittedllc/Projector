@@ -1,7 +1,7 @@
 # Session State
 
-> **Last Updated**: 2026-09-18
-> **Status**: IDLE — 2026.09.18 shipped (GitHub release, appcast, Dropbox, /Applications)
+> **Last Updated**: 2026-09-22
+> **Status**: ACTIVE — shipping Position field keyboard shortcuts as 2026.09.22
 > **Branch**: main
 
 ---

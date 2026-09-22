@@ -1008,6 +1008,29 @@ private class FocusableTextField: NSTextField {
 
     override var acceptsFirstResponder: Bool { true }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // SwiftUI-hosted fields need to handle these before menu routing.
+        // Only claim shortcuts for this field's active editor.
+        let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        guard event.type == .keyDown,
+              modifiers == .command,
+              let editor = currentEditor(),
+              window?.firstResponder === editor else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        switch event.charactersIgnoringModifiers?.lowercased() {
+        case "a":
+            editor.selectAll(nil)
+            return true
+        case "c":
+            editor.copy(nil)
+            return true
+        default:
+            return super.performKeyEquivalent(with: event)
+        }
+    }
+
     override func mouseDown(with event: NSEvent) {
         super.mouseDown(with: event)
         // Ensure we become first responder on mouse down
