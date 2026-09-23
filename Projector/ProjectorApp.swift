@@ -29,6 +29,9 @@ struct ProjectorApp: App {
         // command is removed below, which is what actually keeps it to one.
         WindowGroup("Projector", id: "main") {
             ContentView()
+                // Keep semantic colors consistent with the dark glass surfaces,
+                // including when macOS redraws the window after losing focus.
+                .preferredColorScheme(.dark)
                 // Without this the group opened a *second* window every time a
                 // project was double-clicked in the Finder while the app was
                 // already running - a whole second copy of the interface, with
@@ -726,8 +729,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         window.styleMask.insert(.fullSizeContentView)
         window.styleMask.insert(.resizable)
 
-        // Use a vibrant dark appearance for the window
-        window.appearance = NSAppearance(named: .vibrantDark)
+        // Vibrant appearances belong to visual effect views, not whole windows.
+        // Use standard Dark Mode so semantic colors remain dark when inactive;
+        // the visual effect backgrounds supply vibrancy themselves.
+        window.appearance = NSAppearance(named: .darkAqua)
 
         // Make the window background transparent so vibrancy shows through
         window.backgroundColor = .clear
