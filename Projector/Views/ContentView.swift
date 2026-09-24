@@ -459,6 +459,7 @@ struct ContentView: View {
             player.configure(
                 playbackEngine: playbackEngine,
                 settings: settings,
+                midiSyncViewModel: midiSyncViewModel,
                 dragContext: dragContext,
                 onDropURLs: { urls in handlePlaybackAreaDrop(urls: urls) },
                 onDropProviders: { providers in mediaImportCoordinator.handleDrop(providers: providers) }
@@ -500,23 +501,6 @@ struct ContentView: View {
         }
         // Reapply when a different project is opened.
         .onChangeCompat(of: projectDocument.fileURL) { _ in applySavedUIState() }
-        // Size the player window to the media, so that if it is popped out it
-        // arrives on the video's aspect rather than a fixed 640x360.
-        //
-        // It is no longer *shown* here: the video now appears inline in the
-        // main window, and opening the separate window on import would pull the
-        // picture straight back out of it.
-        .onChangeWithPrevious(of: timelineManager.timeline.videoReels.count) { oldCount, newCount in
-            if oldCount == 0 && newCount > 0 {
-                // Only when the project has no player layout of its own. A saved
-                // frame is a size the user chose - matching the media is a
-                // sensible default, not something to impose over that.
-                if projectDocument.uiState.playerWindowFrame == nil,
-                   let reel = timelineManager.timeline.videoReels.first {
-                    Task { await sizePlayerToReel(reel) }
-                }
-            }
-        }
         .simultaneousGesture(
             TapGesture().onEnded {
                 dismissTimecodeEditing()

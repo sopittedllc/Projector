@@ -1,332 +1,315 @@
-//
-//  FloatingVideoPanel.swift
-//  Projector
-//
-//  The standalone video player window.
-//
-//  NOTE: the filename is historical - this file used to host the pop-out
-//  "floating panel". The player is now a permanent separate window and the
-//  pop-out/pop-back machinery is gone. The filename is kept because only the
-//  ProjectorQuickLook group is filesystem-synchronized in the pbxproj; renaming
-//  the file would drop it from the build.
-//
-
+// The inline player, resizable monitor, and single-display presentation.
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import SwiftTimecodeCore
 
-// MARK: - PlayerWindowController
-
-/// Owns the standalone video player window.
-///
-/// The player is never embedded in the main window. This controller creates the
-/// window once and keeps it for the app's lifetime:
-///
-/// - **Closing hides, it does not destroy.** `windowShouldClose` orders the
-///   window out and returns `false`, so playback continues while the window is
-///   away and reopening restores the exact same window and frame.
-/// - **Pinning** raises the window to `.floating` and lets it join all Spaces
-///   plus fullscreen Spaces, so it stays visible over a fullscreen DAW.
-///
-/// ## Usage
-/// ```swift
-/// PlayerWindowController.shared.configure(
-///     playbackEngine: engine,
-///     settings: settings,
-///     onDropURLs: { urls in ... },
-///     onDropProviders: { providers in ... }
-/// )
-/// PlayerWindowController.shared.show()
-/// ```
 @MainActor
 final class PlayerWindowController: NSObject, ObservableObject {
-    /// Whether the player is currently in its own window.
-    ///
-    /// The app renders exactly one video instance. An `AVPlayer` drives one
-    /// `AVPlayerView` at a time - attach a second and the first goes black - so
-    /// the inline view in the main window and this window are mutually
-    /// exclusive, and the inline view watches this to know when to detach.
-    @Published private(set) var isPoppedOut = false
-
     static let shared = PlayerWindowController()
+    @Published private(set) var isPoppedOut = false
+    @Published private(set) var isPresentingFullScreen = false
 
-    /// Default content size on first launch, before an autosaved frame exists.
-    private static let defaultContentSize = NSSize(width: 640, height: 360)
-
-    /// Smallest usable monitor size.
-    private static let minContentSize = NSSize(width: 320, height: 180)
-
-    /// Autosave key - AppKit persists the window's frame and screen under this.
-    private static let frameAutosaveName = "PlayerWindow"
-
-    private var window: NSWindow?
+    private(set) var window: PlayerVideoWindow?
+    private(set) var fullScreenView: FullScreenVideoView?
+    private var fullScreenHost: NSWindow?
+    private var fullScreenKeyMonitor: Any?
+    private weak var presentationSource: NSWindow?
+    private weak var popOutSource: NSWindow?
+    private var presentingPopOut = false
     private var playbackEngine: PlaybackEngine?
     private var settings: AppSettings?
+    private var midiSyncViewModel: MIDISyncViewModel?
+    private var dragContext: DragContext?
     private var onDropURLs: (([URL]) -> Void)?
     private var onDropProviders: (([NSItemProvider]) -> Bool)?
-
-    /// Shared drag state. Held because `PlayerWindowContent` reads it as an
-    /// `@EnvironmentObject`, and this window hosts that content itself - a
-    /// hosting view does not inherit the main window's environment, so without
-    /// injecting it here the first drop onto the player traps.
-    private var dragContext: DragContext?
-
-    /// Called when the window is shown or hidden, so the project can record it.
+    private var savedWindowFrame: CGRect?
+    private(set) var isPinnedToFront = false
     var onVisibilityChanged: ((Bool) -> Void)?
-
-    /// Called when the user finishes moving or resizing the window.
     var onFrameChanged: ((CGRect) -> Void)?
 
-    /// Whether the window is currently pinned above other applications.
-    private(set) var isPinnedToFront: Bool = false
+    override init() { super.init() }
 
-    private override init() {
-        super.init()
-    }
-
-    // MARK: - Setup
-
-    /// Supply the player's dependencies. Safe to call more than once; the
-    /// window is created on the first call and reused afterwards.
-    ///
-    /// - Parameters:
-    ///   - playbackEngine: Engine whose video output is displayed.
-    ///   - settings: App settings driving the timecode overlay and pin state.
-    ///   - onDropURLs: Handles media dragged from the app's own Media panel.
-    ///   - onDropProviders: Handles files dragged in from Finder. Returns
-    ///     whether the drop was accepted.
-    func configure(
-        playbackEngine: PlaybackEngine,
-        settings: AppSettings,
-        dragContext: DragContext,
-        onDropURLs: @escaping ([URL]) -> Void,
-        onDropProviders: @escaping ([NSItemProvider]) -> Bool
-    ) {
+    func configure(playbackEngine: PlaybackEngine, settings: AppSettings,
+                   midiSyncViewModel: MIDISyncViewModel, dragContext: DragContext,
+                   onDropURLs: @escaping ([URL]) -> Void,
+                   onDropProviders: @escaping ([NSItemProvider]) -> Bool) {
         self.playbackEngine = playbackEngine
         self.settings = settings
+        self.midiSyncViewModel = midiSyncViewModel
         self.dragContext = dragContext
         self.onDropURLs = onDropURLs
         self.onDropProviders = onDropProviders
+        setPinnedToFront(settings.playerWindowPinnedToFront)
+    }
 
-        if window == nil {
-            createWindow()
-        }
-        applyPinnedState(settings.playerWindowPinnedToFront)
+    private func togglePlayback() {
+        guard midiSyncViewModel?.isExternallyControlled == false else { return }
+        playbackEngine?.togglePlayback()
     }
 
     private func createWindow() {
         guard let playbackEngine, let settings, let dragContext else { return }
-
-        // A regular NSWindow, not the old non-activating NSPanel: the player
-        // has to be able to become key for native fullscreen and keyboard
-        // transport control to work.
-        let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: Self.defaultContentSize),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-
+        let window = PlayerVideoWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 640, height: 360),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered, defer: false)
         window.title = "Player"
-        window.isReleasedWhenClosed = false   // closing hides; we keep the instance
-        window.hidesOnDeactivate = false
-        window.minSize = Self.minContentSize
+        window.identifier = NSUserInterfaceItemIdentifier("player-pop-out")
+        window.isReleasedWhenClosed = false
+        window.contentMinSize = CGSize(width: 320, height: 180)
         window.backgroundColor = .black
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.isMovableByWindowBackground = true
+        window.tabbingMode = .disallowed
         window.collectionBehavior = [.fullScreenPrimary]
         window.delegate = self
-
-        // Hide the traffic lights: the hover overlay provides collapse, pin,
-        // and fullscreen, and the coloured dots read as clutter over video.
-        // The buttons are hidden, not removed - the window keeps its titled
-        // style mask, so native fullscreen and window dragging still work.
-        window.standardWindowButton(.closeButton)?.isHidden = true
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
-
-        let content = PlayerWindowContent(
-            playbackEngine: playbackEngine,
-            settings: settings,
-            onTogglePin: { [weak self] in self?.togglePinnedToFront() },
-            onToggleFullScreen: { [weak self] in self?.toggleFullScreen() },
-            onCollapse: { [weak self] in self?.hide() },
-            onDropURLs: { [weak self] urls in self?.onDropURLs?(urls) },
-            onDropProviders: { [weak self] providers in self?.onDropProviders?(providers) ?? false }
-        )
-        window.contentView = NSHostingView(rootView: content.environmentObject(dragContext))
-
-        // Restore the saved frame, or center on first run.
-        window.setFrameAutosaveName(Self.frameAutosaveName)
-        if window.frame.origin == .zero {
-            window.center()
+        window.onTogglePlayback = { [weak self] in self?.togglePlayback() }
+        window.onFullScreen = { [weak self, weak window] in
+            guard let self, let window else { return }
+            self.showFullScreen(from: window)
         }
-
+        // Retain the standard green button and route it to the same presentation
+        // as the inline Full Screen action. AppKit still owns normal window chrome.
+        window.standardWindowButton(.zoomButton)?.target = window
+        window.standardWindowButton(.zoomButton)?.action = #selector(PlayerVideoWindow.toggleFullScreen(_:))
+        window.setPlayerContent(PlayerWindowContent(
+            playbackEngine: playbackEngine, settings: settings, playerWindow: self,
+            onTogglePin: { [weak self] in self?.togglePinnedToFront() },
+            onDropURLs: { [weak self] in self?.onDropURLs?($0) },
+            onDropProviders: { [weak self] in self?.onDropProviders?($0) ?? false }
+        ).environmentObject(dragContext))
         self.window = window
+        applyPinnedState()
     }
 
-    // MARK: - Visibility
+    /// Explicit view ownership determines the screen, never a stale key window.
+    func show(from source: NSWindow? = nil) {
+        popOutSource = source ?? NSApp.mainWindow
+        let screen = source?.screen ?? NSApp.mainWindow?.screen ?? NSScreen.main
+        show(on: screen)
+    }
 
-    /// Show the player window, creating it if necessary, and bring it forward.
-    /// Idempotent - safe to call when the window is already visible.
-    func show() {
-        if window == nil {
-            createWindow()
-            if let settings {
-                applyPinnedState(settings.playerWindowPinnedToFront)
-            }
+    func show(on screen: NSScreen?) {
+        if window == nil { createWindow() }
+        guard let window, let screen else { return }
+        if !window.isVisible {
+            let visible = screen.visibleFrame
+            let size = savedWindowFrame?.size ?? window.frameRect(
+                forContentRect: CGRect(x: 0, y: 0, width: 640, height: 360)).size
+            let fitted = CGSize(width: min(max(size.width, 320), visible.width),
+                                height: min(max(size.height, 202), visible.height))
+            window.setFrame(CGRect(x: visible.midX - fitted.width / 2,
+                                   y: visible.midY - fitted.height / 2,
+                                   width: fitted.width, height: fitted.height), display: false)
         }
-        window?.makeKeyAndOrderFront(nil)
+        window.deminiaturize(nil)
+        window.makeKeyAndOrderFront(nil)
         isPoppedOut = true
         onVisibilityChanged?(true)
     }
 
-    /// Whether the window exists and is on screen.
-    var isVisible: Bool {
-        window?.isVisible ?? false
+    var isVisible: Bool { window?.isVisible ?? false }
+    var currentFrame: CGRect? { savedWindowFrame ?? window?.frame }
+
+    func restoreFrame(_ rect: CGRect) {
+        guard rect.origin.x.isFinite, rect.origin.y.isFinite,
+              rect.width.isFinite, rect.height.isFinite,
+              rect.width >= 320, rect.height >= 202 else { return }
+        savedWindowFrame = rect
+        window?.setFrame(rect, display: false)
     }
 
-    /// Toggle the player window's own native fullscreen.
-    func toggleFullScreen() {
-        window?.toggleFullScreen(nil)
-    }
-
-    /// Hide the player window. Playback is unaffected - this is the same
-    /// outcome as the close button, exposed as an in-window control because the
-    /// titlebar is transparent over the video.
     func hide() {
         window?.orderOut(nil)
         isPoppedOut = false
         onVisibilityChanged?(false)
     }
 
-    /// Current window frame, for saving into the project.
-    var currentFrame: CGRect? {
-        window?.frame
+    /// Independent, temporary presentation. No pop-out is created by this action.
+    func showFullScreen(from source: NSWindow) {
+        guard let screen = source.screen, let playbackEngine, let settings else { return }
+        dismissFullScreen()
+        let surface = FullScreenVideoView(frame: screen.frame)
+        surface.onDismiss = { [weak self] in self?.dismissFullScreen() }
+        let hosting = NSHostingView(rootView: VideoContentView(
+            playbackEngine: playbackEngine, showTimecode: settings.showTimecodeOverlay,
+            overlayPosition: settings.timecodeOverlayPosition,
+            overlayOpacity: settings.timecodeOverlayOpacity))
+        if #available(macOS 13.0, *) { hosting.sizingOptions = [] }
+        surface.installVideo(hosting)
+        // NSView restores to this host on exit. It is never ordered onscreen,
+        // so Escape cannot expose a resized or newly created pop-out window.
+        let host = NSWindow(contentRect: screen.frame, styleMask: .borderless,
+                            backing: .buffered, defer: false)
+        host.isReleasedWhenClosed = false
+        host.delegate = self
+        host.contentView = surface
+        fullScreenHost = host
+        fullScreenView = surface
+        presentingPopOut = source === window
+        presentationSource = presentingPopOut ? popOutSource : source
+        if presentingPopOut { hide() }
+        let entered = surface.enterFullScreenMode(screen, withOptions: [
+            .fullScreenModeAllScreens: false,
+            .fullScreenModeApplicationPresentationOptions:
+                NSApplication.PresentationOptions([.autoHideDock, .autoHideMenuBar]).rawValue
+        ])
+        guard entered else {
+            fullScreenView = nil
+            fullScreenHost = nil
+            if source === window { show(on: screen) }
+            return
+        }
+        surface.window?.title = "Fullscreen Player"
+        surface.window?.identifier = NSUserInterfaceItemIdentifier("player-full-screen")
+        surface.window?.delegate = self
+        surface.window?.makeKeyAndOrderFront(nil)
+        isPresentingFullScreen = true
+        if presentingPopOut {
+            // The standard button's tracking completes after its action returns.
+            // Hide the monitor after AppKit has finished that tracking cycle.
+            DispatchQueue.main.async { [weak self, weak surface] in
+                guard let self, let surface, self.fullScreenView === surface else { return }
+                self.window?.orderOut(nil)
+            }
+        }
+        fullScreenKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.window === self.fullScreenView?.window else { return event }
+            let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            if (event.keyCode == 53 && modifiers.isEmpty)
+                || (event.charactersIgnoringModifiers == "w" && modifiers == .command) {
+                self.dismissFullScreen()
+                return nil
+            }
+            if event.keyCode == 49 && modifiers.isEmpty {
+                if !event.isARepeat { self.togglePlayback() }
+                return nil
+            }
+            return event
+        }
     }
 
-    /// Restore a previously saved frame.
-    func restoreFrame(_ rect: CGRect) {
-        guard let window, rect.width > 0, rect.height > 0 else { return }
-        window.setFrame(rect, display: true)
+    func dismissFullScreen() {
+        guard let surface = fullScreenView else { return }
+        if let monitor = fullScreenKeyMonitor { NSEvent.removeMonitor(monitor) }
+        fullScreenKeyMonitor = nil
+        if surface.isInFullScreenMode { surface.exitFullScreenMode(options: nil) }
+        fullScreenHost?.orderOut(nil)
+        fullScreenView = nil
+        fullScreenHost = nil
+        isPresentingFullScreen = false
+        if presentingPopOut { hide() }
+        presentingPopOut = false
+        presentationSource?.makeKeyAndOrderFront(nil)
+        presentationSource = nil
     }
 
-    // MARK: - Sizing to Media
-
-    /// Largest fraction of the screen the player will claim when sizing itself
-    /// to the media. A 4K clip would otherwise open larger than the display.
-    private static let maxScreenFraction: CGFloat = 0.8
-
-    /// Resize the player to the media's own dimensions.
-    ///
-    /// Scaled down to fit the screen and up to the window's minimum, but always
-    /// on the media's aspect ratio, so the picture fills the window instead of
-    /// sitting in letterbox bars. Native size is a ceiling - a 320x240 clip is
-    /// not blown up to fill the display.
-    ///
-    /// Also sets `contentAspectRatio`, so the proportions survive the user
-    /// resizing the window afterwards.
-    ///
-    /// - Parameter mediaSize: The media's *display* size, with any rotation
-    ///   already applied.
-    func sizeToMedia(_ mediaSize: CGSize) {
-        guard mediaSize.width > 0, mediaSize.height > 0 else { return }
-        if window == nil { createWindow() }
-        guard let window, !window.styleMask.contains(.fullScreen) else { return }
-
-        window.contentAspectRatio = mediaSize
-
-        let visible = (window.screen ?? NSScreen.main)?.visibleFrame
-            ?? CGRect(origin: .zero, size: Self.defaultContentSize)
-
-        // One uniform scale for both axes - scaling them independently is what
-        // produces a stretched picture.
-        let fitScale = min(
-            1.0,
-            min(visible.width * Self.maxScreenFraction / mediaSize.width,
-                visible.height * Self.maxScreenFraction / mediaSize.height)
-        )
-        // Then lift back up if that lands under the window's minimum.
-        let minScale = max(
-            Self.minContentSize.width / mediaSize.width,
-            Self.minContentSize.height / mediaSize.height
-        )
-        let scale = max(fitScale, min(minScale, 1.0))
-        let contentSize = NSSize(width: (mediaSize.width * scale).rounded(),
-                                 height: (mediaSize.height * scale).rounded())
-
-        // Anchor the top-left so the window grows downward rather than
-        // appearing to jump when it changes size.
-        let previous = window.frame
-        var frame = window.frameRect(forContentRect: NSRect(origin: previous.origin, size: contentSize))
-        frame.origin.y = previous.maxY - frame.height
-
-        // Keep it on screen after the resize.
-        frame.origin.x = min(max(frame.origin.x, visible.minX), max(visible.minX, visible.maxX - frame.width))
-        frame.origin.y = min(max(frame.origin.y, visible.minY), max(visible.minY, visible.maxY - frame.height))
-
-        window.setFrame(frame, display: true, animate: window.isVisible)
-    }
-
-    // MARK: - Pin to Foreground
-
-    /// Turn "lock to foreground" on or off and persist the choice.
     func setPinnedToFront(_ pinned: Bool) {
         settings?.playerWindowPinnedToFront = pinned
-        applyPinnedState(pinned)
-    }
-
-    func togglePinnedToFront() {
-        setPinnedToFront(!isPinnedToFront)
-    }
-
-    /// Apply a pin state to the live window without touching persistence.
-    private func applyPinnedState(_ pinned: Bool) {
         isPinnedToFront = pinned
-        guard let window else { return }
-
-        if pinned {
-            // `.floating` clears other apps; joining all Spaces plus
-            // `.fullScreenAuxiliary` is what keeps it visible over a
-            // fullscreen app such as Logic or Cubase.
-            window.level = .floating
-            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        } else {
-            window.level = .normal
-            window.collectionBehavior = [.fullScreenPrimary]
-        }
-
+        applyPinnedState()
         NotificationCenter.default.post(name: .playerWindowPinDidChange, object: nil)
+    }
+
+    func togglePinnedToFront() { setPinnedToFront(!isPinnedToFront) }
+
+    private func applyPinnedState() {
+        window?.level = isPinnedToFront ? .floating : .normal
+        window?.collectionBehavior = isPinnedToFront
+            ? [.canJoinAllSpaces, .fullScreenPrimary] : [.fullScreenPrimary]
     }
 }
 
-// MARK: - NSWindowDelegate
-
 extension PlayerWindowController: NSWindowDelegate {
-    /// Hide instead of closing, so playback continues and the window can be
-    /// brought back with its frame and state intact.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        sender.orderOut(nil)
-        isPoppedOut = false
-        onVisibilityChanged?(false)
+        if sender === window { hide() } else { dismissFullScreen() }
         return false
     }
 
-    func windowDidResize(_ notification: Notification) {
-        reportFrame()
-    }
+    func windowDidResize(_ notification: Notification) { reportFrame(notification) }
+    func windowDidMove(_ notification: Notification) { reportFrame(notification) }
 
-    func windowDidMove(_ notification: Notification) {
-        reportFrame()
-    }
-
-    private func reportFrame() {
-        // Don't record the fullscreen frame - restoring it later would open the
-        // window sized to the whole display.
-        guard let window, !window.styleMask.contains(.fullScreen) else { return }
+    private func reportFrame(_ notification: Notification) {
+        guard let window, notification.object as? NSWindow === window else { return }
+        savedWindowFrame = window.frame
         onFrameChanged?(window.frame)
+    }
+}
+
+/// A view-based, single-screen presentation with native AppKit traffic lights.
+/// No application-wide fullscreen Space or black shielding windows are requested.
+final class FullScreenVideoView: NSView {
+    var onDismiss: (() -> Void)?
+    private let controls = NSVisualEffectView()
+    private var topTrackingArea: NSTrackingArea?
+    private(set) var closeButton: NSButton!
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        controls.material = .titlebar
+        controls.blendingMode = .withinWindow
+        controls.state = .active
+        controls.isHidden = true
+        for (index, kind) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
+            guard let button = NSWindow.standardWindowButton(kind, for: [.titled, .closable, .miniaturizable, .resizable]) else { continue }
+            button.setFrameOrigin(CGPoint(x: 12 + index * 20, y: 12))
+            button.target = self
+            button.action = #selector(dismissPresentation)
+            button.isEnabled = kind != .miniaturizeButton
+            controls.addSubview(button)
+            if kind == .closeButton {
+                closeButton = button
+                button.setAccessibilityIdentifier("player-full-screen-close")
+                button.setAccessibilityLabel("Close Fullscreen Player")
+            }
+        }
+        addSubview(controls)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    func installVideo(_ view: NSView) {
+        view.frame = bounds
+        view.autoresizingMask = [.width, .height]
+        addSubview(view, positioned: .below, relativeTo: controls)
+    }
+
+    override func layout() {
+        super.layout()
+        controls.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 40)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let topTrackingArea { removeTrackingArea(topTrackingArea) }
+        let area = NSTrackingArea(rect: CGRect(x: 0, y: 0, width: bounds.width, height: 40),
+                                  options: [.mouseEnteredAndExited, .activeAlways], owner: self)
+        addTrackingArea(area)
+        topTrackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) { controls.isHidden = false }
+    override func mouseExited(with event: NSEvent) { controls.isHidden = true }
+    var areControlsVisible: Bool { !controls.isHidden }
+    @objc private func dismissPresentation() { onDismiss?() }
+}
+
+/// Captures the window that actually owns the inline controls.
+struct PlayerSourceWindowReader: NSViewRepresentable {
+    let onWindow: (NSWindow?) -> Void
+    func makeNSView(context: Context) -> SourceView {
+        let view = SourceView()
+        view.onWindow = onWindow
+        return view
+    }
+    func updateNSView(_ nsView: SourceView, context: Context) {}
+    final class SourceView: NSView {
+        var onWindow: ((NSWindow?) -> Void)?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            let owner = window
+            DispatchQueue.main.async { [weak self] in self?.onWindow?(owner) }
+        }
     }
 }
 
@@ -344,9 +327,8 @@ extension Notification.Name {
 struct PlayerWindowContent: View {
     @ObservedObject var playbackEngine: PlaybackEngine
     @ObservedObject var settings: AppSettings
+    @ObservedObject var playerWindow: PlayerWindowController
     let onTogglePin: () -> Void
-    let onToggleFullScreen: () -> Void
-    let onCollapse: () -> Void
     let onDropURLs: ([URL]) -> Void
     let onDropProviders: ([NSItemProvider]) -> Bool
 
@@ -400,29 +382,11 @@ struct PlayerWindowContent: View {
 
                 HStack(spacing: Spacing.sm) {
                     pinButton
-                    FullScreenToggleButton(isFullScreen: false, action: onToggleFullScreen)
-                    collapseButton
                 }
             }
             .padding(Spacing.md)
         }
         .transition(.opacity)
-    }
-
-    /// Hides the window. The titlebar is transparent over the video, so the
-    /// close button is easy to miss - this is the discoverable equivalent.
-    private var collapseButton: some View {
-        Button(action: onCollapse) {
-            Image(systemName: "pip.exit")
-                .font(Typography.buttonLarge)
-                .foregroundColor(.white)
-                .frame(width: 32, height: 32)
-                .background(Color.white.opacity(0.10))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-        }
-        .buttonStyle(.plain)
-        .help("Collapse the player - playback continues")
-        .accessibilityLabel("Collapse player window")
     }
 
     private var pinButton: some View {
@@ -454,9 +418,8 @@ struct PlayerWindowContent_Previews: PreviewProvider {
         PlayerWindowContent(
             playbackEngine: PlaybackEngine(),
             settings: AppSettings.shared,
+            playerWindow: .shared,
             onTogglePin: {},
-            onToggleFullScreen: {},
-            onCollapse: {},
             onDropURLs: { _ in },
             onDropProviders: { _ in false }
         )
@@ -470,16 +433,6 @@ struct PlayerWindowContent_Previews: PreviewProvider {
 
 /// The video, shown in the main window.
 ///
-/// One video instance exists in the app. An `AVPlayer` can only drive a single
-/// `AVPlayerView` at a time - attaching a second blanks the first - so this view
-/// renders the picture only while `PlayerWindowController.isPoppedOut` is false,
-/// and stands down to a placeholder when the player is in its own window.
-///
-/// The transport controls sit *on* the video, revealed on hover, matching the
-/// player window's own overlay. They replaced the separate controls bar that
-/// used to run across the top of the main window: with the timecode readouts
-/// moved into the timeline header, play/stop and pop-out were all that remained
-/// of it, and a full-width bar for two buttons was mostly empty space.
 struct InlineVideoArea: View {
     @ObservedObject var playbackEngine: PlaybackEngine
     @ObservedObject var midiSyncViewModel: MIDISyncViewModel
@@ -499,9 +452,11 @@ struct InlineVideoArea: View {
     @EnvironmentObject private var dragContext: DragContext
 
     @State private var isDropTargeted = false
+    @State private var sourceWindow: NSWindow?
 
     var body: some View {
         picture
+        .background(PlayerSourceWindowReader { sourceWindow = $0 })
         // Fills whatever the section authority gives the video column, rather
         // than naming a size. A fixed frame here would have won over the
         // column's own frame, pinning the picture at its reference 480x270 while
@@ -525,17 +480,13 @@ struct InlineVideoArea: View {
 
     private var picture: some View {
         ZStack {
-            if playerWindow.isPoppedOut {
-                poppedOutPlaceholder
-            } else {
-                VideoContentViewForEngine(
-                    playbackEngine: playbackEngine,
-                    showTimecode: settings.showTimecodeOverlay,
-                    overlayPosition: settings.timecodeOverlayPosition,
-                    overlayOpacity: settings.timecodeOverlayOpacity,
-                    onInstallCodec: onInstallCodec
-                )
-            }
+            VideoContentViewForEngine(
+                playbackEngine: playbackEngine,
+                showTimecode: settings.showTimecodeOverlay,
+                overlayPosition: settings.timecodeOverlayPosition,
+                overlayOpacity: settings.timecodeOverlayOpacity,
+                onInstallCodec: onInstallCodec
+            )
 
             // Always mounted, never visible: this carries the spacebar binding,
             // which has to survive the video being popped out and must not
@@ -550,26 +501,11 @@ struct InlineVideoArea: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Controls overlay - always visible, bottom-right corner
         .overlay(alignment: .bottomTrailing) {
-            if !playerWindow.isPoppedOut {
-                HStack(spacing: Spacing.xs) {
-                    fullScreenButton
-                    popOutButton
-                }
-                .padding(CompactControlLayout.overlayPadding)
+            HStack(spacing: Spacing.xs) {
+                fullScreenButton
+                popOutButton
             }
-        }
-    }
-
-    // MARK: - Popped-Out Placeholder
-
-    private var poppedOutPlaceholder: some View {
-        VStack(spacing: Spacing.sm) {
-            Image(systemName: "pip.exit")
-                .font(Typography.iconLarge)
-                .foregroundColor(AppColors.textTertiary)
-            Text("Playing in a separate window")
-                .font(Typography.bodySmall)
-                .foregroundColor(AppColors.textTertiary)
+            .padding(CompactControlLayout.overlayPadding)
         }
     }
 
@@ -612,32 +548,24 @@ struct InlineVideoArea: View {
         return "\(running) - slaved to incoming MTC/MMC, local transport disabled"
     }
 
-    /// Fills the display with the picture.
-    ///
-    /// Fullscreen needs a window of its own - inline, the video is one column of
-    /// the main window's layout, so making *that* fullscreen would just enlarge
-    /// the whole app. This pops the player out first and takes the new window
-    /// fullscreen, which is what the button is understood to mean over video.
+    /// Fullscreen presentation is independent of the resizable pop-out.
     private var fullScreenButton: some View {
         FullScreenToggleButton(isFullScreen: false) {
-            playerWindow.show()
-            // A frame later: the window has to exist and be ordered in before
-            // AppKit will take it fullscreen.
-            DispatchQueue.main.async {
-                playerWindow.toggleFullScreen()
-            }
+            guard let sourceWindow else { return }
+            playerWindow.showFullScreen(from: sourceWindow)
         }
-        .help("Play full screen")
-        .accessibilityLabel("Play full screen")
+        .help("Full Screen")
+        .accessibilityLabel("Full Screen")
+        .accessibilityIdentifier("player-enter-full-screen")
     }
 
-    /// Moves the video between this window and its own, never duplicating it.
+    /// Shows or hides the additional video window.
     private var popOutButton: some View {
         Button(action: {
             if playerWindow.isPoppedOut {
                 playerWindow.hide()
             } else {
-                playerWindow.show()
+                playerWindow.show(from: sourceWindow)
             }
         }) {
             // Pop out: pip.enter; Pop in: pip.exit (inverse)
@@ -659,9 +587,10 @@ struct InlineVideoArea: View {
             }
         }
         .help(playerWindow.isPoppedOut
-              ? "Bring the video back into the main window"
+              ? "Hide the separate player window"
               : "Pop the video out into its own window")
-        .accessibilityLabel(playerWindow.isPoppedOut ? "Return video to main window" : "Pop video out")
+        .accessibilityLabel(playerWindow.isPoppedOut ? "Hide separate player" : "Pop video out")
+        .accessibilityIdentifier("player-pop-out-button")
     }
 }
 
@@ -696,5 +625,38 @@ struct VideoFrameRateChip: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .help("Frame rate is set by the video file")
         .accessibilityLabel("Frame rate: \(frameRate.displayName) frames per second")
+    }
+}
+
+/// Handles transport before any focused view can consume the spacebar.
+final class PlayerVideoWindow: NSWindow {
+    var onTogglePlayback: (() -> Void)?
+    var onFullScreen: (() -> Void)?
+
+    override func toggleFullScreen(_ sender: Any?) { onFullScreen?() }
+
+    /// The window owns sizing; SwiftUI content fills the bounds it receives.
+    /// Content-derived constraints can otherwise feed back into window sizing
+    /// when the titlebar and display-sized frame change together.
+    func setPlayerContent<Content: View>(_ content: Content) {
+        let hostingView = NSHostingView(rootView: content)
+        if #available(macOS 13.0, *) {
+            hostingView.sizingOptions = []
+        }
+        contentView = hostingView
+    }
+
+    override var canBecomeKey: Bool { true }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown,
+           event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {
+            if event.keyCode == 49 {
+                if !event.isARepeat { onTogglePlayback?() }
+                return
+            }
+
+        }
+        super.sendEvent(event)
     }
 }

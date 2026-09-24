@@ -1504,24 +1504,6 @@ extension ContentView {
     ///
     /// - Parameter url: Source media for the lane.
     /// - Returns: The file's name without its extension, trimmed.
-    /// Size the player window to a reel's media.
-    ///
-    /// Prefers the library's cached `videoSize` - it was measured when the file
-    /// was imported and costs nothing to read. Falls back to loading the track
-    /// directly, because a reel can exist without a matching library item (added
-    /// straight to the timeline rather than through the media panel), and in
-    /// that case there is no cached size to use.
-    func sizePlayerToReel(_ reel: VideoReel) async {
-        if let cached = mediaLibrary.existingItem(for: reel.sourceURL)?.videoSize, cached.width > 0 {
-            PlayerWindowController.shared.sizeToMedia(cached)
-            return
-        }
-
-        guard let size = try? await MediaInspection.videoDisplaySize(of: reel.sourceURL) else { return }
-        guard size.width > 0, size.height > 0 else { return }
-        PlayerWindowController.shared.sizeToMedia(size)
-    }
-
     // MARK: - Lanes a Stem Already Owns
 
     /// The lane this stem is already laid out on, or `nil` when the timeline

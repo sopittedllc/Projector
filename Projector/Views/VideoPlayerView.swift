@@ -2,31 +2,39 @@ import SwiftUI
 import AVKit
 import SwiftTimecodeCore
 
-/// SwiftUI wrapper for AVPlayerView with fullscreen support
+/// Display-only surface. Both windows render the same engine-owned player;
+/// transport always goes through PlaybackEngine rather than AVKit controls.
 struct VideoPlayerView: NSViewRepresentable {
     let player: AVPlayer?
 
-    func makeNSView(context: Context) -> AVPlayerView {
-        let playerView = AVPlayerView()
-        playerView.player = player
-        playerView.controlsStyle = .none  // We provide our own controls
-        playerView.showsFullScreenToggleButton = true
-        playerView.allowsPictureInPicturePlayback = false
-        playerView.videoGravity = .resizeAspect
-
-        // Optimize for smooth resizing
-        playerView.wantsLayer = true
-        playerView.layerContentsRedrawPolicy = .onSetNeedsDisplay
-
-        return playerView
+    func makeNSView(context: Context) -> VideoSurfaceView {
+        let view = VideoSurfaceView()
+        view.playerLayer.player = player
+        return view
     }
 
-    func updateNSView(_ nsView: AVPlayerView, context: Context) {
-        // Only update player if it changed
-        if nsView.player !== player {
-            nsView.player = player
+    func updateNSView(_ nsView: VideoSurfaceView, context: Context) {
+        if nsView.playerLayer.player !== player {
+            nsView.playerLayer.player = player
         }
     }
+
+    static func dismantleNSView(_ nsView: VideoSurfaceView, coordinator: ()) {
+        nsView.playerLayer.player = nil
+    }
+}
+
+final class VideoSurfaceView: NSView {
+    let playerLayer = AVPlayerLayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        playerLayer.videoGravity = .resizeAspect
+        layer = playerLayer
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) { nil }
 }
 
 /// A view that displays video content with optional timecode overlay
