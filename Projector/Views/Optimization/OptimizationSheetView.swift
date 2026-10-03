@@ -519,6 +519,7 @@ struct OptimizationSheetView: View {
         panel.prompt = "Save"
         panel.nameFieldLabel = "Project Name:"
         panel.nameFieldStringValue = "Untitled"
+        panel.directoryURL = projectDocument.timeline.videoReels.first?.sourceURL.deletingLastPathComponent()
         // Set up for package/bundle type
         if let projectorType = UTType(filenameExtension: "projector") {
             panel.allowedContentTypes = [projectorType]

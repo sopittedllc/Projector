@@ -185,7 +185,7 @@ final class PlaybackEngine: ObservableObject {
     private var hasScheduledChaseLock = false
 
     /// The single roll decision used by both picture and audio.
-    private var shouldMediaRoll: Bool {
+    var shouldMediaRoll: Bool {
         isPlaying && !isPictureParked
     }
 
@@ -688,6 +688,12 @@ final class PlaybackEngine: ObservableObject {
         diagnosticLog(.info, .playback, "Play from frame \(currentFrame)")
         transportOverride = false  // Clear override when user plays
         resetSeekState()
+
+        // An explicit Play releases a locate/dropout hold just as MTC lock
+        // does. Otherwise picture starts below while shouldMediaRoll keeps
+        // every audio player paused until external timecode arrives.
+        isPictureParked = false
+        advancesWhileParked = 0
 
         if let reel = timeline.videoReel(at: currentFrame) {
             isInGap = false

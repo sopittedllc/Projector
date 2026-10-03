@@ -177,7 +177,7 @@ extension ContentView {
         alerts.show(.saveProject(content: AnyView(
             SaveProjectSheet(onSave: { url in
                 service.handleProjectSave(to: url)
-            })
+            }, initialDirectoryURL: timelineManager.timeline.videoReels.first?.sourceURL.deletingLastPathComponent())
         )))
     }
 
@@ -212,7 +212,7 @@ extension ContentView {
                     SaveProjectSheet(onSave: { url in
                         service.handleProjectSave(to: url)
                         self.resetToNewProject()
-                    })
+                    }, initialDirectoryURL: timelineManager.timeline.videoReels.first?.sourceURL.deletingLastPathComponent())
                 )))
             }
 

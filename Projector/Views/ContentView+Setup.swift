@@ -351,7 +351,10 @@ extension ContentView {
         // Error callback - show alert when errors occur
         persistenceService.onSaveAsRequested = { [self] completion in
             alerts.show(.saveProject(content: AnyView(
-                SaveProjectSheet(onSave: completion)
+                SaveProjectSheet(
+                    onSave: completion,
+                    initialDirectoryURL: timelineManager.timeline.videoReels.first?.sourceURL.deletingLastPathComponent()
+                )
             )))
         }
 

@@ -76,6 +76,44 @@ final class PlaybackEngineTests: XCTestCase {
 
     // MARK: - External Chase Reconciliation
 
+    func testNativePlayReleasesLocateHoldWithoutMTC() {
+        let engine = PlaybackEngine(timeline: .empty)
+        defer { engine.stop(); engine.cleanup() }
+
+        engine.seekToTimecode(engine.timeline.config.startTimecode)
+        engine.play()
+
+        XCTAssertTrue(engine.isPlaying)
+        XCTAssertFalse(engine.isMTCSynced)
+        XCTAssertTrue(engine.shouldMediaRoll, "Native Play must allow audio after a locate, without waiting for MTC")
+    }
+
+    func testNativePlayReleasesHoldAfterNewProject() {
+        let engine = PlaybackEngine(timeline: .empty)
+        defer { engine.stop(); engine.cleanup() }
+
+        engine.seekToTimecode(engine.timeline.config.startTimecode)
+        // Match the playback reset performed when creating a new project.
+        engine.stop()
+        engine.timeline = .empty
+        engine.play()
+
+        XCTAssertTrue(engine.shouldMediaRoll, "A previous project's locate must not hold new-project audio")
+    }
+
+    func testTimecodeDropoutHoldsMediaUntilExplicitPlay() {
+        let engine = PlaybackEngine(timeline: .empty)
+        defer { engine.stop(); engine.cleanup() }
+
+        engine.setMTCSynced(true)
+        engine.holdForTimecodeDropout()
+        XCTAssertTrue(engine.isPlaying)
+        XCTAssertFalse(engine.shouldMediaRoll, "A dropout must continue holding media")
+
+        engine.play()
+        XCTAssertTrue(engine.shouldMediaRoll, "Explicit Play must release the dropout hold")
+    }
+
     func testPreStopDrainCannotOverrideRecentLocate() {
         XCTAssertFalse(
             PlaybackEngine.acceptsMTCFrame(

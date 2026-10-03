@@ -33,9 +33,13 @@ struct SaveProjectSheet: View {
     /// Callback when save is confirmed
     let onSave: (URL) -> Void
 
-    /// Default save location (last used, or Documents folder)
+    /// The source video's folder, when the project contains video.
+    var initialDirectoryURL: URL? = nil
+
+    /// Default save location (video folder, last used, or Documents folder)
     private var defaultLocation: URL {
-        appSettings.lastProjectSaveLocation
+        initialDirectoryURL
+            ?? appSettings.lastProjectSaveLocation
             ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
     }
 
@@ -199,6 +203,7 @@ struct SaveProjectSheet: View {
         panel.allowsMultipleSelection = false
         panel.title = "Choose Save Location"
         panel.prompt = "Select"
+        panel.directoryURL = effectiveLocation
 
         if panel.runModal() == .OK, let url = panel.url {
             saveLocation = url
