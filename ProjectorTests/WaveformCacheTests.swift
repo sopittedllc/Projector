@@ -35,3 +35,25 @@ final class WaveformCacheTests: XCTestCase {
         pollTask.cancel()
     }
 }
+
+extension WaveformCacheTests {
+    func testFailedWaveformDoesNotRetryOnEveryRedraw() async throws {
+        let clip = AudioClip(sourceURL: URL(fileURLWithPath: "/missing/\(UUID()).wav"),
+                             timelineStartFrame: 0, durationFrames: 240,
+                             sourceStartFrame: 0, sourceType: .audioFile)
+        let cache = WaveformCache()
+        _ = cache.renderData(for: clip, targetWidth: 512)
+        for _ in 0..<100 {
+            if cache.hasFailed(for: clip) { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(cache.hasFailed(for: clip))
+        for _ in 0..<10 {
+            XCTAssertNil(cache.renderData(for: clip, targetWidth: 512))
+            XCTAssertFalse(cache.isLoading(for: clip))
+            await Task.yield()
+        }
+        cache.clearAll()
+        XCTAssertFalse(cache.hasFailed(for: clip))
+    }
+}

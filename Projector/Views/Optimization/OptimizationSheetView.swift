@@ -328,6 +328,11 @@ struct OptimizationSheetView: View {
                     .font(.headline)
 
                 if let result = viewModel.result {
+                    if result.failedCount > 0 {
+                        Text("\(result.failedCount) files could not be optimized. Their originals remain in use.")
+                            .foregroundColor(.orange)
+                            .help(result.failedItems.map { "\($0.displayName): \($0.errorMessage ?? "Unknown error")" }.joined(separator: "\n"))
+                    }
                     let saved = result.totalSavedBytes
                     if saved > 0 {
                         Text("\(result.optimizedCount) files optimized, saving \(ByteCountFormatter.string(fromByteCount: Int64(saved), countStyle: .file))")

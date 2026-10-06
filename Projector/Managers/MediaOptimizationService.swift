@@ -24,10 +24,10 @@ private final class WriterInputBox: @unchecked Sendable {
     init(_ input: AVAssetWriterInput) { self.input = input }
 }
 
-/// Thread-safe wrapper for AVAssetReaderTrackOutput used in requestMediaDataWhenReady closures.
+/// Thread-safe wrapper for AVAssetReaderOutput used in requestMediaDataWhenReady closures.
 private final class ReaderOutputBox: @unchecked Sendable {
-    let output: AVAssetReaderTrackOutput
-    init(_ output: AVAssetReaderTrackOutput) { self.output = output }
+    let output: AVAssetReaderOutput
+    init(_ output: AVAssetReaderOutput) { self.output = output }
 }
 
 /// Thread-safe cancellation flag accessible from Sendable closures.
@@ -614,9 +614,18 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         // Use MOV for video to preserve timecode tracks (MP4 doesn't support timecode)
         let outputExtension = item.isVideo ? "mov" : "m4a"
         let outputName = sourceURL.deletingPathExtension().lastPathComponent
-        let outputURL = options.optimizedMediaFolderURL
+        var outputURL = options.optimizedMediaFolderURL
             .appendingPathComponent(outputName)
             .appendingPathExtension(outputExtension)
+        // A retry or another source with the same basename must not overwrite
+        // output already referenced by this or another project.
+        var suffix = 2
+        while FileManager.default.fileExists(atPath: outputURL.path) {
+            outputURL = options.optimizedMediaFolderURL
+                .appendingPathComponent("\(outputName)-\(suffix)")
+                .appendingPathExtension(outputExtension)
+            suffix += 1
+        }
 
         do {
             debugPrint("MediaOptimizationService: Starting transcode for \(item.displayName)")
@@ -669,6 +678,7 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                 success: true
             )
         } catch {
+            diagnosticLog(.error, .media, "Optimization failed for \(item.displayName): \(error.localizedDescription)")
             // Clean up partial output if exists
             try? FileManager.default.removeItem(at: outputURL)
 
@@ -732,7 +742,7 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
 
         // Audio reader output (if present)
         // CRITICAL: Preserve source sample rate per HandBrake AudioSamplerate: "auto"
-        var audioReaderOutput: AVAssetReaderTrackOutput?
+        var audioReaderOutput: AVAssetReaderAudioMixOutput?
         var sourceSampleRate: Double = 48000  // Default fallback
         if let audioTrack = audioTracks.first {
             // Get source sample rate to preserve it
@@ -744,9 +754,10 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
                 }
             }
 
-            let output = AVAssetReaderTrackOutput(
-                track: audioTrack,
-                outputSettings: [
+            // AudioMixOutput performs PCM conversion reliably for production MOV audio.
+            let output = AVAssetReaderAudioMixOutput(
+                audioTracks: [audioTrack],
+                audioSettings: [
                     AVFormatIDKey: kAudioFormatLinearPCM,
                     AVSampleRateKey: sourceSampleRate,  // Preserve source sample rate
                     AVNumberOfChannelsKey: 2,
@@ -894,8 +905,13 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         }
 
         // Start reading and writing
-        reader.startReading()
-        writer.startWriting()
+        guard reader.startReading() else {
+            throw MediaOptimizationError.transcodingFailed(sourceURL, reader.error?.localizedDescription ?? "Cannot read source media")
+        }
+        guard writer.startWriting() else {
+            reader.cancelReading()
+            throw MediaOptimizationError.transcodingFailed(sourceURL, writer.error?.localizedDescription ?? "Cannot write optimized media")
+        }
         writer.startSession(atSourceTime: .zero)
 
         // Process video, audio, and timecode using event-driven requestMediaDataWhenReady
@@ -1011,6 +1027,11 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             reader.cancelReading()
             writer.cancelWriting()
             throw MediaOptimizationError.cancelled
+        }
+
+        guard reader.status == .completed else {
+            writer.cancelWriting()
+            throw MediaOptimizationError.transcodingFailed(sourceURL, reader.error?.localizedDescription ?? "Source media could not be read completely")
         }
 
         // Finish writing

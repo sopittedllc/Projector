@@ -6,6 +6,7 @@
 //  exactly this answer, so "nothing qualifies" has to be reachable.
 //
 
+import AVFoundation
 import CoreGraphics
 import XCTest
 @testable import Projector
@@ -218,5 +219,75 @@ final class ProjectFoldersTests: XCTestCase {
     /// The folder itself is not a file inside it.
     func testTheFolderIsNotItsOwnContents() {
         XCTAssertFalse(contains("/Users/editor/Show/Cut.projector"))
+    }
+}
+
+@MainActor
+final class MediaOptimizationRegressionTests: XCTestCase {
+    func testProductionMediaFixture() async throws {
+        guard let path = ProcessInfo.processInfo.environment["PROJECTOR_MEDIA_FIXTURE"] else {
+            throw XCTSkip("Set TEST_RUNNER_PROJECTOR_MEDIA_FIXTURE to a short production MOV fixture")
+        }
+        let sourceURL = URL(fileURLWithPath: path)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let service = MediaOptimizationService()
+        let asset = AVURLAsset(url: sourceURL)
+        let duration = try await asset.load(.duration).seconds
+        let analysis = try await service.analyzeProject(mediaItems: [MediaItem(url: sourceURL, type: .video, duration: duration, videoSize: CGSize(width: 1920, height: 1080))])
+        let result = try await service.optimizeMedia(items: analysis.items, options: .handbrakeVeryFast720p(optimizedMediaFolderURL: folder)) { _ in }
+        XCTAssertEqual(result.optimizedCount, 1, result.failedItems.compactMap(\.errorMessage).joined(separator: "\n"))
+        let output = try XCTUnwrap(result.successfulItems.first)
+        let optimized = AVURLAsset(url: output.optimizedURL)
+        let outputDuration = try await optimized.load(.duration).seconds
+        XCTAssertEqual(outputDuration, duration, accuracy: 0.15)
+        let audio = try await optimized.loadTracks(withMediaType: .audio)
+        XCTAssertFalse(audio.isEmpty)
+        let cache = WaveformCache()
+        let clip = AudioClip(sourceURL: sourceURL, timelineStartFrame: 0, durationFrames: Int(duration * 24), sourceStartFrame: 0, sourceType: .videoTrack)
+        _ = cache.renderData(for: clip, targetWidth: 512)
+        for _ in 0..<200 {
+            if cache.clipAtlases[clip.id] != nil || cache.hasFailed(for: clip) { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertNotNil(cache.clipAtlases[clip.id])
+        XCTAssertFalse(cache.isLoading(for: clip))
+    }
+
+    func testOptimizesMovieWithPCMAudio() async throws {
+        let videoURL = try await TestVideoFileFactory.makeBlackMovie(duration: 1)
+        let audioURL = try TestAudioFileFactory.makeSineWaveFile(duration: 1)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: videoURL)
+            try? FileManager.default.removeItem(at: audioURL)
+            try? FileManager.default.removeItem(at: folder)
+        }
+        let composition = AVMutableComposition()
+        for (url, type) in [(videoURL, AVMediaType.video), (audioURL, AVMediaType.audio)] {
+            let asset = AVURLAsset(url: url)
+            let tracks = try await asset.loadTracks(withMediaType: type)
+            let source = try XCTUnwrap(tracks.first)
+            let track = try XCTUnwrap(composition.addMutableTrack(withMediaType: type, preferredTrackID: kCMPersistentTrackID_Invalid))
+            try track.insertTimeRange(CMTimeRange(start: .zero, duration: CMTime(seconds: 1, preferredTimescale: 48000)), of: source, at: .zero)
+        }
+        let sourceURL = folder.appendingPathComponent("source.mov")
+        let export = try XCTUnwrap(AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough))
+        export.outputURL = sourceURL
+        export.outputFileType = .mov
+        await export.export()
+        XCTAssertEqual(export.status, .completed)
+        let service = MediaOptimizationService()
+        let analysis = try await service.analyzeProject(mediaItems: [MediaItem(url: sourceURL, type: .video, duration: 1, videoSize: CGSize(width: 1920, height: 1080))])
+        let result = try await service.optimizeMedia(items: analysis.items, options: .handbrakeVeryFast720p(optimizedMediaFolderURL: folder.appendingPathComponent("optimized"))) { _ in }
+        XCTAssertEqual(result.failedCount, 0, result.failedItems.compactMap(\.errorMessage).joined(separator: "\n"))
+        XCTAssertEqual(result.optimizedCount, 1)
+        let output = try XCTUnwrap(result.successfulItems.first)
+        let outputAsset = AVURLAsset(url: output.optimizedURL)
+        let duration = try await outputAsset.load(.duration).seconds
+        XCTAssertEqual(duration, 1, accuracy: 0.1)
+        let audioTracks = try await outputAsset.loadTracks(withMediaType: .audio)
+        XCTAssertEqual(audioTracks.count, 1)
     }
 }

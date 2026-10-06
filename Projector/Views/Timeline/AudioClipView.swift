@@ -299,6 +299,11 @@ struct AudioClipView: View {
                         .frame(width: geometry.size.width, height: geometry.size.height,
                                alignment: .leading)
                         .accessibilityIdentifier("audio-waveform")
+                    } else if waveformCache.hasFailed(for: clip) {
+                        Text("Waveform unavailable")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .accessibilityIdentifier("audio-waveform-failed")
                     } else if waveformCache.isLoading(for: clip) {
                         ProgressView()
                             .scaleEffect(0.5)

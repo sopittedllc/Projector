@@ -397,7 +397,13 @@ final class OptimizationViewModel: ObservableObject {
 
                 debugPrint("OptimizationViewModel.startOptimization: setting state to complete - optimized: \(result.optimizedCount), failed: \(result.failedCount)")
                 self.result = result
-                self.state = .complete
+                if result.optimizedCount == 0 && result.failedCount > 0 {
+                    self.state = .error(result.failedItems.map {
+                        "\($0.displayName): \($0.errorMessage ?? "Unknown error")"
+                    }.joined(separator: "\n"))
+                } else {
+                    self.state = .complete
+                }
                 self.optimizationStartTime = nil
             } catch is CancellationError {
                 debugPrint("OptimizationViewModel.startOptimization: cancelled")
