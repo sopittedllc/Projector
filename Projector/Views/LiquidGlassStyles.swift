@@ -148,44 +148,21 @@ private struct GlassActionButtonBody: View {
 
     var body: some View {
         styledLabel
-            .onHover { hovering in
-                if hovering {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.helpDelay) {
-                        if isHovered {
-                            isShowingHelp = true
-                        }
-                    }
-                } else {
-                    isShowingHelp = false
+            .task(id: isHovered) {
+                isShowingHelp = false
+                guard isHovered, help != nil else { return }
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(Self.helpDelay * 1_000_000_000))
+                    guard !Task.isCancelled else { return }
+                    isShowingHelp = true
+                } catch {
+                    // Leaving the button cancels the pending tooltip.
                 }
             }
-            .overlay(alignment: .leading) {
-                if isShowingHelp, let help {
-                    helpBubble(help)
-                        // Sit just left of the button, vertically centered, so
-                        // the bubble stays inside the panel header and clear of
-                        // panel-level .clipped() bounds.
-                        .alignmentGuide(.leading) { d in d.width + Spacing.sm }
-                }
+            .background {
+                FloatingButtonHelp(text: isShowingHelp ? help : nil)
+                    .allowsHitTesting(false)
             }
-            .animation(AppAnimations.quick, value: isShowingHelp)
-    }
-
-    private func helpBubble(_ text: String) -> some View {
-        Text(text)
-            .font(Typography.caption)
-            .foregroundColor(.primary)
-            .lineLimit(1)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xs)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(nsColor: .windowBackgroundColor))
-                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-            )
-            .fixedSize()
-            .allowsHitTesting(false)
-            .transition(.opacity)
     }
 
     @ViewBuilder
@@ -228,6 +205,71 @@ private struct GlassActionButtonBody: View {
                 .onHover { hovering in
                     isHovered = hovering
                 }
+        }
+    }
+}
+
+/// Hosts help in a separate window so panel clipping and glass layers cannot
+/// obscure it. The window sits below the button and never intercepts clicks.
+private struct FloatingButtonHelp: NSViewRepresentable {
+    let text: String?
+
+    func makeNSView(context: Context) -> HelpAnchorView { HelpAnchorView() }
+
+    func updateNSView(_ view: HelpAnchorView, context: Context) {
+        view.showHelp(text)
+    }
+
+    static func dismantleNSView(_ view: HelpAnchorView, coordinator: ()) {
+        view.showHelp(nil)
+    }
+
+    final class HelpAnchorView: NSView {
+        private var panel: NSPanel?
+
+        func showHelp(_ text: String?) {
+            guard let text, let window else {
+                if let panel {
+                    panel.parent?.removeChildWindow(panel)
+                    panel.orderOut(nil)
+                }
+                panel = nil
+                return
+            }
+            let bubble = Text(text)
+                .font(Typography.caption)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .cornerRadius(Spacing.xs)
+                .fixedSize()
+            let host = NSHostingView(rootView: bubble)
+            let size = host.fittingSize
+            let anchor = window.convertToScreen(convert(bounds, to: nil))
+            let screen = window.screen?.visibleFrame ?? anchor
+            let x = min(max(anchor.midX - size.width / 2, screen.minX), screen.maxX - size.width)
+            let below = anchor.minY - Spacing.sm - size.height
+            let y = below >= screen.minY ? below : anchor.maxY + Spacing.sm
+            let helpPanel = panel ?? NSPanel(
+                contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered, defer: false
+            )
+            helpPanel.isOpaque = false
+            helpPanel.backgroundColor = .clear
+            helpPanel.hasShadow = true
+            helpPanel.ignoresMouseEvents = true
+            helpPanel.level = .floating
+            helpPanel.contentView = host
+            helpPanel.setFrame(NSRect(origin: NSPoint(x: x, y: y), size: size), display: true)
+            if helpPanel.parent == nil { window.addChildWindow(helpPanel, ordered: .above) }
+            helpPanel.orderFront(nil)
+            panel = helpPanel
+        }
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            if newWindow == nil { showHelp(nil) }
+            super.viewWillMove(toWindow: newWindow)
         }
     }
 }

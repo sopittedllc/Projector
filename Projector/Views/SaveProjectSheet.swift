@@ -38,7 +38,13 @@ struct SaveProjectSheet: View {
 
     /// Default save location (video folder, last used, or Documents folder)
     private var defaultLocation: URL {
-        initialDirectoryURL
+        // Prefer the bookmarked URL when it refers to the suggested media folder:
+        // deriving a parent URL from a dropped file does not grant folder access.
+        if let remembered = appSettings.lastProjectSaveLocation,
+           initialDirectoryURL == nil || remembered.standardizedFileURL == initialDirectoryURL?.standardizedFileURL {
+            return remembered
+        }
+        return initialDirectoryURL
             ?? appSettings.lastProjectSaveLocation
             ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
     }
@@ -214,6 +220,23 @@ struct SaveProjectSheet: View {
         guard canSave else { return }
 
         errorMessage = nil
+
+        // A media-file grant does not authorize creating siblings in its parent.
+        // Ask for the directory grant before attempting any filesystem changes.
+        if !FileManager.default.isWritableFile(atPath: effectiveLocation.path) {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.canCreateDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.title = "Allow Project Save Location"
+            panel.message = "Select a folder to allow Projector to save your project there."
+            panel.prompt = "Allow and Save"
+            panel.directoryURL = effectiveLocation
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            saveLocation = url
+            appSettings.lastProjectSaveLocation = url
+        }
 
         let projectFolderURL = effectiveLocation.appendingPathComponent(sanitizedName)
         let projectFileURL = projectFolderURL.appendingPathComponent("\(sanitizedName).projector")
