@@ -65,13 +65,13 @@ private final class TranscodeCallbackState: @unchecked Sendable {
 
     private let lock = NSLock()
     private var videoFinished = false
-    private var audioFinished: Bool
+    private var remainingAudioTracks: Int
     private var timecodeFinished: Bool
     private var didComplete = false
     private var lastReportedProgress: Double = 0
 
-    init(audioFinished: Bool, timecodeFinished: Bool) {
-        self.audioFinished = audioFinished
+    init(audioTrackCount: Int, timecodeFinished: Bool) {
+        self.remainingAudioTracks = audioTrackCount
         self.timecodeFinished = timecodeFinished
     }
 
@@ -80,10 +80,10 @@ private final class TranscodeCallbackState: @unchecked Sendable {
         defer { lock.unlock() }
         switch stream {
         case .video: videoFinished = true
-        case .audio: audioFinished = true
+        case .audio: remainingAudioTracks -= 1
         case .timecode: timecodeFinished = true
         }
-        guard videoFinished && audioFinished && timecodeFinished && !didComplete else { return false }
+        guard videoFinished && remainingAudioTracks == 0 && timecodeFinished && !didComplete else { return false }
         didComplete = true
         return true
     }
@@ -740,38 +740,17 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             reader.add(videoReaderOutput)
         }
 
-        // Audio reader output (if present)
-        // CRITICAL: Preserve source sample rate per HandBrake AudioSamplerate: "auto"
-        var audioReaderOutput: AVAssetReaderAudioMixOutput?
-        var sourceSampleRate: Double = 48000  // Default fallback
-        if let audioTrack = audioTracks.first {
-            // Get source sample rate to preserve it
-            let audioFormatDescs = try await audioTrack.load(.formatDescriptions)
-            if let formatDesc = audioFormatDescs.first {
-                let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)
-                if let rate = asbd?.pointee.mSampleRate, rate > 0 {
-                    sourceSampleRate = rate
-                }
-            }
-
-            // AudioMixOutput performs PCM conversion reliably for production MOV audio.
-            let output = AVAssetReaderAudioMixOutput(
-                audioTracks: [audioTrack],
-                audioSettings: [
-                    AVFormatIDKey: kAudioFormatLinearPCM,
-                    AVSampleRateKey: sourceSampleRate,  // Preserve source sample rate
-                    AVNumberOfChannelsKey: 2,
-                    AVLinearPCMBitDepthKey: 16,
-                    AVLinearPCMIsFloatKey: false,
-                    AVLinearPCMIsBigEndianKey: false,
-                    AVLinearPCMIsNonInterleaved: false
-                ]
-            )
+        // Keep each audio track and its channels intact. Timeline clips refer to
+        // track indices, so mixing or dropping tracks invalidates those clips.
+        var audioReaderOutputs: [AVAssetReaderTrackOutput] = []
+        for audioTrack in audioTracks {
+            let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
             output.alwaysCopiesSampleData = false
-            if reader.canAdd(output) {
-                reader.add(output)
-                audioReaderOutput = output
+            guard reader.canAdd(output) else {
+                throw MediaOptimizationError.transcodingFailed(sourceURL, "Cannot preserve source audio track")
             }
+            reader.add(output)
+            audioReaderOutputs.append(output)
         }
 
         // Timecode reader output (if present) - passthrough, no conversion
@@ -852,24 +831,22 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             writer.add(videoWriterInput)
         }
 
-        // Audio writer input with AAC encoding
-        // Settings match HandBrake: AAC stereo, 160kbps, preserve sample rate
-        var audioWriterInput: AVAssetWriterInput?
-        if audioReaderOutput != nil {
-            let audioSettings: [String: Any] = [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: sourceSampleRate,  // Preserve source sample rate
-                AVNumberOfChannelsKey: 2,           // HandBrake AudioMixdown: "stereo"
-                AVEncoderBitRateKey: options.audioTargetBitrate  // HandBrake: 160kbps
-            ]
-
-            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+        // Pass audio through without changing track order, channel layout, or
+        // sample rate while the much larger video stream is optimized.
+        var audioWriterInputs: [AVAssetWriterInput] = []
+        for audioTrack in audioTracks {
+            let descriptions = try await audioTrack.load(.formatDescriptions)
+            let input = AVAssetWriterInput(
+                mediaType: .audio,
+                outputSettings: nil,
+                sourceFormatHint: descriptions.first
+            )
             input.expectsMediaDataInRealTime = false
-
-            if writer.canAdd(input) {
-                writer.add(input)
-                audioWriterInput = input
+            guard writer.canAdd(input) else {
+                throw MediaOptimizationError.transcodingFailed(sourceURL, "Cannot preserve source audio track")
             }
+            writer.add(input)
+            audioWriterInputs.append(input)
         }
 
         // Timecode writer input (if source has timecode) - passthrough
@@ -924,7 +901,7 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
         // Use continuations to wait for completion
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let callbackState = TranscodeCallbackState(
-                audioFinished: audioReaderOutput == nil,
+                audioTrackCount: audioReaderOutputs.count,
                 timecodeFinished: timecodeReaderOutput == nil
             )
 
@@ -969,7 +946,7 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             }
 
             // Audio processing (if present) - also event-driven
-            if let audioOutput = audioReaderOutput, let audioInput = audioWriterInput {
+            for (audioOutput, audioInput) in zip(audioReaderOutputs, audioWriterInputs) {
                 let audioWriterBox = WriterInputBox(audioInput)
                 let audioReaderBox = ReaderOutputBox(audioOutput)
 

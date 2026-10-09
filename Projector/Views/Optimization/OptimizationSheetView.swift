@@ -242,7 +242,7 @@ struct OptimizationSheetView: View {
             HStack {
                 Image(systemName: "info.circle")
                     .foregroundColor(.blue)
-                Text("Video: H.264 720p ~2Mbps  |  Audio: AAC Stereo 160kbps")
+                Text("Video: HEVC 720p  |  Video audio: Original tracks preserved")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

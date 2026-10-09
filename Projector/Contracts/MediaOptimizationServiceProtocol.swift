@@ -150,7 +150,7 @@ struct ProjectAnalysisResult: Sendable, Equatable {
 ///
 /// Based on HandBrake "Very Fast 720p30" preset with quality-based encoding:
 /// - Video: HEVC hardware-accelerated, quality 0.65 (≈ CRF 23 visual quality)
-/// - Audio: AAC stereo, 160 kbps, preserves source sample rate
+/// - Video audio: Preserves all original tracks, channels, and sample rates
 /// - Frame rate: Preserves source (PFR mode - peak frame rate capped at 30)
 ///
 /// Quality-based encoding (like HandBrake's CRF mode) allocates bits intelligently:
@@ -465,8 +465,8 @@ protocol MediaOptimizationServiceProtocol: Sendable {
     /// Optimize media items with progress reporting.
     ///
     /// For each item:
-    /// 1. Video: Transcode to HEVC 720p in MOV container, preserving frame rate and timecode tracks
-    /// 2. Audio: Transcode to AAC stereo at 160 kbps, preserving original sample rate
+    /// 1. Video: Transcode to HEVC 720p in MOV container, preserving audio and timecode tracks
+    /// 2. Standalone audio: Transcode to AAC, preserving original sample rate
     ///
     /// Output uses MOV container (not MP4) to preserve embedded SMPTE timecode tracks.
     /// See Apple Technical Note TN2310 for timecode track requirements.

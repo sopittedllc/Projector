@@ -33,6 +33,48 @@ final class TimelineManagerTests: XCTestCase {
         try await super.tearDown()
     }
 
+    func testVideoOptimizationRelinksEveryAssociatedAudioTrack() async {
+        let original = URL(fileURLWithPath: "/tmp/original.mov")
+        let optimized = URL(fileURLWithPath: "/tmp/Optimized Media/original.mov")
+        let unrelated = URL(fileURLWithPath: "/tmp/unrelated.wav")
+        let media = MediaItem(url: original, type: .video, duration: 10)
+        manager.timeline.videoReels = [VideoReel(
+            mediaItemId: media.id, sourceURL: original,
+            timelineStartFrame: 0, durationFrames: 240
+        )]
+        let tracks = (0..<2).map { index in
+            AudioClip(mediaItemId: media.id, sourceURL: original,
+                      timelineStartFrame: 0, durationFrames: 240,
+                      sourceType: .videoTrack, sourceTrackIndex: index)
+        }
+        manager.timeline.audioLanes = [AudioLane(name: "Video audio", clips: tracks + [
+            AudioClip(sourceURL: unrelated, timelineStartFrame: 0, durationFrames: 240)
+        ])]
+        let library = ProjectMediaLibrary(items: [media])
+        let model = OptimizationViewModel(
+            service: MediaOptimizationService(), mediaLibrary: library,
+            projectDocument: ProjectDocument(), timelineManager: manager
+        )
+        let result = OptimizedItemResult(
+            mediaItemId: media.id, displayName: "original", originalSize: 100,
+            optimizedSize: 50, originalURL: original, optimizedURL: optimized,
+            isVideo: true, frameRate: 24, sampleRate: 48000, success: true
+        )
+        await model.updateReferences(from: OptimizationResult(
+            itemResults: [result], optimizedCount: 1, skippedCount: 0,
+            failedCount: 0, totalSavedBytes: 50,
+            optimizedMediaFolder: optimized.deletingLastPathComponent()
+        ))
+        XCTAssertEqual(manager.timeline.videoReels.first?.sourceURL, optimized)
+        let clips = manager.timeline.audioLanes[0].clips
+        XCTAssertEqual(clips[0].sourceURL, optimized)
+        XCTAssertEqual(clips[1].sourceURL, optimized)
+        XCTAssertEqual(clips[0].sourceTrackIndex, 0)
+        XCTAssertEqual(clips[1].sourceTrackIndex, 1)
+        XCTAssertEqual(clips[2].sourceURL, unrelated)
+        XCTAssertEqual(library.items.first?.url, optimized)
+    }
+
     // MARK: - Initialization Tests
 
     func testInitialization() throws {

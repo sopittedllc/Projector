@@ -534,7 +534,7 @@ final class OptimizationViewModel: ObservableObject {
 
     // MARK: - Private Helpers
 
-    private func updateReferences(from result: OptimizationResult) async {
+    func updateReferences(from result: OptimizationResult) async {
         debugPrint("OptimizationViewModel.updateReferences: updating \(result.successfulItems.count) items")
         // Update media library URLs and mark as optimized
         for item in result.successfulItems {
@@ -562,13 +562,13 @@ final class OptimizationViewModel: ObservableObject {
                         timelineManager.updateVideoReelURL(id: reel.id, newURL: item.optimizedURL)
                     }
                 }
-            } else {
-                // Find and update audio clips with matching source
-                for lane in timelineManager.timeline.audioLanes {
-                    for clip in lane.clips {
-                        if clip.sourceURL == item.originalURL {
-                            timelineManager.updateAudioClipURL(clipId: clip.id, inLane: lane.id, newURL: item.optimizedURL)
-                        }
+            }
+            // Video-track clips also reference the source file and must follow
+            // the reel before originals can be moved or removed.
+            for lane in timelineManager.timeline.audioLanes {
+                for clip in lane.clips {
+                    if clip.sourceURL == item.originalURL {
+                        timelineManager.updateAudioClipURL(clipId: clip.id, inLane: lane.id, newURL: item.optimizedURL)
                     }
                 }
             }
