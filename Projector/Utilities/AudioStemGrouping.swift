@@ -178,6 +178,23 @@ enum AudioStemGrouping {
 
     // MARK: - Grouping a batch
 
+    /// Whether a batch names two or more different stems.
+    ///
+    /// A drop onto a lane is an instruction to put the files *there* - unless
+    /// the files themselves say they are different stems. `_DX`, `_FX` and
+    /// `_MX` from one bounce all start at the same timecode, so stacking them
+    /// on one lane can only collide; they want a lane each.
+    ///
+    /// Files that declare no stem are not counted. One stem plus some
+    /// unlabelled files is still one stem's worth of evidence, and the lane the
+    /// user aimed at is the better answer than a guess.
+    ///
+    /// - Parameter urls: The dropped audio files.
+    /// - Returns: `true` when at least two distinct stems are declared.
+    static func declaresSeveralStems(_ urls: [URL]) -> Bool {
+        Set(urls.compactMap { stem(for: $0)?.key }).count > 1
+    }
+
     /// Groups a dropped batch so files sharing a stem share a lane.
     ///
     /// Files whose names declare no stem are left ungrouped - each gets its

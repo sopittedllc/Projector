@@ -219,6 +219,31 @@ final class AudioStemGroupingTests: XCTestCase {
         XCTAssertEqual(Set(keys).count, 3, "DX, FX and MX must remain three separate lanes")
     }
 
+    /// Stems of one bounce, dropped together, declare several stems.
+    ///
+    /// This is what decides that a drop onto a lane is a batch of stems rather
+    /// than an instruction to stack them there. The descriptive middle names
+    /// a role-like word (`MusicPrep`) that must not be read as music: only the
+    /// suffix counts.
+    func testStemsOfOneBounceDeclareSeveralStems() {
+        let urls = ["DX", "FX", "MX"].map { url("261009_SHOW_101_AC2_MusicPrep_\($0).wav") }
+        XCTAssertEqual(urls.compactMap { AudioStemGrouping.stem(for: $0)?.roles }, [[.dialogue], [.effects], [.music]])
+        XCTAssertTrue(AudioStemGrouping.declaresSeveralStems(urls))
+    }
+
+    /// Reels of one stem are one stem, and stay on the lane they were dropped on.
+    func testReelsOfOneStemDoNotDeclareSeveralStems() {
+        let urls = (1...3).map { url("SHOW reel \($0)_Mx.wav") }
+        XCTAssertFalse(AudioStemGrouping.declaresSeveralStems(urls))
+    }
+
+    /// Unlabelled files are no evidence either way, so one stem among them is
+    /// still one stem.
+    func testUnlabelledFilesDoNotCountAsStems() {
+        XCTAssertFalse(AudioStemGrouping.declaresSeveralStems([url("Bounce 1.wav"), url("Bounce 2.wav")]))
+        XCTAssertFalse(AudioStemGrouping.declaresSeveralStems([url("Bounce 1.wav"), url("SHOW reel 1_Dx.wav")]))
+    }
+
     func testEmptyBatch() {
         XCTAssertTrue(AudioStemGrouping.groups(for: []).isEmpty)
     }

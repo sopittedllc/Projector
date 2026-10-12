@@ -92,6 +92,20 @@ final class ImportHoldBackReportTests: XCTestCase {
         XCTAssertFalse(message.contains("no timecode"))
     }
 
+    /// A collision on a lane the user chose does not claim a same-stem clash.
+    ///
+    /// Whatever is already on a chosen lane is unknown - another stem, a reel's
+    /// own audio - so the message must not tell the user the delivery
+    /// disagrees with itself.
+    func testDropLaneCollisionDoesNotBlameTheStem() {
+        guard let message = ImportHoldBackReport.message(for: names(3, .dropLaneOccupied)) else {
+            return XCTFail("expected a message")
+        }
+
+        XCTAssertTrue(message.contains("lane they were dropped onto"))
+        XCTAssertFalse(message.contains("same stem"))
+    }
+
     /// One drop can hold files back for both reasons. Each gets its own heading
     /// and its own list, rather than one undifferentiated pile.
     func testBothReasonsAreReportedSeparatelyInOneAlert() {

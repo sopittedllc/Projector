@@ -15,12 +15,19 @@ enum ImportHoldBackReason: Hashable, Sendable, CaseIterable {
 
     /// The file's timecode is already taken on the lane its stem owns.
     ///
-    /// Only reachable when two files declaring the *same* stem claim
-    /// overlapping time, because a batch puts one lane under each stem. Two
-    /// reels of one stem cannot both play at 01:00:00:00, so this is always a
-    /// disagreement inside the delivery rather than a decision Projector can
-    /// make.
+    /// Raised only by a batch that chose the lanes itself, which puts one lane
+    /// under each stem - so it means two files declaring the *same* stem claim
+    /// overlapping time. Two reels of one stem cannot both play at
+    /// 01:00:00:00, so this is always a disagreement inside the delivery
+    /// rather than a decision Projector can make.
     case timecodeAlreadyOccupied
+
+    /// The file's timecode is already taken on the lane it was dropped onto.
+    ///
+    /// The user chose the lane, so nothing is known about what else is on it:
+    /// it may be another stem, a reel's own audio, or anything at all. Saying
+    /// "the same stem" here would be a claim the import cannot back.
+    case dropLaneOccupied
 
     /// The sentence introducing this reason's list of files.
     ///
@@ -36,6 +43,10 @@ enum ImportHoldBackReason: Hashable, Sendable, CaseIterable {
         case .timecodeAlreadyOccupied:
             let verb = count == 1 ? "claims" : "claim"
             return "\(subject) \(verb) a timecode another file of the same stem already occupies:"
+        case .dropLaneOccupied:
+            let verb = count == 1 ? "lands" : "land"
+            let dropped = count == 1 ? "it was" : "they were"
+            return "\(subject) \(verb) on audio already on the lane \(dropped) dropped onto:"
         }
     }
 }

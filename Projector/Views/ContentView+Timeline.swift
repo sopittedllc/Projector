@@ -61,6 +61,18 @@ extension ContentView {
     func handleAudioDropOnTimeline(_ laneIndex: Int, _ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
         debugPrint("handleAudioDropOnTimeline: ENTRY - laneIndex=\(laneIndex), urls=\(urls.map { $0.lastPathComponent }), atFrame=\(atFrame)")
 
+        // Separate stems dropped together want a lane each, wherever they land.
+        // Putting `_DX`, `_FX` and `_MX` on the one lane under the cursor can
+        // only collide - stems of one bounce share a start timecode - and every
+        // file after the first was held back as "occupied". The batch handler
+        // already puts one lane under each stem and reuses a lane that carries
+        // it, so hand the drop over before creating anything here.
+        if AudioStemGrouping.declaresSeveralStems(urls) {
+            debugPrint("handleAudioDropOnTimeline: \(urls.count) files declare several stems, routing to batch")
+            handleMixedBatchDrop(videoURLs: [], audioURLs: urls, atFrame: atFrame)
+            return
+        }
+
         beginImportUndo()
 
         // Defer state changes to avoid "Publishing changes from within view updates"
@@ -207,7 +219,8 @@ extension ContentView {
             // stem for the audio, a running position for the reels - so it is
             // the one with nothing to go on when a file carries no timecode. A
             // drop that names a lane or a frame is an instruction and is still
-            // honoured; see `handleAudioDropOnTimeline`.
+            // honoured - unless it carries several stems, which
+            // `handleAudioDropOnTimeline` hands here; see that function.
             //
             // Placing them anyway is what the report that prompted this looked
             // like: a picture turnover with no `tmcd` on the reels and no `bext`
@@ -1700,8 +1713,9 @@ extension ContentView {
 
         // Same rule as a mixed batch: the lane the user aimed at keeps its
         // identity, and a file that will not fit on it is reported rather than
-        // given a lane nobody asked for.
-        await holdBack(urls: overlapping, reason: .timecodeAlreadyOccupied)
+        // given a lane nobody asked for. Reported as the lane being taken, not
+        // as a same-stem clash: what is already on a chosen lane is unknown.
+        await holdBack(urls: overlapping, reason: .dropLaneOccupied)
 
         // Add padding after all files
         let paddingFrames = Int(TimelineLayout.defaultPaddingMinutes * 60.0 * timelineManager.timeline.config.frameRate.fps)

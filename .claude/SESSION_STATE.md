@@ -1,10 +1,25 @@
 # Session State
 
-> **Last Updated**: 2026-09-22
-> **Status**: IDLE — 2026.09.22 published and installed in /Applications
+> **Last Updated**: 2026-10-12
+> **Status**: AWAITING USER VERIFICATION — multi-stem drop onto a lane (uncommitted)
 > **Branch**: main
 
 ---
+
+## 2026-10-12 — Separate stems dropped onto a lane were all "Not Placed"
+
+- Cause: an audio-only drop onto an existing lane goes to `handleAudioDropOnTimeline`,
+  which stacked every file on that one lane with no stem grouping. DX/FX/MX of one
+  bounce share a start timecode, so they collided with the lane's existing audio and
+  each other. The alert then wrongly said "another file of the same stem".
+- Fix: `AudioStemGrouping.declaresSeveralStems(_:)`. When a lane drop declares 2+
+  distinct stems, it is routed to `handleMixedBatchDrop` (a lane per stem, reusing
+  existing stem lanes). New `ImportHoldBackReason.dropLaneOccupied` wording for
+  collisions on a user-chosen lane.
+- Tests: 3 grouping tests + 1 report test added; both suites pass. Debug build relaunched.
+- Not yet run: clare review / gabriel QA. Runtime verification is pending from the user.
+- Behaviour change: in a multi-stem lane drop, files without timecode are now held
+  back (batch rule) instead of being placed at the drop position.
 
 ## 2026-09-22 — Position field keyboard shortcuts
 
