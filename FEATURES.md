@@ -1735,6 +1735,28 @@ keys are dropped). No format version bump - optional fields with defaults.
 - [ ] Decide whether to keep `TrackGeometry`/`LaneReorder(rows:)` (they also fixed marquee over expanded linked strips) - if not, restore constant-pitch rows
 - [ ] Remove the test files and the `VOLAUTO*` entries from `project.pbxproj`
 
+### MTC "No Picture" Indicator
+
+**Status**: Active
+**Added**: 2026-10-14
+
+#### Description
+When incoming MTC is locked but lands before the first reel or at/after the end of the last, nothing can play. The MTC IN readout turns amber (static, not flashing) and reads "NO PICTURE" in place of the rate, with a tooltip giving the received timecode and the picture's range. Gaps between reels do not count. A frame-rate mismatch takes precedence. `PlaybackEngine.scheduleChaseLock` now records why a lock was not played to the diagnostic log (kept in release builds): `.warning` for no reel / no source time / no player / item not ready, `.info` for "not the current reel".
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Test | `ProjectorTests/PictureRangeTests.swift` | `pictureFrameRange` and `isOutsidePicture` |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `Timeline.swift` | `pictureFrameRange`, `isOutsidePicture(frame:)` | Range logic |
+| `TimelineAccordionView.swift` | `TimelineHeaderReadouts.outsidePicture` | Dot, status text, tooltip |
+| `PlaybackEngine.swift` | `scheduleChaseLock` | Split guard with `diagnosticLog(.midi)` per reason |
+
 ### Placed Without Timecode Warning
 
 **Status**: Active

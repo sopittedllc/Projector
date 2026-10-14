@@ -1,10 +1,19 @@
 # Session State
 
 > **Last Updated**: 2026-10-12
-> **Status**: ACTIVE — 2026-10-14: no-timecode notice built (uncommitted); awaiting runtime verification
+> **Status**: IDLE — NO PICTURE indicator shipped
 > **Branch**: main
 
 ---
+
+## 2026-10-14 (later) — MTC "NO PICTURE" indicator (uncommitted)
+
+- MTC IN readout (`TimelineHeaderReadouts`) shows a yellow dot + "NO PICTURE" when locked TC is before
+  the first reel or after the last (gaps excluded; rate mismatch wins). `Timeline.pictureFrameRange` /
+  `isOutsidePicture(frame:)` (zero-length reels ignored). `scheduleChaseLock` logs each failure reason
+  via `diagnosticLog` (release builds).
+- Clare: PASS, 0 blockers; warnings fixed. PictureRangeTests pass. Debug build launched for the user.
+- Shipped at the user's request before they confirmed the runtime checklist.
 
 ## 2026-10-14 — MTC received but nothing played
 
@@ -19,7 +28,8 @@
 - Drag fixes done (marquee `clipHit` latch; `LinkedDragPreview.matches` shared, strip follows, followers
   highlighted; trimmed-reel matching bug fixed). Clare: PASS, 0 blockers; warnings 1-2 (wording, FPS-resume
   flush scope) fixed, negative test added. Debug build OK; 12 + 3 tests pass.
-- Next: the user quits the release app, then Debug build + launch for runtime check, then commit.
+- Committed 5cbc5a3; shipped 2026.10.14 (notarized, GitHub release, appcast, Dropbox, /Applications).
+  Nothing skipped. Shipped before the user confirmed the runtime checklist (the caveat was given once).
 - Not done: release-build logging of the "chase lock not schedulable" case.
 
 ## 2026-10-12 — Separate stems dropped onto a lane were all "Not Placed"

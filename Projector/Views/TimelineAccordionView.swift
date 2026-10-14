@@ -750,7 +750,9 @@ struct TimelineHeaderReadouts: View {
     /// forced this row taller than every field beside it. The status text keeps
     /// its own colour, and the full explanation stays in the tooltip.
     private var midiReadout: some View {
-        HStack(spacing: Spacing.xs) {
+        // Scans the reels, so evaluated once per body and passed to the helpers.
+        let outside = outsidePicture
+        return HStack(spacing: Spacing.xs) {
             Text("MTC IN:")
                 .font(TransportTypography.label)
                 .foregroundColor(.secondary)
@@ -759,7 +761,7 @@ struct TimelineHeaderReadouts: View {
 
             HStack(spacing: Spacing.xs) {
                 Circle()
-                    .fill(signalColor)
+                    .fill(signalColor(outsidePicture: outside))
                     .frame(width: 6, height: 6)
                     .opacity(frameRateMismatch ? mismatchFlash : 1.0)
 
@@ -768,9 +770,9 @@ struct TimelineHeaderReadouts: View {
                     .foregroundColor(midiSyncViewModel.incomingSignal == .timecode ? .primary : .secondary)
                     .lineLimit(1)
 
-                Text(readoutStatus)
+                Text(readoutStatus(outsidePicture: outside))
                     .font(frameRateMismatch ? TransportTypography.captionStrong : TransportTypography.caption)
-                    .foregroundColor(frameRateMismatch ? AppColors.accentPink : .secondary.opacity(0.8))
+                    .foregroundColor(statusColor(outsidePicture: outside))
                     .opacity(frameRateMismatch ? mismatchFlash : 1.0)
                     .lineLimit(1)
             }
@@ -781,8 +783,8 @@ struct TimelineHeaderReadouts: View {
                     .opacity(frameRateMismatch ? mismatchFlash : 0)
             )
         }
-        .help(readoutTooltip)
-        .accessibilityLabel(readoutTooltip)
+        .help(readoutTooltip(outsidePicture: outside))
+        .accessibilityLabel(readoutTooltip(outsidePicture: outside))
         // Drive the flash only while mismatched, and settle to fully opaque when
         // resolved so the readout doesn't freeze mid-fade.
         .onChangeCompat(of: frameRateMismatch) { mismatched in
@@ -830,10 +832,11 @@ struct TimelineHeaderReadouts: View {
     }
 
     /// Short status suffix. The long-form explanation lives in the tooltip.
-    private var readoutStatus: String {
+    private func readoutStatus(outsidePicture: Bool) -> String {
         switch midiSyncViewModel.incomingSignal {
         case .timecode:
             let rate = midiSyncViewModel.incomingFrameRate?.stringValue ?? "?"
+            if outsidePicture { return "NO PICTURE" }
             guard frameRateMismatch else { return rate }
             return "\(rate) ≠ \(timelineManager.timeline.config.frameRate.stringValue)"
         // Beat clock and other traffic both mean "MIDI is arriving but it is
@@ -844,13 +847,35 @@ struct TimelineHeaderReadouts: View {
         }
     }
 
-    private var signalColor: Color {
+    /// Whether locked timecode falls before the first reel or after the last.
+    ///
+    /// A lower-severity state than `frameRateMismatch`: playback does nothing,
+    /// but the cause is where the DAW is rolling, not a wrong setting. Gaps
+    /// between reels do not count. Yields to a rate mismatch, which is worse and
+    /// makes the frame number meaningless anyway.
+    private var outsidePicture: Bool {
+        guard !frameRateMismatch,
+              midiSyncViewModel.incomingSignal == .timecode,
+              let tc = midiSyncViewModel.mtcTimecode else { return false }
+        let timeline = timelineManager.timeline
+        return timeline.isOutsidePicture(frame: timeline.config.frame(for: tc))
+    }
+
+    /// Colour of the status suffix: pink for a rate fault, amber outside the picture.
+    private func statusColor(outsidePicture: Bool) -> Color {
+        if frameRateMismatch { return AppColors.accentPink }
+        if outsidePicture { return AppColors.warning }
+        return .secondary.opacity(0.8)
+    }
+
+    private func signalColor(outsidePicture: Bool) -> Color {
         switch midiSyncViewModel.incomingSignal {
         case .timecode:
             // Red, not amber: a rate mismatch silently puts the playhead on the
             // wrong frame, which is worse than no sync at all because it looks
             // like it's working.
-            return frameRateMismatch ? AppColors.accentPink : .green
+            if frameRateMismatch { return AppColors.accentPink }
+            return outsidePicture ? AppColors.warning : .green
         case .beatClock, .other:
             return .orange
         case .none:
@@ -858,7 +883,7 @@ struct TimelineHeaderReadouts: View {
         }
     }
 
-    private var readoutTooltip: String {
+    private func readoutTooltip(outsidePicture: Bool) -> String {
         switch midiSyncViewModel.incomingSignal {
         case .timecode:
             let rate = midiSyncViewModel.incomingFrameRate?.stringValue ?? "unknown"
@@ -866,6 +891,12 @@ struct TimelineHeaderReadouts: View {
             if let incoming = midiSyncViewModel.incomingFrameRate,
                incoming.stringValue != project {
                 return "FRAME RATE MISMATCH: incoming MTC is \(rate) but this project is \(project). MTC positions are expressed in the sender's rate, so the playhead will land on the wrong frame and drift. Change the project rate to \(rate), or set the sender to \(project)."
+            }
+            if outsidePicture, let tc = midiSyncViewModel.mtcTimecode,
+               let range = timelineManager.timeline.pictureFrameRange {
+                let first = timelineManager.formatTimecode(forFrame: range.lowerBound)
+                let last = timelineManager.formatTimecode(forFrame: range.upperBound - 1)
+                return "Receiving \(tc.stringValue()), but the picture runs \(first) - \(last), so there is nothing to play. Roll the DAW inside that range, or move the reel with Set Timecode Position…"
             }
             return "Receiving MTC at \(rate) on \(midiSyncViewModel.selectedInputName ?? "the selected input")"
         case .beatClock:

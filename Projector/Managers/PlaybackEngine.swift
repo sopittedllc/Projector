@@ -1168,12 +1168,40 @@ final class PlaybackEngine: ObservableObject {
     func scheduleChaseLock(_ lock: MTCChaseLock) {
         let frame = timeline.config.frame(for: lock.timecode)
 
-        guard let reel = timeline.videoReel(at: frame),
-              reel.id == currentReelId,
-              let itemTime = reel.sourceCMTime(at: frame),
-              let player = currentPlayer,
-              player.currentItem?.status == .readyToPlay else {
-            syncTrace("chase lock not schedulable for \(lock.timecode.stringValue())")
+        // Each reason is recorded to the diagnostic log (kept in release
+        // builds) as well as `syncTrace`: a lock that plays nothing otherwise
+        // leaves no trace, and the MTC readout still shows a healthy timecode.
+        // `preSync` arrives once per lock attempt, so this is not per-frame.
+        let tc = lock.timecode.stringValue()
+
+        guard let reel = timeline.videoReel(at: frame) else {
+            syncTrace("chase lock not schedulable for \(tc): no reel at frame \(frame)")
+            let range = timeline.pictureFrameRange.map {
+                "picture runs frames \($0.lowerBound)..<\($0.upperBound)"
+            } ?? "timeline has no reels"
+            diagnosticLog(.warning, .midi, "Chase lock at \(tc) not played: no reel at frame \(frame) (\(range))")
+            return
+        }
+        // Not a fault: a locate onto a different reel is handled by the reel
+        // switch, which starts playback itself.
+        guard reel.id == currentReelId else {
+            syncTrace("chase lock not schedulable for \(tc): reel is not the current reel")
+            diagnosticLog(.info, .midi, "Chase lock at \(tc) deferred: reel \(reel.displayName) is not the current reel")
+            return
+        }
+        guard let itemTime = reel.sourceCMTime(at: frame) else {
+            syncTrace("chase lock not schedulable for \(tc): no source time")
+            diagnosticLog(.warning, .midi, "Chase lock at \(tc) not played: frame \(frame) has no source time in reel \(reel.displayName)")
+            return
+        }
+        guard let player = currentPlayer else {
+            syncTrace("chase lock not schedulable for \(tc): no player")
+            diagnosticLog(.warning, .midi, "Chase lock at \(tc) not played: no player for reel \(reel.displayName)")
+            return
+        }
+        guard player.currentItem?.status == .readyToPlay else {
+            syncTrace("chase lock not schedulable for \(tc): player item not ready")
+            diagnosticLog(.warning, .midi, "Chase lock at \(tc) not played: player item for reel \(reel.displayName) is not ready")
             return
         }
 

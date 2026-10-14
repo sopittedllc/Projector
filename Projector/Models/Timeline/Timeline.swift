@@ -307,6 +307,29 @@ struct Timeline: Codable, Equatable, Sendable {
 
     // MARK: - Timeline Range
 
+    /// The span from the first reel's start to the last reel's end, or nil with no reels.
+    ///
+    /// Gaps between reels are inside this range: it is the extent of the
+    /// picture, not the set of frames that have picture.
+    var pictureFrameRange: Range<Int>? {
+        // Reels with no duration have no picture to play.
+        let playable = videoReels.filter { $0.durationFrames > 0 }
+        guard let first = playable.map(\.timelineStartFrame).min(),
+              let last = playable.map(\.timelineEndFrame).max() else { return nil }
+        return first..<last
+    }
+
+    /// Whether a frame lies before the first reel or at/after the end of the last.
+    ///
+    /// Gaps between reels are *not* outside the picture - reel changeovers are
+    /// normal. Returns false when there are no reels, since nothing is expected.
+    ///
+    /// - Parameter frame: A timeline frame.
+    func isOutsidePicture(frame: Int) -> Bool {
+        guard let range = pictureFrameRange else { return false }
+        return !range.contains(frame)
+    }
+
     /// Get the range of frames that contain content (video or audio)
     var contentRange: ClosedRange<Int>? {
         var minFrame = Int.max
