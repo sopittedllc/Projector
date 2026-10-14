@@ -69,6 +69,16 @@ public struct AudioClip: Identifiable, Codable, Equatable, Sendable {
     /// clip plays one channel of a split track without the other bleeding in.
     public var sourceChannel: SplitChannel?
 
+    /// Whether the file carried no timecode, so `timelineStartFrame` is where the
+    /// import put it (the drop, or the timeline's start or end), not where it
+    /// belongs.
+    ///
+    /// Set at import when nothing - embedded metadata or the file name - said
+    /// where the file goes. Cleared when the user states a position with
+    /// "Set Timecode Position"; dragging does not clear it. Never set for audio
+    /// that follows its reel.
+    public var placedWithoutTimecode: Bool
+
     /// End frame on timeline (exclusive)
     public var timelineEndFrame: Int {
         timelineStartFrame + durationFrames
@@ -103,7 +113,8 @@ public struct AudioClip: Identifiable, Codable, Equatable, Sendable {
         sampleRate: Double = 48000,
         extractedAudioURL: URL? = nil,
         sourceFrameRate: TimecodeFrameRate? = nil,
-        sourceChannel: SplitChannel? = nil
+        sourceChannel: SplitChannel? = nil,
+        placedWithoutTimecode: Bool = false
     ) {
         self.id = id
         self.mediaItemId = mediaItemId
@@ -122,6 +133,7 @@ public struct AudioClip: Identifiable, Codable, Equatable, Sendable {
         self.extractedAudioURL = extractedAudioURL
         self.sourceFrameRate = sourceFrameRate
         self.sourceChannel = sourceChannel
+        self.placedWithoutTimecode = placedWithoutTimecode
     }
 
     /// Check if this clip is active at a given timeline frame
@@ -190,6 +202,7 @@ extension AudioClip {
         case extractedAudioPath
         case sourceFrameRate
         case sourceChannel
+        case placedWithoutTimecode
     }
 
     public init(from decoder: Decoder) throws {
@@ -221,6 +234,7 @@ extension AudioClip {
 
         sourceFrameRate = try container.decodeIfPresent(TimecodeFrameRate.self, forKey: .sourceFrameRate)
         sourceChannel = try container.decodeIfPresent(SplitChannel.self, forKey: .sourceChannel)
+        placedWithoutTimecode = try container.decodeIfPresent(Bool.self, forKey: .placedWithoutTimecode) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -243,5 +257,9 @@ extension AudioClip {
         try container.encodeIfPresent(extractedAudioURL?.path, forKey: .extractedAudioPath)
         try container.encodeIfPresent(sourceFrameRate, forKey: .sourceFrameRate)
         try container.encodeIfPresent(sourceChannel, forKey: .sourceChannel)
+        // Written only when set, so files without the warning stay as they were.
+        if placedWithoutTimecode {
+            try container.encode(true, forKey: .placedWithoutTimecode)
+        }
     }
 }

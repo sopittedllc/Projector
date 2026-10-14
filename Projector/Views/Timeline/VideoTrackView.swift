@@ -332,9 +332,11 @@ struct VideoTrackView: View {
                 pixelsPerFrame: pixelsPerFrame,
                 thumbnailCache: thumbnailCache,
                 showThumbnails: showThumbnails,
-                isSelected: selectedReelId == reel.id || selectedReelIds.contains(reel.id),
+                isSelected: selectedReelId == reel.id || selectedReelIds.contains(reel.id)
+                    || (linkedDragPreview?.matches(reel) ?? false),
                 interactionsEnabled: clipInteractionsEnabled,
                 timelineStartTimecode: timelineManager.formatTimecode(forFrame: reel.timelineStartFrame),
+                placedWithoutTimecode: reel.placedWithoutTimecode,
                 visibleXRange: visibleXRange(for: reel),
                 onSelect: { modifiers in
                     selectedReelId = reel.id
@@ -407,10 +409,8 @@ struct VideoTrackView: View {
             return base + (CGFloat(clamped - reel.timelineStartFrame) * pixelsPerFrame)
         }
 
-        if let preview = linkedDragPreview,
-           isLinkedPreview(reel, preview: preview) {
-            let delta = preview.toFrame - preview.fromFrame
-            return base + (CGFloat(delta) * pixelsPerFrame)
+        if let preview = linkedDragPreview, preview.matches(reel) {
+            return base + (CGFloat(preview.deltaFrames) * pixelsPerFrame)
         }
 
         return base
@@ -472,13 +472,6 @@ struct VideoTrackView: View {
 
     private func isVideoFile(_ url: URL) -> Bool {
         ProjectMediaLibrary.mediaType(for: url) == .video
-    }
-
-    private func isLinkedPreview(_ reel: VideoReel, preview: LinkedDragPreview) -> Bool {
-        reel.sourceURL == preview.sourceURL &&
-        reel.sourceStartFrame == preview.sourceStartFrame &&
-        reel.durationFrames == preview.durationFrames &&
-        reel.timelineStartFrame == preview.fromFrame
     }
 
     private func dropFrame(for location: CGPoint) -> Int {

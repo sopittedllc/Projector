@@ -180,6 +180,10 @@ struct MultiTrackTimelineView: View {
     @State private var automationEditOldValue: VolumeAutomation?
     @State private var automationEditSessionID: UUID?
     @State private var marqueeStartPoint: CGPoint = .zero
+    /// Whether the current drag began on empty track space, latched at its
+    /// first change so a clip drag never turns into a marquee part-way through.
+    /// `nil` between gestures.
+    @State private var marqueeBeganOnEmptySpace: Bool?
     @State private var marqueeCurrentPoint: CGPoint = .zero
 
     // Focus state for keyboard commands
@@ -786,6 +790,10 @@ struct MultiTrackTimelineView: View {
                 registerVideoReelMoveUndo(reelId: reelId, from: oldFrame)
             }
             timelineManager.moveVideoReel(id: reelId, to: newFrame)
+            // Stating a position is the answer the warning was asking for, even
+            // when it is the position the reel already had. Undo restores the
+            // frame only, not this.
+            timelineManager.setVideoReelPlacedWithoutTimecode(id: reelId, false)
         } else if let clipId = editingClipId, let laneId = editingLaneId {
             if let lane = timeline.audioLanes.first(where: { $0.id == laneId }),
                let clip = lane.clips.first(where: { $0.id == clipId }),
@@ -793,6 +801,8 @@ struct MultiTrackTimelineView: View {
                 registerAudioClipMoveUndo(clipId: clipId, laneId: laneId, from: clip.timelineStartFrame)
             }
             timelineManager.moveAudioClip(clipId: clipId, inLane: laneId, to: newFrame)
+            // As for a reel: the user has now stated where it belongs.
+            timelineManager.setAudioClipPlacedWithoutTimecode(clipId: clipId, false)
         }
 
         showTimecodeEntryDialog = false
@@ -1268,13 +1278,7 @@ struct MultiTrackTimelineView: View {
                                             return
                                         }
                                         if let previewFrame {
-                                            linkedDragPreview = LinkedDragPreview(
-                                                sourceURL: clip.sourceURL,
-                                                sourceStartFrame: clip.sourceStartFrame,
-                                                durationFrames: clip.durationFrames,
-                                                fromFrame: clip.timelineStartFrame,
-                                                toFrame: previewFrame
-                                            )
+                                            linkedDragPreview = LinkedDragPreview(clip: clip, toFrame: previewFrame)
                                         } else {
                                             linkedDragPreview = nil
                                         }
@@ -1593,6 +1597,18 @@ struct MultiTrackTimelineView: View {
                 // Don't start marquee if drag started in header area (lane reorder zone)
                 guard value.startLocation.x >= TimelineLayout.headerWidth else { return }
 
+                // A drag that starts on a clip belongs to the clip's own drag
+                // gesture. Decide once, on the first change, and keep that
+                // answer for the rest of the gesture.
+                if marqueeBeganOnEmptySpace == nil {
+                    marqueeBeganOnEmptySpace = !clipHit(
+                        at: value.startLocation,
+                        pixelsPerFrame: pixelsPerFrame,
+                        trackGeometry: trackGeometry
+                    )
+                }
+                guard marqueeBeganOnEmptySpace == true else { return }
+
                 if !isMarqueeSelecting {
                     // Start marquee selection
                     isMarqueeSelecting = true
@@ -1608,9 +1624,55 @@ struct MultiTrackTimelineView: View {
                 updateMarqueeSelection(pixelsPerFrame: pixelsPerFrame, trackGeometry: trackGeometry)
             }
             .onEnded { _ in
+                marqueeBeganOnEmptySpace = nil
                 isMarqueeSelecting = false
                 stopAutoScrollTimer()
             }
+    }
+
+    /// Whether a point in the `timelineTracks` coordinate space lies on a clip.
+    ///
+    /// Uses the same rows and frame-to-x math as ``updateMarqueeSelection``:
+    /// reels against the picture band, linked strips against their own band,
+    /// standalone clips against `clipRect` only (so a point on a lane's
+    /// automation strip counts as empty space).
+    ///
+    /// - Parameters:
+    ///   - point: Location in the `timelineTracks` space, header included.
+    ///   - pixelsPerFrame: Current pixels per frame.
+    ///   - trackGeometry: This layout pass's row table.
+    /// - Returns: `true` if a reel or audio clip is under `point`.
+    private func clipHit(at point: CGPoint, pixelsPerFrame: CGFloat, trackGeometry: TrackGeometry) -> Bool {
+        let x = point.x - TimelineLayout.headerWidth
+
+        func covers(startFrame: Int, durationFrames: Int) -> Bool {
+            let minX = CGFloat(startFrame) * pixelsPerFrame
+            let maxX = minX + CGFloat(durationFrames) * pixelsPerFrame
+            return x >= minX && x <= maxX
+        }
+
+        if point.y >= trackGeometry.pictureRect.minY && point.y <= trackGeometry.pictureRect.maxY,
+           timeline.videoReels.contains(where: { covers(startFrame: $0.timelineStartFrame, durationFrames: $0.durationFrames) }) {
+            return true
+        }
+
+        for (laneId, stripRect) in trackGeometry.linkedStripRects {
+            guard point.y >= stripRect.minY && point.y <= stripRect.maxY,
+                  let lane = timeline.audioLanes.first(where: { $0.id == laneId }) else { continue }
+            if lane.clips.contains(where: { covers(startFrame: $0.timelineStartFrame, durationFrames: $0.durationFrames) }) {
+                return true
+            }
+        }
+
+        for row in trackGeometry.rows {
+            guard point.y >= row.clipRect.minY && point.y <= row.clipRect.maxY,
+                  let lane = timeline.audioLanes.first(where: { $0.id == row.id }) else { continue }
+            if lane.clips.contains(where: { covers(startFrame: $0.timelineStartFrame, durationFrames: $0.durationFrames) }) {
+                return true
+            }
+        }
+
+        return false
     }
 
     // MARK: - Auto-Scroll During Marquee Selection
@@ -1852,13 +1914,7 @@ struct MultiTrackTimelineView: View {
             linkedDragPreview: linkedDragPreview,
             onReelDragPreview: { reel, frame in
                 if let f = frame {
-                    linkedDragPreview = LinkedDragPreview(
-                        sourceURL: reel.sourceURL,
-                        sourceStartFrame: 0,
-                        durationFrames: reel.durationFrames,
-                        fromFrame: reel.timelineStartFrame,
-                        toFrame: f
-                    )
+                    linkedDragPreview = LinkedDragPreview(reel: reel, toFrame: f)
                 } else {
                     linkedDragPreview = nil
                 }
@@ -2094,6 +2150,7 @@ struct MultiTrackTimelineView: View {
                         isSelected: selectedVideoReelIds.contains(reel.id),
                         interactionsEnabled: !TimelineDebugFlags.current.disableClipInteractions,
                         timelineStartTimecode: timelineManager.formatTimecode(forFrame: reel.timelineStartFrame),
+                        placedWithoutTimecode: reel.placedWithoutTimecode,
                         visibleXRange: visibleXRange(forReelStartingAt: reel.timelineStartFrame, ppf: ppf, contentAreaWidth: contentAreaWidth),
                         onSelect: { modifiers in
                             handleReelSelection(reelId: reel.id, modifiers: modifiers)
@@ -2115,7 +2172,11 @@ struct MultiTrackTimelineView: View {
         .frame(width: width, height: TimelineLayout.videoTrackHeight)
     }
 
-    /// Linked audio content (waveform only, no header).
+    /// The video file's baked-in audio, as a short strip under the picture.
+    ///
+    /// Draws the lane's clips at a reduced height with no header, and follows
+    /// a linked drag preview so the strip moves with its reel (and is
+    /// highlighted like it) rather than jumping on release.
     private func linkedAudioContent(lane: AudioLane, index: Int, ppf: CGFloat, width: CGFloat) -> some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
@@ -2129,7 +2190,8 @@ struct MultiTrackTimelineView: View {
                         isActive: activeAudioClipIds.contains(clip.id),
                         pixelsPerFrame: ppf,
                         frameRate: timeline.config.frameRate,
-                        isSelected: selectedAudioClipIds.contains(clip.id),
+                        isSelected: selectedAudioClipIds.contains(clip.id)
+                            || (linkedDragPreview?.matches(clip) ?? false),
                         waveformCache: waveformCache,
                         showWaveform: !TimelineDebugFlags.current.disableWaveforms,
                         interactionsEnabled: !TimelineDebugFlags.current.disableClipInteractions,
@@ -2144,7 +2206,7 @@ struct MultiTrackTimelineView: View {
                         clipHeight: TimelineLayout.audioClipHeight
                     )
                     .offset(
-                        x: CGFloat(clip.timelineStartFrame) * ppf,
+                        x: CGFloat(clip.timelineStartFrame + linkedPreviewDelta(for: clip)) * ppf,
                         y: (TimelineLayout.linkedAudioStripHeight - TimelineLayout.audioClipHeight) / 2
                     )
                 }
@@ -2153,11 +2215,12 @@ struct MultiTrackTimelineView: View {
         .frame(width: width, height: TimelineLayout.linkedAudioStripHeight)
     }
 
-    /// The video file's baked-in audio, as a short strip under the picture.
-    ///
-    /// Reuses `AudioLaneView` at a third height with its header suppressed, so
-    /// clips, waveforms and selection behave exactly as they do on any lane -
-    /// only the chrome differs.
+    /// Frames a linked drag preview is currently moving `clip` by, or `0`.
+    private func linkedPreviewDelta(for clip: AudioClip) -> Int {
+        guard let preview = linkedDragPreview, preview.matches(clip) else { return 0 }
+        return preview.deltaFrames
+    }
+
     /// Remove the video reels and the audio baked into them, together.
     private func deleteVideoFileTrack() {
         registerTimelineUndo(actionName: "Delete Video File")

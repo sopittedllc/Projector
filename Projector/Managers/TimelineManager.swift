@@ -555,6 +555,21 @@ final class TimelineManager: ObservableObject {
         }
     }
 
+    /// Mark or unmark a reel as placed without any timecode of its own.
+    ///
+    /// Set by import when nothing said where the file belongs; cleared when the
+    /// user states a position. See ``VideoReel/placedWithoutTimecode``.
+    ///
+    /// - Parameters:
+    ///   - id: The reel.
+    ///   - placedWithoutTimecode: The new value.
+    func setVideoReelPlacedWithoutTimecode(id: UUID, _ placedWithoutTimecode: Bool) {
+        guard var reel = timeline.videoReels.first(where: { $0.id == id }),
+              reel.placedWithoutTimecode != placedWithoutTimecode else { return }
+        reel.placedWithoutTimecode = placedWithoutTimecode
+        timeline.updateVideoReel(reel)
+    }
+
     /// Update the source URL for a video reel (used when relocating missing files)
     func updateVideoReelURL(id: UUID, newURL: URL) {
         if var reel = timeline.videoReels.first(where: { $0.id == id }) {
@@ -1160,6 +1175,24 @@ final class TimelineManager: ObservableObject {
 
         guard shouldMoveLinkedReel, clip.sourceType == .videoTrack else { return }
         moveLinkedReel(for: clip, oldFrame: oldFrame, newFrame: newFrame)
+    }
+
+    /// Mark or unmark an audio clip as placed without any timecode of its own.
+    ///
+    /// Set by import when nothing said where the file belongs; cleared when the
+    /// user states a position. See ``AudioClip/placedWithoutTimecode``.
+    ///
+    /// - Parameters:
+    ///   - clipId: The clip.
+    ///   - placedWithoutTimecode: The new value.
+    func setAudioClipPlacedWithoutTimecode(clipId: UUID, _ placedWithoutTimecode: Bool) {
+        for laneIndex in timeline.audioLanes.indices {
+            guard var clip = timeline.audioLanes[laneIndex].clips.first(where: { $0.id == clipId }) else { continue }
+            guard clip.placedWithoutTimecode != placedWithoutTimecode else { return }
+            clip.placedWithoutTimecode = placedWithoutTimecode
+            timeline.audioLanes[laneIndex].updateClip(clip)
+            return
+        }
     }
 
     /// Move an audio clip to a different lane

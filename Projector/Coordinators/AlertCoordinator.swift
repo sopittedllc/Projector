@@ -75,6 +75,13 @@ final class AlertCoordinator: ObservableObject {
         /// say where it belongs, and only the person who cut it knows.
         case filesNotPlaced(files: [HeldBackFile])
 
+        /// Files an import placed with no timecode of their own.
+        ///
+        /// Reports rather than asks. A targeted drop is an instruction, so the
+        /// file stays where it was put; the alert only makes sure the user
+        /// knows that position is not one the file vouches for.
+        case placedWithoutTimecode(files: [PlacedWithoutTimecodeFile])
+
         /// A stem whose own timecode put it where no reel plays.
         ///
         /// Offers rather than decides. The stamp is honoured on import because
@@ -112,6 +119,7 @@ final class AlertCoordinator: ObservableObject {
             case .fpsConflict: return "fpsConflict"
             case .batchFrameRateMismatch: return "batchFrameRateMismatch"
             case .filesNotPlaced: return "filesNotPlaced"
+            case .placedWithoutTimecode: return "placedWithoutTimecode"
             case .stemOffPicture: return "stemOffPicture"
             case .videoInsert: return "videoInsert"
             case .saveProject: return "saveProject"
@@ -131,7 +139,8 @@ final class AlertCoordinator: ObservableObject {
             switch self {
             case .error, .videoAlreadyInTimeline, .audioAlreadyInTimeline,
                  .duplicateMedia, .codecUnavailable, .missingFile, .fpsConflict,
-                 .batchFrameRateMismatch, .filesNotPlaced, .stemOffPicture:
+                 .batchFrameRateMismatch, .filesNotPlaced, .placedWithoutTimecode,
+                 .stemOffPicture:
                 return false
             case .videoInsert, .saveProject, .settings, .proVideoFormatsInstall,
                  .quickTimeDemo:
@@ -310,6 +319,13 @@ private struct AlertCoordinatorModifier: ViewModifier {
                     return Alert(
                         title: Text(ImportHoldBackReport.title),
                         message: Text(ImportHoldBackReport.message(for: files) ?? ""),
+                        dismissButton: .default(Text("OK"))
+                    )
+
+                case .placedWithoutTimecode(let files):
+                    return Alert(
+                        title: Text(PlacedWithoutTimecodeReport.title),
+                        message: Text(PlacedWithoutTimecodeReport.message(for: files) ?? ""),
                         dismissButton: .default(Text("OK"))
                     )
 

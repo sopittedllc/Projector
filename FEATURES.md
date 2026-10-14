@@ -1735,6 +1735,54 @@ keys are dropped). No format version bump - optional fields with defaults.
 - [ ] Decide whether to keep `TrackGeometry`/`LaneReorder(rows:)` (they also fixed marquee over expanded linked strips) - if not, restore constant-pitch rows
 - [ ] Remove the test files and the `VOLAUTO*` entries from `project.pbxproj`
 
+### Placed Without Timecode Warning
+
+**Status**: Active
+**Added**: 2026-10-14
+
+#### Description
+A file with no embedded timecode (no tmcd/XMP/BWF, nothing parsable from the name) that is imported to a chosen frame or lane is still placed there, but the user is told and the clip is marked. Each import raises one alert listing the files and where they went; the clip wears a warning triangle in its start-timecode chip until the user states a position with Set Timecode Position. Batch imports that hold such files back (`ImportHoldBackReport`) are unchanged.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Utility | `Utilities/PlacedWithoutTimecodeReport.swift` | Alert title/message builder, `PlacedWithoutTimecodeFile`, `PendingUntimecodedPlacement` |
+| View | `Views/Timeline/PlacedWithoutTimecodeGlyph.swift` | Warning triangle, tooltip and accessibility label |
+| Test | `ProjectorTests/PlacedWithoutTimecodeTests.swift` | Message wording, flag decode/round-trip |
+
+#### State Properties
+
+| File | Property | Type | Purpose |
+|------|----------|------|---------|
+| `VideoReel.swift` / `AudioClip.swift` | `placedWithoutTimecode` | `Bool` | Persistent flag (encoded only when true; absent decodes false) |
+| `ContentView.swift` | `@State var untimecodedPlacements` | `[PendingUntimecodedPlacement]` | Collected during an import, drained into one alert |
+| `ContentView+Timeline.swift` | `PendingVideoPlacement.placedWithoutTimecode` | `Bool` | Carries the fact across the FPS-conflict dialog |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `TimelineManager.swift` | `setVideoReelPlacedWithoutTimecode` / `setAudioClipPlacedWithoutTimecode` | Flag mutators |
+| `ContentView+Timeline.swift` | `addVideoToTimeline`, `addVideoToTimelineUnchecked`, `addVideoFilesSequentially`, `addAudioToTimeline`, `addAudioFilesAtEmbeddedTimecode` | Set the flag and record the placement |
+| `ContentView+Timeline.swift` | `reportFilesPlacedWithoutTimecode()` | Drains the list into one alert + `diagnosticLog(.timeline)`; called from `frameImportedContent()` and the entry points that do not end there |
+| `ContentView+FileHandling.swift`, `ContentView.swift` | `onImportVideo`, `onImportAudio`, `.videoFileSelected` | Call the report directly |
+| `AlertCoordinator.swift` | `.placedWithoutTimecode` | Alert case |
+| `MultiTrackTimelineView.swift` | `applyTimecodeEntry()` | Clears the flag on confirm; passes it to `VideoReelClipView` |
+| `VideoTrackView.swift`, `AudioLaneView.swift` | clip constructors | Pass the flag |
+| `VideoReelClipView.swift`, `AudioClipView.swift` | start-timecode chip | Glyph in the chip, or alone when the chip is hidden |
+
+#### Dependencies
+- Depends on: Embedded timecode detection, Set Timecode Position, Alert/Sheet Coordination
+- Depended by: None
+
+#### Removal Checklist
+- [ ] Delete the report, glyph and test files
+- [ ] Remove the flag from `VideoReel`/`AudioClip` (init, CodingKeys, decode, encode) and the two `TimelineManager` mutators
+- [ ] Remove `untimecodedPlacements`, `reportFilesPlacedWithoutTimecode()` and its call sites, the `PendingVideoPlacement` field and the extra parameters on `addVideoToTimeline`/`addVideoToTimelineUnchecked`
+- [ ] Remove the `AlertCoordinator` case, the clearing in `applyTimecodeEntry()`, and the chip changes in both clip views
+- [ ] Update Xcode project file
+
 ---
 
 ## Removed Features

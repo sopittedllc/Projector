@@ -31,6 +31,16 @@ public struct VideoReel: Identifiable, Codable, Equatable, Sendable {
     /// Display name (derived from filename if not set)
     public var name: String?
 
+    /// Whether the file carried no timecode, so `timelineStartFrame` is where the
+    /// import put it (the drop, or the timeline's start or end), not where it
+    /// belongs.
+    ///
+    /// Set at import when nothing - embedded metadata or the file name - said
+    /// where the file goes. Cleared when the user states a position with
+    /// "Set Timecode Position"; dragging does not clear it. Never set for audio
+    /// that follows its reel.
+    public var placedWithoutTimecode: Bool
+
     /// End frame on timeline (exclusive)
     public var timelineEndFrame: Int {
         timelineStartFrame + durationFrames
@@ -50,7 +60,8 @@ public struct VideoReel: Identifiable, Codable, Equatable, Sendable {
         durationFrames: Int,
         sourceStartFrame: Int = 0,
         sourceFrameRate: TimecodeFrameRate = .fps24,
-        name: String? = nil
+        name: String? = nil,
+        placedWithoutTimecode: Bool = false
     ) {
         self.id = id
         self.mediaItemId = mediaItemId
@@ -61,6 +72,7 @@ public struct VideoReel: Identifiable, Codable, Equatable, Sendable {
         self.sourceStartFrame = sourceStartFrame
         self.sourceFrameRate = sourceFrameRate
         self.name = name
+        self.placedWithoutTimecode = placedWithoutTimecode
     }
 
     /// Check if this reel is active at a given timeline frame
@@ -129,6 +141,7 @@ extension VideoReel {
         case sourceStartFrame
         case sourceFrameRateIdentifier
         case name
+        case placedWithoutTimecode
     }
 
     public init(from decoder: Decoder) throws {
@@ -149,6 +162,7 @@ extension VideoReel {
         } ?? .fps24
 
         name = try container.decodeIfPresent(String.self, forKey: .name)
+        placedWithoutTimecode = try container.decodeIfPresent(Bool.self, forKey: .placedWithoutTimecode) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -163,5 +177,9 @@ extension VideoReel {
         try container.encode(sourceStartFrame, forKey: .sourceStartFrame)
         try container.encode(sourceFrameRate.stringValueVerbose, forKey: .sourceFrameRateIdentifier)
         try container.encodeIfPresent(name, forKey: .name)
+        // Written only when set, so files without the warning stay as they were.
+        if placedWithoutTimecode {
+            try container.encode(true, forKey: .placedWithoutTimecode)
+        }
     }
 }

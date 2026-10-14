@@ -176,6 +176,13 @@ struct ContentView: View {
     /// somewhere by hand is where they put it.
     @State var clipsPlacedByTimecode: Set<UUID> = []
 
+    /// Reels and clips this import flagged as placed without timecode, not yet
+    /// reported.
+    ///
+    /// Collected as files are placed and drained into one alert when the import
+    /// ends - see `reportFilesPlacedWithoutTimecode()`.
+    @State var untimecodedPlacements: [PendingUntimecodedPlacement] = []
+
     /// Clips already reported as off picture, so a later import does not
     /// raise the same alert again.
     @State var reportedOffPictureClipIds: Set<UUID> = []
@@ -304,6 +311,7 @@ struct ContentView: View {
             if let url = notification.object as? URL {
                 Task {
                     await addVideoToTimeline(url: url, atFrame: nil)
+                    reportFilesPlacedWithoutTimecode()
                 }
             }
         }

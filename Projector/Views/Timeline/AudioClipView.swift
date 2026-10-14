@@ -14,6 +14,10 @@ struct AudioClipView: View {
     let showWaveform: Bool
     let interactionsEnabled: Bool
     let timelineStartTimecode: String?
+
+    /// Whether the clip carried no timecode, so its position is only where it
+    /// was dropped. Adds a warning mark to the start-timecode chip.
+    var placedWithoutTimecode: Bool = false
     let onSelect: (SelectionModifiers) -> Void
     let onDoubleClick: () -> Void
     let onSetTimelineStart: () -> Void
@@ -85,13 +89,21 @@ struct AudioClipView: View {
 
                     // Timeline start timecode
                     if let tc = timelineStartTimecode, clipWidth > 120 {
-                        Text(tc)
-                            .font(Typography.monoTiny)
-                            .foregroundColor(.white.opacity(0.7))
-                            .padding(.horizontal, 3)
-                            .padding(.vertical, 1)
-                            .background(Color.black.opacity(0.3))
-                            .cornerRadius(2)
+                        HStack(spacing: Spacing.xs) {
+                            if placedWithoutTimecode {
+                                PlacedWithoutTimecodeGlyph()
+                            }
+                            Text(tc)
+                                .font(Typography.monoTiny)
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                        .padding(.horizontal, 3)
+                        .padding(.vertical, 1)
+                        .background(Color.black.opacity(0.3))
+                        .cornerRadius(2)
+                    } else if placedWithoutTimecode, clipWidth > PlacedWithoutTimecodeStyle.minimumWidthForBareGlyph {
+                        // Too narrow for the chip; keep the warning on its own.
+                        PlacedWithoutTimecodeGlyph()
                     }
 
                     Spacer(minLength: 0)

@@ -501,7 +501,15 @@ extension ContentView {
     ///   - url: Video file URL
     ///   - atFrame: Target frame position (nil = auto-place at end)
     ///   - checkTimecode: Whether to check for embedded timecode and prompt user
-    func addVideoToTimeline(url: URL, atFrame: Int?, checkTimecode: Bool = true) async {
+    ///   - placedWithoutTimecode: For `checkTimecode: false` callers, which have
+    ///     already resolved the frame: whether they found no timecode to resolve
+    ///     it from. Ignored when `checkTimecode` is true, which works it out.
+    func addVideoToTimeline(
+        url: URL,
+        atFrame: Int?,
+        checkTimecode: Bool = true,
+        placedWithoutTimecode: Bool = false
+    ) async {
         // Read the video's timecode now, resolve it to a frame later. A frame
         // number only means something against a frame rate, and this import may
         // be about to set the timeline's - so resolving here would answer in the
@@ -510,9 +518,14 @@ extension ContentView {
         // `checkTimecode: false` means a caller has already resolved the frame
         // and is passing it in, so leave its answer alone.
         var placement = PendingVideoPlacement(dropFrame: atFrame)
+        placement.placedWithoutTimecode = placedWithoutTimecode
         if checkTimecode {
             placement.filenameTimecode = detectTimecodeFromFilename(url.lastPathComponent)
             placement.metadata = await embeddedTimecodeService.detectTimecode(from: url, bookmark: nil)
+            placement.placedWithoutTimecode = PlacedWithoutTimecodeReport.shouldFlag(
+                metadata: placement.metadata,
+                filenameTimecode: placement.filenameTimecode
+            )
         }
 
         isLoadingMedia = true
@@ -563,7 +576,11 @@ extension ContentView {
                 existingReels: timelineManager.timeline.videoReels
             )
 
-            await addVideoToTimelineUnchecked(url: url, at: placementFrame)
+            await addVideoToTimelineUnchecked(
+                url: url,
+                at: placementFrame,
+                placedWithoutTimecode: placement.placedWithoutTimecode
+            )
 
             if let codecSupport, !codecSupport.isDecodable {
                 presentCodecUnavailable(codecSupport)
@@ -642,7 +659,13 @@ extension ContentView {
     }
 
     /// Add video without FPS checking (internal use after conflict resolution)
-    func addVideoToTimelineUnchecked(url: URL, at timelineFrame: Int) async {
+    ///
+    /// - Parameters:
+    ///   - url: Video file URL.
+    ///   - timelineFrame: Where the reel goes.
+    ///   - placedWithoutTimecode: Whether the file had no timecode, so the frame
+    ///     was not set by the file. The reel is flagged and reported.
+    func addVideoToTimelineUnchecked(url: URL, at timelineFrame: Int, placedWithoutTimecode: Bool = false) async {
         let t0 = CFAbsoluteTimeGetCurrent()
         func elapsed() -> String { String(format: "%.3fs", CFAbsoluteTimeGetCurrent() - t0) }
 
@@ -656,6 +679,13 @@ extension ContentView {
             // Add the video reel with reference to the media item
             let reel = try await timelineManager.addVideoReel(from: url, at: timelineFrame, mediaItemId: mediaItem.id)
             debugPrint("addVideoToTimeline: Reel added [T+\(elapsed())]")
+
+            if placedWithoutTimecode {
+                timelineManager.setVideoReelPlacedWithoutTimecode(id: reel.id, true)
+                untimecodedPlacements.append(
+                    PendingUntimecodedPlacement(id: reel.id, kind: .reel, name: url.lastPathComponent)
+                )
+            }
 
             // CRITICAL: Sync timeline and load reel IMMEDIATELY for instant playback
             // Don't block on thumbnail generation or audio extraction
@@ -768,7 +798,17 @@ extension ContentView {
         // conflict was raised.
         Task {
             let frame = placement.map { resolvedPlacementFrame($0, for: url) } ?? 0
-            await addVideoToTimelineUnchecked(url: url, at: frame)
+            await addVideoToTimelineUnchecked(
+                url: url,
+                at: frame,
+                placedWithoutTimecode: placement?.placedWithoutTimecode ?? false
+            )
+            // This path has no `frameImportedContent()` to end on. Reports only
+            // the reel it placed: a batch may still be running, and draining
+            // its entries here would split or steal that batch's alert.
+            if let reel = timelineManager.timeline.videoReels.last(where: { $0.sourceURL == url }) {
+                reportFilesPlacedWithoutTimecode(onlyIds: [reel.id])
+            }
         }
     }
 
@@ -825,6 +865,9 @@ extension ContentView {
             debugPrint("addAudioToTimeline: clip created id=\(clip.id.uuidString)")
             if placedByTimecode {
                 clipsPlacedByTimecode.insert(clip.id)
+            } else if checkTimecode {
+                // Detection ran and found nothing: the position is the drop.
+                markPlacedWithoutTimecode(clip)
             }
 
             // Every audio import funnels through here, so routing from the file
@@ -1260,7 +1303,15 @@ extension ContentView {
                 dropFrame: currentFrame
             )
 
-            await addVideoToTimeline(url: url, atFrame: target, checkTimecode: false)
+            await addVideoToTimeline(
+                url: url,
+                atFrame: target,
+                checkTimecode: false,
+                placedWithoutTimecode: PlacedWithoutTimecodeReport.shouldFlag(
+                    metadata: metadataTC,
+                    filenameTimecode: filenameTC
+                )
+            )
 
             // Get the reel that was just added to find its end frame
             if let lastReel = timelineManager.timeline.videoReels.last(where: { $0.sourceURL == url }) {
@@ -1367,6 +1418,63 @@ extension ContentView {
         snapTimelineStartToContent()
         timelineViewModel.requestZoomToFitContent()
         reportStemsOffPicture()
+        reportFilesPlacedWithoutTimecode()
+    }
+
+    // MARK: - Files Placed Without Timecode
+
+    /// Flag a standalone audio clip as placed without timecode and queue it for
+    /// the import's report.
+    ///
+    /// - Parameter clip: The clip just placed from a file that carried no timecode.
+    private func markPlacedWithoutTimecode(_ clip: AudioClip) {
+        timelineManager.setAudioClipPlacedWithoutTimecode(clipId: clip.id, true)
+        untimecodedPlacements.append(
+            PendingUntimecodedPlacement(id: clip.id, kind: .clip, name: clip.sourceURL.lastPathComponent)
+        )
+    }
+
+    /// Raise one alert for everything the import placed without timecode.
+    ///
+    /// Placement only collects (`untimecodedPlacements`); this drains it. Every
+    /// import ends here - through ``frameImportedContent()``, or directly for the
+    /// entry points that do not call it - so a drop of any number of files
+    /// raises a single alert rather than one per file. Timecodes are read now,
+    /// not when the file was placed, so they are where each ended up after overlap
+    /// avoidance and any timeline-start shift. Anything since removed is skipped.
+    ///
+    /// - Parameter onlyIds: Report just these reels or clips, leaving every other
+    ///   entry for the import that owns it. `nil` reports everything collected.
+    func reportFilesPlacedWithoutTimecode(onlyIds: Set<UUID>? = nil) {
+        let pending = untimecodedPlacements.filter { onlyIds?.contains($0.id) ?? true }
+        guard !pending.isEmpty else { return }
+        untimecodedPlacements.removeAll { entry in pending.contains(entry) }
+
+        let timeline = timelineManager.timeline
+        let files: [PlacedWithoutTimecodeFile] = pending.compactMap { entry in
+            let frame: Int?
+            switch entry.kind {
+            case .reel:
+                frame = timeline.videoReels.first { $0.id == entry.id }?.timelineStartFrame
+            case .clip:
+                frame = timeline.audioLanes.lazy.compactMap { lane in
+                    lane.clips.first { $0.id == entry.id }?.timelineStartFrame
+                }.first
+            }
+            guard let frame else { return nil }
+            return PlacedWithoutTimecodeFile(
+                name: entry.name,
+                timecode: timelineManager.formatTimecode(forFrame: frame)
+            )
+        }
+        guard !files.isEmpty else { return }
+
+        diagnosticLog(
+            .info,
+            .timeline,
+            "Placed without timecode: " + files.map { "\($0.name) at \($0.timecode)" }.joined(separator: ", ")
+        )
+        alerts.show(.placedWithoutTimecode(files: files))
     }
 
     // MARK: - Stems Off Picture
@@ -1702,6 +1810,8 @@ extension ContentView {
             case .placed(let clip):
                 if item.hasTimecode {
                     clipsPlacedByTimecode.insert(clip.id)
+                } else {
+                    markPlacedWithoutTimecode(clip)
                 }
                 nextSequentialFrame = clip.timelineEndFrame
             case .laneOccupied:
@@ -1933,6 +2043,12 @@ struct PendingVideoPlacement {
 
     /// Timecode parsed out of the file's name, as a fallback.
     var filenameTimecode: String?
+
+    /// Whether the file said nothing at all about where it belongs.
+    ///
+    /// Carried with the placement so the answer survives an FPS-conflict dialog:
+    /// the reel is only created after the user responds.
+    var placedWithoutTimecode = false
 }
 
 // MARK: - Filename Timecode Detection

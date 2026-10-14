@@ -51,6 +51,8 @@
 		TCFRTEST0000002 /* TimecodeFrameRateNearestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCFRTEST0000001 /* TimecodeFrameRateNearestTests.swift */; };
 		STEMGRPTEST00002 /* AudioStemGroupingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = STEMGRPTEST00001 /* AudioStemGroupingTests.swift */; };
 		TCLESSTEST00002 /* ImportHoldBackReportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCLESSTEST00001 /* ImportHoldBackReportTests.swift */; };
+		PWTTEST0000000002 /* PlacedWithoutTimecodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PWTTEST0000000001 /* PlacedWithoutTimecodeTests.swift */; };
+		LDPTEST0000000002 /* LinkedDragPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = LDPTEST0000000001 /* LinkedDragPreviewTests.swift */; };
 		REELPLACETEST002 /* ReelPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = REELPLACETEST001 /* ReelPlacementTests.swift */; };
 		TCFGRATE0000002 /* TimelineConfigFrameRateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCFGRATE0000001 /* TimelineConfigFrameRateTests.swift */; };
 		SUPRATES0000002 /* SupportedFrameRatesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SUPRATES0000001 /* SupportedFrameRatesTests.swift */; };
@@ -82,6 +84,7 @@
 		TCFRNEAREST00002 /* TimecodeFrameRate+Nearest.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCFRNEAREST00001 /* TimecodeFrameRate+Nearest.swift */; };
 		STEMGROUP0000002 /* AudioStemGrouping.swift in Sources */ = {isa = PBXBuildFile; fileRef = STEMGROUP0000001 /* AudioStemGrouping.swift */; };
 		TCLESSRPT0000002 /* ImportHoldBackReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = TCLESSRPT0000001 /* ImportHoldBackReport.swift */; };
+		PWTRPT00000000002 /* PlacedWithoutTimecodeReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = PWTRPT00000000001 /* PlacedWithoutTimecodeReport.swift */; };
 		STEMOFFPIC000002 /* StemOffPictureReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = STEMOFFPIC000001 /* StemOffPictureReport.swift */; };
 		B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58B22F0889F200FA33EC /* TransportServiceProtocol.swift */; };
 		B19B58BD2F088AEA00FA33EC /* MIDISyncActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */; };
@@ -118,6 +121,7 @@
 		C1TIMELINE0000001B /* PlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000B /* PlaybackEngine.swift */; };
 		VOLAUTOGAIN00000002 /* AutomationGainTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOGAIN00000001 /* AutomationGainTable.swift */; };
 		C1TIMELINE0000001C /* VideoReelClipView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000C /* VideoReelClipView.swift */; };
+		PWTGLYPH000000002 /* PlacedWithoutTimecodeGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = PWTGLYPH000000001 /* PlacedWithoutTimecodeGlyph.swift */; };
 		C1TIMELINE0000001D /* VideoTrackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000D /* VideoTrackView.swift */; };
 		C1TIMELINE0000001E /* AudioClipView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000E /* AudioClipView.swift */; };
 		C1TIMELINE0000001F /* AudioLaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE0000000F /* AudioLaneView.swift */; };
@@ -256,6 +260,8 @@
 		TCFRTEST0000001 /* TimecodeFrameRateNearestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeFrameRateNearestTests.swift; sourceTree = "<group>"; };
 		STEMGRPTEST00001 /* AudioStemGroupingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioStemGroupingTests.swift; sourceTree = "<group>"; };
 		TCLESSTEST00001 /* ImportHoldBackReportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportHoldBackReportTests.swift; sourceTree = "<group>"; };
+		PWTTEST0000000001 /* PlacedWithoutTimecodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlacedWithoutTimecodeTests.swift; sourceTree = "<group>"; };
+		LDPTEST0000000001 /* LinkedDragPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkedDragPreviewTests.swift; sourceTree = "<group>"; };
 		REELPLACETEST001 /* ReelPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReelPlacementTests.swift; sourceTree = "<group>"; };
 		TCFGRATE0000001 /* TimelineConfigFrameRateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineConfigFrameRateTests.swift; sourceTree = "<group>"; };
 		SUPRATES0000001 /* SupportedFrameRatesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportedFrameRatesTests.swift; sourceTree = "<group>"; };
@@ -283,6 +289,7 @@
 		TCFRNEAREST00001 /* TimecodeFrameRate+Nearest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TimecodeFrameRate+Nearest.swift"; sourceTree = "<group>"; };
 		STEMGROUP0000001 /* AudioStemGrouping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioStemGrouping.swift; sourceTree = "<group>"; };
 		TCLESSRPT0000001 /* ImportHoldBackReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportHoldBackReport.swift; sourceTree = "<group>"; };
+		PWTRPT00000000001 /* PlacedWithoutTimecodeReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlacedWithoutTimecodeReport.swift; sourceTree = "<group>"; };
 		STEMOFFPIC000001 /* StemOffPictureReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StemOffPictureReport.swift; sourceTree = "<group>"; };
 		B19B58B62F0889F200FA33EC /* MIDISyncViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncViewModel.swift; sourceTree = "<group>"; };
 		B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncActor.swift; sourceTree = "<group>"; };
@@ -318,6 +325,7 @@
 		C1TIMELINE0000000B /* PlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEngine.swift; sourceTree = "<group>"; };
 		VOLAUTOGAIN00000001 /* AutomationGainTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationGainTable.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000C /* VideoReelClipView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoReelClipView.swift; sourceTree = "<group>"; };
+		PWTGLYPH000000001 /* PlacedWithoutTimecodeGlyph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlacedWithoutTimecodeGlyph.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000D /* VideoTrackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoTrackView.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000E /* AudioClipView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClipView.swift; sourceTree = "<group>"; };
 		C1TIMELINE0000000F /* AudioLaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLaneView.swift; sourceTree = "<group>"; };
@@ -449,6 +457,8 @@
 				TCFRTEST0000001 /* TimecodeFrameRateNearestTests.swift */,
 				STEMGRPTEST00001 /* AudioStemGroupingTests.swift */,
 				TCLESSTEST00001 /* ImportHoldBackReportTests.swift */,
+				PWTTEST0000000001 /* PlacedWithoutTimecodeTests.swift */,
+				LDPTEST0000000001 /* LinkedDragPreviewTests.swift */,
 				REELPLACETEST001 /* ReelPlacementTests.swift */,
 				TCFGRATE0000001 /* TimelineConfigFrameRateTests.swift */,
 				SUPRATES0000001 /* SupportedFrameRatesTests.swift */,
@@ -624,6 +634,7 @@
 			children = (
 				A1000001227D3F0000000085 /* TimelineRulerView.swift */,
 				C1TIMELINE0000000C /* VideoReelClipView.swift */,
+				PWTGLYPH000000001 /* PlacedWithoutTimecodeGlyph.swift */,
 				C1TIMELINE0000000D /* VideoTrackView.swift */,
 				C1TIMELINE0000000E /* AudioClipView.swift */,
 				C1TIMELINE0000000F /* AudioLaneView.swift */,
@@ -681,6 +692,7 @@
 				TCFRNEAREST00001 /* TimecodeFrameRate+Nearest.swift */,
 				STEMGROUP0000001 /* AudioStemGrouping.swift */,
 				TCLESSRPT0000001 /* ImportHoldBackReport.swift */,
+				PWTRPT00000000001 /* PlacedWithoutTimecodeReport.swift */,
 				STEMOFFPIC000001 /* StemOffPictureReport.swift */,
 			);
 			path = Utilities;
@@ -937,6 +949,8 @@
 		TCFRTEST0000002 /* TimecodeFrameRateNearestTests.swift in Sources */,
 		STEMGRPTEST00002 /* AudioStemGroupingTests.swift in Sources */,
 		TCLESSTEST00002 /* ImportHoldBackReportTests.swift in Sources */,
+		PWTTEST0000000002 /* PlacedWithoutTimecodeTests.swift in Sources */,
+		LDPTEST0000000002 /* LinkedDragPreviewTests.swift in Sources */,
 		REELPLACETEST002 /* ReelPlacementTests.swift in Sources */,
 				TCFGRATE0000002 /* TimelineConfigFrameRateTests.swift in Sources */,
 				SUPRATES0000002 /* SupportedFrameRatesTests.swift in Sources */,
@@ -1003,6 +1017,7 @@
 		TCFRNEAREST00002 /* TimecodeFrameRate+Nearest.swift in Sources */,
 		STEMGROUP0000002 /* AudioStemGrouping.swift in Sources */,
 		TCLESSRPT0000002 /* ImportHoldBackReport.swift in Sources */,
+		PWTRPT00000000002 /* PlacedWithoutTimecodeReport.swift in Sources */,
 		STEMOFFPIC000002 /* StemOffPictureReport.swift in Sources */,
 				B19B58BB2F0889F200FA33EC /* TransportServiceProtocol.swift in Sources */,
 				BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */,
@@ -1042,6 +1057,7 @@
 				C1TIMELINE0000001B /* PlaybackEngine.swift in Sources */,
 				VOLAUTOGAIN00000002 /* AutomationGainTable.swift in Sources */,
 				C1TIMELINE0000001C /* VideoReelClipView.swift in Sources */,
+				PWTGLYPH000000002 /* PlacedWithoutTimecodeGlyph.swift in Sources */,
 				B19B58BD2F088AEA00FA33EC /* MIDISyncActor.swift in Sources */,
 				C1TIMELINE0000001D /* VideoTrackView.swift in Sources */,
 				C1TIMELINE0000001E /* AudioClipView.swift in Sources */,

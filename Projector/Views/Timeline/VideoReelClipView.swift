@@ -28,6 +28,10 @@ struct VideoReelClipView: View {
     let interactionsEnabled: Bool
     let timelineStartTimecode: String?
 
+    /// Whether the reel carried no timecode, so its position is only where it
+    /// was dropped. Adds a warning mark to the start-timecode chip.
+    var placedWithoutTimecode: Bool = false
+
     /// Part of this clip the viewport can actually show, in clip-local points.
     ///
     /// The filmstrip draws one cell per ``thumbnailWidth`` of clip, so its cost
@@ -113,9 +117,28 @@ struct VideoReelClipView: View {
                 // Timeline start timecode, along the bottom edge
                 if let tc = timelineStartTimecode, reelWidth > 80 {
                     HStack {
-                        Text(tc)
-                            .font(Typography.monoMicro)
-                            .foregroundColor(.white.opacity(0.7))
+                        HStack(spacing: Spacing.xs) {
+                            if placedWithoutTimecode {
+                                PlacedWithoutTimecodeGlyph()
+                            }
+                            Text(tc)
+                                .font(Typography.monoMicro)
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                        .padding(.horizontal, Spacing.xs)
+                        .padding(.vertical, 1)
+                        .background(Color.black.opacity(0.4))
+                        .cornerRadius(2)
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, Spacing.xs)
+                    .padding(.bottom, Spacing.xs)
+                } else if placedWithoutTimecode, reelWidth > PlacedWithoutTimecodeStyle.minimumWidthForBareGlyph {
+                    // Too narrow for the chip, but the warning is worth more
+                    // than the number, so it keeps its place on its own.
+                    HStack {
+                        PlacedWithoutTimecodeGlyph()
                             .padding(.horizontal, Spacing.xs)
                             .padding(.vertical, 1)
                             .background(Color.black.opacity(0.4))

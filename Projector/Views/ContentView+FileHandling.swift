@@ -137,6 +137,7 @@ extension ContentView {
     func setupMediaImportCoordinatorCallbacks() {
         mediaImportCoordinator.onImportVideo = { [self] url, atFrame in
             await addVideoToTimeline(url: url, atFrame: atFrame)
+            reportFilesPlacedWithoutTimecode()
         }
 
         // Batch video import with timecode detection
@@ -145,7 +146,9 @@ extension ContentView {
         }
 
         mediaImportCoordinator.onImportAudio = { [self] url, laneId, atFrame in
-            await addAudioToTimeline(url: url, laneId: laneId, atFrame: atFrame)
+            let clip = await addAudioToTimeline(url: url, laneId: laneId, atFrame: atFrame)
+            reportFilesPlacedWithoutTimecode()
+            return clip
         }
 
         // Batch audio import with timecode detection

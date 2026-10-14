@@ -431,11 +431,13 @@ struct AudioLaneView: View {
                 isActive: activeClipIds.contains(clip.id),
                 pixelsPerFrame: pixelsPerFrame,
                 frameRate: frameRate,
-                isSelected: selectedClipId == clip.id || selectedClipIds.contains(clip.id),
+                isSelected: selectedClipId == clip.id || selectedClipIds.contains(clip.id)
+                    || (linkedDragPreview?.matches(clip) ?? false),
                 waveformCache: waveformCache,
                 showWaveform: showWaveforms,
                 interactionsEnabled: clipInteractionsEnabled,
                 timelineStartTimecode: formatTimecode(forFrame: clip.timelineStartFrame),
+                placedWithoutTimecode: clip.placedWithoutTimecode,
                 onSelect: { modifiers in
                     selectedClipId = clip.id
                     onClipSelected(clip.id, modifiers)
@@ -559,21 +561,11 @@ struct AudioLaneView: View {
             return base + (CGFloat(clamped - clip.timelineStartFrame) * pixelsPerFrame)
         }
 
-        if let preview = linkedDragPreview,
-           isLinkedPreview(clip, preview: preview) {
-            let delta = preview.toFrame - preview.fromFrame
-            return base + (CGFloat(delta) * pixelsPerFrame)
+        if let preview = linkedDragPreview, preview.matches(clip) {
+            return base + (CGFloat(preview.deltaFrames) * pixelsPerFrame)
         }
 
         return base
-    }
-
-    private func isLinkedPreview(_ clip: AudioClip, preview: LinkedDragPreview) -> Bool {
-        clip.sourceType == .videoTrack &&
-        clip.sourceURL == preview.sourceURL &&
-        clip.sourceStartFrame == preview.sourceStartFrame &&
-        clip.durationFrames == preview.durationFrames &&
-        clip.timelineStartFrame == preview.fromFrame
     }
 
     private func allowedFrameRange(for clip: AudioClip) -> ClosedRange<Int> {

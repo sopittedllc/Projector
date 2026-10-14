@@ -1,10 +1,26 @@
 # Session State
 
 > **Last Updated**: 2026-10-12
-> **Status**: AWAITING USER VERIFICATION — multi-stem drop onto a lane (uncommitted)
+> **Status**: ACTIVE — 2026-10-14: no-timecode notice built (uncommitted); awaiting runtime verification
 > **Branch**: main
 
 ---
+
+## 2026-10-14 — MTC received but nothing played
+
+- Cause: the movie (ffmpeg MP4, encoder Lavf) has no tmcd track, so a timeline drop placed it at
+  the drop point without saying so. Locked MTC landed where there was no picture, and the chase did
+  nothing (`scheduleChaseLock` "not schedulable" is logged only in Debug builds).
+- Built (uncommitted, needs runtime check): a `placedWithoutTimecode` flag on VideoReel/AudioClip,
+  one "No Embedded Timecode" alert per import (`PlacedWithoutTimecodeReport`), a warning glyph on the
+  clip's TC chip, and Set Timecode Position clears it. Debug build passes; 8/8 new tests pass.
+- In progress: the marquee should start only on empty space, not on a clip drag; the linked-audio
+  strip under the picture should follow `linkedDragPreview` (it ignored it), with a shared drag look.
+- Drag fixes done (marquee `clipHit` latch; `LinkedDragPreview.matches` shared, strip follows, followers
+  highlighted; trimmed-reel matching bug fixed). Clare: PASS, 0 blockers; warnings 1-2 (wording, FPS-resume
+  flush scope) fixed, negative test added. Debug build OK; 12 + 3 tests pass.
+- Next: the user quits the release app, then Debug build + launch for runtime check, then commit.
+- Not done: release-build logging of the "chase lock not schedulable" case.
 
 ## 2026-10-12 — Separate stems dropped onto a lane were all "Not Placed"
 
@@ -17,7 +33,8 @@
   existing stem lanes). New `ImportHoldBackReason.dropLaneOccupied` wording for
   collisions on a user-chosen lane.
 - Tests: 3 grouping tests + 1 report test added; both suites pass. Debug build relaunched.
-- Not yet run: clare review / gabriel QA. Runtime verification is pending from the user.
+- User verified at runtime. Clare: PASS, 0 blockers. Committed dbd27af; shipped 2026.10.12
+  (notarized, GitHub release, appcast, Dropbox, /Applications). Nothing skipped.
 - Behaviour change: in a multi-stem lane drop, files without timecode are now held
   back (batch rule) instead of being placed at the drop position.
 

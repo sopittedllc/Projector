@@ -16,6 +16,51 @@ struct LinkedDragPreview: Equatable, Sendable {
     let fromFrame: Int
     /// Target timeline position (frames)
     let toFrame: Int
+
+    /// Preview for a video reel dragged to `toFrame`.
+    ///
+    /// Carries the reel's real `sourceStartFrame`: a reel trimmed in from the
+    /// head has a non-zero one, and its linked audio inherits it, so a
+    /// hard-coded `0` here would stop the audio from matching.
+    init(reel: VideoReel, toFrame: Int) {
+        self.sourceURL = reel.sourceURL
+        self.sourceStartFrame = reel.sourceStartFrame
+        self.durationFrames = reel.durationFrames
+        self.fromFrame = reel.timelineStartFrame
+        self.toFrame = toFrame
+    }
+
+    /// Preview for a video-linked audio clip dragged to `toFrame`.
+    init(clip: AudioClip, toFrame: Int) {
+        self.sourceURL = clip.sourceURL
+        self.sourceStartFrame = clip.sourceStartFrame
+        self.durationFrames = clip.durationFrames
+        self.fromFrame = clip.timelineStartFrame
+        self.toFrame = toFrame
+    }
+
+    /// Frames the linked group moves by.
+    var deltaFrames: Int { toFrame - fromFrame }
+
+    /// Whether `clip` is part of the linked group this preview describes.
+    ///
+    /// The one matching rule for every view that follows a linked drag, and it
+    /// mirrors the model's own link rule (same source, same in/out, same start).
+    func matches(_ clip: AudioClip) -> Bool {
+        clip.sourceType == .videoTrack &&
+        clip.sourceURL == sourceURL &&
+        clip.sourceStartFrame == sourceStartFrame &&
+        clip.durationFrames == durationFrames &&
+        clip.timelineStartFrame == fromFrame
+    }
+
+    /// Whether `reel` is part of the linked group this preview describes.
+    func matches(_ reel: VideoReel) -> Bool {
+        reel.sourceURL == sourceURL &&
+        reel.sourceStartFrame == sourceStartFrame &&
+        reel.durationFrames == durationFrames &&
+        reel.timelineStartFrame == fromFrame
+    }
 }
 
 /// Preview state for vertical lane change drag (audio clip moving between lanes).
