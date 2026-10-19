@@ -43,6 +43,15 @@ final class ProjectDocument: ObservableObject {
     /// save instead.
     @Published var uiState: ProjectUIState = .default
 
+    /// Security-scoped bookmark to the folder that holds the `.projector` package.
+    ///
+    /// Opening a project grants the sandbox the package and nothing around it, but
+    /// "Optimized Media" and "Raw Files" are written *beside* the package. This
+    /// bookmark is how a reopened project gets that folder back; without it only the
+    /// folder most recently saved into was writable, so optimizing worked straight
+    /// after a save and failed with a permission error after a reopen.
+    private var projectFolderBookmark: Data?
+
     // MARK: - Initialization
 
     init() {
@@ -65,6 +74,7 @@ final class ProjectDocument: ObservableObject {
     func newProject() {
         releaseSecurityScopedResources()
         fileURL = nil
+        projectFolderBookmark = nil
         timeline = .empty
         mediaLibrary = []
         uiState = .default
@@ -89,6 +99,8 @@ final class ProjectDocument: ObservableObject {
         /// Optional so projects written before UI state existed still decode -
         /// a synthesized decoder throws on a missing non-optional key.
         var uiState: ProjectUIState?
+        /// Optional for the same reason: projects saved before it existed.
+        var projectFolderBookmark: Data?
     }
 
     /// Encode project to data
@@ -97,7 +109,8 @@ final class ProjectDocument: ObservableObject {
             version: 2,
             timeline: timeline,
             mediaLibrary: mediaLibrary,
-            uiState: uiState
+            uiState: uiState,
+            projectFolderBookmark: projectFolderBookmark
         )
 
         let encoder = JSONEncoder()
@@ -116,6 +129,11 @@ final class ProjectDocument: ObservableObject {
         mediaLibrary = projectData.mediaLibrary
         // Projects saved before UI state existed fall back to the defaults.
         uiState = projectData.uiState ?? .default
+        projectFolderBookmark = projectData.projectFolderBookmark
+        if let bookmark = projectFolderBookmark {
+            // Started and held like the media bookmarks, released with them.
+            _ = resolveSecurityScopedBookmark(bookmark, fallback: URL(fileURLWithPath: "project folder"))
+        }
 
         // Resolve bookmarks for timeline video reels
         resolveTimelineBookmarks()
@@ -153,21 +171,7 @@ final class ProjectDocument: ObservableObject {
         for i in 0..<mediaLibrary.count {
             if let bookmark = mediaLibrary[i].bookmark,
                let url = resolveSecurityScopedBookmark(bookmark, fallback: mediaLibrary[i].url) {
-                // MediaItem is a struct, need to update the entire item
-                let item = mediaLibrary[i]
-                mediaLibrary[i] = MediaItem(
-                    id: item.id,
-                    url: url,
-                    bookmark: item.bookmark,
-                    type: item.type,
-                    duration: item.duration,
-                    frameRate: item.frameRate,
-                    videoSize: item.videoSize,
-                    channelCount: item.channelCount,
-                    sampleRate: item.sampleRate,
-                    importedAt: item.importedAt,
-                    thumbnailData: item.thumbnailData
-                )
+                mediaLibrary[i].url = url
             }
         }
     }
@@ -179,6 +183,9 @@ final class ProjectDocument: ObservableObject {
 
     /// Save project to the specified URL (as a package directory)
     func save(to url: URL) throws {
+        // Refreshed on every save, so a project moved or saved somewhere new
+        // carries access to where it now lives.
+        rememberProjectFolder(url.deletingLastPathComponent())
         let data = try encode()
         debugPrint("ProjectDocument.save: saving to %@", url.path)
 
@@ -213,7 +220,50 @@ final class ProjectDocument: ObservableObject {
         let data = try Data(contentsOf: dataURL)
 
         try decode(from: data)
+        recoverOptimizedFlags(projectURL: url)
         fileURL = url
+    }
+
+    /// Whether the app can create files beside the project package.
+    ///
+    /// `false` for an unsaved project, or for one saved before projects remembered
+    /// their folder and opened without the folder grant.
+    var canWriteProjectFolder: Bool {
+        guard let folder = fileURL?.deletingLastPathComponent() else { return false }
+        return FileManager.default.isWritableFile(atPath: folder.path)
+    }
+
+    /// Captures a bookmark to the project's folder while the app can write there.
+    ///
+    /// Called after opening, once any wider grant (the remembered save location) is
+    /// active, so a project opened under that grant keeps its own access from then
+    /// on. Not a change the user made, so the document is not marked dirty; the
+    /// bookmark rides along with the next save.
+    func rememberProjectFolderIfWritable() {
+        guard let folder = fileURL?.deletingLastPathComponent() else { return }
+        rememberProjectFolder(folder)
+    }
+
+    /// Stores a bookmark to `folder` if it is writable; otherwise keeps the previous
+    /// one, so a read-only moment never replaces a working bookmark.
+    private func rememberProjectFolder(_ folder: URL) {
+        guard FileManager.default.isWritableFile(atPath: folder.path),
+              let bookmark = try? folder.bookmarkData(options: .withSecurityScope) else { return }
+        projectFolderBookmark = bookmark
+    }
+
+    /// Marks media in the project's "Optimized Media" folder as optimized.
+    ///
+    /// Loading once rebuilt each item without its `isOptimized` flag, and any save
+    /// after that wrote the loss to disk. Where a file lives still says what it is,
+    /// so projects saved in that state recover on open instead of offering their
+    /// optimized media for optimizing again.
+    private func recoverOptimizedFlags(projectURL: URL) {
+        for i in mediaLibrary.indices where !mediaLibrary[i].isOptimized {
+            if ProjectFolders.isOptimizedOutput(mediaLibrary[i].url, projectURL: projectURL) {
+                mediaLibrary[i].isOptimized = true
+            }
+        }
     }
 
     // MARK: - Errors

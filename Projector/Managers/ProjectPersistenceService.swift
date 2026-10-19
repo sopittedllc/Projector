@@ -182,6 +182,16 @@ final class ProjectPersistenceService: ObservableObject {
     private func loadProject(from url: URL) {
         do {
             try projectDocument.load(from: url)
+            // Optimized Media is written beside the package, which opening does not
+            // grant. The remembered save location usually covers it, but its access
+            // was only started when the Save sheet read it - so optimizing worked in
+            // a session that had saved and failed with a permission error in one
+            // that had only opened. Start it here, then let the project keep a
+            // bookmark of its own folder.
+            if !projectDocument.canWriteProjectFolder {
+                _ = AppSettings.shared.lastProjectSaveLocation
+            }
+            projectDocument.rememberProjectFolderIfWritable()
             diagnosticLog(.info, .project, "Opened project \(url.lastPathComponent)")
             // Every open route (Finder, Open panel, Open Recent, drop) ends
             // here, so this is the one place the recents list is fed.

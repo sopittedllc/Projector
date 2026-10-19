@@ -112,6 +112,17 @@ struct FileManagerView: View {
     @State private var isDropTargeted = false
     @State private var filterType: MediaType? = nil
 
+    /// Grid or list. A viewing preference rather than part of the project, so it
+    /// is remembered for the app instead of saved with each project.
+    @AppStorage("mediaPanelViewMode") private var viewMode: MediaPanelViewMode = .grid
+
+    /// List column widths in their stored form; see ``MediaListColumnWidths``.
+    @AppStorage("mediaListColumnWidths") private var storedListColumnWidths: String = ""
+
+    /// Live column widths. Held here while dragging and written back to
+    /// `storedListColumnWidths` when a drag ends, not on every frame.
+    @State private var listColumnWidths = MediaListColumnWidths()
+
     @State private var showDeleteAlert = false
     @State private var pendingDeleteItems: [MediaItem] = []
     @State private var isDraggingFromLibrary = false
@@ -432,6 +443,8 @@ struct FileManagerView: View {
     ///   instead of icon+label, for use as the fallback in `ViewThatFits`.
     private func expandedHeaderControls(compact: Bool) -> some View {
         HStack(spacing: Spacing.md) {
+            viewModeToggle
+
             // Filter buttons
             filterButtons
 
@@ -475,6 +488,32 @@ struct FileManagerView: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
+    // MARK: - View Mode
+
+    private var viewModeToggle: some View {
+        HStack(spacing: 0) {
+            viewModeButton(.grid, icon: "square.grid.2x2", label: "Grid view")
+            viewModeButton(.list, icon: "list.bullet", label: "List view")
+        }
+    }
+
+    private func viewModeButton(_ mode: MediaPanelViewMode, icon: String, label: String) -> some View {
+        Button(action: { viewMode = mode }) {
+            Image(systemName: icon)
+                .font(Typography.caption)
+                .foregroundColor(viewMode == mode ? .accentColor : .secondary)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
+                .background(viewMode == mode ? Color.accentColor.opacity(0.1) : Color.clear)
+                .cornerRadius(Spacing.xs)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(viewMode == mode ? .isSelected : [])
+    }
+
     // MARK: - Filter Buttons
 
     private var filterButtons: some View {
@@ -515,7 +554,10 @@ struct FileManagerView: View {
                     noMatchesStateView
                 }
             } else {
-                itemsList
+                switch viewMode {
+                case .grid: itemsList
+                case .list: itemsTable
+                }
             }
 
             // Drop overlay
@@ -652,6 +694,50 @@ struct FileManagerView: View {
                 }
             }
         }
+    }
+
+    /// One row per file, with its technical details, scrolling down.
+    ///
+    /// Columns are resized from the header. When they add up to more than the
+    /// panel is wide the list scrolls sideways as well, the way Finder's list view
+    /// does, rather than squeezing long names. Click, Shift-click, Command-click,
+    /// double-click and drag all go through the same handlers as the grid.
+    private var itemsTable: some View {
+        GeometryReader { geometry in
+            ScrollView([.vertical, .horizontal], showsIndicators: true) {
+                LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    Section(header: MediaListHeader(
+                        widths: $listColumnWidths,
+                        onResizeEnded: { storedListColumnWidths = listColumnWidths.storage }
+                    )) {
+                        ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
+                            MediaListRow(
+                                item: item,
+                                widths: listColumnWidths,
+                                isSelected: selectedItemIds.contains(item.id),
+                                isStriped: !index.isMultiple(of: 2),
+                                selectedItems: selectedItemIds.contains(item.id) ?
+                                    mediaLibrary.items.filter { selectedItemIds.contains($0.id) } : [item],
+                                onSelect: { handleSelect(item: item, index: index) },
+                                onDoubleClick: { handleDoubleClick(item) },
+                                onDragStateChange: { isDragging in
+                                    if isDragging {
+                                        isDraggingFromLibrary = true
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+                // At least as wide as the panel, so stripes and selection run
+                // edge to edge when the columns are narrower than the view.
+                .frame(minWidth: max(geometry.size.width, listColumnWidths.totalWidth + Spacing.sm * 2),
+                       alignment: .leading)
+            }
+            .modifier(AlwaysVisibleScrollIndicators())
+            .clipShape(RoundedRectangle(cornerRadius: Spacing.xs))
+        }
+        .onAppear { listColumnWidths = MediaListColumnWidths(storage: storedListColumnWidths) }
     }
 
     /// Computed marquee rectangle in view coordinates

@@ -254,6 +254,24 @@ final class MediaOptimizationRegressionTests: XCTestCase {
         XCTAssertFalse(cache.isLoading(for: clip))
     }
 
+    /// Adding a file to an optimized project offers only the new file.
+    ///
+    /// An optimized item keeps its original's `videoSize`, so a resolution check
+    /// alone re-flags it - which re-encoded the whole project on every new import.
+    func testAlreadyOptimizedItemsAreNotOfferedAgain() async throws {
+        let videoURL = try await TestVideoFileFactory.makeBlackMovie(duration: 1)
+        defer { try? FileManager.default.removeItem(at: videoURL) }
+        let originalSize = CGSize(width: 1920, height: 1080)
+        let optimized = MediaItem(url: videoURL, type: .video, duration: 1, videoSize: originalSize, isOptimized: true)
+        let incoming = MediaItem(url: videoURL, type: .video, duration: 1, videoSize: originalSize)
+
+        let analysis = try await MediaOptimizationService().analyzeProject(mediaItems: [optimized, incoming])
+
+        XCTAssertEqual(analysis.itemsNeedingOptimization.map(\.mediaItemId), [incoming.id])
+        let skipped = try XCTUnwrap(analysis.items.first { $0.mediaItemId == optimized.id })
+        XCTAssertEqual(skipped.skipReason, MediaOptimizationService.alreadyOptimizedReason)
+    }
+
     func testOptimizesMovieWithPCMAudio() async throws {
         let videoURL = try await TestVideoFileFactory.makeBlackMovie(duration: 1)
         let audioURL = try TestAudioFileFactory.makeSineWaveFile(duration: 1)
@@ -289,5 +307,41 @@ final class MediaOptimizationRegressionTests: XCTestCase {
         XCTAssertEqual(duration, 1, accuracy: 0.1)
         let audioTracks = try await outputAsset.loadTracks(withMediaType: .audio)
         XCTAssertEqual(audioTracks.count, 1)
+    }
+}
+
+/// Column widths for the media panel's list view.
+final class MediaListColumnWidthsTests: XCTestCase {
+    func testUnresizedColumnsUseDefaults() {
+        let widths = MediaListColumnWidths()
+        XCTAssertEqual(widths[.name], MediaListColumn.name.defaultWidth)
+    }
+
+    func testDraggingBelowMinimumStopsAtMinimum() {
+        var widths = MediaListColumnWidths()
+        widths[.name] = 1
+        XCTAssertEqual(widths[.name], MediaListColumn.name.minimumWidth)
+    }
+
+    func testWidthsSurviveStorageRoundTrip() {
+        var widths = MediaListColumnWidths()
+        widths[.name] = 480
+        widths[.codec] = 140
+        XCTAssertEqual(MediaListColumnWidths(storage: widths.storage), widths)
+    }
+
+    func testUnreadableStorageFallsBackToDefaults() {
+        XCTAssertEqual(MediaListColumnWidths(storage: "not json"), MediaListColumnWidths())
+    }
+
+    func testFrameRatesDropTrailingZeros() {
+        XCTAssertEqual(MediaListText.frameRate(24), "24 fps")
+        XCTAssertEqual(MediaListText.frameRate(29.97), "29.97 fps")
+        XCTAssertEqual(MediaListText.frameRate(24000.0 / 1001.0), "23.976 fps")
+    }
+
+    func testSampleRates() {
+        XCTAssertEqual(MediaListText.sampleRate(48_000), "48 kHz")
+        XCTAssertEqual(MediaListText.sampleRate(44_100), "44.1 kHz")
     }
 }

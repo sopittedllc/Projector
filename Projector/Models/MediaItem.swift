@@ -106,8 +106,13 @@ struct MediaItem: Identifiable, Codable, Equatable {
     /// Unique identifier
     let id: UUID
 
-    /// Source file URL
-    let url: URL
+    /// Source file URL.
+    ///
+    /// Mutable so relocating a file changes this one field in place. Rebuilding the
+    /// item field by field to change it silently dropped whatever the rebuild forgot -
+    /// `isOptimized` among them, which made a reopened project offer its optimized
+    /// media for optimizing again.
+    var url: URL
 
     /// Security-scoped bookmark for sandbox access
     var bookmark: Data?
@@ -142,7 +147,11 @@ struct MediaItem: Identifiable, Codable, Equatable {
     /// Cached thumbnail image (not persisted)
     var thumbnailData: Data?
 
-    /// Human-readable name of the video codec, e.g. "Avid DNxHD" (not persisted).
+    /// Human-readable name of the video codec, e.g. "Avid DNxHD".
+    ///
+    /// Saved with the project: unlike ``isDecodable`` it is a fact about the file,
+    /// not the machine. It describes the file it was read from, so relocating the
+    /// item to a different file clears it rather than carry it across.
     var codecName: String?
 
     /// Whether this Mac can decode the video track (not persisted).
@@ -256,6 +265,7 @@ extension MediaItem {
         case bitrate
         case importedAt
         case isOptimized
+        case codecName
     }
 
     init(from decoder: Decoder) throws {
@@ -281,6 +291,7 @@ extension MediaItem {
         bitrate = try container.decodeIfPresent(Int.self, forKey: .bitrate)
         importedAt = try container.decode(Date.self, forKey: .importedAt)
         isOptimized = try container.decodeIfPresent(Bool.self, forKey: .isOptimized) ?? false
+        codecName = try container.decodeIfPresent(String.self, forKey: .codecName)
         thumbnailData = nil
     }
 
@@ -300,5 +311,6 @@ extension MediaItem {
         try container.encodeIfPresent(bitrate, forKey: .bitrate)
         try container.encode(importedAt, forKey: .importedAt)
         try container.encode(isOptimized, forKey: .isOptimized)
+        try container.encodeIfPresent(codecName, forKey: .codecName)
     }
 }

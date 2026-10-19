@@ -1046,8 +1046,13 @@ enum FileManagerLayout {
     /// area + filters + prepare media + import + spacing), rounded up so the
     /// switch to compact happens before anything clips. Deliberately left at
     /// its original figure after the search field and sort menu were removed:
-    /// erring wide only makes the compact switch happen sooner.
-    static let headerFullControlsMinWidth: CGFloat = 720
+    /// erring wide only makes the compact switch happen sooner. Widened by the
+    /// grid/list toggle's footprint when that was added.
+    static let headerFullControlsMinWidth: CGFloat = 720 + viewModeToggleWidth
+
+    /// Footprint of the grid/list toggle in the header: two icon buttons and the
+    /// gap that separates it from the filters.
+    static let viewModeToggleWidth: CGFloat = 64
 
     /// Grid cell thumbnail size
     static let gridThumbnailWidth: CGFloat = 64
@@ -1082,6 +1087,50 @@ enum FileManagerLayout {
         + (gridCellHeight * 2) + Spacing.sm  // two rows and the gap between them
         + (Spacing.sm * 2)  // scroll content padding
         + scrollIndicatorHeight
+
+    // MARK: List view
+
+    /// Height of one row in the media list.
+    static let listRowHeight: CGFloat = 28
+
+    /// Thumbnail in a list row: the grid's 4:3 shape at row scale.
+    static let listThumbnailWidth: CGFloat = 32
+
+    /// Thumbnail height in a list row.
+    static let listThumbnailHeight: CGFloat = 20
+
+    /// Starting width of the Name column, wide enough for a typical reel name.
+    static let listNameDefaultWidth: CGFloat = 320
+
+    /// Narrowest the Name column can be dragged: thumbnail plus a few characters.
+    static let listNameMinWidth: CGFloat = 80
+
+    /// Narrowest any other column can be dragged.
+    static let listColumnMinWidth: CGFloat = 32
+
+    /// Height of the divider line drawn in each header resize handle.
+    static let listHeaderDividerHeight: CGFloat = 14
+
+    /// Width of the Duration column.
+    static let listDurationWidth: CGFloat = 64
+
+    /// Width of the Format column (resolution or channel layout).
+    static let listFormatWidth: CGFloat = 88
+
+    /// Width of the Rate column (frame rate or sample rate).
+    static let listRateWidth: CGFloat = 72
+
+    /// Width of the Codec column.
+    static let listCodecWidth: CGFloat = 96
+
+    /// Width of the Bitrate column.
+    static let listBitrateWidth: CGFloat = 80
+
+    /// Width of the Status column (optimization state).
+    static let listStatusWidth: CGFloat = 104
+
+    /// Opacity of the stripe behind alternate list rows.
+    static let listStripeOpacity: Double = 0.04
 }
 
 /// Timeline section constants (in ContentView)

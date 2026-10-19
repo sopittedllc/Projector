@@ -245,13 +245,20 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             isVideo: item.type == .video
         )
 
-        // Determine if optimization is needed
-        let optimizationCheck = shouldOptimize(
-            isVideo: item.type == .video,
-            currentCodec: codecInfo.codec,
-            currentResolution: item.videoSize,
-            currentBitrate: codecInfo.bitrate
-        )
+        // Determine if optimization is needed.
+        //
+        // Our own output is never offered again. Its metadata still describes the
+        // original - `updateItemURL` repoints the file but keeps the source's
+        // `videoSize` - so judging it on resolution re-flagged every optimized
+        // video, and dropping one new file into a project re-encoded all of them.
+        let optimizationCheck = item.isOptimized
+            ? OptimizationCheck(needsOptimization: false, skipReason: Self.alreadyOptimizedReason)
+            : shouldOptimize(
+                isVideo: item.type == .video,
+                currentCodec: codecInfo.codec,
+                currentResolution: item.videoSize,
+                currentBitrate: codecInfo.bitrate
+            )
 
         return MediaAnalysisItem(
             mediaItemId: item.id,
@@ -415,6 +422,9 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
             return UInt64((audioBitrate * duration) / 8)
         }
     }
+
+    /// Skip reason shown for files this service already produced.
+    static let alreadyOptimizedReason = "Already optimized"
 
     /// Result of optimization check
     private struct OptimizationCheck {

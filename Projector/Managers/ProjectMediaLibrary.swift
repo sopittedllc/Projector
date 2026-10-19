@@ -65,6 +65,17 @@ enum ProjectFolders {
         return roots.contains { isDescendant(url, of: $0) }
     }
 
+    /// Whether a file is this project's own optimized output.
+    ///
+    /// - Parameters:
+    ///   - url: The file to test.
+    ///   - projectURL: The `.projector` package.
+    /// - Returns: `true` if the file is inside the project's "Optimized Media" folder.
+    static func isOptimizedOutput(_ url: URL, projectURL: URL) -> Bool {
+        guard let folder = optimizedMediaFolder(forProjectAt: projectURL) else { return false }
+        return isDescendant(url, of: folder)
+    }
+
     /// Whether `url` sits inside `folder`, compared a path component at a time.
     ///
     /// String prefixes are the wrong tool here twice over: `/Movies/Show` is a
@@ -435,21 +446,14 @@ final class ProjectMediaLibrary: ObservableObject {
         // bookmark instead of returning a stale success for the old file.
         releaseAccess(for: id)
 
-        items[index] = MediaItem(
-            id: item.id,
-            url: newURL,
-            bookmark: bookmark,
-            type: item.type,
-            duration: item.duration,
-            frameRate: item.frameRate,
-            videoSize: item.videoSize,
-            channelCount: item.channelCount,
-            sampleRate: item.sampleRate,
-            bitrate: item.bitrate,
-            importedAt: item.importedAt,
-            isOptimized: newIsOptimized,
-            thumbnailData: item.thumbnailData
-        )
+        // A different file may hold a different codec (optimizing turns DNxHR into
+        // HEVC). Unknown is honest; the old name would not be.
+        if items[index].url.standardizedFileURL != newURL.standardizedFileURL {
+            items[index].codecName = nil
+        }
+        items[index].url = newURL
+        items[index].bookmark = bookmark
+        items[index].isOptimized = newIsOptimized
         debugPrint("ProjectMediaLibrary.updateItemURL: UPDATED - items[\(index)].isOptimized = \(items[index].isOptimized)")
         markDirty()
     }

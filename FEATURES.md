@@ -1345,6 +1345,46 @@ Collapsible panel showing project media library with grid view.
 
 ---
 
+### Media Panel List View
+
+**Status**: Active
+**Added**: 2026-10-19
+
+#### Description
+The media panel can show its files as a list instead of thumbnails: one row per
+file with Duration, Format (resolution or channel layout), Rate (frame rate or
+sample rate), Codec, Bitrate and optimization Status. A grid/list toggle sits at
+the left of the panel's header controls. Every column resizes by dragging the
+handle at its header edge; when the columns are wider than the panel the list
+scrolls sideways. Mode and widths are remembered for the app, not saved per
+project. Selection, double-click and multi-item drag behave as in the grid. No
+marquee selection in list mode. `MediaItem.codecName` is now saved with the
+project (cleared when an item is relocated to a different file).
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| View | `Views/FileManager/MediaItemRow.swift` | `MediaPanelViewMode`, `MediaListColumn`, `MediaListColumnWidths`, `MediaListHeader`, `MediaListRow`, `MediaListText` |
+| View | `Views/FileManager/FileManagerView.swift` | `viewModeToggle`, `itemsTable`, mode switch in `contentArea` |
+| Utility | `Utilities/LayoutConstants.swift` | `FileManagerLayout.list*`, `viewModeToggleWidth` |
+
+#### State Properties
+
+| File | Property | Type | Purpose |
+|------|----------|------|---------|
+| `FileManagerView.swift` | `@AppStorage("mediaPanelViewMode") viewMode` | `MediaPanelViewMode` | Grid or list |
+| `FileManagerView.swift` | `@AppStorage("mediaListColumnWidths") storedListColumnWidths` | `String` (JSON) | Persisted column widths |
+| `FileManagerView.swift` | `@State listColumnWidths` | `MediaListColumnWidths` | Live widths while dragging |
+
+#### Integration Points
+- `FileManagerLayout.headerFullControlsMinWidth` widened by `viewModeToggleWidth`.
+- Rows reuse `handleSelect`, `handleDoubleClick`, `DragContext` and `MediaDragProvider`.
+
+#### Removal
+Delete the list types from `MediaItemRow.swift`, `viewModeToggle`/`itemsTable`/`viewMode`
+from `FileManagerView.swift`, the `list*` constants, and restore the header min width.
+
 ### Alert/Sheet Coordination
 
 **Status**: Active
