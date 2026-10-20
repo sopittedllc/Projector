@@ -543,6 +543,18 @@ final class PlaybackEngine: ObservableObject {
         let player: AVAudioPlayerNode
         let rateConverter: AVAudioMixerNode
         let matrixMixer: AVAudioUnit
+
+        /// Gain stage for the part of the clip's level above unity.
+        ///
+        /// `AVAudioPlayerNode.volume` stops at 1.0, and a lane level of up to
+        /// +12 dB has to come from somewhere: this EQ has no active bands, so
+        /// its `globalGain` is a pure gain. See ``applyGain(_:to:)``.
+        let levelBoost: AVAudioUnitEQ
+
+        /// The boost last written to ``levelBoost``, so the per-frame path
+        /// assigns it only when it changes.
+        var appliedBoostDB: Float = 0
+
         let audioFile: AVAudioFile
         let inputChannelCount: Int
 
@@ -569,6 +581,7 @@ final class PlaybackEngine: ObservableObject {
             player: AVAudioPlayerNode,
             rateConverter: AVAudioMixerNode,
             matrixMixer: AVAudioUnit,
+            levelBoost: AVAudioUnitEQ,
             audioFile: AVAudioFile,
             inputChannelCount: Int,
             isolatedChannel: Int?,
@@ -581,6 +594,7 @@ final class PlaybackEngine: ObservableObject {
             self.player = player
             self.rateConverter = rateConverter
             self.matrixMixer = matrixMixer
+            self.levelBoost = levelBoost
             self.audioFile = audioFile
             self.inputChannelCount = inputChannelCount
             self.isolatedChannel = isolatedChannel
@@ -2069,6 +2083,28 @@ final class PlaybackEngine: ObservableObject {
         return automationGains.gain(forClip: clip.id, at: currentFrame)
     }
 
+    /// Writes a clip's total gain to its player and level-boost stage.
+    ///
+    /// Gain up to unity goes on `AVAudioPlayerNode.volume`, which is
+    /// documented 0...1 only; whatever is above unity goes to the clip's EQ
+    /// `globalGain`. See ``LaneLevel/splitPlaybackGain(totalLinear:)``. Each
+    /// is assigned only when it differs, because this runs on every frame for
+    /// an automated lane.
+    ///
+    /// - Parameters:
+    ///   - totalLinear: The clip's whole gain.
+    ///   - playback: The loaded clip to apply it to.
+    private func applyGain(_ totalLinear: Float, to playback: AudioClipPlayback) {
+        let split = LaneLevel.splitPlaybackGain(totalLinear: totalLinear)
+        if playback.player.volume != split.playerVolume {
+            playback.player.volume = split.playerVolume
+        }
+        if playback.appliedBoostDB != split.boostDB {
+            playback.levelBoost.globalGain = split.boostDB
+            playback.appliedBoostDB = split.boostDB
+        }
+    }
+
     /// Reconciles automated lane volume with ``currentFrame``.
     ///
     /// Called from `currentFrame`'s `didSet`, so this runs on every seek,
@@ -2092,7 +2128,7 @@ final class PlaybackEngine: ObservableObject {
         let gains = automationGains.gains(at: frame, forClips: loadedAutomatedClipIds)
         for clipId in loadedAutomatedClipIds {
             guard let playback = audioPlayers[clipId], let gain = gains[clipId] else { continue }
-            playback.player.volume = gain
+            applyGain(gain, to: playback)
             #if DEBUG
             automationGainTrace?(ProcessInfo.processInfo.systemUptime, frame, clipId, gain)
             #endif
@@ -2111,7 +2147,7 @@ final class PlaybackEngine: ObservableObject {
             for clip in lane.clips {
                 guard let playback = audioPlayers[clip.id] else { continue }
                 applyOutputMappingIfNeeded(playback, lane: lane)
-                playback.player.volume = playbackGain(for: clip, lane: lane)
+                applyGain(playbackGain(for: clip, lane: lane), to: playback)
             }
         }
     }
@@ -2126,7 +2162,7 @@ final class PlaybackEngine: ObservableObject {
             ensureAudioEngineRunning()
         }
         applyOutputMappingIfNeeded(playback, lane: lane)
-        playback.player.volume = playbackGain(for: clip, lane: lane)
+        applyGain(playbackGain(for: clip, lane: lane), to: playback)
         guard let sourceTime = clip.sourceTime(at: currentFrame, masterFrameRate: frameRate) else { return }
 
         let currentSeconds: Double? = {
@@ -2227,7 +2263,7 @@ final class PlaybackEngine: ObservableObject {
         }
 
         playback.player.stop()
-        playback.player.volume = playbackGain(for: clip, lane: lane)
+        applyGain(playbackGain(for: clip, lane: lane), to: playback)
         playback.player.scheduleSegment(file, startingFrame: startFrame, frameCount: frameCount, at: nil)
         playback.scheduledSourceTime = sourceTime
         if shouldPlay {
@@ -2259,6 +2295,8 @@ final class PlaybackEngine: ObservableObject {
 
         let player = AVAudioPlayerNode()
         let rateConverter = AVAudioMixerNode()
+        let levelBoost = AVAudioUnitEQ(numberOfBands: 1)
+        levelBoost.bands[0].bypass = true
         let matrixMixer = try await makeMatrixMixer()
         let inputFormat = audioFile.processingFormat
 
@@ -2305,6 +2343,7 @@ final class PlaybackEngine: ObservableObject {
         }
 
         audioEngine.attach(player)
+        audioEngine.attach(levelBoost)
         audioEngine.attach(rateConverter)
         audioEngine.attach(matrixMixer)
 
@@ -2313,8 +2352,10 @@ final class PlaybackEngine: ObservableObject {
               "Chain: \(intermediateFormat.sampleRate)Hz/\(intermediateFormat.channelCount)ch, " +
               "MultiCh: \(multiChannelOutputFormat.sampleRate)Hz/\(multiChannelOutputFormat.channelCount)ch")
 
-        // Player -> RateConverter: mixer handles sample rate conversion automatically
-        audioEngine.connect(player, to: rateConverter, format: inputFormat)
+        // Player -> LevelBoost -> RateConverter: the EQ carries any gain above
+        // unity (the player node cannot), the mixer handles sample rate conversion
+        audioEngine.connect(player, to: levelBoost, format: inputFormat)
+        audioEngine.connect(levelBoost, to: rateConverter, format: inputFormat)
 
         // RateConverter -> MatrixMixer: intermediate format with correct sample rate
         audioEngine.connect(rateConverter, to: matrixMixer, format: intermediateFormat)
@@ -2332,6 +2373,7 @@ final class PlaybackEngine: ObservableObject {
             player: player,
             rateConverter: rateConverter,
             matrixMixer: matrixMixer,
+            levelBoost: levelBoost,
             audioFile: audioFile,
             inputChannelCount: inputChannelCount,
             isolatedChannel: clip.sourceChannel?.channelIndex,
@@ -2366,6 +2408,7 @@ final class PlaybackEngine: ObservableObject {
         guard let playback = audioPlayers[id] else { return }
         playback.player.stop()
         audioEngine.detach(playback.player)
+        audioEngine.detach(playback.levelBoost)
         audioEngine.detach(playback.rateConverter)
         audioEngine.detach(playback.matrixMixer)
         audioPlayers.removeValue(forKey: id)

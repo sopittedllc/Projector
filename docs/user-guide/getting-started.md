@@ -155,7 +155,7 @@ If you have a multi-channel audio interface:
 - **Waveforms**: Audio waveforms generate asynchronously - wait 5-10 seconds for large files
 - **Thumbnails**: Video thumbnails generate on-demand as you zoom/scroll
 - **Project Documents**: .projector files use macOS document icons (may not appear immediately in Finder)
-- **Sandbox Access**: If files become inaccessible, use **File → Locate Missing Files** to re-grant access
+- **Moved Files**: If media has moved or been renamed, use **File → Locate Missing Files** to relink it
 
 ---
 

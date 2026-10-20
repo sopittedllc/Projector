@@ -42,7 +42,10 @@ struct VolumeAutomationStripView: View {
                 // still reserves the column.
                 .offset(x: headerScrollOffset)
                 .zIndex(1)
-            Color.clear
+            // Tinted like the open sub-lane, so the strip is its own mini
+            // lane. Left clear, it matched the lane above and read as a
+            // thick bottom margin under every clip.
+            AutomationRowBackground(laneIndex: laneIndex)
         }
         .frame(width: totalContentWidth, height: TimelineLayout.automationStripHeight)
     }

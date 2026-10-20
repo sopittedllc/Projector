@@ -1,10 +1,46 @@
 # Session State
 
-> **Last Updated**: 2026-10-12
-> **Status**: IDLE — NO PICTURE indicator shipped
+> **Last Updated**: 2026-10-20
+> **Status**: SHIPPING — sandbox removal, automation mini lane, Lane Level knob
 > **Branch**: main
 
 ---
+
+## 2026-10-20 — Release status, mini lane, lane level (VCA)
+
+- Installed /Applications build is 2026.10.14.1; 977083e (pushed) and the sandbox removal (uncommitted) are unshipped.
+- Clare on sandbox removal: CONDITIONAL PASS. Gate: runtime drop/open/relink in the unsandboxed Debug build
+  (startAccessingSecurityScopedResource false-return guards). Migration fixes pending user OK: copy only unset keys,
+  marker outside the domain, log unreadable plist. Marker was already consumed by an Oct 19 Debug run on this Mac.
+- Debug build (DerivedData) running for the user's test - do not rebuild until they say done.
+- Mini lane (unbuilt): `AutomationRowBackground` shared by VolumeAutomationLaneView + VolumeAutomationStripView;
+  the collapsed strip is now tinted like the open sub-lane instead of reading as clip bottom padding.
+- Lane level (VCA) decided by user: dB slider in the lane header, −∞…+12 dB, default 0; stacks with automation
+  in playback, and QT export applies lane level × automation × export trim. `AudioLane.volume` (linear) already
+  multiplies automation in `AutomationGainTable`/`playbackGain`, but has no UI and is excluded from export
+  (QuickTimeDemoBuilder ~331). Open question with thomas: which nodes honour gain > 1.0 (player volume, mixer,
+  AUMatrixMixer, AVAudioMix) - decides where the boost lives.
+- Resolved: boost via per-clip AVAudioUnitEQ.globalGain (documented -96…+24); export probe showed AVAudioMix
+  volume >1 is honoured (undocumented, regression test added). Slider → 18pt knob in the M/S row at user's request.
+  EQ probe: unity at 0 dB, +12.0 dB exact, accepts 6/8ch formats (multichannel audibility not proven by probe -
+  baseline without EQ was silent too).
+- Clare (lane level): PASS, 0 blockers. Open warnings: clamp `volume` on decode; knob literals; double-click
+  extra undo entry possible. Sandbox migration fixes (unset-keys-only, marker outside domain, log) still pending.
+- User said "this is great, commit and ship" without confirming drop/relink/new-folder save checks.
+
+## 2026-10-19 — App Sandbox removed (uncommitted)
+
+- Trigger: Save sheet forced an "Allow Project Save Location" folder panel. A drop grants only the
+  file, not its folder; only one save folder was ever remembered. User chose to drop the sandbox
+  (App Store already ruled out by Sparkle's temporary exceptions).
+- Done: `ENABLE_APP_SANDBOX = NO` + `ENABLE_USER_SELECTED_FILES` removed for the app target (Quick Look
+  extension stays sandboxed); `Projector.entitlements` emptied; `SUEnableInstallerLauncherService`
+  removed (Sparkle sandboxing guide: undo when not sandboxed). New `SandboxContainerMigration` (called in
+  `ProjectorApp.init`) copies container prefs into ~/Library/Preferences once - the global plist there is
+  stale (Sept). Save sheet: grant panel replaced by a read-only error; default is the media folder again.
+- Built into scratchpad DerivedData (user's Debug app left running - may hold unsaved work). 13/13 tests.
+- Needs: user runtime check; clare before commit. Later cleanup: bookmark/startAccessing code is now
+  redundant but harmless.
 
 ## 2026-10-14 (later) — MTC "NO PICTURE" indicator (uncommitted)
 

@@ -1246,6 +1246,7 @@ struct MultiTrackTimelineView: View {
                                     onMuteToggle: { timelineManager.toggleLaneMute(at: index) },
                                     onSoloToggle: { timelineManager.toggleLaneSolo(at: index) },
                                     onVolumeChange: { volume in timelineManager.setLaneVolume(at: index, volume: volume) },
+                                    onVolumeCommit: { old, new in commitLaneLevel(laneId: lane.id, from: old, to: new) },
                                     onOutputMappingChange: { output in timelineManager.setLaneOutputMapping(id: lane.id, mapping: output) },
                                     onOutputNone: { timelineManager.disableLaneOutput(id: lane.id) },
                                     onDropMedia: { urls, frame, isInternal in onDropAudioMedia(index, urls, frame, isInternal) },
@@ -3043,6 +3044,12 @@ struct MultiTrackTimelineView: View {
 
         AutomationUndo.register(on: undoManager, manager: timelineManager, laneId: laneId, from: old, to: nil, actionName: "Remove Automation")
         timelineManager.removeAutomation(fromLane: laneId)
+    }
+
+    /// Registers the single undo step for a finished lane-level gesture. The
+    /// level itself was applied live while the slider moved.
+    private func commitLaneLevel(laneId: UUID, from old: Float, to new: Float) {
+        LaneLevelUndo.register(on: undoManager, manager: timelineManager, laneId: laneId, from: old, to: new)
     }
 
     // MARK: - Lane Reorder

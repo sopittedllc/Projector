@@ -1,59 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict>
-	<!-- App Sandbox: REQUIRED for App Store distribution -->
-	<key>com.apple.security.app-sandbox</key>
-	<true/>
+<!-- Projector is not sandboxed. It is distributed as a notarized Developer ID
+     DMG and updates itself through Sparkle, whose installer entitlements already
+     ruled out the Mac App Store - the only place a sandbox is required.
 
-	<!-- File Access: Read/write user-selected files (Open/Save dialogs, drag-drop) -->
-	<key>com.apple.security.files.user-selected.read-write</key>
-	<true/>
+     The sandbox cost the workflow more than it protected: a dropped file granted
+     only that file, so saving a project beside its media, writing Optimized Media
+     and relinking moved files each needed a folder panel or a stored bookmark,
+     and bookmarks broke between builds. Without it the app reads and writes
+     wherever the user can.
 
-	<!-- Bookmarks: Persist access to user-selected files across app launches -->
-	<key>com.apple.security.files.bookmarks.app-scope</key>
-	<true/>
-
-	<!-- Bookmarks: Store file references within project documents -->
-	<key>com.apple.security.files.bookmarks.document-scope</key>
-	<true/>
-
-	<!-- Media: Read video/movie files for playback -->
-	<key>com.apple.security.assets.movies.read-write</key>
-	<true/>
-
-	<!-- Audio: Output audio to speakers/headphones -->
-	<key>com.apple.security.device.audio-output</key>
-	<true/>
-
-	<!-- MIDI: Access MIDI devices for MTC/MMC synchronization -->
-	<key>com.apple.security.device.midi</key>
-	<true/>
-
-	<!-- Network: Download Apple's Pro Video Formats package when a delivery uses a
-	     codec macOS cannot decode, and fetch the software update appcast and DMG
-	     from this project's own GitHub releases. -->
-	<key>com.apple.security.network.client</key>
-	<true/>
-
-	<!-- Software update: talk to Sparkle's installer XPC services.
-
-	     A sandboxed app cannot replace itself in /Applications - that is outside
-	     its container and no ordinary entitlement reaches it. Sparkle's answer is
-	     to do the install from XPC services that live outside the sandbox, and
-	     these two names are how the app reaches them (-spks launcher, -spki
-	     installer). Sparkle will not install anything without them.
-
-	     KNOWN CONSEQUENCE: temporary-exception entitlements are not accepted on
-	     the Mac App Store. While these keys are present, Projector cannot ship
-	     there. That is the trade for updating itself; a future App Store build
-	     would need its own configuration with these keys and Sparkle removed,
-	     which is why update behaviour is reached through UpdateServiceProtocol
-	     rather than by calling Sparkle directly. -->
-	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
-	<array>
-		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spks</string>
-		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spki</string>
-	</array>
-</dict>
+     Hardened Runtime (required for notarization) is still on and needs no
+     exceptions: nothing here records audio, uses the camera or JITs code.
+     The Quick Look extension keeps its own sandbox; extensions require one. -->
+<dict/>
 </plist>

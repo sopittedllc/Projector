@@ -879,6 +879,12 @@ enum TimelineLayout {
     /// Corner radius shared by lane header controls.
     static let laneControlCornerRadius: CGFloat = 4
 
+    /// Diameter of the lane level knob.
+    ///
+    /// The HIG's standard icon size (18pt), which is also
+    /// ``laneControlHeight``, so the knob sits on the M/S row's rhythm.
+    static let laneKnobSize: CGFloat = 18
+
     /// Height of the lane name row at the top of a lane header.
     ///
     /// A single line of ``Typography/subheading`` (12pt). Named because the

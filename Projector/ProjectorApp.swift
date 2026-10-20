@@ -20,6 +20,12 @@ struct ProjectorApp: App {
     /// will take any external event rather than let a new one be opened for it.
     private static let anyExternalEvent: Set<String> = ["*"]
 
+    init() {
+        // Before any view or setting reads defaults: the first unsandboxed
+        // launch would otherwise start from a stale or empty preferences file.
+        SandboxContainerMigration.migrateIfNeeded()
+    }
+
     var body: some Scene {
         // Single window app - only one project open at a time.
         //

@@ -82,43 +82,37 @@ URLs, and trust rests on the signatures rather than on the transport.
 
 ---
 
-## Why an XPC service is involved
+## Why there is no XPC service
 
-Projector is sandboxed. Nothing inside the sandbox may write to
-`/Applications`, so the app cannot replace itself no matter how it downloads the
-disk image. Sparkle's installer runs outside the sandbox as an XPC service,
-reached through two mach-lookup exceptions in `Projector.entitlements`:
+Projector is not sandboxed, so Sparkle installs updates in-process and needs
+neither its installer XPC services nor the mach-lookup exceptions that reach
+them. Sparkle's sandboxing guide says to undo both when sandboxing is turned
+off; `SUEnableInstallerLauncherService` was removed from `Info.plist` and the
+exceptions from `Projector.entitlements` for that reason.
 
-```
-$(PRODUCT_BUNDLE_IDENTIFIER)-spks    launcher
-$(PRODUCT_BUNDLE_IDENTIFIER)-spki    installer
-```
+It used to be sandboxed. A dropped file granted only that file, so saving a
+project beside its media, writing Optimized Media and relinking moved files
+each needed a folder panel or a stored bookmark. Distribution is a notarized
+Developer ID DMG, which requires Hardened Runtime but not a sandbox.
 
-with `SUEnableInstallerLauncherService` in `Info.plist` telling Sparkle to use
-it. The alternative — asking for an administrator password in Projector's own
-interface — is the thing `ProVideoFormatsInstaller` refuses to do, for the
-reason stated there: an app collecting admin credentials in its own window is
-indistinguishable from one harvesting them.
+Copies installed while the app was sandboxed still update: the installer they
+run is the one they shipped with.
 
 ---
 
-## ⚠️ This closes the Mac App Store
+## The Mac App Store
 
-`com.apple.security.temporary-exception.*` entitlements are **not accepted on
-the Mac App Store**. While those two keys are present, Projector cannot ship
-there. See `docs/app-store/entitlements-audit-checklist.md`.
+The App Store requires the App Sandbox, and does not accept Sparkle. If
+Projector is ever submitted there, that build needs its own configuration with:
 
-If Projector is ever submitted to the App Store, that build needs its own
-configuration with:
-
-- both temporary-exception entitlements removed,
+- the App Sandbox turned back on, with folder access designed for it
+  (the Save sheet, Optimized Media and relinking all write beside user files),
 - Sparkle removed from the target,
 - an `UpdateServiceProtocol` implementation that reports nothing to update
   (the App Store does the updating).
 
 Every caller goes through that protocol rather than touching Sparkle directly,
-so this is a swap rather than a hunt. That is the only reason the protocol
-exists.
+so the update half is a swap rather than a hunt.
 
 ---
 

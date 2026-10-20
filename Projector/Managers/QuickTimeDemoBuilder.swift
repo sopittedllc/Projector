@@ -124,6 +124,11 @@ struct QuickTimeDemo {
     /// lane's trim.
     let laneAutomation: [UUID: VolumeAutomation]
 
+    /// Each lane's level in decibels at build time (`-infinity` when silent),
+    /// keyed by lane id. A snapshot for the same reason as
+    /// ``laneAutomation``. Defaults to empty, which reads as 0 dB.
+    var laneLevelDB: [UUID: Float] = [:]
+
     /// Internal, rather than the usual `private`/`fileprivate`, only so the
     /// test target (`ProjectorTests`) can build a `QuickTimeDemo` by hand
     /// around a composition it assembles itself, without a real import or a
@@ -141,6 +146,7 @@ struct QuickTimeDemo {
             laneTrackIDs: laneTrackIDs,
             rate: rate,
             laneAutomation: laneAutomation,
+            laneLevelDB: laneLevelDB,
             securityScopedResources: securityScopedResources
         )
     }
@@ -248,6 +254,7 @@ struct QuickTimeDemoBuilder {
         var inputParameters: [AVAudioMixInputParameters] = []
         var mixTrackID: CMPersistentTrackID?
         var laneTrackIDs: [UUID: CMPersistentTrackID] = [:]
+        var laneLevelDB: [UUID: Float] = [:]
         var securityScopedResources: [QuickTimeDemoSecurityScope] = []
 
         // Only standalone lanes are ever automated (a non-standalone lane's
@@ -328,15 +335,18 @@ struct QuickTimeDemoBuilder {
                 continue
             }
 
-            // The number on the slider is the number applied. `AudioLane.volume`
-            // is deliberately left out: there is no control for it anywhere in
-            // the app, so folding it in would mean the printed level differed
-            // from the one on screen for a reason the user could not see.
+            // The lane's level is part of what it sounds like on the timeline,
+            // so it is printed: level, then automation, then this sheet's trim.
+            // The trim stays the number on the slider; the level and envelope
+            // are the lane's own.
             //
-            // An excluded lane is silenced and its automation bypassed - a lane
-            // nobody hears has no envelope to ride.
-            let gain = choice.isIncluded ? choice.gainDB : Self.silentDB
-            let automation = choice.isIncluded ? laneAutomation[lane.id] : nil
+            // An excluded lane - or one whose level is all the way down - is
+            // silenced and its automation bypassed: a lane nobody hears has no
+            // envelope to ride.
+            laneLevelDB[lane.id] = lane.levelDB
+            let audible = choice.isIncluded && lane.levelDB.isFinite
+            let gain = audible ? choice.gainDB + lane.levelDB : Self.silentDB
+            let automation = audible ? laneAutomation[lane.id] : nil
             inputParameters.append(mixParameters(
                 for: laneTrack,
                 trimDB: gain,
@@ -363,6 +373,7 @@ struct QuickTimeDemoBuilder {
             laneTrackIDs: laneTrackIDs,
             rate: rate,
             laneAutomation: laneAutomation,
+            laneLevelDB: laneLevelDB,
             securityScopedResources: securityScopedResources
         )
     }
@@ -404,9 +415,12 @@ struct QuickTimeDemoBuilder {
 
             // An excluded lane is silenced rather than removed - the composition
             // is not being rebuilt here, and silence is the same result. Its
-            // automation is bypassed along with it.
-            let gain = choice.isIncluded ? choice.gainDB : Self.silentDB
-            let automation = choice.isIncluded ? demo.laneAutomation[choice.id] : nil
+            // automation is bypassed along with it, and so is a lane whose
+            // level is all the way down.
+            let levelDB = demo.laneLevelDB[choice.id] ?? LaneLevel.unityDB
+            let audible = choice.isIncluded && levelDB.isFinite
+            let gain = audible ? choice.gainDB + levelDB : Self.silentDB
+            let automation = audible ? demo.laneAutomation[choice.id] : nil
             inputParameters.append(mixParameters(
                 for: track,
                 trimDB: gain,

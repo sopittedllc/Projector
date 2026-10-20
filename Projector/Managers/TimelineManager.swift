@@ -784,10 +784,10 @@ final class TimelineManager: ObservableObject {
         }
     }
 
-    /// Set lane volume
+    /// Set lane level (linear gain, clamped to `0...LaneLevel.maxLinear`)
     func setLaneVolume(id: UUID, volume: Float) {
         if var lane = timeline.audioLanes.first(where: { $0.id == id }) {
-            lane.volume = max(0, min(1, volume))
+            lane.volume = LaneLevel.clampedLinear(volume)
             timeline.updateAudioLane(lane)
         }
     }
@@ -972,7 +972,7 @@ final class TimelineManager: ObservableObject {
     func setLaneVolume(at index: Int, volume: Float) {
         guard index >= 0, index < timeline.audioLanes.count else { return }
         var lane = timeline.audioLanes[index]
-        lane.volume = max(0, min(1, volume))
+        lane.volume = LaneLevel.clampedLinear(volume)
         timeline.updateAudioLane(lane)
     }
 

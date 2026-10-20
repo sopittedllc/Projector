@@ -115,7 +115,7 @@ rm -rf ~/Library/Application\ Support/Projector
 **2. Copy Files to Mac First**:
 1. Copy video files to ~/Movies or ~/Documents
 2. Import from local drive
-3. This avoids sandbox restrictions
+3. This avoids removable-volume permission prompts
 
 **3. Use Consolidate Media**:
 1. After importing, use File → Consolidate Media

@@ -17,8 +17,17 @@ public struct AudioLane: Identifiable, Codable, Equatable, Sendable {
     /// Whether this lane is soloed
     public var isSolo: Bool
 
-    /// Lane volume (0.0 to 1.0)
+    /// Lane level as a linear gain, `0` to ``LaneLevel/maxLinear`` (+12 dB).
+    ///
+    /// `1.0` is 0 dB. Projects saved before the level control reached above
+    /// unity stored `0.0...1.0`, which this reads unchanged. The user-facing
+    /// control is in decibels - see ``levelDB`` and ``LaneLevel``.
     public var volume: Float
+
+    /// The lane level in decibels, `-infinity` when silent.
+    public var levelDB: Float {
+        LaneLevel.dB(fromLinear: volume)
+    }
 
     /// Starting channel on the output device (0-indexed)
     public var outputChannelOffset: Int

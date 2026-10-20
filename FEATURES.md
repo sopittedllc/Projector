@@ -571,10 +571,10 @@ published it offers to download and install it, then relaunches. Updates are
 never silent: the user is asked first. Also reachable from **Projector → Check
 for Updates...** and **Settings → Updates**.
 
-A sandboxed app cannot replace itself in `/Applications`, so the install runs in
-Sparkle's XPC service outside the sandbox, reached via two temporary-exception
-entitlements. **Those entitlements are not accepted on the Mac App Store** - see
-`docs/software-update.md` and `docs/app-store/entitlements-audit-checklist.md`.
+The app is not sandboxed (since 2026-10-19), so Sparkle installs in-process with no
+XPC service or entitlement exceptions. An App Store build would need the sandbox back
+and Sparkle removed - see `docs/software-update.md`. On first unsandboxed launch,
+`SandboxContainerMigration` copies settings out of the old sandbox container once.
 
 #### Files
 
@@ -1774,6 +1774,50 @@ keys are dropped). No format version bump - optional fields with defaults.
 - [ ] Restore `mixParameters(for:gainDB:)`; drop `QuickTimeDemo.rate`/`laneAutomation` and `AutomationExport`
 - [ ] Decide whether to keep `TrackGeometry`/`LaneReorder(rows:)` (they also fixed marquee over expanded linked strips) - if not, restore constant-pitch rows
 - [ ] Remove the test files and the `VOLAUTO*` entries from `project.pbxproj`
+
+### Lane Level (per-lane gain over automation)
+
+**Status**: Active
+**Added**: 2026-10-20
+
+#### Description
+A small rotary knob (18pt) in each lane header beside M/S, before the sample-rate label: -infinity to +12 dB (dB-linear over a 270 degree sweep, bottom stop silent, default 0 dB, notch at 0 dB). A vertical drag turns it (Option/Shift for fine); the dB value shows in the tooltip and in a small overlay only while dragging. Double-click resets to 0 dB. VoiceOver adjusts in 1 dB steps. A click without movement changes nothing and registers no undo. It is a gain stage over the lane's automation: playback gain is clip volume x lane level x envelope, and export is lane level x envelope x the export sheet's trim. Stored in the existing `AudioLane.volume` (linear, 1.0 = 0 dB), so older projects open unchanged. Gain above unity cannot go on `AVAudioPlayerNode.volume` (documented 0...1), so each clip's chain carries an `AVAudioUnitEQ` (no active bands) whose `globalGain` takes the part above unity. The header control is shown on standalone lane headers only, not on the Video File header or linked strips. Export relies on `AVAssetExportSession` honouring `AVAudioMix` volumes above 1.0, which is undocumented; `LaneLevelExportTests` measures it.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Model | `Models/Timeline/LaneLevel.swift` | dB/linear/knob mapping, readout text, playback gain split |
+| View | `Views/Timeline/LaneLevelControl.swift` | Rotary knob (Canvas), drag/reset/accessibility |
+| View | `Views/Timeline/LaneLevelUndo.swift` | One undo step per gesture, with redo |
+| Test | `ProjectorTests/LaneLevelTests.swift` | Model, split, gain table, clamp, persistence, undo |
+| Test | `ProjectorTests/LaneLevelExportTests.swift` | Export boost regression, mix construction |
+
+#### Integration Points
+
+| File | Location | Integration Type |
+|------|----------|------------------|
+| `AudioLane.swift` | `volume`, `levelDB` | Widened range, dB accessor |
+| `TimelineManager.swift` | `setLaneVolume(id:)`, `setLaneVolume(at:)` | Clamp to `LaneLevel.maxLinear` |
+| `PlaybackEngine.swift` | `AudioClipPlayback.levelBoost`, `applyGain(_:to:)`, `buildAudioPlayback`, `removeAudioPlayback` | EQ stage in the per-clip chain; every `player.volume` write goes through `applyGain` |
+| `AutomationGainTable.swift` | `baseGain` | Base may exceed 1.0 |
+| `QuickTimeDemoBuilder.swift` | `makeDemo`, `makeAudioMix`, `QuickTimeDemo.laneLevelDB` | Level added to the lane's trim; silent level bypasses automation |
+| `AudioLaneView.swift` | `AudioLaneControls.onLevelChange/onLevelCommit`, `onVolumeCommit` | Knob in the M/S row, between M/S and the sample-rate label |
+| `MultiTrackTimelineView.swift` | `commitLaneLevel` | Undo registration |
+
+#### Dependencies
+- Depends on: Multi-Track Timeline, Volume Automation, Create QT Demo
+- Depended by: none
+
+#### Layout Constants
+`laneKnobSize` 18. Model constants in `LaneLevel`: `maxDB` 12, `floorDB` -60, `stepDB` 0.1, `maxBoostDB` 24.
+
+#### Removal Checklist
+- [ ] Delete the three `LaneLevel*` source files and the two test files; remove their `LANELEVEL*` entries from `project.pbxproj`
+- [ ] Restore the `0...1` clamp in both `setLaneVolume` methods and the DocC on `AudioLane.volume`
+- [ ] Remove `levelBoost`/`appliedBoostDB`/`applyGain` from `PlaybackEngine`; restore direct `player.volume` writes and the player -> rate converter connection
+- [ ] Remove `QuickTimeDemo.laneLevelDB` and the level terms in `makeDemo`/`makeAudioMix`
+- [ ] Remove `onLevelChange`/`onLevelCommit`/`onVolumeCommit` and `commitLaneLevel`
 
 ### MTC "No Picture" Indicator
 

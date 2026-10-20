@@ -34,8 +34,9 @@ struct AutomationGainTable: Sendable {
 
     /// `clip.volume * lane.volume` with mute/solo/"None" already folded in
     /// (`0` for an inaudible clip), keyed by clip id. This is the base the
-    /// envelope multiplies, never the other way around, so automation can
-    /// only ever attenuate further - matching the attenuation-only range.
+    /// envelope multiplies, never the other way around. The lane level can
+    /// lift the base above unity (up to +12 dB), but the envelope itself is
+    /// attenuation-only, so it never lifts further.
     private let baseGain: [UUID: Float]
 
     /// Non-unity envelopes on standalone lanes only, keyed by lane id.

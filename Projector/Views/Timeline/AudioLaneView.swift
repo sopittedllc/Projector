@@ -28,6 +28,10 @@ struct AudioLaneView: View {
     let onMuteToggle: () -> Void
     let onSoloToggle: () -> Void
     let onVolumeChange: (Float) -> Void
+
+    /// Called once when a level change ends, with the level it started from and
+    /// the level it ended on, so the parent can register one undo step.
+    var onVolumeCommit: ((Float, Float) -> Void)?
     let onOutputMappingChange: (MappedAudioOutput?) -> Void
 
     /// Route the lane to nothing, silencing it.
@@ -253,7 +257,9 @@ struct AudioLaneView: View {
                     onMuteToggle: onMuteToggle,
                     onSoloToggle: onSoloToggle,
                     onOutputMappingChange: onOutputMappingChange,
-                    onOutputNone: onOutputNone
+                    onOutputNone: onOutputNone,
+                    onLevelChange: onVolumeChange,
+                    onLevelCommit: { old, new in onVolumeCommit?(old, new) }
                 )
             }
             .padding(.horizontal, Spacing.sm)
@@ -1226,6 +1232,15 @@ struct AudioLaneControls: View {
     /// Route the lane to nothing, silencing it.
     let onOutputNone: () -> Void
 
+    /// Applies a new lane level (linear gain) live. `nil` hides the level
+    /// control, which is how the Video File header - whose baked-in audio is
+    /// not a lane the user levels - keeps its controls as they were.
+    var onLevelChange: ((Float) -> Void)?
+
+    /// Called once per level gesture with the level it began from and the one
+    /// it ended on.
+    var onLevelCommit: ((Float, Float) -> Void)?
+
     var body: some View {
         // Two rows on one left edge: the transport toggles, then the routing.
         //
@@ -1237,6 +1252,13 @@ struct AudioLaneControls: View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
             HStack(spacing: Spacing.xs) {
                 muteSolo
+                if let onLevelChange {
+                    LaneLevelControl(
+                        level: lane.volume,
+                        onChange: onLevelChange,
+                        onCommit: { old, new in onLevelCommit?(old, new) }
+                    )
+                }
                 Spacer(minLength: 0)
                 sampleRate
             }

@@ -166,7 +166,7 @@ struct VolumeAutomationLaneView: View {
             }
         )
         .frame(width: totalContentWidth - TimelineLayout.headerWidth, height: TimelineLayout.automationLaneHeight)
-        .background(envelopeBackground)
+        .background(AutomationRowBackground(laneIndex: laneIndex))
         .popover(
             item: $levelEditor,
             attachmentAnchor: .rect(.rect(levelEditor?.rect ?? .zero)),
@@ -214,11 +214,22 @@ struct VolumeAutomationLaneView: View {
         levelEditor = nil
     }
 
-    /// The same alternating tint `AudioLaneView.laneBackground` uses, a step
-    /// darker so the sub-lane reads as recessed beneath the lane it belongs
-    /// to rather than a peer row. Built entirely from existing `AppColors`
-    /// tokens rather than new opacity literals.
-    private var envelopeBackground: some View {
+}
+
+/// The fill behind a lane's automation row, open or collapsed.
+///
+/// The same alternating tint `AudioLaneView.laneBackground` uses, a step
+/// darker so the row reads as recessed beneath the lane it belongs to rather
+/// than a peer row. Shared by ``VolumeAutomationLaneView`` and
+/// ``VolumeAutomationStripView`` so the collapsed strip reads as a short
+/// version of the sub-lane - not as empty padding under the lane's clips.
+/// Built entirely from existing `AppColors` tokens rather than new opacity
+/// literals.
+struct AutomationRowBackground: View {
+    /// Index into `timeline.audioLanes`, which picks the alternating tint.
+    let laneIndex: Int
+
+    var body: some View {
         ZStack {
             laneIndex.isMultiple(of: 2) ? AppColors.surfaceSubtle : AppColors.surfaceLight
             AppColors.overlayDark
