@@ -170,6 +170,120 @@ final class PlaybackEngineTests: XCTestCase {
             )
         )
     }
+
+    // MARK: - Offline Media
+
+    private func makeReel(url: URL, name: String, start: Int = 0) -> VideoReel {
+        VideoReel(sourceURL: url, timelineStartFrame: start, durationFrames: 24, name: name)
+    }
+
+    func testFailedLoadReleasesPreviousPlayerAndNamesMissingReel() async throws {
+        let goodURL = try await TestVideoFileFactory.makeBlackMovie(duration: 1)
+        defer { try? FileManager.default.removeItem(at: goodURL) }
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ProjectorTest-missing-\(UUID().uuidString).mov")
+        let good = makeReel(url: goodURL, name: "Reel Two")
+        let missing = makeReel(url: missingURL, name: "Reel Three", start: 24)
+        let engine = PlaybackEngine(timeline: Timeline(videoReels: [good, missing]))
+
+        try await engine.loadReel(good)
+        XCTAssertNotNil(engine.currentPlayer)
+        XCTAssertNil(engine.offlineReelName)
+
+        do {
+            try await engine.loadReel(missing)
+            XCTFail("Loading a file that does not exist must throw")
+        } catch {}
+
+        XCTAssertNil(engine.currentPlayer, "The previous reel's player must not survive a failed load")
+        XCTAssertEqual(engine.offlineReelName, "Reel Three")
+        XCTAssertEqual(engine.activeReel?.id, missing.id)
+
+        try await engine.loadReel(good)
+        XCTAssertNotNil(engine.currentPlayer)
+        XCTAssertNil(engine.offlineReelName, "A successful load clears the offline state")
+    }
+
+    func testStaleFailureDoesNotTearDownTheLoadedPlayer() async throws {
+        let goodURL = try await TestVideoFileFactory.makeBlackMovie(duration: 1)
+        let garbageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ProjectorTest-garbage-\(UUID().uuidString).mov")
+        try Data("not a movie".utf8).write(to: garbageURL)
+        defer {
+            try? FileManager.default.removeItem(at: goodURL)
+            try? FileManager.default.removeItem(at: garbageURL)
+        }
+        let good = makeReel(url: goodURL, name: "Reel Two")
+        let bad = makeReel(url: garbageURL, name: "Reel Three", start: 24)
+        let engine = PlaybackEngine(timeline: Timeline(videoReels: [good, bad]))
+
+        try await engine.loadReel(good)
+        XCTAssertNotNil(engine.currentPlayer)
+
+        // The playhead is on `good`, so a failure for `bad` is stale.
+        do {
+            try await engine.loadReel(bad)
+            XCTFail("An unreadable file must still throw")
+        } catch {}
+
+        XCTAssertNotNil(engine.currentPlayer, "A stale failure must not release the wanted reel's player")
+        XCTAssertNil(engine.offlineReelName)
+        XCTAssertEqual(engine.activeReel?.id, good.id)
+    }
+
+    func testPlayingAnOfflineReelKeepsTheClockRunning() async throws {
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ProjectorTest-missing-\(UUID().uuidString).mov")
+        let reel = VideoReel(sourceURL: missingURL, timelineStartFrame: 0, durationFrames: 240, name: "Reel One")
+        let engine = PlaybackEngine(timeline: Timeline(videoReels: [reel]))
+        defer { engine.stop(); engine.cleanup() }
+
+        engine.play()
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        XCTAssertTrue(engine.isPlaying)
+        XCTAssertEqual(engine.offlineReelName, "Reel One")
+        XCTAssertGreaterThan(engine.currentFrame, 0, "An offline reel must advance the clock like a gap")
+    }
+
+    func testRelinkingOfflineReelLoadsItAgain() async throws {
+        let goodURL = try await TestVideoFileFactory.makeBlackMovie(duration: 1)
+        defer { try? FileManager.default.removeItem(at: goodURL) }
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ProjectorTest-missing-\(UUID().uuidString).mov")
+        var reel = makeReel(url: missingURL, name: "Reel One")
+        let engine = PlaybackEngine(timeline: Timeline(videoReels: [reel]))
+
+        do { try await engine.loadReel(reel) } catch {}
+        XCTAssertEqual(engine.offlineReelName, "Reel One")
+
+        // Same id, new source: what relinking does.
+        reel.sourceURL = goodURL
+        var relinked = engine.timeline
+        relinked.videoReels = [reel]
+        engine.timeline = relinked
+
+        for _ in 0..<100 where engine.currentPlayer == nil {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertNotNil(engine.currentPlayer, "The relinked reel should load without a further seek")
+        XCTAssertNil(engine.offlineReelName)
+    }
+
+    func testReplacingTimelineDropsOfflineStateOfRemovedReel() async throws {
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ProjectorTest-missing-\(UUID().uuidString).mov")
+        let reel = makeReel(url: missingURL, name: "Reel One")
+        let engine = PlaybackEngine(timeline: Timeline(videoReels: [reel]))
+
+        do { try await engine.loadReel(reel) } catch {}
+        XCTAssertEqual(engine.offlineReelName, "Reel One")
+
+        engine.timeline = .empty
+        XCTAssertNil(engine.offlineReelName)
+        XCTAssertNil(engine.currentPlayer)
+    }
+
 }
 
 @MainActor

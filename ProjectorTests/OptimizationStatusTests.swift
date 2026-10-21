@@ -345,3 +345,153 @@ final class MediaListColumnWidthsTests: XCTestCase {
         XCTAssertEqual(MediaListText.sampleRate(44_100), "44.1 kHz")
     }
 }
+
+/// Click-to-sort ordering for the media panel's list view.
+final class MediaListSortTests: XCTestCase {
+    private func item(
+        _ name: String,
+        type: MediaType = .video,
+        duration: Double = 10,
+        bitrate: Int? = nil,
+        videoSize: CGSize? = nil,
+        frameRate: Double? = nil,
+        sampleRate: Double? = nil,
+        codecName: String? = nil,
+        id: UUID = UUID()
+    ) -> MediaItem {
+        var made = MediaItem(
+            id: id,
+            url: URL(fileURLWithPath: "/tmp/\(name).mov"),
+            type: type,
+            duration: duration,
+            frameRate: frameRate,
+            videoSize: videoSize,
+            sampleRate: sampleRate,
+            bitrate: bitrate
+        )
+        made.codecName = codecName
+        return made
+    }
+
+    private func names(_ sort: MediaListSort, _ items: [MediaItem]) -> [String] {
+        sort.sorted(items).map(\.displayName)
+    }
+
+    func testNameSortsNaturallyIgnoringCase() {
+        let items = [item("reel 10 Mx"), item("Reel 2 Dx"), item("reel 1 Dx")]
+        XCTAssertEqual(names(MediaListSort(column: .name, ascending: true), items),
+                       ["reel 1 Dx", "Reel 2 Dx", "reel 10 Mx"])
+        XCTAssertEqual(names(MediaListSort(column: .name, ascending: false), items),
+                       ["reel 10 Mx", "Reel 2 Dx", "reel 1 Dx"])
+    }
+
+    func testClickingTogglesDirectionAndNewColumnStartsAscending() {
+        let first = MediaListSort.afterClicking(.duration, current: nil)
+        XCTAssertEqual(first, MediaListSort(column: .duration, ascending: true))
+        let second = MediaListSort.afterClicking(.duration, current: first)
+        XCTAssertEqual(second, MediaListSort(column: .duration, ascending: false))
+        let other = MediaListSort.afterClicking(.name, current: second)
+        XCTAssertEqual(other, MediaListSort(column: .name, ascending: true))
+    }
+
+    func testMissingValuesAreSmallestAndDescendingIsExactReverse() {
+        let items = [item("a", bitrate: nil), item("b", bitrate: 500), item("c", bitrate: 100)]
+        let ascending = names(MediaListSort(column: .bitrate, ascending: true), items)
+        XCTAssertEqual(ascending, ["a", "c", "b"])
+        XCTAssertEqual(names(MediaListSort(column: .bitrate, ascending: false), items), ascending.reversed())
+    }
+
+    func testFormatComparesDisplayedTextWithoutGrouping() {
+        let items = [
+            item("song", type: .audio),
+            item("hd", videoSize: CGSize(width: 1920, height: 1080)),
+            item("sd", videoSize: CGSize(width: 640, height: 360))
+        ]
+        let sort = MediaListSort(column: .format, ascending: true)
+        let sorted = sort.sorted(items)
+        // Unread audio format is missing, so it leads; no video-before-audio grouping.
+        XCTAssertEqual(sorted.first?.displayName, "song")
+        let texts = sorted.compactMap(\.formatText)
+        XCTAssertEqual(texts, texts.sorted { $0.localizedStandardCompare($1) == .orderedAscending })
+        XCTAssertEqual(sort.sorted(items).map(\.id), MediaListSort(column: .format, ascending: false).sorted(items).reversed().map(\.id))
+    }
+
+    func testRateComparesOwnValueDirectly() {
+        let items = [
+            item("audio", type: .audio, sampleRate: 48_000),
+            item("film", frameRate: 24),
+            item("unread")
+        ]
+        XCTAssertEqual(names(MediaListSort(column: .rate, ascending: true), items), ["unread", "film", "audio"])
+        XCTAssertEqual(names(MediaListSort(column: .rate, ascending: false), items), ["audio", "film", "unread"])
+    }
+
+    func testCodecComparesDisplayedText() {
+        let items = [
+            item("prores", codecName: "ProRes 422"),
+            item("unread"),
+            item("song", type: .audio),
+            item("avc", codecName: "H.264")
+        ]
+        // Unread video codec is missing; the audio container names its codec (MOV here).
+        XCTAssertEqual(names(MediaListSort(column: .codec, ascending: true), items),
+                       ["unread", "avc", "song", "prores"])
+    }
+
+    func testStatusComparesDisplayedTextWithBlankAsMissing() {
+        var optimized = item("done", videoSize: CGSize(width: 1280, height: 720))
+        optimized.isOptimized = true
+        let audio = item("song", type: .audio)
+        let heavy = item("heavy", videoSize: CGSize(width: 3840, height: 2160))
+        XCTAssertNil(audio.statusText)
+        XCTAssertNotNil(heavy.statusText)
+        let all = [heavy, optimized, audio]
+        let ascending = names(MediaListSort(column: .status, ascending: true), all)
+        XCTAssertEqual(ascending.first, "song")
+        XCTAssertEqual(names(MediaListSort(column: .status, ascending: false), all), ascending.reversed())
+    }
+
+    func testTiesBreakByNameThenIdInBothDirections() {
+        let low = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let high = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        let items = [
+            item("Reel 2 Dx", duration: 5, id: high),
+            item("Reel 2 Dx", duration: 5, id: low),
+            item("Reel 1 Dx", duration: 5)
+        ]
+        for ascending in [true, false] {
+            let sorted = MediaListSort(column: .duration, ascending: ascending).sorted(items)
+            XCTAssertEqual(sorted.map(\.displayName), ["Reel 1 Dx", "Reel 2 Dx", "Reel 2 Dx"])
+            XCTAssertEqual(sorted.map(\.id).suffix(2), [low, high])
+        }
+    }
+
+    func testStorageRoundTrip() {
+        for column in MediaListColumn.allCases {
+            for ascending in [true, false] {
+                let sort = MediaListSort(column: column, ascending: ascending)
+                XCTAssertEqual(MediaListSort.restored(from: sort.storage), sort)
+            }
+        }
+    }
+
+    func testUnreadableStorageFallsBackToDefault() {
+        XCTAssertNil(MediaListSort.restored(from: ""))
+        XCTAssertNil(MediaListSort.restored(from: "not a sort"))
+        XCTAssertNil(MediaListSort.restored(from: "name:sideways"))
+        XCTAssertNil(MediaListSort.restored(from: "nope:asc"))
+    }
+
+    func testEmptyOrGarbageStorageFallsBackToNameAscending() {
+        let nameAscending = MediaListSort(column: .name, ascending: true)
+        XCTAssertEqual(MediaListSort.standard, nameAscending)
+        for stored in ["", "not a sort", "name:sideways", "nope:asc"] {
+            XCTAssertEqual(MediaListSort.restoredOrStandard(from: stored), nameAscending)
+        }
+        XCTAssertEqual(MediaListSort.restoredOrStandard(from: "rate:desc"),
+                       MediaListSort(column: .rate, ascending: false))
+        // Name is already the active ascending column, so the first click flips it.
+        XCTAssertEqual(MediaListSort.afterClicking(.name, current: .standard),
+                       MediaListSort(column: .name, ascending: false))
+    }
+}

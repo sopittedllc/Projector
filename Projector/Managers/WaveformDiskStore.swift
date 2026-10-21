@@ -43,7 +43,8 @@ enum WaveformDiskStore {
 
     /// Bumped whenever the atlas contents or encoding change. Old files are
     /// then never matched again and age out with the rest of Caches.
-    static let formatVersion = 2
+    /// v3: peaks now use an exact time base; v2 atlases drifted against the timeline.
+    static let formatVersion = 3
 
     /// Folder inside the app's Caches directory.
     static let directoryName = "Waveforms"

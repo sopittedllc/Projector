@@ -129,6 +129,10 @@ struct MediaListColumnWidths: Equatable {
 /// that resizes it.
 struct MediaListHeader: View {
     @Binding var widths: MediaListColumnWidths
+    /// The active sort, or `nil` while the list is in its default order.
+    let sort: MediaListSort?
+    /// Called when a column title is clicked.
+    let onSort: (MediaListColumn) -> Void
     /// Called when a resize drag ends, so the widths are stored once, not per frame.
     let onResizeEnded: () -> Void
 
@@ -138,9 +142,7 @@ struct MediaListHeader: View {
     var body: some View {
         HStack(spacing: 0) {
             ForEach(MediaListColumn.allCases, id: \.self) { column in
-                Text(column.title)
-                    .lineLimit(1)
-                    .frame(width: widths[column], alignment: .leading)
+                titleButton(for: column)
                 resizeHandle(for: column)
             }
         }
@@ -150,6 +152,29 @@ struct MediaListHeader: View {
         .frame(height: FileManagerLayout.listRowHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.bar)
+    }
+
+    /// A column title that sorts the list when clicked, with a chevron on the
+    /// active column showing the direction. The chevron points the way the
+    /// values run down the list, as Finder's does: down for A at the top.
+    private func titleButton(for column: MediaListColumn) -> some View {
+        let activeSort = sort?.column == column ? sort : nil
+        return Button(action: { onSort(column) }) {
+            HStack(spacing: Spacing.xs) {
+                Text(column.title)
+                    .lineLimit(1)
+                if let activeSort {
+                    Image(systemName: activeSort.ascending ? "chevron.down" : "chevron.up")
+                        .font(Typography.caption)
+                }
+            }
+            .foregroundColor(activeSort == nil ? .secondary : .primary)
+            .frame(width: widths[column], alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Sort by \(column.title)")
+        .accessibilityValue(activeSort.map { $0.ascending ? "ascending" : "descending" } ?? "")
     }
 
     /// The gap after a column, which is also its grab area. It is exactly the
@@ -293,7 +318,7 @@ struct MediaListRow: View {
     private var statusCell: some View {
         switch OptimizationStatusHelper.status(for: item) {
         case .optimized:
-            Text("Optimized")
+            Text(MediaListText.optimized)
                 .font(Typography.bodySmall)
                 .foregroundColor(.secondary)
         case .needsOptimization(let reason):
@@ -312,36 +337,15 @@ struct MediaListRow: View {
         case .duration:
             return item.formattedDuration
         case .format:
-            return (item.type == .video ? item.dimensionsString : item.audioFormatString) ?? MediaListText.unknown
+            return item.formatDisplayText
         case .rate:
-            return rateText ?? MediaListText.unknown
+            return item.rateDisplayText
         case .codec:
-            return codecText
+            return item.codecDisplayText
         case .bitrate:
             return item.formattedBitrate ?? MediaListText.unknown
         case .name, .status:
             return ""
-        }
-    }
-
-    /// The codec as read at import. For audio the container names the format
-    /// (WAV is PCM, M4A is AAC); for video it does not - a .mov can hold H.264,
-    /// ProRes or DNxHR - so an unread video codec shows as unknown rather than
-    /// as its container.
-    private var codecText: String {
-        if let codec = item.codecName { return codec }
-        return item.type == .audio ? item.fileExtension.uppercased() : MediaListText.unknown
-    }
-
-    /// Frame rate for video, sample rate for audio.
-    private var rateText: String? {
-        switch item.type {
-        case .video:
-            guard let fps = item.frameRate, fps > 0 else { return nil }
-            return MediaListText.frameRate(fps)
-        case .audio:
-            guard let rate = item.sampleRate, rate > 0 else { return nil }
-            return MediaListText.sampleRate(rate)
         }
     }
 }
@@ -350,6 +354,9 @@ struct MediaListRow: View {
 enum MediaListText {
     /// Shown where a detail was never read from the file.
     static let unknown = "—"
+
+    /// The Status cell's text for an already optimized item.
+    static let optimized = "Optimized"
 
     private static let hertzPerKilohertz = 1000.0
 

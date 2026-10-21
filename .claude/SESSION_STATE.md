@@ -3001,3 +3001,20 @@ Kept for context; that work is committed and green.
 **Update (round 5)**: Optimize confirmed working with no prompt (4 optimized, 0 failed, 13:32). I then quit the app to rebuild while the user was testing; the optimize result was likely unsaved (no save in log). List view built: `MediaPanelViewMode` (@AppStorage "mediaPanelViewMode"), header toggle `viewModeToggle`, `FileManagerView.itemsTable`, `MediaListRow`/`MediaListHeader`/`MediaListColumn`/`MediaListText` in MediaItemRow.swift, `FileManagerLayout.list*` + `viewModeToggleWidth` constants. Columns drop by priority as panel narrows. No marquee in list (click/shift/cmd only). Awaiting runtime check. FEATURES.md entry not yet written.
 
 **Update (round 6)**: List cleanup per screenshot: audio rows were shifted one column (status cell for `.noAction` was EmptyView → row lost a cell; now `Color.clear`). Columns now resizable (header handles, `MediaListColumnWidths`, AppStorage "mediaListColumnWidths"), 2-axis scroll; priority-dropping removed. `codecName` now persisted; cleared in `updateItemURL` when the file changes. Unknown video codec shows "—", audio shows container. Tests added (MediaListColumnWidthsTests class inside OptimizationStatusTests.swift; testCodecNameSurvivesReopen). Awaiting runtime check.
+
+## 2026-10-21 update (uncommitted, awaiting user runtime verification)
+
+**Status**: ACTIVE. v2026.10.20 shipped; everything below is uncommitted.
+
+- Waveform time-base drift fix (WaveformCache PeakTimeBase, disk format v3). User: "seems better".
+- Media list pinned to top (FileManagerView itemsTable minHeight/topLeading).
+- Level knob on the Video File's embedded track headers (MultiTrackTimelineView linkedAudioHeaderBlock).
+- Media list column sorting, standard NSTableView semantics: Models/MediaListSort.swift (new, in pbxproj); header buttons and chevron in MediaItemRow.swift; AppStorage "mediaListSort"; MediaListSortTests. One key per column; descending is the exact reverse; nil is smallest; ties broken by name then id. Kept the custom list because Table needs macOS 13/14 (target 12). Research: scratchpad/table-sorting-research.md.
+- Stale-media fix: PlaybackEngine.takeReelOffline drops the old player on a failed loadReel; offlineReelName gives "MEDIA OFFLINE" in VideoPlayerView; relink retries; timeline replacement stops audio players whose clips are gone; seekWithinReel requires reel.id == currentReelId. Three tests in PlaybackEngineTests.
+- Open follow-ups:
+  - internal Play over an offline reel stalls the clock (should advance like a gap);
+  - a file reappearing at the same path only retries on Play or an MTC lock;
+  - assetCache keyed by reel id can keep a stale asset after optimization;
+  - out-of-order overlapping loadReel calls.
+- Before commit: user verification, then clare. Don't commit default.profraw.
+- Zoom refinement is still waiting on the user to say what is wrong.

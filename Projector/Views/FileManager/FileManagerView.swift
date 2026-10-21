@@ -119,6 +119,10 @@ struct FileManagerView: View {
     /// List column widths in their stored form; see ``MediaListColumnWidths``.
     @AppStorage("mediaListColumnWidths") private var storedListColumnWidths: String = ""
 
+    /// The list's sort in its stored form; see ``MediaListSort``. Empty means
+    /// ``MediaListSort/standard`` (Name, A at the top). App-wide, like the widths.
+    @AppStorage("mediaListSort") private var storedListSort: String = ""
+
     /// Live column widths. Held here while dragging and written back to
     /// `storedListColumnWidths` when a drag ends, not on every frame.
     @State private var listColumnWidths = MediaListColumnWidths()
@@ -708,6 +712,10 @@ struct FileManagerView: View {
                 LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                     Section(header: MediaListHeader(
                         widths: $listColumnWidths,
+                        sort: listSort,
+                        onSort: { column in
+                            storedListSort = MediaListSort.afterClicking(column, current: listSort).storage
+                        },
                         onResizeEnded: { storedListColumnWidths = listColumnWidths.storage }
                     )) {
                         ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
@@ -731,8 +739,12 @@ struct FileManagerView: View {
                 }
                 // At least as wide as the panel, so stripes and selection run
                 // edge to edge when the columns are narrower than the view.
+                // At least as tall, pinned to the top: a two-axis ScrollView
+                // centres content shorter than itself, which floated the header
+                // and a short list in the middle of the panel.
                 .frame(minWidth: max(geometry.size.width, listColumnWidths.totalWidth + Spacing.sm * 2),
-                       alignment: .leading)
+                       minHeight: geometry.size.height,
+                       alignment: .topLeading)
             }
             .modifier(AlwaysVisibleScrollIndicators())
             .clipShape(RoundedRectangle(cornerRadius: Spacing.xs))
@@ -806,13 +818,15 @@ struct FileManagerView: View {
             items = items.filter { $0.type == type }
         }
 
-        // Newest first. Was one of three user-selectable orders; with the sort
-        // menu gone this is the order the library always had by default.
-        items.sort { (a: MediaItem, b: MediaItem) -> Bool in
-            a.importedAt > b.importedAt
-        }
+        // One order for the grid and the list, so shift-click ranges mean the
+        // same thing in both. Until the user clicks a list column title it is
+        // Name, A at the top.
+        return listSort.sorted(items)
+    }
 
-        return items
+    /// The sort chosen by clicking a column title, or ``MediaListSort/standard``.
+    private var listSort: MediaListSort {
+        MediaListSort.restoredOrStandard(from: storedListSort)
     }
 
     // MARK: - Actions

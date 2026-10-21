@@ -101,6 +101,7 @@
 		C1TIMELINE00000013 /* VideoReel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000003 /* VideoReel.swift */; };
 		C1TIMELINE00000014 /* AudioClip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000004 /* AudioClip.swift */; };
 		C1TIMELINE00000015 /* AudioLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000005 /* AudioLane.swift */; };
+		MSORT0000000000B /* MediaListSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = MSORT0000000000A /* MediaListSort.swift */; };
 		LANELEVEL00000000B /* LaneLevel.swift in Sources */ = {isa = PBXBuildFile; fileRef = LANELEVEL00000000A /* LaneLevel.swift */; };
 		VOLAUTO000000000002 /* VolumeAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTO000000000001 /* VolumeAutomation.swift */; };
 		VOLAUTOVIEW00000002 /* VolumeAutomationEnvelopeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VOLAUTOVIEW00000001 /* VolumeAutomationEnvelopeView.swift */; };
@@ -313,6 +314,7 @@
 		C1TIMELINE00000003 /* VideoReel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoReel.swift; sourceTree = "<group>"; };
 		C1TIMELINE00000004 /* AudioClip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClip.swift; sourceTree = "<group>"; };
 		C1TIMELINE00000005 /* AudioLane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioLane.swift; sourceTree = "<group>"; };
+		MSORT0000000000A /* MediaListSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaListSort.swift; sourceTree = "<group>"; };
 		LANELEVEL00000000A /* LaneLevel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneLevel.swift; sourceTree = "<group>"; };
 		VOLAUTO000000000001 /* VolumeAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeAutomation.swift; sourceTree = "<group>"; };
 		VOLAUTOVIEW00000001 /* VolumeAutomationEnvelopeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeAutomationEnvelopeView.swift; sourceTree = "<group>"; };
@@ -551,6 +553,7 @@
 				A1000001227D3F00000000D1 /* ProjectDocument.swift */,
 				A1000001227D3F0000000082 /* WaveformData.swift */,
 				C1TIMELINE00000008 /* MediaItem.swift */,
+				MSORT0000000000A /* MediaListSort.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -1080,6 +1083,7 @@
 				VOLAUTO000000000002 /* VolumeAutomation.swift in Sources */,
 				C1TIMELINE00000017 /* TimelineManager.swift in Sources */,
 				C1TIMELINE00000018 /* MediaItem.swift in Sources */,
+				MSORT0000000000B /* MediaListSort.swift in Sources */,
 				C1TIMELINE00000019 /* ProjectMediaLibrary.swift in Sources */,
 				C1TIMELINE0000001A /* WaveformCache.swift in Sources */,
 				WFDS00000000000000000002 /* WaveformDiskStore.swift in Sources */,

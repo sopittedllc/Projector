@@ -114,6 +114,7 @@ timecode — and then played black with no explanation.
 | `MediaItem.swift` | `codecName` | `String?` | Codec's display name (**not persisted**) |
 | `MediaItem.swift` | `isDecodable` | `Bool?` | Whether this Mac can decode it (**not persisted**) |
 | `PlaybackEngine.swift` | `unplayableCodecName` | `String?` | Published so the video area can explain a black frame |
+| `PlaybackEngine.swift` | `offlineReelName` | `String?` | Published; set when any reel load fails (missing or unreadable file, or no decoder), after the previous player is released, so the last reel never plays in its place |
 | `ProVideoFormatsInstallModel` | `state` | `State` | Idle / working / awaiting installer / failed |
 
 Neither `MediaItem` field is persisted, deliberately: decodability is a fact about the
@@ -130,6 +131,8 @@ would outlive the problem and keep reporting a working file as broken.
 | `PlaybackEngine.swift` | `loadReel(_:)` | Names the codec before throwing `.notPlayable` |
 | `AlertCoordinator.swift` | `.codecUnavailable`, `.proVideoFormatsInstall` | Alert case + sheet case |
 | `VideoPlayerView.swift` | `missingCodecPlaceholder` | Replaces the black frame |
+| `VideoPlayerView.swift` | `mediaOfflinePlaceholder` | "MEDIA OFFLINE" plus the reel name when `offlineReelName` is set |
+| `PlaybackEngine.swift` | `takeReelOffline`, `retryOfflineReelIfSourceChanged`, `removeAudioPlayersNotInTimeline` | Single load-failure path; relink retry; project switch drops the old project's audio |
 | `FloatingVideoPanel.swift` | `InlineVideoArea.onInstallCodec` | Recovery entry point (inline only) |
 | `MediaOptimizationService.swift` | `fourCCToString` | Delegates to the shared codec table |
 | `Projector.entitlements` | `com.apple.security.network.client` | **First networking in the app** |
@@ -1356,8 +1359,14 @@ file with Duration, Format (resolution or channel layout), Rate (frame rate or
 sample rate), Codec, Bitrate and optimization Status. A grid/list toggle sits at
 the left of the panel's header controls. Every column resizes by dragging the
 handle at its header edge; when the columns are wider than the panel the list
-scrolls sideways. Mode and widths are remembered for the app, not saved per
-project. Selection, double-click and multi-item drag behave as in the grid. No
+scrolls sideways. Clicking a column title sorts by it (Finder-like: first click
+ascending, again to reverse, chevron on the active column; one key per column
+like an NSTableView sort descriptor: text columns by `localizedStandardCompare`
+of the cell text, Duration/Rate/Bitrate numeric; missing values smallest, so
+first ascending and last descending; descending is the exact reverse; ties by
+name then id in both directions); the order applies to the grid
+too. Until a column is clicked the order is Name ascending (A at the top, chevron on Name; the first click on Name flips it to descending). Mode, widths and
+sort are remembered for the app, not saved per project. Selection, double-click and multi-item drag behave as in the grid. No
 marquee selection in list mode. `MediaItem.codecName` is now saved with the
 project (cleared when an item is relocated to a different file).
 
@@ -1366,6 +1375,7 @@ project (cleared when an item is relocated to a different file).
 | Type | Path | Purpose |
 |------|------|---------|
 | View | `Views/FileManager/MediaItemRow.swift` | `MediaPanelViewMode`, `MediaListColumn`, `MediaListColumnWidths`, `MediaListHeader`, `MediaListRow`, `MediaListText` |
+| Model | `Models/MediaListSort.swift` | `MediaListSort` (pure ordering + storage), `MediaItem` cell-text properties (`formatText`, `rateValue`, `codecText`, `statusText`, `*DisplayText`) |
 | View | `Views/FileManager/FileManagerView.swift` | `viewModeToggle`, `itemsTable`, mode switch in `contentArea` |
 | Utility | `Utilities/LayoutConstants.swift` | `FileManagerLayout.list*`, `viewModeToggleWidth` |
 
@@ -1375,6 +1385,7 @@ project (cleared when an item is relocated to a different file).
 |------|----------|------|---------|
 | `FileManagerView.swift` | `@AppStorage("mediaPanelViewMode") viewMode` | `MediaPanelViewMode` | Grid or list |
 | `FileManagerView.swift` | `@AppStorage("mediaListColumnWidths") storedListColumnWidths` | `String` (JSON) | Persisted column widths |
+| `FileManagerView.swift` | `@AppStorage("mediaListSort") storedListSort` | `String` (`column:asc|desc`) | Chosen sort; empty = Name ascending |
 | `FileManagerView.swift` | `@State listColumnWidths` | `MediaListColumnWidths` | Live widths while dragging |
 
 #### Integration Points
@@ -1781,7 +1792,7 @@ keys are dropped). No format version bump - optional fields with defaults.
 **Added**: 2026-10-20
 
 #### Description
-A small rotary knob (18pt) in each lane header beside M/S, before the sample-rate label: -infinity to +12 dB (dB-linear over a 270 degree sweep, bottom stop silent, default 0 dB, notch at 0 dB). A vertical drag turns it (Option/Shift for fine); the dB value shows in the tooltip and in a small overlay only while dragging. Double-click resets to 0 dB. VoiceOver adjusts in 1 dB steps. A click without movement changes nothing and registers no undo. It is a gain stage over the lane's automation: playback gain is clip volume x lane level x envelope, and export is lane level x envelope x the export sheet's trim. Stored in the existing `AudioLane.volume` (linear, 1.0 = 0 dB), so older projects open unchanged. Gain above unity cannot go on `AVAudioPlayerNode.volume` (documented 0...1), so each clip's chain carries an `AVAudioUnitEQ` (no active bands) whose `globalGain` takes the part above unity. The header control is shown on standalone lane headers only, not on the Video File header or linked strips. Export relies on `AVAssetExportSession` honouring `AVAudioMix` volumes above 1.0, which is undocumented; `LaneLevelExportTests` measures it.
+A small rotary knob (18pt) in each lane header beside M/S, before the sample-rate label: -infinity to +12 dB (dB-linear over a 270 degree sweep, bottom stop silent, default 0 dB, notch at 0 dB). A vertical drag turns it (Option/Shift for fine); the dB value shows in the tooltip and in a small overlay only while dragging. Double-click resets to 0 dB. VoiceOver adjusts in 1 dB steps. A click without movement changes nothing and registers no undo. It is a gain stage over the lane's automation: playback gain is clip volume x lane level x envelope, and export is lane level x envelope x the export sheet's trim. Stored in the existing `AudioLane.volume` (linear, 1.0 = 0 dB), so older projects open unchanged. Gain above unity cannot go on `AVAudioPlayerNode.volume` (documented 0...1), so each clip's chain carries an `AVAudioUnitEQ` (no active bands) whose `globalGain` takes the part above unity. The header control is shown on standalone lane headers and on each of the Video File's per-track audio headers (`linkedAudioHeaderBlock`), since a movie's embedded DX/MX tracks need levelling like any lane. Export relies on `AVAssetExportSession` honouring `AVAudioMix` volumes above 1.0, which is undocumented; `LaneLevelExportTests` measures it.
 
 #### Files
 

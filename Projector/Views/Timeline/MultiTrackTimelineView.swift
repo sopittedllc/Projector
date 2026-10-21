@@ -1953,7 +1953,11 @@ struct MultiTrackTimelineView: View {
                 onOutputMappingChange: { output in
                     timelineManager.setLaneOutputMapping(id: lane.id, mapping: output)
                 },
-                onOutputNone: { timelineManager.disableLaneOutput(id: lane.id) }
+                onOutputNone: { timelineManager.disableLaneOutput(id: lane.id) },
+                // The movie's own tracks (DX, MX...) need levelling as much as
+                // any lane; playback and export already apply `lane.volume`.
+                onLevelChange: { volume in timelineManager.setLaneVolume(at: index, volume: volume) },
+                onLevelCommit: { old, new in commitLaneLevel(laneId: lane.id, from: old, to: new) }
             )
         }
     }

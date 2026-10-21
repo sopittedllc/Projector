@@ -482,12 +482,6 @@ final class WaveformCache: ObservableObject {
         let duration = try await asset.load(.duration)
         let durationSeconds = CMTimeGetSeconds(duration)
         let maxSampleCount = (bucketCounts.max() ?? 16384) * 8
-        let rawSampleCount = Int(durationSeconds * Double(samplesPerSecond))
-        let sampleCount = max(10, min(rawSampleCount, maxSampleCount))
-        let effectiveSamplesPerSecond = max(
-            1,
-            min(samplesPerSecond, Int(Double(sampleCount) / max(durationSeconds, 1)))
-        )
 
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
         guard !audioTracks.isEmpty else {
@@ -506,21 +500,29 @@ final class WaveformCache: ObservableObject {
         let format = try await audioFormat(of: track)
         let channelsToRead = format.channels == stereoChannelCount ? stereoChannelCount : 1
 
+        // The time base is fixed here, once, and used by both the read and the
+        // alignment below, so peak `i` is exactly time `i / peaksPerSecond`.
+        let timeBase = PeakTimeBase(
+            samplesPerSecond: samplesPerSecond,
+            sourceSampleRate: format.sampleRate,
+            durationSeconds: durationSeconds,
+            maxPeakCount: maxSampleCount
+        )
+
         let rawChannels = try await samplesPerChannelUsingAssetReader(
             asset: asset,
             track: track,
-            samplesPerSecond: effectiveSamplesPerSecond,
+            timeBase: timeBase,
             durationSeconds: durationSeconds,
-            channelCount: channelsToRead,
-            sourceSampleRate: format.sampleRate
+            channelCount: channelsToRead
         )
 
         let alignedChannels = rawChannels.map {
             applyTrackOffset(
                 samples: $0,
-                expectedSamples: sampleCount,
                 trackStartSeconds: trackStartSeconds,
-                durationSeconds: durationSeconds
+                durationSeconds: durationSeconds,
+                peaksPerSecond: timeBase.peaksPerSecond
             )
         }
 
@@ -628,19 +630,17 @@ final class WaveformCache: ObservableObject {
     /// - Parameters:
     ///   - asset: The asset to read from
     ///   - track: The audio track to process
-    ///   - samplesPerSecond: Target output sample density
+    ///   - timeBase: The sample rate to read at and the frames folded into each peak
     ///   - durationSeconds: Duration, for capacity estimation
     ///   - channelCount: Channels to keep separate
-    ///   - sourceSampleRate: The track's own rate, already loaded by the caller
     /// - Returns: One array of normalized peaks per channel
     /// - Throws: `WaveformCacheError.failedToStartReading` if the reader fails
     private nonisolated static func samplesPerChannelUsingAssetReader(
         asset: AVAsset,
         track: AVAssetTrack,
-        samplesPerSecond: Int,
+        timeBase: PeakTimeBase,
         durationSeconds: Double,
-        channelCount: Int,
-        sourceSampleRate: Double
+        channelCount: Int
     ) async throws -> [[Float]] {
         // Onto `decodeQueue`, and cancellable once it is there. The read itself
         // never suspends, so leaving it on the caller's cooperative thread holds
@@ -653,10 +653,9 @@ final class WaveformCache: ObservableObject {
                         continuation.resume(returning: try readSamplesPerChannel(
                             asset: asset,
                             track: track,
-                            samplesPerSecond: samplesPerSecond,
+                            timeBase: timeBase,
                             durationSeconds: durationSeconds,
                             channelCount: channelCount,
-                            sourceSampleRate: sourceSampleRate,
                             cancellation: cancellation
                         ))
                     } catch {
@@ -678,21 +677,20 @@ final class WaveformCache: ObservableObject {
     private nonisolated static func readSamplesPerChannel(
         asset: AVAsset,
         track: AVAssetTrack,
-        samplesPerSecond: Int,
+        timeBase: PeakTimeBase,
         durationSeconds: Double,
         channelCount: Int,
-        sourceSampleRate: Double,
         cancellation: DecodeCancellation
     ) throws -> [[Float]] {
         let channels = max(1, channelCount)
         let reader = try AVAssetReader(asset: asset)
-        let expectedSamples = Int(durationSeconds * Double(samplesPerSecond))
+        let expectedSamples = Int(durationSeconds * timeBase.peaksPerSecond)
         var samples = [[Float]](repeating: [], count: channels)
         for index in samples.indices {
             samples[index].reserveCapacity(expectedSamples)
         }
 
-        let targetSampleRate = min(sourceSampleRate, max(8000, Double(samplesPerSecond) * 20))
+        let targetSampleRate = timeBase.readSampleRate
         // Use the mixer for sample-rate/channel conversion, including PCM MOV tracks.
         let output = AVAssetReaderAudioMixOutput(audioTracks: [track], audioSettings: [
             AVFormatIDKey: kAudioFormatLinearPCM,
@@ -710,7 +708,7 @@ final class WaveformCache: ObservableObject {
             throw WaveformCacheError.failedToStartReading
         }
 
-        let framesPerBucket = max(1, Int(targetSampleRate) / samplesPerSecond)
+        let framesPerBucket = timeBase.framesPerPeak
         let int16Scale: Float = 1.0 / 32768.0
 
         /// Float copy of the current block. Reused across blocks, which are
@@ -1033,26 +1031,29 @@ final class WaveformCache: ObservableObject {
         return output
     }
 
-    /// Applies track timing offset and pads samples to expected length.
+    /// Applies track timing offset and pads samples to the asset's length.
     ///
     /// Handles cases where audio tracks start after video start (e.g., delayed audio).
+    /// Peak `i` of the result is time `i / peaksPerSecond`, and the result spans
+    /// `durationSeconds` - which is what the atlas is drawn as.
     ///
     /// - Parameters:
-    ///   - samples: Raw samples from the track
-    ///   - expectedSamples: Target sample count
+    ///   - samples: Raw peaks from the track, produced at `peaksPerSecond`
     ///   - trackStartSeconds: When the track starts relative to asset start
     ///   - durationSeconds: Total duration of the asset
-    /// - Returns: Padded/trimmed samples matching expected length
-    private nonisolated static func applyTrackOffset(
+    ///   - peaksPerSecond: The true rate `samples` was read at (``PeakTimeBase/peaksPerSecond``)
+    /// - Returns: Padded/trimmed peaks covering exactly the asset's duration
+    nonisolated static func applyTrackOffset(
         samples: [Float],
-        expectedSamples: Int,
         trackStartSeconds: Double,
-        durationSeconds: Double
+        durationSeconds: Double,
+        peaksPerSecond: Double
     ) -> [Float] {
+        let expectedSamples = PeakTimeBase.peakCount(durationSeconds: durationSeconds, peaksPerSecond: peaksPerSecond)
         guard expectedSamples > 0 else { return samples }
         var output = samples
         if trackStartSeconds > 0, durationSeconds > 0 {
-            let leadingSamples = max(0, Int(round((trackStartSeconds / durationSeconds) * Double(expectedSamples))))
+            let leadingSamples = max(0, Int(round(trackStartSeconds * peaksPerSecond)))
             if leadingSamples > 0 {
                 output.insert(contentsOf: Array(repeating: 0, count: leadingSamples), at: 0)
             }
@@ -1122,6 +1123,61 @@ final class WaveformCache: ObservableObject {
         }
 
         return WaveformLevel(min: minValues, max: maxValues, rms: rmsValues)
+    }
+}
+
+// MARK: - Peak Time Base
+
+/// The exact relationship between peak index and time for a decoded waveform.
+///
+/// Peaks are made by folding a whole number of frames, so the rate they come out
+/// at is `readSampleRate / framesPerPeak` - not the rate that was asked for.
+/// Rounding the frame count without carrying the result forward drew a one-hour
+/// file as if it were 36.409 peaks a second when it held 36.036, putting the end
+/// of the waveform 37 seconds early. Everything downstream (alignment, the
+/// atlas duration) uses ``peaksPerSecond`` from here instead.
+struct PeakTimeBase: Equatable, Sendable {
+
+    /// Sample rate the reader converts to, in Hz. Always a whole number.
+    let readSampleRate: Double
+
+    /// Frames folded into each peak.
+    let framesPerPeak: Int
+
+    /// Floor on the reader's output rate, so very low density requests still read a usable signal.
+    nonisolated static let minimumReadSampleRate: Double = 8000
+
+    /// Ratio of read rate to requested peak density.
+    nonisolated static let readOversampling: Double = 20
+
+    /// Chooses the read rate and frames per peak.
+    ///
+    /// The frame count is rounded up, so the density never exceeds the request,
+    /// and raised further if needed so the file stays within `maxPeakCount`.
+    ///
+    /// - Parameters:
+    ///   - samplesPerSecond: Requested peak density.
+    ///   - sourceSampleRate: The track's own rate.
+    ///   - durationSeconds: Asset duration.
+    ///   - maxPeakCount: Memory cap on peaks per channel.
+    nonisolated init(samplesPerSecond: Int, sourceSampleRate: Double, durationSeconds: Double, maxPeakCount: Int) {
+        let requested = Double(max(1, samplesPerSecond))
+        let rate = Double(Int(min(sourceSampleRate, max(Self.minimumReadSampleRate, requested * Self.readOversampling))))
+        let byDensity = Int((rate / requested).rounded(.up))
+        let byCap = Int((rate * max(0, durationSeconds) / Double(max(1, maxPeakCount))).rounded(.up))
+        self.readSampleRate = max(1, rate)
+        self.framesPerPeak = max(1, byDensity, byCap)
+    }
+
+    /// The true number of peaks per second of audio.
+    nonisolated var peaksPerSecond: Double {
+        readSampleRate / Double(framesPerPeak)
+    }
+
+    /// Number of peaks covering `durationSeconds` at `peaksPerSecond`.
+    nonisolated static func peakCount(durationSeconds: Double, peaksPerSecond: Double) -> Int {
+        guard durationSeconds > 0, peaksPerSecond > 0 else { return 0 }
+        return Int((durationSeconds * peaksPerSecond).rounded(.up))
     }
 }
 

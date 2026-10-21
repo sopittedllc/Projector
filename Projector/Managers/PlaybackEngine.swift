@@ -108,6 +108,17 @@ final class PlaybackEngine: ObservableObject {
     /// this the picture just goes black and nothing says why.
     @Published private(set) var unplayableCodecName: String?
 
+    /// Display name of the reel whose media could not be loaded, or `nil` when the
+    /// current reel is loaded.
+    ///
+    /// Set by every failed ``loadReel(_:)`` - a missing file, an unreadable one, or
+    /// one with no decoder - after the previous player has been released, so the
+    /// picture can never be the last reel's playing in the missing one's place.
+    /// Cleared by the next successful load or preloaded switch. When the cause is a
+    /// missing decoder, ``unplayableCodecName`` is also set and the view shows that
+    /// explanation in preference to this one.
+    @Published private(set) var offlineReelName: String?
+
     /// Whether playback is active
     @Published private(set) var isPlaying = false
 
@@ -401,6 +412,12 @@ final class PlaybackEngine: ObservableObject {
     /// Current reel ID being played
     private var currentReelId: UUID?
 
+    /// Where the reel in ``offlineReelName`` was looked for.
+    ///
+    /// A relink keeps the reel's id and changes only its `sourceURL`, so the id
+    /// alone cannot say that the failed reel has since been replaced.
+    private var offlineReelSourceURL: URL?
+
     /// ID of reel being preloaded
     private var preloadingReelId: UUID?
 
@@ -647,26 +664,59 @@ final class PlaybackEngine: ObservableObject {
     /// Creates an AVPlayer for the reel, caches the asset, and sets up time observation.
     /// The previous player (if any) is paused and its observer removed.
     ///
+    /// When the load fails the previous player is released as well, before the error
+    /// is rethrown. Callers catch the error and seek anyway, and a surviving player
+    /// would be seeked to this reel's time and played: the last reel's picture under
+    /// the missing one's timecode. See ``offlineReelName``.
+    ///
     /// - Parameter reel: The video reel to load.
     /// - Throws: ``PlaybackEngineError.notPlayable`` if the asset cannot be played.
     func loadReel(_ reel: VideoReel) async throws {
-        // Get or create asset
-        let asset = try await getAsset(for: reel)
-
-        // Check playability
-        let isPlayable = try await asset.load(.isPlayable)
-        guard isPlayable else {
-            // Name the codec before giving up, so the UI can say which format is
-            // missing rather than showing an unexplained black frame.
-            let support = try? await VideoCodecSupport.inspect(asset)
-            unplayableCodecName = support?.displayName ?? reel.displayName
-            diagnosticLog(
-                .error, .playback,
-                "Cannot decode \(unplayableCodecName ?? "unknown codec") in \(reel.displayName)"
-            )
+        // A missing file is named as such rather than reported as a codec
+        // problem, which is what `isPlayable == false` would otherwise read as.
+        guard FileManager.default.fileExists(atPath: reel.sourceURL.path) else {
+            logOfflineOnce(reel, "Media offline: \(reel.sourceURL.lastPathComponent) not found")
+            takeReelOffline(reel, codecName: nil)
             throw PlaybackEngineError.notPlayable
         }
+
+        let asset: AVAsset
+        do {
+            asset = try await getAsset(for: reel)
+            let isPlayable = try await asset.load(.isPlayable)
+            guard isPlayable else {
+                // Name the codec before giving up, so the UI can say which format is
+                // missing rather than showing an unexplained black frame.
+                let support = try? await VideoCodecSupport.inspect(asset)
+                let codecName = support?.displayName ?? reel.displayName
+                // The awaits above let the playhead move on. Only the reel that is
+                // still wanted may take the picture offline - a late failure for a
+                // reel the user has left must not tear down the one that loaded.
+                guard isReelStillWanted(reel) else { throw PlaybackEngineError.notPlayable }
+                logOfflineOnce(reel, "Cannot decode \(codecName) in \(reel.displayName)")
+                takeReelOffline(reel, codecName: codecName)
+                throw PlaybackEngineError.notPlayable
+            }
+        } catch PlaybackEngineError.notPlayable {
+            throw PlaybackEngineError.notPlayable
+        } catch {
+            guard isReelStillWanted(reel) else { throw error }
+            logOfflineOnce(reel, "Media offline: \(reel.displayName): \(error.localizedDescription)")
+            takeReelOffline(reel, codecName: nil)
+            throw error
+        }
+
+        // A late success for a reel that is no longer wanted must not replace the
+        // player of the one that is. The asset stays cached for when it is.
+        guard isReelStillWanted(reel) else {
+            assetCache[reel.id] = asset
+            return
+        }
+        loggedOfflineKeys = loggedOfflineKeys.filter { $0.reelId != reel.id }
+        stopGapPlayback()  // A real player takes over from an offline reel's clock.
         unplayableCodecName = nil
+        offlineReelName = nil
+        offlineReelSourceURL = nil
 
         // Create player
         let playerItem = AVPlayerItem(asset: asset)
@@ -688,6 +738,73 @@ final class PlaybackEngine: ObservableObject {
         hasContent = true
 
         setupTimeObserver()
+    }
+
+    /// Whether `reel` is still the one the transport wants, after an `await`.
+    ///
+    /// The callers run ``loadReel(_:)`` in unstructured Tasks, so by the time a load
+    /// resolves the playhead may be on another reel or in a gap.
+    private func isReelStillWanted(_ reel: VideoReel) -> Bool {
+        timeline.videoReel(at: currentFrame)?.id == reel.id || activeReel?.id == reel.id
+    }
+
+    /// Identifies one offline transition: a reel and the file it pointed at.
+    private struct OfflineLogKey: Hashable {
+        let reelId: UUID
+        let sourceURL: URL
+    }
+
+    /// Offline transitions already logged. Play and MTC lock retry the load every
+    /// time, and each retry would otherwise log the same failure again.
+    private var loggedOfflineKeys: Set<OfflineLogKey> = []
+
+    /// Logs an offline transition once per reel and source URL.
+    private func logOfflineOnce(_ reel: VideoReel, _ message: String) {
+        let key = OfflineLogKey(reelId: reel.id, sourceURL: reel.sourceURL)
+        guard loggedOfflineKeys.insert(key).inserted else { return }
+        diagnosticLog(.error, .playback, message)
+    }
+
+    /// Whether the picture is an offline reel that nothing is playing: no player,
+    /// and the active reel is the one that failed.
+    private var isRollingOfflineReel: Bool {
+        currentPlayer == nil && offlineReelName != nil
+            && currentReelId != nil && activeReel?.id == currentReelId
+    }
+
+    /// Keeps the clock running over an offline reel, as it does over a gap, so audio
+    /// and the playhead continue while the picture says MEDIA OFFLINE. Under MTC the
+    /// external timecode drives position instead.
+    private func resumeClockOnOfflineReel() {
+        guard isPlaying, !isMTCSynced, isRollingOfflineReel else { return }
+        startGapPlayback()
+    }
+
+    /// The one failure path for ``loadReel(_:)``: releases the player of whatever
+    /// reel was loaded before and records that `reel` is the one that is offline.
+    ///
+    /// `currentReelId` is set to the failed reel on purpose. The per-frame callers
+    /// (``syncToMTC(_:)``, the seek path) reload only when the reel they want is not
+    /// `currentReelId`, so leaving it on the old reel would retry the load, and fail
+    /// it, on every timecode frame. A relink or replacement clears it again - see
+    /// ``retryOfflineReelIfSourceChanged()``.
+    ///
+    /// - Parameters:
+    ///   - reel: The reel that failed to load.
+    ///   - codecName: The missing decoder's name, or `nil` when the media is
+    ///     missing or unreadable.
+    private func takeReelOffline(_ reel: VideoReel, codecName: String?) {
+        removeTimeObserver()
+        currentPlayer?.pause()
+        currentPlayer = nil
+        currentReelId = reel.id
+        activeReel = reel
+        isInGap = false
+        hasPrerolled = false
+        assetCache.removeValue(forKey: reel.id)
+        unplayableCodecName = codecName
+        offlineReelName = reel.displayName
+        offlineReelSourceURL = reel.sourceURL
     }
 
     /// Starts playback from the current position.
@@ -720,9 +837,9 @@ final class PlaybackEngine: ObservableObject {
                         try await loadReel(reel)
                     } catch {
                         debugPrint("PlaybackEngine.play: Failed to load reel '\(reel.sourceURL.lastPathComponent)': \(error)")
-                        diagnosticLog(.error, .playback, "Failed to load reel '\(reel.sourceURL.lastPathComponent)': \(error.localizedDescription)")
                     }
                     seekWithinReel(reel, timelineFrame: currentFrame, resumeAfterSeek: true) {}
+                    resumeClockOnOfflineReel()
                 }
             } else {
                 currentPlayer?.play()
@@ -1094,7 +1211,7 @@ final class PlaybackEngine: ObservableObject {
                 currentPlayer?.pause()
                 hasScheduledChaseLock = false
                 settleAtLastMTCPosition(wasSynced: wasSynced)
-            } else if isPlaying && isInGap {
+            } else if isPlaying && (isInGap || isRollingOfflineReel) {
                 // Continue manual playback on the internal clock after MTC ends.
                 startGapPlayback()
             }
@@ -1692,7 +1809,12 @@ final class PlaybackEngine: ObservableObject {
         resumeAfterSeek: Bool,
         completion: @escaping () -> Void
     ) {
-        guard let sourceTime = reel.sourceCMTime(at: timelineFrame),
+        // The player must be this reel's. `activeReel` is assigned ahead of the
+        // load that makes `currentPlayer` match it, and a seek in that window -
+        // a pause parking the picture, say - would otherwise drive the previous
+        // reel's player to this reel's source time.
+        guard reel.id == currentReelId,
+              let sourceTime = reel.sourceCMTime(at: timelineFrame),
               let player = currentPlayer else {
             completion()
             return
@@ -1805,9 +1927,13 @@ final class PlaybackEngine: ObservableObject {
         removeTimeObserver()
 
         // Swap players
+        stopGapPlayback()
         currentPlayer = preload
         currentReelId = reel.id
         activeReel = reel
+        unplayableCodecName = nil
+        offlineReelName = nil
+        offlineReelSourceURL = nil
         preloadPlayer = nil
         preloadingReelId = nil
 
@@ -1848,7 +1974,7 @@ final class PlaybackEngine: ObservableObject {
 
     /// Advance one frame during gap playback
     private func advanceFrameInGap() {
-        guard isPlaying, isInGap else {
+        guard isPlaying, isInGap || isRollingOfflineReel else {
             stopGapPlayback()
             return
         }
@@ -1856,8 +1982,11 @@ final class PlaybackEngine: ObservableObject {
         currentFrame += 1
         updateCurrentTimecode()
 
-        // Check if we've exited the gap
-        if let reel = timeline.videoReel(at: currentFrame) {
+        if let reel = timeline.videoReel(at: currentFrame),
+           isRollingOfflineReel, reel.id == currentReelId {
+            // Still on the offline reel: the clock just keeps running.
+        } else if let reel = timeline.videoReel(at: currentFrame) {
+            // Exited the gap, or the offline reel, onto a reel to load.
             isInGap = false
             stopGapPlayback()
 
@@ -1869,7 +1998,12 @@ final class PlaybackEngine: ObservableObject {
                     debugPrint("PlaybackEngine.advanceGapTime: Failed to load reel '\(reel.sourceURL.lastPathComponent)': \(error)")
                 }
                 seekWithinReel(reel, timelineFrame: currentFrame, resumeAfterSeek: isPlaying) {}
+                resumeClockOnOfflineReel()
             }
+        } else if !isInGap {
+            // Ran off the end of the offline reel into a gap.
+            isInGap = true
+            activeReel = nil
         }
 
         // Sync audio clips while advancing without video
@@ -1986,8 +2120,18 @@ final class PlaybackEngine: ObservableObject {
                     mediaAccess: access
                 )
                 await MainActor.run {
-                    self.audioPlayers[clipSnapshot.id] = playback
                     self.loadingClipIds.remove(clipSnapshot.id)
+                    // The timeline can be replaced while the file loads; a clip
+                    // from the old one must not be started under the new.
+                    let stillInTimeline = self.timeline.audioLanes.contains { lane in
+                        lane.clips.contains { $0.id == clipSnapshot.id }
+                    }
+                    guard stillInTimeline else {
+                        self.audioPlayers[clipSnapshot.id] = playback
+                        self.removeAudioPlayback(id: clipSnapshot.id)
+                        return
+                    }
+                    self.audioPlayers[clipSnapshot.id] = playback
                     self.failedClipCooldowns.removeValue(forKey: clipSnapshot.id) // Clear any previous failure
                     self.scheduleAudioPlayback(
                         playback,
@@ -3353,6 +3497,7 @@ final class PlaybackEngine: ObservableObject {
                     if isPlaying {
                         currentPlayer?.play()
                     }
+                    resumeClockOnOfflineReel()
                 }
             }
         } else {
@@ -3403,6 +3548,8 @@ final class PlaybackEngine: ObservableObject {
             if wasPlaying, self.shouldMediaRoll {
                 if self.isInGap {
                     self.startGapPlayback()
+                } else if self.isRollingOfflineReel {
+                    self.resumeClockOnOfflineReel()
                 } else {
                     self.currentPlayer?.play()
                 }
@@ -3547,6 +3694,64 @@ final class PlaybackEngine: ObservableObject {
         let currentReelIds = Set(timeline.videoReels.map(\.id))
         for reelId in Array(assetCache.keys) where !currentReelIds.contains(reelId) {
             assetCache.removeValue(forKey: reelId)
+        }
+
+        retryOfflineReelIfSourceChanged()
+        removeAudioPlayersNotInTimeline()
+    }
+
+    /// Lets a reel that failed to load try again once the timeline no longer
+    /// points at the file that failed.
+    ///
+    /// Relinking keeps the reel's id and changes its `sourceURL`; the
+    /// `currentReelId` check that stops a failed load being retried on every
+    /// frame would block it for good. So a changed source clears the failure and,
+    /// if the reel is under the playhead, loads it once. That load fails again, and
+    /// goes back offline, if the new file is no better. A reel that has left the
+    /// timeline altogether - another project was opened - just has its offline
+    /// state dropped. Nothing here repeats on a timer.
+    private func retryOfflineReelIfSourceChanged() {
+        guard offlineReelName != nil, currentPlayer == nil,
+              let failedId = currentReelId else { return }
+
+        guard let reel = timeline.videoReels.first(where: { $0.id == failedId }) else {
+            offlineReelName = nil
+            offlineReelSourceURL = nil
+            unplayableCodecName = nil
+            currentReelId = nil
+            if activeReel?.id == failedId { activeReel = nil }
+            return
+        }
+        guard reel.sourceURL != offlineReelSourceURL else { return }
+
+        currentReelId = nil
+        offlineReelName = nil
+        offlineReelSourceURL = nil
+        unplayableCodecName = nil
+        assetCache.removeValue(forKey: failedId)
+        if activeReel?.id == failedId { stopGapPlayback() }
+        guard timeline.videoReel(at: currentFrame)?.id == failedId else { return }
+
+        let resume = isPlaying
+        Task { [weak self] in
+            guard let self else { return }
+            try? await self.loadReel(reel)
+            self.seekWithinReel(reel, timelineFrame: self.currentFrame, resumeAfterSeek: resume) {}
+            self.resumeClockOnOfflineReel()
+        }
+    }
+
+    /// Stops and detaches the audio players whose clips are no longer in the
+    /// timeline.
+    ///
+    /// ``syncAudioClips()`` already drops players that are not under the
+    /// playhead, but it runs from the playback clock, and replacing the timeline
+    /// - opening another project - can leave nothing to drive that clock. The old
+    /// project's audio would then play on under the new one.
+    private func removeAudioPlayersNotInTimeline() {
+        let clipIds = Set(timeline.audioLanes.flatMap { $0.clips.map(\.id) })
+        for id in Array(audioPlayers.keys) where !clipIds.contains(id) {
+            removeAudioPlayback(id: id)
         }
     }
 

@@ -1233,8 +1233,8 @@ struct AudioLaneControls: View {
     let onOutputNone: () -> Void
 
     /// Applies a new lane level (linear gain) live. `nil` hides the level
-    /// control, which is how the Video File header - whose baked-in audio is
-    /// not a lane the user levels - keeps its controls as they were.
+    /// control. Standalone lanes and the Video File's per-track headers both
+    /// pass one.
     var onLevelChange: ((Float) -> Void)?
 
     /// Called once per level gesture with the level it began from and the one

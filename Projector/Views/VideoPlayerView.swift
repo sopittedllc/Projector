@@ -63,6 +63,11 @@ struct VideoContentView: View {
                     // simply black, which reads as a broken app rather than a missing
                     // system component.
                     missingCodecPlaceholder(codecName: codecName)
+                } else if let reelName = playbackEngine.offlineReelName {
+                    // The reel's file is gone or unreadable. The engine has already
+                    // released the previous reel's player, so black is all there is
+                    // to show - and saying why keeps it from reading as a hang.
+                    mediaOfflinePlaceholder(reelName: reelName)
                 } else if let player = playbackEngine.currentPlayer {
                     VideoPlayerView(player: player)
                         .background(Color.black)
@@ -136,6 +141,35 @@ struct VideoContentView: View {
                 }
                 .padding(.top, showTimecode && overlayPosition.isTop ? TimecodeOverlayView.reservedHeight : 0)
                 .padding(.bottom, showTimecode && !overlayPosition.isTop ? TimecodeOverlayView.reservedHeight : 0)
+            }
+    }
+
+    /// Placeholder for a reel whose media cannot be found or opened.
+    ///
+    /// - Parameter reelName: Display name of the offline reel.
+    /// - Returns: A black placeholder filling the video area.
+    @ViewBuilder
+    private func mediaOfflinePlaceholder(reelName: String) -> some View {
+        Rectangle()
+            .fill(Color.black)
+            .overlay {
+                VStack(spacing: Spacing.md) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(Typography.iconEmptyState)
+                        .foregroundColor(AppColors.textTertiary)
+                    Text("MEDIA OFFLINE")
+                        .font(Typography.displaySubtitle)
+                        .foregroundColor(AppColors.textTertiary)
+                    Text(reelName)
+                        .font(Typography.caption)
+                        .foregroundColor(AppColors.textMuted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .padding(.top, showTimecode && overlayPosition.isTop ? TimecodeOverlayView.reservedHeight : 0)
+                .padding(.bottom, showTimecode && !overlayPosition.isTop ? TimecodeOverlayView.reservedHeight : 0)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Media offline: \(reelName)")
             }
     }
 }
