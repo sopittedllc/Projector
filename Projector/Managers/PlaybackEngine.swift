@@ -421,6 +421,18 @@ final class PlaybackEngine: ObservableObject {
     /// ID of reel being preloaded
     private var preloadingReelId: UUID?
 
+    /// The preload in flight, kept so a project change can cancel it.
+    private var preloadTask: Task<Void, Never>?
+
+    /// Which project the engine is playing, counted by ``unloadProject(holdTransport:)``.
+    ///
+    /// Work that suspends and then writes per-project state - loading a reel or
+    /// an audio clip, a seek completing - captures this before it starts and
+    /// drops its result if it has moved. Comparing ids is not enough: reopening
+    /// the same project gives the same ids, so a result from the project that
+    /// was closed would pass for one from the project now open.
+    private var projectGeneration = 0
+
     /// Playback rate (1.0 = normal)
     private var playbackRate: Float = 1.0
 
@@ -672,6 +684,7 @@ final class PlaybackEngine: ObservableObject {
     /// - Parameter reel: The video reel to load.
     /// - Throws: ``PlaybackEngineError.notPlayable`` if the asset cannot be played.
     func loadReel(_ reel: VideoReel) async throws {
+        let generation = projectGeneration
         // A missing file is named as such rather than reported as a codec
         // problem, which is what `isPlayable == false` would otherwise read as.
         guard FileManager.default.fileExists(atPath: reel.sourceURL.path) else {
@@ -692,7 +705,7 @@ final class PlaybackEngine: ObservableObject {
                 // The awaits above let the playhead move on. Only the reel that is
                 // still wanted may take the picture offline - a late failure for a
                 // reel the user has left must not tear down the one that loaded.
-                guard isReelStillWanted(reel) else { throw PlaybackEngineError.notPlayable }
+                guard generation == projectGeneration, isReelStillWanted(reel) else { throw PlaybackEngineError.notPlayable }
                 logOfflineOnce(reel, "Cannot decode \(codecName) in \(reel.displayName)")
                 takeReelOffline(reel, codecName: codecName)
                 throw PlaybackEngineError.notPlayable
@@ -700,7 +713,7 @@ final class PlaybackEngine: ObservableObject {
         } catch PlaybackEngineError.notPlayable {
             throw PlaybackEngineError.notPlayable
         } catch {
-            guard isReelStillWanted(reel) else { throw error }
+            guard generation == projectGeneration, isReelStillWanted(reel) else { throw error }
             logOfflineOnce(reel, "Media offline: \(reel.displayName): \(error.localizedDescription)")
             takeReelOffline(reel, codecName: nil)
             throw error
@@ -708,6 +721,10 @@ final class PlaybackEngine: ObservableObject {
 
         // A late success for a reel that is no longer wanted must not replace the
         // player of the one that is. The asset stays cached for when it is.
+        guard generation == projectGeneration else {
+            // The project was closed while this loaded; nothing of it may be kept.
+            return
+        }
         guard isReelStillWanted(reel) else {
             assetCache[reel.id] = asset
             return
@@ -1607,15 +1624,20 @@ final class PlaybackEngine: ObservableObject {
 
         let mtcFrame = timeline.config.frame(for: timecode)
 
-        // Clamp to valid range
-        let targetFrame: Int
-        if mtcFrame < 0 {
-            targetFrame = 0
-        } else if mtcFrame >= timeline.config.durationFrames {
-            targetFrame = max(0, timeline.config.durationFrames - 1)
-        } else {
-            targetFrame = mtcFrame
-        }
+        // Timecode outside the timeline is not on any reel.
+        //
+        // This used to be clamped onto the nearest edge and then looked up like
+        // any other frame. The first reel always starts at frame 0, so timecode
+        // *before* the timeline landed on it: the overlay named the reel, the
+        // gap flag stayed clear, and because the jump test below needs a
+        // previous target above zero, nothing seeked - the player kept whatever
+        // frame it had while the readout correctly said there was no picture.
+        //
+        // So only the number is clamped (the playhead and readout still need a
+        // position to show); whether a reel is under it is decided from the
+        // unclamped frame, and out of range means a gap.
+        let isOutOfRange = mtcFrame < 0 || mtcFrame >= timeline.config.durationFrames
+        let targetFrame = max(0, min(mtcFrame, timeline.config.durationFrames - 1))
 
         // A locate outstanding? Then timecode that disagrees with it is the
         // receiver draining its pre-stop position, not the transport's opinion.
@@ -1675,9 +1697,9 @@ final class PlaybackEngine: ObservableObject {
         mtcTargetFrame = targetFrame
 
         // Handle gap transitions
-        let targetReel = timeline.videoReel(at: targetFrame)
+        let targetReel = isOutOfRange ? nil : timeline.videoReel(at: targetFrame)
         if targetReel == nil {
-            // MTC is in a gap
+            // MTC is in a gap (or outside the timeline altogether)
             if !isInGap {
                 isInGap = true
                 activeReel = nil
@@ -1731,12 +1753,19 @@ final class PlaybackEngine: ObservableObject {
         // arrives while the receiver is still freewheeling, before the locked
         // sync that would otherwise set it, and `handleTimeUpdate` will not
         // advance the timeline without it.
+        //
+        // Coming out of a gap onto the reel the player already holds needs a
+        // seek too. The player was paused where it stood when the gap began,
+        // and nothing moved it since, so without this the reel resumes from a
+        // stale frame - the jump test cannot see it, because the gap's clamped
+        // target may sit right beside the new one.
+        let isLeavingGap = isInGap
         isInGap = false
         activeReel = targetReel
         currentFrame = targetFrame
         updateCurrentTimecode()
 
-        if isDiscontinuousJump {
+        if isDiscontinuousJump || isLeavingGap {
             // MTC jumped discontinuously - user clicked timeline, seek to new position
             if let reel = activeReel {
                 seekWithinReel(reel, timelineFrame: targetFrame, resumeAfterSeek: true) { [weak self] in
@@ -1830,6 +1859,7 @@ final class PlaybackEngine: ObservableObject {
         syncTrace("seek -> frame \(timelineFrame), resume=\(resumeAfterSeek), isPlaying=\(isPlaying)")
         isSeekingVideo = true
         let completionBox = SeekCompletionBox(completion)
+        let generation = projectGeneration
         pendingVideoSeekFrame = nil
         hasPrerolled = false  // A seek discards the primed pipelines.
 
@@ -1846,6 +1876,13 @@ final class PlaybackEngine: ObservableObject {
         player.seek(to: time, toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] completed in
             Task { @MainActor in
                 guard let self else { return }
+
+                // A seek on the closed project's player: its bookkeeping has been
+                // reset, and clearing or acting on it now would corrupt the new one.
+                guard generation == self.projectGeneration else {
+                    completionBox.completion()
+                    return
+                }
 
                 self.isSeekingVideo = false
 
@@ -1896,8 +1933,10 @@ final class PlaybackEngine: ObservableObject {
     /// Preload a reel for seamless transition
     private func preloadReel(_ reel: VideoReel) {
         preloadingReelId = reel.id
+        let generation = projectGeneration
 
-        Task {
+        preloadTask?.cancel()
+        preloadTask = Task {
             do {
                 let asset = try await getAsset(for: reel)
                 let isPlayable = try await asset.load(.isPlayable)
@@ -1910,6 +1949,11 @@ final class PlaybackEngine: ObservableObject {
                 player.isMuted = true
 
                 await MainActor.run {
+                    // A project change while the asset loaded would otherwise
+                    // install the old project's player and hold its movie open.
+                    guard !Task.isCancelled,
+                          generation == self.projectGeneration,
+                          self.preloadingReelId == reel.id else { return }
                     self.preloadPlayer = player
                 }
             } catch {
@@ -2091,6 +2135,7 @@ final class PlaybackEngine: ObservableObject {
         debugPrint("loadAudioClip: starting for clip \(clip.id), sourceType=\(clip.sourceType), trackIndex=\(trackIndex)")
         let clipSnapshot = clip
         let laneSnapshot = lane
+        let generation = projectGeneration
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             do {
@@ -2120,6 +2165,15 @@ final class PlaybackEngine: ObservableObject {
                     mediaAccess: access
                 )
                 await MainActor.run {
+                    // A stale result belongs to a project that was closed - maybe
+                    // one since reopened, where the clip id is valid again. Its
+                    // nodes are detached directly: the id's slot may by now hold
+                    // the new project's player, and the loading flag is the new
+                    // load's to clear.
+                    guard generation == self.projectGeneration else {
+                        self.discardAudioPlayback(playback)
+                        return
+                    }
                     self.loadingClipIds.remove(clipSnapshot.id)
                     // The timeline can be replaced while the file loads; a clip
                     // from the old one must not be started under the new.
@@ -2144,6 +2198,7 @@ final class PlaybackEngine: ObservableObject {
                 debugPrint("PlaybackEngine: Failed to load audio clip: \(error)")
                 diagnosticLog(.error, .audio, "Failed to load audio clip: \(error.localizedDescription)")
                 await MainActor.run {
+                    guard generation == self.projectGeneration else { return }
                     self.loadingClipIds.remove(clipSnapshot.id)
                     self.failedClipCooldowns[clipSnapshot.id] = Date() // Start cooldown
                 }
@@ -2550,12 +2605,17 @@ final class PlaybackEngine: ObservableObject {
 
     private func removeAudioPlayback(id: UUID) {
         guard let playback = audioPlayers[id] else { return }
+        discardAudioPlayback(playback)
+        audioPlayers.removeValue(forKey: id)
+    }
+
+    /// Stops a playback and detaches its nodes, without touching ``audioPlayers``.
+    private func discardAudioPlayback(_ playback: AudioClipPlayback) {
         playback.player.stop()
         audioEngine.detach(playback.player)
         audioEngine.detach(playback.levelBoost)
         audioEngine.detach(playback.rateConverter)
         audioEngine.detach(playback.matrixMixer)
-        audioPlayers.removeValue(forKey: id)
     }
 
     private func applyOutputMappingIfNeeded(_ playback: AudioClipPlayback, lane: AudioLane) {
@@ -3799,6 +3859,98 @@ final class PlaybackEngine: ObservableObject {
         // investigation starts with, and for a long time the answer here was no -
         // this method had no callers at all.
         diagnosticLog(.info, .playback, "Audio engine released on teardown")
+    }
+
+    /// Releases everything that belongs to the project being closed.
+    ///
+    /// ## Why replacing the timeline is not enough
+    ///
+    /// ``updateTimelineProperties()`` reconciles the engine with a new timeline
+    /// by dropping what no longer matches, and the one thing it drops on an
+    /// empty timeline is ``activeReel``. The player is not among them. So a new
+    /// or opened project inherited the previous project's `AVPlayer`, still
+    /// holding its movie open and still showing its paused frame - the video
+    /// view draws `currentPlayer` the moment the timeline has content, which is
+    /// before the first reel of the new project has finished loading.
+    ///
+    /// Call this *before* assigning the new ``timeline``, so the old one is
+    /// still there for anything that reads it on the way out.
+    ///
+    /// ## What it leaves alone
+    ///
+    /// The audio engine, output device, meter tap and sample-rate listener live
+    /// as long as the app does; ``cleanup()`` is the teardown that releases
+    /// them. ``transportOverride`` is untouched unless asked for: opening a
+    /// project never set it, while a *new* project always has, because
+    /// ``stop()`` was what reset playback there.
+    ///
+    /// - Parameter holdTransport: When `true`, sets ``transportOverride`` as
+    ///   `stop()` does, so MTC cannot auto-play the new project until the user
+    ///   plays or sync restarts. Defaults to `false`.
+    func unloadProject(holdTransport: Bool = false) {
+        // Anything still in flight for the old project is now stale.
+        projectGeneration += 1
+        preloadTask?.cancel()
+        preloadTask = nil
+
+        // Gap clock first: it advances `currentFrame` and would race the reset.
+        stopGapPlayback()
+
+        // The observer is registered on the player being released, so it has to
+        // come off before the player goes.
+        removeTimeObserver()
+        currentPlayer?.pause()
+        currentPlayer = nil
+        preloadPlayer?.pause()
+        preloadPlayer = nil
+        preloadingReelId = nil
+        currentReelId = nil
+        activeReel = nil
+        assetCache.removeAll()
+
+        unplayableCodecName = nil
+        offlineReelName = nil
+        offlineReelSourceURL = nil
+        loggedOfflineKeys.removeAll()
+
+        // Seek, park and locate state describes a position in the old project.
+        resetSeekState()
+        isSeekingVideo = false
+        pendingVideoSeekFrame = nil
+        isPictureParked = false
+        parkedAtFrame = 0
+        advancesWhileParked = 0
+        hasScheduledChaseLock = false
+        pendingLocateFrame = nil
+        mtcTargetFrame = 0
+        hasPrerolled = false
+        lastAudioSyncFrame = -1
+
+        // Audio players are keyed by the old project's clip ids. Removed before
+        // `currentFrame` moves, because that assignment reconciles automation
+        // gain against whatever players are still attached.
+        stopAllAudioClips()
+        for id in Array(audioPlayers.keys) {
+            removeAudioPlayback(id: id)
+        }
+        loadingClipIds.removeAll()
+        failedClipCooldowns.removeAll()
+
+        isPlaying = false
+        isInGap = false
+        currentFrame = 0
+        if holdTransport { transportOverride = true }
+
+        // The transport follows the playhead, and it was at the old project's.
+        if let onFrameUpdate = onFrameUpdate {
+            Task { await onFrameUpdate(currentFrame) }
+        }
+
+        // pause() arranged this for the old New Project path; with nothing left
+        // playing, the audio device should be let go after the usual delay.
+        scheduleIdleDeviceRelease()
+
+        diagnosticLog(.info, .playback, "Project unloaded: players, caches and transport state released")
     }
 
     deinit {

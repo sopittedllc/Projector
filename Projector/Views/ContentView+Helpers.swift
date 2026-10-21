@@ -229,6 +229,11 @@ extension ContentView {
 
     /// Reset to a fresh empty project.
     private func resetToNewProject() {
+        // Release the outgoing project's player first. Assigning the new timeline
+        // only drops the active reel, so the old player would stay on screen,
+        // paused on its last frame, and keep its movie open.
+        playbackEngine.unloadProject(holdTransport: true)
+
         // Reset the project document
         projectDocument.newProject()
 
@@ -240,12 +245,12 @@ extension ContentView {
         // Clear the media library
         mediaLibrary.load(items: [])
 
-        // Reset playback
-        playbackEngine.stop()
+        // Hand the empty timeline to playback
         playbackEngine.timeline = timelineManager.timeline
 
         // Clear waveform cache
         waveformCache.clearAll()
+        thumbnailCache.removeAll()
 
         debugPrint("ContentView: reset to new project")
     }

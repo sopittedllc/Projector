@@ -372,6 +372,11 @@ extension ContentView {
             return missingFileService.checkForMissingFiles()
         }
 
+        // Thumbnails belong to the project being replaced
+        persistenceService.onProjectWillReplaceTimeline = { [self] in
+            thumbnailCache.removeAll()
+        }
+
         // Load project reels callback
         persistenceService.onLoadProjectReels = { [self] in
             loadProjectReels()

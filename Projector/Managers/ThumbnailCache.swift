@@ -243,6 +243,21 @@ final class ThumbnailCache: ObservableObject {
         }
     }
 
+    /// Discards every thumbnail and cancels all generation in flight.
+    ///
+    /// For when the whole project is replaced. Reels are keyed by id, so the
+    /// outgoing project's atlases would never be looked up again; they would
+    /// only sit in memory, and their generation tasks would keep decoding
+    /// media nobody is looking at.
+    func removeAll() {
+        for task in generationTasks.values {
+            task.cancel()
+        }
+        generationTasks.removeAll()
+        atlases.removeAll()
+        decodedThumbnails.removeAll()
+    }
+
     // MARK: - Private Methods
 
     /// Maps a target count to the nearest predefined bucket count.
@@ -297,6 +312,10 @@ final class ThumbnailCache: ObservableObject {
                 )
 
                 await MainActor.run { () -> Void in
+                    // A cancelled task was already dropped by remove(reelId:) or
+                    // removeAll(); writing now would resurrect it, or remove the
+                    // entry of a newer task under the same key.
+                    guard !Task.isCancelled else { return }
                     var atlas = self.atlases[reel.id] ?? ThumbnailAtlas(duration: strip.sourceDuration)
                     atlas.addLevel(strip, bucketCount: bucketCount)
                     self.atlases[reel.id] = atlas
@@ -305,6 +324,7 @@ final class ThumbnailCache: ObservableObject {
             } catch {
                 debugPrint("ThumbnailCache: Failed to generate thumbnails for \(reel.id): \(error)")
                 await MainActor.run { () -> Void in
+                    guard !Task.isCancelled else { return }
                     self.generationTasks.removeValue(forKey: key)
                 }
             }

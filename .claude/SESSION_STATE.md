@@ -3018,3 +3018,28 @@ Kept for context; that work is committed and green.
   - out-of-order overlapping loadReel calls.
 - Before commit: user verification, then clare. Don't commit default.profraw.
 - Zoom refinement is still waiting on the user to say what is wrong.
+
+---
+
+## Audit 2026-10-21: picture leaking across projects (read-only, nothing changed)
+
+**Symptom**: New Project → drop media → first frame shown is a still from the previous project. Later: new project claims no picture although it has one (which UI element is still unconfirmed).
+
+**Root cause (confirmed in code)**: New Project / Open Project replace the timeline but never release the old project's video player.
+- `Views/ContentView+Helpers.swift` `resetToNewProject()` clears document, library, waveform cache; calls `playbackEngine.stop()` (pause + seek 0 on the *new* empty timeline, so the old player is not even seeked) and reassigns `timeline`.
+- `Managers/PlaybackEngine.swift` `updateTimelineProperties()` sets only `activeReel = nil`. `currentPlayer`, `preloadPlayer`, `currentReelId`, `hasPrerolled`, park state survive. `currentPlayer = nil` is only ever set in `takeReelOffline` (line ~799).
+- `Views/VideoPlayerView.swift` `VideoContentView` shows `currentPlayer` whenever `hasContent && !isInGap`. Dropping the first reel at the playhead flips both, so the old player is displayed until `loadReel` finishes (it awaits `isPlayable`, longer for big/ProRes files). Its paused frame is the "still from the previous project".
+- `ProjectPersistenceService.loadProject` has the same gap (open B while A loaded).
+- First-reel path `ContentView+Timeline.swift` `addVideoToTimelineUnchecked` calls `loadReel` with no seek afterwards; if the playhead isn't on the reel, `isReelStillWanted` makes it return silently, leaving the old player and `currentReelId` in place.
+
+**Related, same class**:
+- `ThumbnailCache` is never cleared on New/Open (keyed by reel UUID, so no visible cross-project mix-up; it just keeps growing). Not invalidated on relink either.
+- Online relink keeps the stale asset: `TimelineManager.updateVideoReelURL` keeps the reel id; `assetCache[reel.id]` and `currentReelId` still match, so after Optimize (`OptimizationViewModel` swaps to optimized URL) the engine keeps playing the original file and thumbnails stay the original's. Within one project, not across projects.
+
+**Proposed fix (not started)**: one engine-level `PlaybackEngine.unloadProject()` (release current+preload players, observers, assetCache, currentReelId, offline/park/gap state, audio players) called from both replacement paths, rather than patching each caller; `ThumbnailCache.removeAll()` alongside; asset/thumbnail invalidation keyed on sourceURL change in updateTimelineProperties.
+
+**Addendum (same day), confirmed against the running Debug app:**
+- `lsof` shows the app still holding the *previous* project's movie open after New Project, which confirms the leaked `currentPlayer`/`assetCache`.
+- The "NO PICTURE" readout was correct: the user had moved the timeline, so MTC sat before the timeline start. The picture area was wrong. Cause: `PlaybackEngine.syncToMTC` clamps an out-of-range MTC frame to 0 (or to the last frame). The first reel always sits at frame 0 (`snapTimelineStartToContent`), so MTC before the start counts as "on the reel": `isInGap = false`, the overlay reads the timeline start, and because `previousMtcTarget > 0` blocks the jump test, no seek happens. The player keeps its last frame from before the move. The same applies past the end. Fix: MTC outside `0..<durationFrames` should go through the gap branch (black), not be clamped onto an edge reel.
+
+**Status 2026-10-21:** Fix implemented by joseph, reviewed by clare (PASS, warnings fixed in a second pass). 537 unit tests pass, 0 fail, 1 skipped. Uncommitted. Debug app relaunched. Awaiting user runtime verification: New Project while a reel is showing; MTC before the start, past the end, then back onto the first reel; Open Project while playing.

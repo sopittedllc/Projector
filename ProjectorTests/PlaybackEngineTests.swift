@@ -284,6 +284,83 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertNil(engine.currentPlayer)
     }
 
+    // MARK: - Timecode Outside the Timeline
+
+    func testTimecodeBeforeTimelineStartIsAGapNotTheFirstReel() {
+        let reel = makeReel(url: FileManager.default.temporaryDirectory.appendingPathComponent("unused.mov"), name: "Reel One")
+        let engine = PlaybackEngine(timeline: Timeline(videoReels: [reel]))
+        defer { engine.cleanup() }
+        XCTAssertEqual(reel.timelineStartFrame, 0)
+
+        engine.syncToMTC(engine.timeline.config.timecode(at: -24))
+
+        XCTAssertTrue(engine.isInGap, "Timecode before the timeline start has no picture")
+        XCTAssertNil(engine.activeReel, "It must not be clamped onto the first reel")
+    }
+
+    func testTimecodeAfterTimelineEndIsAGapNotTheLastReel() {
+        let reel = makeReel(url: FileManager.default.temporaryDirectory.appendingPathComponent("unused.mov"), name: "Reel One")
+        let engine = PlaybackEngine(timeline: Timeline(videoReels: [reel]))
+        defer { engine.cleanup() }
+
+        engine.syncToMTC(engine.timeline.config.timecode(at: engine.timeline.config.durationFrames + 24))
+
+        XCTAssertTrue(engine.isInGap)
+        XCTAssertNil(engine.activeReel)
+    }
+
+    // MARK: - Unloading a Project
+
+    func testReelLoadInFlightWhenProjectUnloadsInstallsNothing() async throws {
+        let url = try await TestVideoFileFactory.makeBlackMovie(duration: 1)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let reel = makeReel(url: url, name: "Reel One")
+        let engine = PlaybackEngine(timeline: Timeline(videoReels: [reel]))
+        defer { engine.cleanup() }
+
+        // The load suspends on the asset; the project is closed meanwhile.
+        let load = Task { try? await engine.loadReel(reel) }
+        await Task.yield()
+        engine.unloadProject()
+        await load.value
+
+        XCTAssertNil(engine.currentPlayer, "A load begun for the closed project must not install its player")
+        XCTAssertNil(engine.activeReel)
+    }
+
+    func testNewProjectUnloadHoldsTransportOnlyWhenAsked() {
+        let engine = PlaybackEngine(timeline: .empty)
+        defer { engine.cleanup() }
+
+        engine.unloadProject()
+        XCTAssertFalse(engine.transportOverride, "Opening a project must not set the override")
+
+        engine.unloadProject(holdTransport: true)
+        XCTAssertTrue(engine.transportOverride, "A new project keeps the override stop() used to set")
+    }
+
+    func testUnloadProjectReleasesPlayerAndReel() async throws {
+        let url = try await TestVideoFileFactory.makeBlackMovie(duration: 1)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let reel = makeReel(url: url, name: "Reel One")
+        let engine = PlaybackEngine(timeline: Timeline(videoReels: [reel]))
+        defer { engine.cleanup() }
+
+        try await engine.loadReel(reel)
+        XCTAssertNotNil(engine.currentPlayer)
+        XCTAssertNotNil(engine.activeReel)
+
+        engine.unloadProject()
+        engine.timeline = .empty
+
+        XCTAssertNil(engine.currentPlayer, "The outgoing project's player must not outlive it")
+        XCTAssertNil(engine.activeReel)
+        XCTAssertFalse(engine.hasContent)
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertEqual(engine.currentFrame, 0)
+        XCTAssertNil(engine.offlineReelName)
+    }
+
 }
 
 @MainActor

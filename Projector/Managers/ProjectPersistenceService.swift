@@ -18,6 +18,8 @@ import AppKit
 ///
 /// The service uses callbacks to communicate with the view layer:
 /// - `onNeedsMissingFileCheck`: Called to check for missing files after loading
+/// - `onProjectWillReplaceTimeline`: Called as an opened project replaces the current one,
+///   so the view layer can drop caches that belong to the outgoing project
 /// - `onLoadProjectReels`: Called to load video reels after project is opened
 /// - `onError`: Called when an error occurs during save/load operations
 ///
@@ -45,6 +47,13 @@ final class ProjectPersistenceService: ObservableObject {
     /// Callback to check for missing files after loading a project.
     /// Returns true if missing files were found (and will be handled by caller).
     var onNeedsMissingFileCheck: (() -> Bool)?
+
+    /// Callback fired once a project has been read from disk and is about to
+    /// replace the one on screen, before any of its reels are loaded.
+    ///
+    /// The view layer owns caches keyed by the outgoing project's reels (thumbnails);
+    /// this is where it empties them.
+    var onProjectWillReplaceTimeline: (() -> Void)?
 
     /// Callback to load project reels after project is opened and missing files are resolved.
     var onLoadProjectReels: (() -> Void)?
@@ -196,6 +205,12 @@ final class ProjectPersistenceService: ObservableObject {
             // Every open route (Finder, Open panel, Open Recent, drop) ends
             // here, so this is the one place the recents list is fed.
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
+
+            // Release the outgoing project's players and caches before anything of
+            // the new one is installed, or its paused frame shows through until
+            // the first reel loads.
+            playbackEngine.unloadProject()
+            onProjectWillReplaceTimeline?()
 
             // Restore timeline and media library
             timelineManager.replaceProjectTimeline(projectDocument.timeline)
