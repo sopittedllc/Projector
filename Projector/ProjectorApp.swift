@@ -69,7 +69,21 @@ struct ProjectorApp: App {
 // MARK: - App Delegate
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSWindowDelegate, NSMenuDelegate {
-    private var hasSetupMenus = false
+    /// The File item `setupMenus` put on the menu bar.
+    ///
+    /// A flag is not enough to know the menus are in place: SwiftUI can rebuild
+    /// the main menu from its own scene commands, which drops File and Edit and
+    /// the app-menu additions together. Whether this item is still on the bar
+    /// is the actual test.
+    private var installedFileMenuItem: NSMenuItem?
+
+    /// When the menus were last put back after SwiftUI dropped them.
+    private var lastMenuReinstall = Date.distantPast
+
+    /// Shortest gap between reinstalls. Should SwiftUI ever answer each
+    /// reinstall by dropping the menus again, this keeps the two from trading
+    /// a full menu rebuild on every event.
+    private static let minimumMenuReinstallInterval: TimeInterval = 1
 
     /// Retained so the checkmark can be refreshed when the pin is toggled from
     /// the player window rather than the menu.
@@ -166,6 +180,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
             self?.setupMenus()
         }
 
+        // Put the menus back whenever SwiftUI has rebuilt the bar without them.
+        // Runs after every event, so the check must stay a pointer comparison.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didUpdateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // Only once the first install has happened; before that SwiftUI is
+            // still building its menus and the delayed call above owns setup.
+            guard let self, self.installedFileMenuItem != nil, !self.menusAreInstalled,
+                  Date().timeIntervalSince(self.lastMenuReinstall) >= Self.minimumMenuReinstallInterval
+            else { return }
+            self.lastMenuReinstall = Date()
+            debugPrint("AppDelegate: main menu rebuilt without our menus, reinstalling")
+            self.setupMenus()
+        }
+
         // Also setup menus when the app becomes active (handles reactivation)
         NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
@@ -235,8 +266,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         debugPrint("sendEvent swizzled successfully")
     }
 
+    /// Whether our File menu is on the current menu bar.
+    private var menusAreInstalled: Bool {
+        guard let mainMenu = NSApp.mainMenu, let fileItem = installedFileMenuItem else { return false }
+        return fileItem.menu === mainMenu
+    }
+
     private func setupMenus() {
-        guard !hasSetupMenus else {
+        guard !menusAreInstalled else {
             debugPrint("setupMenus: already setup")
             return
         }
@@ -253,8 +290,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
             debugPrint("setupMenus: not enough menu items")
             return
         }
-
-        hasSetupMenus = true
 
         // Create a completely new File menu (prevents SwiftUI from managing it)
         let newFileMenu = NSMenu(title: "File")
@@ -339,6 +374,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
             mainMenu.removeItem(at: existingFileIndex)
         }
         mainMenu.insertItem(fileMenuItem, at: 1)
+        installedFileMenuItem = fileMenuItem
 
         // Create Edit menu (insert after File menu)
         let editMenu = NSMenu(title: "Edit")
