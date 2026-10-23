@@ -9,27 +9,31 @@ import UniformTypeIdentifiers
 
 /// The folders a project owns on disk, and the test for whether a file is in one.
 ///
-/// A project is not just the `.projector` package. Optimizing writes its output
-/// beside the package rather than inside it, so the project on disk is really:
+/// A project is not just the `.projector` package. It is a session folder, and
+/// the media lives beside the package rather than inside it:
 ///
 /// ```
 /// ProjectFolder/
-///   Project.projector/     <- the package, holding Media/
-///   Optimized Media/       <- written by optimizing
-///   Raw Files/             <- originals moved aside after optimizing
+///   Project.projector/     <- the package, holding project.json
+///   Media/                 <- created at save; consolidating copies here
+///   Optimized Media/       <- created at save; written by optimizing
+///   Raw Files/             <- only if originals are moved aside after optimizing
 /// ```
 ///
+/// Projects consolidated before this layout have their media at
+/// `Project.projector/Media/`; that location is still recognised as ours.
+///
 /// Consolidating asks "is this file already ours?", and the answer has to cover
-/// all three. Asking only the package meant every optimized file read as
+/// all of them. Asking only the package meant every optimized file read as
 /// external media, so finishing an optimize pass *raised* the Consolidate
-/// button - offering to copy the app's own output back into the package.
+/// button - offering to copy the app's own output back into the project.
 ///
 /// The sibling folders are matched by name rather than by taking the whole
 /// enclosing directory: a project saved straight to the Desktop would otherwise
 /// claim everything on the Desktop as already consolidated.
 enum ProjectFolders {
 
-    /// Media copied into the package by consolidating.
+    /// Media copied by consolidating, beside the package.
     static let mediaFolderName = "Media"
 
     /// Playback-friendly re-encodes, written beside the package.
@@ -37,6 +41,57 @@ enum ProjectFolders {
 
     /// Originals moved aside after optimizing, written beside the package.
     static let rawFilesFolderName = "Raw Files"
+
+    /// Whether the package lives in its own session folder, as the Save sheet creates.
+    ///
+    /// True when the enclosing folder's name equals the package's name without
+    /// its extension (`Cut/Cut.projector`). Only then is the sibling "Media"
+    /// folder ours.
+    ///
+    /// "Media" is gated because it is a generic name: a hand-placed
+    /// `Desktop/Cut.projector` must not claim `Desktop/Media/`. "Optimized Media"
+    /// and "Raw Files" are distinctively named and only ever written by this app,
+    /// so they are recognised beside any package without the gate.
+    ///
+    /// - Parameter projectURL: The `.projector` package.
+    static func isInSessionFolder(projectURL: URL) -> Bool {
+        let packageName = projectURL.deletingPathExtension().lastPathComponent
+        return projectURL.deletingLastPathComponent().lastPathComponent == packageName
+    }
+
+    /// Where consolidating copies media for a project.
+    ///
+    /// In a session folder that is the sibling "Media" folder; otherwise the
+    /// legacy in-package `X.projector/Media/`, so nothing is ever written into
+    /// an unrelated neighbouring folder.
+    ///
+    /// - Parameter projectURL: The `.projector` package.
+    static func mediaFolder(forProjectAt projectURL: URL) -> URL {
+        let base = isInSessionFolder(projectURL: projectURL)
+            ? projectURL.deletingLastPathComponent()
+            : projectURL
+        return base.appendingPathComponent(mediaFolderName)
+    }
+
+    /// Creates the folders a saved project always has: "Media" and "Optimized Media".
+    ///
+    /// Safe to call on a project that already has them.
+    ///
+    /// "Raw Files" is deliberately not created. It exists only as the result of
+    /// the user choosing to move their originals aside, so an empty one would
+    /// claim a decision that was never made.
+    ///
+    /// - Parameter projectURL: The `.projector` package; the folders are made beside it.
+    /// - Throws: Any error from creating a directory.
+    static func createStandardFolders(forProjectAt projectURL: URL) throws {
+        let enclosing = projectURL.deletingLastPathComponent()
+        for name in [mediaFolderName, optimizedMediaFolderName] {
+            try FileManager.default.createDirectory(
+                at: enclosing.appendingPathComponent(name),
+                withIntermediateDirectories: true
+            )
+        }
+    }
 
     /// The "Optimized Media" folder for a project, or `nil` if it is unsaved.
     static func optimizedMediaFolder(forProjectAt projectURL: URL?) -> URL? {
@@ -57,11 +112,17 @@ enum ProjectFolders {
     ///   sibling project folders.
     static func contains(_ url: URL, projectURL: URL) -> Bool {
         let enclosing = projectURL.deletingLastPathComponent()
-        let roots = [
+        var roots = [
+            // The package itself stays a root: projects consolidated before the
+            // session-folder layout hold their media at `X.projector/Media/`,
+            // and those files must still read as ours.
             projectURL,
             enclosing.appendingPathComponent(optimizedMediaFolderName),
             enclosing.appendingPathComponent(rawFilesFolderName)
         ]
+        if isInSessionFolder(projectURL: projectURL) {
+            roots.append(enclosing.appendingPathComponent(mediaFolderName))
+        }
         return roots.contains { isDescendant(url, of: $0) }
     }
 
@@ -112,7 +173,7 @@ enum ProjectFolders {
 /// │  - Imports media files with metadata extraction                 │
 /// │  - Maintains security-scoped bookmarks                          │
 /// │  - Provides filtered views (video/audio, search)                │
-/// │  - Supports media consolidation into project package            │
+/// │  - Supports media consolidation into the project's Media folder   │
 /// └─────────────────────────────────────────────────────────────────┘
 ///                               │
 ///                               ▼
@@ -645,7 +706,7 @@ final class ProjectMediaLibrary: ObservableObject {
 
     /// Result of a media consolidation operation.
     ///
-    /// Summarizes the outcome of copying external media files into the project package.
+    /// Summarizes the outcome of copying external media files into the project's Media folder.
     struct ConsolidationResult {
         /// Number of files successfully copied into the project.
         let copiedCount: Int
@@ -677,13 +738,14 @@ final class ProjectMediaLibrary: ObservableObject {
 
     /// Consolidate all external media into the project's Media folder
     ///
-    /// This copies files from external locations into the project package,
-    /// updating the media library references to point to the local copies.
+    /// This copies files from external locations into the project's "Media" folder
+    /// (beside the package in a session folder), updating the media library references to point to
+    /// the local copies.
     ///
     /// - Parameter projectURL: The URL of the .projector package
     /// - Returns: A result summarizing what was consolidated
     func consolidateMedia(projectURL: URL) async -> ConsolidationResult {
-        let mediaFolder = projectURL.appendingPathComponent(ProjectFolders.mediaFolderName)
+        let mediaFolder = ProjectFolders.mediaFolder(forProjectAt: projectURL)
         let fileManager = FileManager.default
 
         // Create Media folder if needed

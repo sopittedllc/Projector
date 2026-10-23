@@ -3,7 +3,11 @@
 //  Projector
 //
 //  Custom sheet for saving projects with proper folder structure.
-//  Creates: <location>/<project-name>/<project-name>.projector
+//  Creates the session folder:
+//    <location>/<project-name>/
+//      <project-name>.projector
+//      Media/
+//      Optimized Media/
 //
 
 import SwiftUI
@@ -132,15 +136,14 @@ struct SaveProjectSheet: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
 
-                        HStack(spacing: Spacing.xs) {
-                            Image(systemName: "folder")
-                                .foregroundColor(.blue)
-                            Text("\(sanitizedName)/")
-                                .font(.system(.caption, design: .monospaced))
-                            Image(systemName: "doc")
-                                .foregroundColor(.orange)
-                            Text("\(sanitizedName).projector")
-                                .font(.system(.caption, design: .monospaced))
+                        VStack(alignment: .leading, spacing: Spacing.xs) {
+                            previewRow(icon: "folder", color: .blue, text: "\(sanitizedName)/")
+                            VStack(alignment: .leading, spacing: Spacing.xs) {
+                                previewRow(icon: "doc", color: .orange, text: "\(sanitizedName).projector")
+                                previewRow(icon: "folder", color: .blue, text: "\(ProjectFolders.mediaFolderName)/")
+                                previewRow(icon: "folder", color: .blue, text: "\(ProjectFolders.optimizedMediaFolderName)/")
+                            }
+                            .padding(.leading, Spacing.lg)
                         }
                         .foregroundColor(.secondary)
                     }
@@ -195,6 +198,16 @@ struct SaveProjectSheet: View {
         }
     }
 
+    /// One line of the "Will create:" tree.
+    private func previewRow(icon: String, color: Color, text: String) -> some View {
+        HStack(spacing: Spacing.xs) {
+            Image(systemName: icon)
+                .foregroundColor(color)
+            Text(text)
+                .font(.system(.caption, design: .monospaced))
+        }
+    }
+
     private func chooseLocation() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -244,6 +257,7 @@ struct SaveProjectSheet: View {
 
             // Create the project folder
             try FileManager.default.createDirectory(at: projectFolderURL, withIntermediateDirectories: true)
+            try ProjectFolders.createStandardFolders(forProjectAt: projectFileURL)
 
             // Remember the parent directory for next time
             appSettings.lastProjectSaveLocation = projectFolderURL.deletingLastPathComponent()

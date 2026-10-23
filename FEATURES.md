@@ -1444,6 +1444,41 @@ Coordinates media file import with duplicate detection, optimization suggestions
 
 ---
 
+### Project Session Folder (Save Project / Consolidate)
+
+**Status**: Active
+**Added**: 2026-10-23
+
+#### Description
+A saved project is a session folder, not just a package. Saving creates the
+folder, the `.projector` package (still holding `project.json`; format
+unchanged) and, beside it, `Media/` and `Optimized Media/`. `Raw Files/` is not
+created at save; it appears only when the user moves originals aside.
+
+```
+My Film/
+  My Film.projector
+  Media/
+  Optimized Media/
+  Raw Files/          (only after moving originals aside)
+```
+
+Consolidate Media copies external files into the sibling `Media/` folder. Projects
+consolidated before this layout have media at `My Film.projector/Media/`; that
+legacy location is still treated as the project's own, so it is never offered for
+consolidation again.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Manager | `Managers/ProjectMediaLibrary.swift` | `ProjectFolders` (`mediaFolder`, `createStandardFolders`, `contains`), `consolidateMedia` |
+| View | `Views/SaveProjectSheet.swift` | Creates the folders at save; "Will create:" tree preview |
+| Manager | `Managers/ProjectPersistenceService.swift` | `consolidateMedia()` entry point |
+| Tests | `ProjectorTests/OptimizationStatusTests.swift` | `ProjectFoldersTests` |
+
+---
+
 ### Open Recent
 
 **Status**: Active

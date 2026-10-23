@@ -183,8 +183,43 @@ final class ProjectFoldersTests: XCTestCase {
         ProjectFolders.contains(URL(fileURLWithPath: path), projectURL: projectURL)
     }
 
-    func testMediaInsideThePackageIsOurs() {
+    /// Legacy location: projects consolidated before the session-folder layout.
+    func testLegacyMediaInsideThePackageIsOurs() {
         XCTAssertTrue(contains("/Users/editor/Show/Cut.projector/Media/reel.mov"))
+    }
+
+    func testMediaBesideThePackageInASessionFolderIsOurs() {
+        let session = URL(fileURLWithPath: "/Users/editor/Cut/Cut.projector")
+        XCTAssertTrue(ProjectFolders.contains(
+            URL(fileURLWithPath: "/Users/editor/Cut/Media/reel.mov"), projectURL: session))
+    }
+
+    /// A hand-placed package must not claim a generic neighbouring "Media" folder.
+    func testMediaBesideAPackageOutsideASessionFolderIsExternal() {
+        let loose = URL(fileURLWithPath: "/Users/editor/Desktop/Cut.projector")
+        XCTAssertFalse(ProjectFolders.contains(
+            URL(fileURLWithPath: "/Users/editor/Desktop/Media/reel.mov"), projectURL: loose))
+    }
+
+    func testCreateStandardFoldersMakesMediaAndOptimizedOnly() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ProjectFoldersTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = root.appendingPathComponent("Cut.projector")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        try ProjectFolders.createStandardFolders(forProjectAt: package)
+        // Idempotent: a second call must not throw.
+        try ProjectFolders.createStandardFolders(forProjectAt: package)
+
+        var isDirectory: ObjCBool = false
+        for name in [ProjectFolders.mediaFolderName, ProjectFolders.optimizedMediaFolderName] {
+            let path = root.appendingPathComponent(name).path
+            XCTAssertTrue(FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), name)
+            XCTAssertTrue(isDirectory.boolValue, name)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent(ProjectFolders.rawFilesFolderName).path))
     }
 
     /// The case that made the button reappear after every optimize pass: optimized

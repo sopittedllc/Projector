@@ -6,9 +6,13 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
+		<!-- Finder draws the document icon itself: a page carrying the app icon
+		     and the extension, which reads in light and dark mode alike. The
+		     previous DocumentIcon reference named an asset-catalog image, not an
+		     icon, so Finder found nothing and showed a blank space. -->
 		<dict>
-			<key>CFBundleTypeIconName</key>
-			<string>DocumentIcon</string>
+			<key>CFBundleTypeIconSystemGenerated</key>
+			<integer>1</integer>
 			<key>CFBundleTypeName</key>
 			<string>Projector Document</string>
 			<key>CFBundleTypeRole</key>
@@ -99,8 +103,6 @@
 			</array>
 			<key>UTTypeDescription</key>
 			<string>Projector Project</string>
-			<key>UTTypeIconName</key>
-			<string>DocumentIcon</string>
 			<key>UTTypeIdentifier</key>
 			<string>com.keegandewitt.projector.project</string>
 			<key>UTTypeTagSpecification</key>

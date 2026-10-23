@@ -6,6 +6,24 @@
 
 ---
 
+## 2026-10-23 — Project folder layout (ACTIVE)
+
+- User chose session-folder layout: `Name/ Name.projector, Media/, Optimized Media/` created at save;
+  `Raw Files/` still only on demand. Consolidate moves from `X.projector/Media/` (legacy, still counted as ours)
+  to sibling `Media/`. Package format unchanged.
+- joseph implementing: ProjectFolders (mediaFolder, createStandardFolders, contains), consolidateMedia target,
+  SaveProjectSheet preview + folder creation, tests, FEATURES.md. Then clare review, then user runtime check.
+- Known pre-existing hazard: Save sheet "Replace" deletes the whole project folder (now incl. Media).
+  User: forward-facing only, leave Replace alone.
+- Done: clare PASS (0 blockers). Follow-up: sibling Media only counts/receives consolidation when the
+  project is in a same-named session folder (`isInSessionFolder`), otherwise legacy in-package Media.
+  Build OK. Tests NOT run since follow-up (test host launches app → blacks out user's running release copy).
+- Tests run after user OK: 20/20 pass. Debug build launched for user's Save sheet check (pending).
+- Finder doc icon blank: Info.plist CFBundleTypeIconName/UTTypeIconName pointed at an asset-catalog *imageset*
+  (not an icon) → no icon. Fix: CFBundleTypeIconSystemGenerated=1, removed both IconName keys (user: "do the
+  standard"). DocumentIcon assets kept (QuickLook uses them). Can't verify from Debug: LS resolves the UTI from
+  /Applications/Projector.app (several stale copies registered too). Verify after next ship.
+
 ## 2026-10-20 — Release status, mini lane, lane level (VCA)
 
 - Installed /Applications build is 2026.10.14.1; 977083e (pushed) and the sandbox removal (uncommitted) are unshipped.

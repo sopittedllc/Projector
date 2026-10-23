@@ -237,8 +237,9 @@ final class ProjectPersistenceService: ObservableObject {
 
     /// Consolidates all external media files into the project folder.
     ///
-    /// This copies any media files that are stored outside the project package
-    /// into the project's Media folder, making the project portable.
+    /// This copies any media files that are stored outside the project's folders
+    /// into the project's Media folder (beside the package), making the project
+    /// portable.
     ///
     /// Shows appropriate alerts for:
     /// - Project not saved (must save first)

@@ -482,7 +482,7 @@ actor MediaOptimizationService: MediaOptimizationServiceProtocol {
     /// Optimizes media files by transcoding to efficient formats.
     ///
     /// Transcodes video to HEVC 720p and audio to AAC stereo. Files are written
-    /// to the "Optimized Media" folder within the project package.
+    /// to the "Optimized Media" folder beside the project package.
     ///
     /// - Parameters:
     ///   - items: Analysis items indicating which files need optimization.
