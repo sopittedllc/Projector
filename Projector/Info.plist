@@ -6,13 +6,14 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
-		<!-- Finder draws the document icon itself: a page carrying the app icon
-		     and the extension, which reads in light and dark mode alike. The
-		     previous DocumentIcon reference named an asset-catalog image, not an
-		     icon, so Finder found nothing and showed a blank space. -->
+		<!-- DocumentIcon.icns is the logo on a light document page, so it reads in
+		     light and dark mode alike; scripts/make-document-icon.swift builds it.
+		     It is named by file (IconFile), not IconName: the asset-catalog
+		     DocumentIcon is a plain image, not an icon, and naming it gave Finder
+		     nothing to draw. The system-generated icon rendered blank on macOS 26. -->
 		<dict>
-			<key>CFBundleTypeIconSystemGenerated</key>
-			<integer>1</integer>
+			<key>CFBundleTypeIconFile</key>
+			<string>DocumentIcon</string>
 			<key>CFBundleTypeName</key>
 			<string>Projector Document</string>
 			<key>CFBundleTypeRole</key>
@@ -103,6 +104,8 @@
 			</array>
 			<key>UTTypeDescription</key>
 			<string>Projector Project</string>
+			<key>UTTypeIconFile</key>
+			<string>DocumentIcon</string>
 			<key>UTTypeIdentifier</key>
 			<string>com.keegandewitt.projector.project</string>
 			<key>UTTypeTagSpecification</key>
