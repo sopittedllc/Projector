@@ -9,6 +9,9 @@ extension ContentView {
     func handleVideoDropOnTimeline(_ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
         debugPrint("handleVideoDropOnTimeline: ENTRY with \(urls.count) URLs: \(urls.map { $0.lastPathComponent })")
 
+        // New files need a project folder to be copied into.
+        if deferImportUntilSaved(urls, resume: { handleVideoDropOnTimeline(urls, atFrame, isInternalDrag) }) { return }
+
         // One import at a time: a second drop landing mid-import would place
         // against a timeline the first has not finished changing.
         guard !isProcessingTimecodeDetection else {
@@ -25,7 +28,8 @@ extension ContentView {
 
             // Filter out duplicates first
             let newURLs = urls.filter { url in
-                if timelineManager.timeline.videoReels.contains(where: { $0.sourceURL == url }) {
+                let isPlaced = placedFileMatcher(for: url)
+                if timelineManager.timeline.videoReels.contains(where: { isPlaced($0.sourceURL) }) {
                     let name = url.deletingPathExtension().lastPathComponent
                     alerts.show(.videoAlreadyInTimeline(name))
                     return false
@@ -60,6 +64,9 @@ extension ContentView {
     /// Handle audio files dropped on a specific audio lane
     func handleAudioDropOnTimeline(_ laneIndex: Int, _ urls: [URL], _ atFrame: Int, _ isInternalDrag: Bool) {
         debugPrint("handleAudioDropOnTimeline: ENTRY - laneIndex=\(laneIndex), urls=\(urls.map { $0.lastPathComponent }), atFrame=\(atFrame)")
+
+        // New files need a project folder to be copied into.
+        if deferImportUntilSaved(urls, resume: { handleAudioDropOnTimeline(laneIndex, urls, atFrame, isInternalDrag) }) { return }
 
         // Separate stems dropped together want a lane each, wherever they land.
         // Putting `_DX`, `_FX` and `_MX` on the one lane under the cursor can
@@ -174,6 +181,11 @@ extension ContentView {
     ///     paths; a batch places every file at the timecode it names.
     func handleMixedBatchDrop(videoURLs: [URL], audioURLs: [URL], atFrame: Int) {
         debugPrint("handleMixedBatchDrop: ENTRY - \(videoURLs.count) video \(videoURLs.map { $0.lastPathComponent }), \(audioURLs.count) audio \(audioURLs.map { $0.lastPathComponent }), atFrame=\(atFrame)")
+
+        // New files need a project folder to be copied into. Playback-area
+        // drops, the Open panel and the media-import coordinator all arrive here.
+        let incoming = videoURLs + audioURLs
+        if deferImportUntilSaved(incoming, resume: { handleMixedBatchDrop(videoURLs: videoURLs, audioURLs: audioURLs, atFrame: atFrame) }) { return }
         // One import at a time: a second drop landing mid-import would place
         // against a timeline the first has not finished changing.
         guard !isProcessingTimecodeDetection else {
@@ -190,7 +202,8 @@ extension ContentView {
 
             // Filter out duplicate videos
             let newVideoURLs = videoURLs.filter { url in
-                if timelineManager.timeline.videoReels.contains(where: { $0.sourceURL == url }) {
+                let isPlaced = placedFileMatcher(for: url)
+                if timelineManager.timeline.videoReels.contains(where: { isPlaced($0.sourceURL) }) {
                     let name = url.deletingPathExtension().lastPathComponent
                     alerts.show(.videoAlreadyInTimeline(name))
                     return false
@@ -200,8 +213,9 @@ extension ContentView {
 
             // Filter out duplicate audio (audio already in any lane)
             let newAudioURLs = audioURLs.filter { url in
-                !timelineManager.timeline.audioLanes.contains { lane in
-                    lane.clips.contains { $0.sourceURL == url }
+                let isPlaced = placedFileMatcher(for: url)
+                return !timelineManager.timeline.audioLanes.contains { lane in
+                    lane.clips.contains { isPlaced($0.sourceURL) }
                 }
             }
 
@@ -658,6 +672,31 @@ extension ContentView {
         return resolved
     }
 
+    /// A test for whether a reel or clip's `sourceURL` is the file dropped as `dropped`.
+    ///
+    /// Reels are placed on the library item's current file, which is the project's copy
+    /// once one exists - not the path the user dropped. The library lookup runs once, when
+    /// the matcher is made, not once per reel. Paths are compared standardized with
+    /// symlinks resolved, as the library does.
+    func placedFileMatcher(for dropped: URL) -> (URL) -> Bool {
+        let normalize: (URL) -> URL = { $0.standardizedFileURL.resolvingSymlinksInPath() }
+        let droppedPath = normalize(dropped)
+        let placedPath = mediaLibrary.existingItem(for: dropped).map { normalize($0.url) }
+        return { sourceURL in
+            let path = normalize(sourceURL)
+            return path == droppedPath || path == placedPath
+        }
+    }
+
+    /// The reel's source file right now, or `nil` if the reel is gone.
+    ///
+    /// A copy landing repoints the reel, so background work reads this when it starts
+    /// instead of using the URL captured at drop time.
+    @MainActor
+    func currentSourceURL(ofReel id: UUID) -> URL? {
+        timelineManager.timeline.videoReels.first { $0.id == id }?.sourceURL
+    }
+
     /// Add video without FPS checking (internal use after conflict resolution)
     ///
     /// - Parameters:
@@ -677,7 +716,11 @@ extension ContentView {
             debugPrint("addVideoToTimeline: Media library import done [T+\(elapsed())]")
 
             // Add the video reel with reference to the media item
-            let reel = try await timelineManager.addVideoReel(from: url, at: timelineFrame, mediaItemId: mediaItem.id)
+            // Place on the item's current file: the copy if it has landed (a duplicate
+            // drop, or a long wait), else the original, which the copy's landing repoints.
+            let placedURL = mediaItem.url
+            let reel = try await timelineManager.addVideoReel(from: placedURL, at: timelineFrame, mediaItemId: mediaItem.id)
+            mediaCopyIn.settle(itemID: mediaItem.id, placedAt: placedURL)
             debugPrint("addVideoToTimeline: Reel added [T+\(elapsed())]")
 
             if placedWithoutTimecode {
@@ -701,11 +744,13 @@ extension ContentView {
             // Check for audio tracks and create lanes + placeholder clips for ALL tracks
             // This ensures audio regions appear in UI right away, before extraction completes
             let audioResults = await prepareAudioLanesForAllTracks(for: reel)
+            // Those clips took the reel's URL as of the call above.
+            let currentURL = mediaCopyIn.settle(itemID: mediaItem.id, placedAt: placedURL)
             debugPrint("addVideoToTimeline: Audio lanes + clips prepared (\(audioResults.count) tracks) [T+\(elapsed())]")
 
             // The placeholder clips exist by now, so the lanes can be identified
             // and routed from the video's name.
-            applyNamedOutputToVideoAudio(for: url)
+            applyNamedOutputToVideoAudio(for: currentURL)
 
             isLoadingMedia = false
             debugPrint("addVideoToTimeline: READY FOR PLAYBACK [T+\(elapsed())]")
@@ -728,9 +773,11 @@ extension ContentView {
             // Track 0 plays directly from the video container (no extraction needed)
             for result in audioResults where result.trackIndex > 0 {
                 Task(priority: .utility) {
+                    // The copy may have landed since this was captured.
+                    guard let sourceURL = await self.currentSourceURL(ofReel: reel.id) else { return }
                     do {
                         let extractedURL = try await AudioTrackExtractor.extractTrack(
-                            from: reel.sourceURL,
+                            from: sourceURL,
                             trackIndex: result.trackIndex,
                             clipId: result.clipId
                         )
@@ -752,7 +799,11 @@ extension ContentView {
             if let firstResult = audioResults.first(where: { $0.trackIndex == 0 }) {
                 Task(priority: .utility) {
                     // Track 0 plays directly from the reel - check for hard panning
-                    let analysis = await Self.hardPanningAnalysis(of: reel.sourceURL)
+                    guard let sourceURL = await self.currentSourceURL(ofReel: reel.id) else {
+                        await self.splitHardPannedReelsIfBatchComplete(candidate: nil)
+                        return
+                    }
+                    let analysis = await Self.hardPanningAnalysis(of: sourceURL)
                     await self.reportSplitCandidate(
                         reel: reel,
                         laneId: firstResult.lane.id,
@@ -806,7 +857,8 @@ extension ContentView {
             // This path has no `frameImportedContent()` to end on. Reports only
             // the reel it placed: a batch may still be running, and draining
             // its entries here would split or steal that batch's alert.
-            if let reel = timelineManager.timeline.videoReels.last(where: { $0.sourceURL == url }) {
+            let isPlaced = placedFileMatcher(for: url)
+            if let reel = timelineManager.timeline.videoReels.last(where: { isPlaced($0.sourceURL) }) {
                 reportFilesPlacedWithoutTimecode(onlyIds: [reel.id])
             }
         }
@@ -850,7 +902,8 @@ extension ContentView {
         do {
             // Import to media library first (if not already there)
             debugPrint("addAudioToTimeline: importing to media library...")
-            _ = try await mediaLibrary.importFile(from: url)
+            let audioItem = try await mediaLibrary.importFile(from: url)
+            let placedURL = audioItem.url
 
             // Calculate where to place the new clip (at end of existing clips in lane)
             let lane = timelineManager.timeline.audioLanes.first { $0.id == laneId }
@@ -858,10 +911,11 @@ extension ContentView {
             debugPrint("addAudioToTimeline: lane found=\(lane != nil), placementFrame=\(placementFrame)")
 
             // Add the audio clip
-            guard let clip = try await timelineManager.addAudioClip(from: url, toLane: laneId, at: placementFrame) else {
+            guard let clip = try await timelineManager.addAudioClip(from: placedURL, toLane: laneId, at: placementFrame) else {
                 debugPrint("addAudioToTimeline: addAudioClip returned nil (lane not found?)")
                 return nil
             }
+            mediaCopyIn.settle(itemID: audioItem.id, placedAt: placedURL)
             debugPrint("addAudioToTimeline: clip created id=\(clip.id.uuidString)")
             if placedByTimecode {
                 clipsPlacedByTimecode.insert(clip.id)
@@ -1286,7 +1340,8 @@ extension ContentView {
 
         for url in importable {
             // Skip duplicates
-            if timelineManager.timeline.videoReels.contains(where: { $0.sourceURL == url }) {
+            let isPlaced = placedFileMatcher(for: url)
+            if timelineManager.timeline.videoReels.contains(where: { isPlaced($0.sourceURL) }) {
                 // Never imported, so it reports out of the batch here instead.
                 splitHardPannedReelsIfBatchComplete(candidate: nil)
                 continue
@@ -1314,7 +1369,8 @@ extension ContentView {
             )
 
             // Get the reel that was just added to find its end frame
-            if let lastReel = timelineManager.timeline.videoReels.last(where: { $0.sourceURL == url }) {
+            let isPlacedNow = placedFileMatcher(for: url)
+            if let lastReel = timelineManager.timeline.videoReels.last(where: { isPlacedNow($0.sourceURL) }) {
                 currentFrame = lastReel.timelineEndFrame
             }
         }

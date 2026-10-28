@@ -184,6 +184,23 @@ extension ContentView {
         mediaLibrary.onLibraryChanged = {
             document.mediaLibrary = library.exportItems()
         }
+
+        // Every import ends in `importFile`, so this one hook queues every new
+        // file to be copied into the project.
+        let copyIn = mediaCopyIn
+        mediaLibrary.onItemImported = { item in
+            copyIn.enqueue(item)
+        }
+
+        // Files that could not be brought in stay where they were; say which and why.
+        mediaCopyIn.onFailures = { [self] failures in
+            let noun = failures.count == 1 ? "file" : "files"
+            alerts.show(.error(
+                "\(failures.count) \(noun) could not be copied into the project and "
+                + "will keep playing from where \(failures.count == 1 ? "it was" : "they were"):\n\n"
+                + MediaCopyFailure.summary(of: failures)
+            ))
+        }
     }
 
     func restoreSettings() {
@@ -372,9 +389,28 @@ extension ContentView {
             return missingFileService.checkForMissingFiles()
         }
 
-        // Thumbnails belong to the project being replaced
+        // Thumbnails belong to the project being replaced, and so does any
+        // copying still in flight for it.
         persistenceService.onProjectWillReplaceTimeline = { [self] in
             thumbnailCache.removeAll()
+            mediaCopyIn.reset()
+        }
+
+        // An opened project may still reference media outside its folder
+        // (made before every import was copied in); bring it in, in the background.
+        persistenceService.onProjectDidOpen = { [self] in
+            Task { await mediaCopyIn.projectOpened() }
+        }
+
+        // Saving to a new place (including the first save of an untitled project)
+        // gives the project a folder; anything still outside it is copied in.
+        persistenceService.onProjectDidSaveAs = { [self] in
+            Task { await mediaCopyIn.enqueueExternalMedia() }
+        }
+
+        // A file the user located for a missing reference may be anywhere.
+        missingFileService.onFileRelinked = { [self] in
+            Task { await mediaCopyIn.enqueueExternalMedia() }
         }
 
         // Load project reels callback

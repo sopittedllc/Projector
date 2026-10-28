@@ -53,6 +53,10 @@ final class MissingFileResolutionService: ObservableObject {
     /// Called when all missing files have been resolved (or skipped)
     var onResolutionComplete: (() -> Void)?
 
+    /// Called after the user locates a missing file and the reference has been
+    /// updated, so the file can be copied into the project if it lives outside it.
+    var onFileRelinked: (() -> Void)?
+
     // MARK: - Computed Properties
 
     /// Message to display in the missing file alert
@@ -148,7 +152,7 @@ final class MissingFileResolutionService: ObservableObject {
     ///
     /// - Parameter url: The referenced media file.
     /// - Returns: `true` if the file exists and this process may read it.
-    static func isReachable(_ url: URL) -> Bool {
+    nonisolated static func isReachable(_ url: URL) -> Bool {
         let fileManager = FileManager.default
         return fileManager.fileExists(atPath: url.path)
             && fileManager.isReadableFile(atPath: url.path)
@@ -156,9 +160,9 @@ final class MissingFileResolutionService: ObservableObject {
 
     /// Present an open panel to locate the current missing file.
     ///
-    /// If the user selects a file, it offers to copy the file to the project folder
-    /// if it's external. Then updates the appropriate reference (media item, video reel,
-    /// or audio clip) with the new URL.
+    /// If the user selects a file, updates the appropriate reference (media item,
+    /// video reel, or audio clip) with the new URL. A file outside the project is
+    /// then copied in through ``onFileRelinked`` - without asking.
     func locateMissingFile() {
         guard currentIndex < missingFiles.count else { return }
         let info = missingFiles[currentIndex]
@@ -170,93 +174,24 @@ final class MissingFileResolutionService: ObservableObject {
         panel.message = "Please locate: \(URL(fileURLWithPath: info.originalPath).lastPathComponent)"
 
         if panel.runModal() == .OK, let newURL = panel.url {
-            // Check if we should offer to copy to project folder
-            var finalURL = newURL
-            // Use canonical paths to prevent path traversal attacks
-            if let projectURL = projectDocument.fileURL {
-                let projectCanonical = projectURL.resolvingSymlinksInPath()
-                let fileCanonical = newURL.resolvingSymlinksInPath()
-                if !fileCanonical.path.hasPrefix(projectCanonical.path) {
-                    // File is external - offer to consolidate
-                    let consolidateAlert = NSAlert()
-                    consolidateAlert.messageText = "Copy to Project Folder?"
-                    consolidateAlert.informativeText = "Would you like to copy this file into the project folder? This ensures the project remains portable."
-                    consolidateAlert.addButton(withTitle: "Copy to Project")
-                    consolidateAlert.addButton(withTitle: "Keep External Reference")
-
-                    if consolidateAlert.runModal() == .alertFirstButtonReturn {
-                        // Copy the file to project Media folder
-                        if let copiedURL = copyFileToProject(sourceURL: newURL, projectURL: projectURL) {
-                            finalURL = copiedURL
-                        }
-                    }
-                }
-            }
-
+            // The located file may be anywhere. It is used as-is for now and
+            // `onFileRelinked` brings it into the project, with no prompt - every
+            // file in a project is copied into it.
             // Update the reference
             switch info.type {
             case .mediaItem:
-                mediaLibrary.updateItemURL(id: info.id, newURL: finalURL)
+                mediaLibrary.updateItemURL(id: info.id, newURL: newURL)
             case .videoReel:
-                timelineManager.updateVideoReelURL(id: info.id, newURL: finalURL)
+                timelineManager.updateVideoReelURL(id: info.id, newURL: newURL)
             case .audioClip(let laneId):
-                timelineManager.updateAudioClipURL(clipId: info.id, inLane: laneId, newURL: finalURL)
+                timelineManager.updateAudioClipURL(clipId: info.id, inLane: laneId, newURL: newURL)
             }
             projectDocument.markDirty()
+            onFileRelinked?()
         }
 
         // Move to next missing file
         advanceToNextMissingFile()
-    }
-
-    /// Copy a file to the project's Media folder.
-    ///
-    /// - Parameters:
-    ///   - sourceURL: The source file URL to copy
-    ///   - projectURL: The project folder URL
-    /// - Returns: The destination URL if successful, nil otherwise
-    func copyFileToProject(sourceURL: URL, projectURL: URL) -> URL? {
-        let mediaFolder = projectURL.appendingPathComponent("Media")
-        let fileManager = FileManager.default
-
-        // Create Media folder if needed
-        if !fileManager.fileExists(atPath: mediaFolder.path) {
-            do {
-                try fileManager.createDirectory(at: mediaFolder, withIntermediateDirectories: true)
-            } catch {
-                debugPrint("Failed to create Media folder: \(error)")
-                return nil
-            }
-        }
-
-        // Determine destination (handle duplicates)
-        let originalName = sourceURL.lastPathComponent
-        var destinationURL = mediaFolder.appendingPathComponent(originalName)
-        var counter = 1
-
-        while fileManager.fileExists(atPath: destinationURL.path) {
-            let nameWithoutExt = sourceURL.deletingPathExtension().lastPathComponent
-            let ext = sourceURL.pathExtension
-            destinationURL = mediaFolder.appendingPathComponent("\(nameWithoutExt)_\(counter).\(ext)")
-            counter += 1
-        }
-
-        do {
-            // Start security-scoped access
-            let didStartAccess = sourceURL.startAccessingSecurityScopedResource()
-            defer {
-                if didStartAccess {
-                    sourceURL.stopAccessingSecurityScopedResource()
-                }
-            }
-
-            try fileManager.copyItem(at: sourceURL, to: destinationURL)
-            debugPrint("Copied missing file to project: \(destinationURL.lastPathComponent)")
-            return destinationURL
-        } catch {
-            debugPrint("Failed to copy file to project: \(error)")
-            return nil
-        }
     }
 
     /// Skip the current missing file by removing it from the project.

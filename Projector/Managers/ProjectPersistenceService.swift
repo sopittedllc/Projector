@@ -2,7 +2,7 @@
 //  ProjectPersistenceService.swift
 //  Projector
 //
-//  Service responsible for project save/load/consolidate operations.
+//  Service responsible for project save/load operations.
 //  Extracted from ContentView to maintain separation of concerns.
 //
 
@@ -11,7 +11,7 @@ import AppKit
 
 /// Service for handling project file persistence operations.
 ///
-/// This service manages saving, loading, and consolidating project files.
+/// This service manages saving and loading project files.
 /// It coordinates between the project document, media library, and timeline manager.
 ///
 /// ## Callbacks
@@ -21,6 +21,9 @@ import AppKit
 /// - `onProjectWillReplaceTimeline`: Called as an opened project replaces the current one,
 ///   so the view layer can drop caches that belong to the outgoing project
 /// - `onLoadProjectReels`: Called to load video reels after project is opened
+/// - `onProjectDidOpen`: Called once an opened project is installed, so the view
+///   layer can bring media from outside the project folder into it
+/// - `onProjectDidSaveAs`: Called after a save to a new location, for the same reason
 /// - `onError`: Called when an error occurs during save/load operations
 ///
 /// - Note: This service requires `@MainActor` because it interacts with
@@ -57,6 +60,16 @@ final class ProjectPersistenceService: ObservableObject {
 
     /// Callback to load project reels after project is opened and missing files are resolved.
     var onLoadProjectReels: (() -> Void)?
+
+    /// Callback fired once a project has been opened and installed.
+    ///
+    /// The view layer uses it to copy any media the project still references from
+    /// outside its folder - projects made before every import was copied in.
+    var onProjectDidOpen: (() -> Void)?
+
+    /// Called after a project has been saved to a location the user chose (Save As),
+    /// so media still outside the new folder can be copied in.
+    var onProjectDidSaveAs: (() -> Void)?
 
     /// Callback when an error occurs.
     var onError: ((String) -> Void)?
@@ -134,6 +147,7 @@ final class ProjectPersistenceService: ObservableObject {
         do {
             try projectDocument.save(to: url)
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
+            onProjectDidSaveAs?()
             return true
         } catch {
             onError?(error.localizedDescription)
@@ -228,81 +242,9 @@ final class ProjectPersistenceService: ObservableObject {
             }
 
             debugPrint("openProject: loaded timeline with \(projectDocument.timeline.videoReels.count) reels")
+            onProjectDidOpen?()
         } catch {
             onError?(error.localizedDescription)
-        }
-    }
-
-    // MARK: - Consolidate Operations
-
-    /// Consolidates all external media files into the project folder.
-    ///
-    /// This copies any media files that are stored outside the project's folders
-    /// into the project's Media folder (beside the package), making the project
-    /// portable.
-    ///
-    /// Shows appropriate alerts for:
-    /// - Project not saved (must save first)
-    /// - No external media (nothing to consolidate)
-    /// - Confirmation before consolidating
-    /// - Results after consolidation
-    func consolidateMedia() {
-        guard let projectURL = projectDocument.fileURL else {
-            // Project must be saved first
-            let alert = NSAlert()
-            alert.messageText = "Save Project First"
-            alert.informativeText = "Please save your project before consolidating media. This allows media files to be copied into the project folder."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            return
-        }
-
-        // Check if there are external files to consolidate
-        let externalItems = mediaLibrary.externalMediaItems(projectURL: projectURL)
-        if externalItems.isEmpty {
-            let alert = NSAlert()
-            alert.messageText = "No External Media"
-            alert.informativeText = "All media files are already stored within the project folder."
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            return
-        }
-
-        // Confirm consolidation
-        let alert = NSAlert()
-        alert.messageText = "Consolidate Media"
-        alert.informativeText = "This will copy \(externalItems.count) external media file(s) into the project folder. The original files will not be modified."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Consolidate")
-        alert.addButton(withTitle: "Cancel")
-
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        // Perform consolidation
-        Task {
-            let result = await mediaLibrary.consolidateMedia(projectURL: projectURL)
-
-            // Show result
-            let resultAlert = NSAlert()
-            if result.failedCount == 0 {
-                resultAlert.messageText = "Consolidation Complete"
-                resultAlert.informativeText = "Copied \(result.copiedCount) file(s) to project folder.\n\(result.skippedCount) file(s) were already local."
-                resultAlert.alertStyle = .informational
-            } else {
-                resultAlert.messageText = "Consolidation Completed with Errors"
-                resultAlert.informativeText = "Copied \(result.copiedCount) file(s).\nFailed: \(result.failedCount)\n\nErrors:\n\(result.errors.joined(separator: "\n"))"
-                resultAlert.alertStyle = .warning
-            }
-            resultAlert.addButton(withTitle: "OK")
-            resultAlert.runModal()
-
-            // Save project to persist the updated paths
-            if result.copiedCount > 0 {
-                syncMediaLibraryToDocument()
-                _ = saveProject()
-            }
         }
     }
 
@@ -311,10 +253,5 @@ final class ProjectPersistenceService: ObservableObject {
     /// Syncs the timeline manager's timeline to the playback engine.
     private func syncTimelineToPlaybackEngine() {
         playbackEngine.timeline = timelineManager.timeline
-    }
-
-    /// Syncs the media library to the project document.
-    private func syncMediaLibraryToDocument() {
-        projectDocument.mediaLibrary = mediaLibrary.exportItems()
     }
 }

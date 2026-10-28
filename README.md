@@ -96,8 +96,9 @@ Everything else in the app is in service of those four steps.
 - **One frame rate per import.** A batch settles the project's rate before placing
   anything, imports what matches, and names what did not in a single report — nothing is
   silently dropped, and no destructive offer is made mid-batch.
-- **Consolidate** media into the project folder, so the project is portable; **optimize**
-  heavy media separately, so a high-bitrate master scrubs like a proxy. Frame rates and
+- **Every imported file is copied** into the project's `Media` folder, so the project is
+  portable (an unsaved project asks to be saved first); **optimize** heavy media
+  separately, so a high-bitrate master scrubs like a proxy. Frame rates and
   sample rates are preserved either way — nothing is quietly resampled to 30fps.
 - **Create QT Demo** — a review QuickTime of picture against a stereo mix you supply, plus
   whichever lanes you tick, placed by the mix's own timecode and encoded at the source
@@ -162,7 +163,7 @@ CoreMIDI; managers never import SwiftUI. Everything crosses the line through pro
 | `AudioOutputManager` | Core Audio device and channel mapping |
 | `AudioPanningAnalyzer` | Hard-panned split detection |
 | `AggregateDeviceManager` | Builds the DAW-routing aggregate and its channel map |
-| `MediaOptimizationService` | Transcoding and consolidation, frame/sample rates preserved |
+| `MediaOptimizationService` | Transcoding, frame/sample rates preserved |
 | `QuickTimeDemoBuilder` | Review-QuickTime composition, mix and export |
 | `ProVideoFormats` | Pro codec decoder registration and package detection |
 

@@ -181,6 +181,42 @@ extension ContentView {
         )))
     }
 
+    // MARK: - Import Requires a Saved Project
+
+    /// Puts an import off behind the Save sheet when the project has no folder yet.
+    ///
+    /// Every imported file is copied into the project's `Media` folder, and an
+    /// untitled project has no folder. So importing new files into one raises the
+    /// Save Project sheet first: saving runs `resume` and the import carries on;
+    /// cancelling runs nothing, so nothing is imported.
+    ///
+    /// Files already in the media library are not imports - they are dragged out
+    /// of the media bay - so they never need the project saved.
+    ///
+    /// - Parameters:
+    ///   - urls: The files about to be imported.
+    ///   - resume: Runs the import again once the project is saved.
+    /// - Returns: `true` if the import was put off (the caller must stop),
+    ///   `false` if it may go ahead now.
+    func deferImportUntilSaved(_ urls: [URL], resume: @escaping () -> Void) -> Bool {
+        guard projectDocument.fileURL == nil else { return false }
+        guard urls.contains(where: { mediaLibrary.existingItem(for: $0) == nil }) else { return false }
+
+        let service = persistenceService
+        alerts.show(.saveProject(content: AnyView(
+            SaveProjectSheet(
+                onSave: { url in
+                    guard service.handleProjectSave(to: url) else { return }
+                    // After the sheet has begun closing, so anything the import
+                    // raises queues behind it instead of fighting it.
+                    DispatchQueue.main.async { resume() }
+                },
+                initialDirectoryURL: urls.first?.deletingLastPathComponent()
+            )
+        )))
+        return true
+    }
+
     // MARK: - New Project
 
     /// Handle creating a new project, prompting to save unsaved changes first.
@@ -244,6 +280,7 @@ extension ContentView {
 
         // Clear the media library
         mediaLibrary.load(items: [])
+        mediaCopyIn.reset()
 
         // Hand the empty timeline to playback
         playbackEngine.timeline = timelineManager.timeline

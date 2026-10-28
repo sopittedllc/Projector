@@ -15,25 +15,25 @@ import UniformTypeIdentifiers
 /// ```
 /// ProjectFolder/
 ///   Project.projector/     <- the package, holding project.json
-///   Media/                 <- created at save; consolidating copies here
+///   Media/                 <- created at save; every imported file is copied here
 ///   Optimized Media/       <- created at save; written by optimizing
 ///   Raw Files/             <- only if originals are moved aside after optimizing
 /// ```
 ///
-/// Projects consolidated before this layout have their media at
+/// Projects saved before this layout have their copied media at
 /// `Project.projector/Media/`; that location is still recognised as ours.
 ///
-/// Consolidating asks "is this file already ours?", and the answer has to cover
+/// Copying in asks "is this file already ours?", and the answer has to cover
 /// all of them. Asking only the package meant every optimized file read as
-/// external media, so finishing an optimize pass *raised* the Consolidate
-/// button - offering to copy the app's own output back into the project.
+/// external media - and would have copied the app's own output back into the
+/// project.
 ///
 /// The sibling folders are matched by name rather than by taking the whole
 /// enclosing directory: a project saved straight to the Desktop would otherwise
-/// claim everything on the Desktop as already consolidated.
+/// claim everything on the Desktop as already copied in.
 enum ProjectFolders {
 
-    /// Media copied by consolidating, beside the package.
+    /// Media copied in on import, beside the package.
     static let mediaFolderName = "Media"
 
     /// Playback-friendly re-encodes, written beside the package.
@@ -59,7 +59,7 @@ enum ProjectFolders {
         return projectURL.deletingLastPathComponent().lastPathComponent == packageName
     }
 
-    /// Where consolidating copies media for a project.
+    /// Where imported media is copied for a project.
     ///
     /// In a session folder that is the sibling "Media" folder; otherwise the
     /// legacy in-package `X.projector/Media/`, so nothing is ever written into
@@ -113,7 +113,7 @@ enum ProjectFolders {
     static func contains(_ url: URL, projectURL: URL) -> Bool {
         let enclosing = projectURL.deletingLastPathComponent()
         var roots = [
-            // The package itself stays a root: projects consolidated before the
+            // The package itself stays a root: projects saved before the
             // session-folder layout hold their media at `X.projector/Media/`,
             // and those files must still read as ours.
             projectURL,
@@ -173,7 +173,7 @@ enum ProjectFolders {
 /// │  - Imports media files with metadata extraction                 │
 /// │  - Maintains security-scoped bookmarks                          │
 /// │  - Provides filtered views (video/audio, search)                │
-/// │  - Supports media consolidation into the project's Media folder   │
+/// │  - Records copies of media made into the project's Media folder │
 /// └─────────────────────────────────────────────────────────────────┘
 ///                               │
 ///                               ▼
@@ -246,6 +246,13 @@ final class ProjectMediaLibrary: ObservableObject {
     ///
     /// Used by `ProjectDocument` to trigger auto-save when media is added or removed.
     var onLibraryChanged: (() -> Void)?
+
+    /// Callback invoked once for each newly imported item (not for duplicates).
+    ///
+    /// Every import path ends in ``importFile(from:)``, so this is the one place
+    /// that can see all of them. `MediaCopyInCoordinator` uses it to queue the
+    /// copy into the project.
+    var onItemImported: ((MediaItem) -> Void)?
 
     // MARK: - Initialization
 
@@ -427,15 +434,36 @@ final class ProjectMediaLibrary: ObservableObject {
 
         items.append(item)
         markDirty()
+        onItemImported?(item)
 
         return item
     }
 
-    /// Find an existing media item by URL (normalized)
+    /// Find an existing media item by URL (normalized).
+    ///
+    /// Matches the item's current file, or the file it was copied from - but only
+    /// while that file is unchanged. A file dropped a second time is a duplicate even
+    /// though the library now holds its copy's path; a file that has since been
+    /// overwritten at the same path (a re-bounced mix) is a new file and is not.
+    /// "Unchanged" means its size and modification date still match what was
+    /// recorded when it was copied in.
+    ///
+    /// - Parameter url: The file being imported.
+    /// - Returns: The item it duplicates, or `nil`.
     func existingItem(for url: URL) -> MediaItem? {
         let normalized = url.standardizedFileURL.resolvingSymlinksInPath()
+        var current: MediaFingerprint?
+        var didReadCurrent = false
+
         return items.first { item in
-            item.url.standardizedFileURL.resolvingSymlinksInPath() == normalized
+            if item.url.standardizedFileURL.resolvingSymlinksInPath() == normalized { return true }
+            guard item.importedFromURL?.standardizedFileURL.resolvingSymlinksInPath() == normalized,
+                  let recorded = item.importedFingerprint else { return false }
+            if !didReadCurrent {
+                current = MediaFingerprint.of(url)
+                didReadCurrent = true
+            }
+            return current.map { recorded.matches($0) } ?? false
         }
     }
 
@@ -702,29 +730,11 @@ final class ProjectMediaLibrary: ObservableObject {
         items
     }
 
-    // MARK: - Media Consolidation
-
-    /// Result of a media consolidation operation.
-    ///
-    /// Summarizes the outcome of copying external media files into the project's Media folder.
-    struct ConsolidationResult {
-        /// Number of files successfully copied into the project.
-        let copiedCount: Int
-
-        /// Number of files skipped (already inside project).
-        let skippedCount: Int
-
-        /// Number of files that failed to copy.
-        let failedCount: Int
-
-        /// Error messages for failed copies.
-        let errors: [String]
-    }
+    // MARK: - Media Outside the Project
 
     /// Finds media items stored outside the project's own folders.
     ///
-    /// Use this to identify which files need consolidation before sharing a project.
-    /// The Consolidate Media button is shown from exactly this answer, so files the
+    /// These are the files `MediaCopyInCoordinator` still has to bring in. Files the
     /// app itself wrote beside the package - optimized media, moved originals - must
     /// not count as external. See ``ProjectFolders``.
     ///
@@ -736,95 +746,28 @@ final class ProjectMediaLibrary: ObservableObject {
         }
     }
 
-    /// Consolidate all external media into the project's Media folder
+    /// Points an item at the copy of its file inside the project.
     ///
-    /// This copies files from external locations into the project's "Media" folder
-    /// (beside the package in a session folder), updating the media library references to point to
-    /// the local copies.
+    /// The item remembers where the file came from (``MediaItem/importedFromURL``) and
+    /// what it looked like then, so a later drop of the same file is recognised as a
+    /// duplicate and a changed file is not. The copy is the same file, so the codec
+    /// name carries over - unlike a relink, which may land on a different file.
     ///
-    /// - Parameter projectURL: The URL of the .projector package
-    /// - Returns: A result summarizing what was consolidated
-    func consolidateMedia(projectURL: URL) async -> ConsolidationResult {
-        let mediaFolder = ProjectFolders.mediaFolder(forProjectAt: projectURL)
-        let fileManager = FileManager.default
-
-        // Create Media folder if needed
-        if !fileManager.fileExists(atPath: mediaFolder.path) {
-            do {
-                try fileManager.createDirectory(at: mediaFolder, withIntermediateDirectories: true)
-            } catch {
-                return ConsolidationResult(
-                    copiedCount: 0,
-                    skippedCount: 0,
-                    failedCount: items.count,
-                    errors: ["Failed to create Media folder: \(error.localizedDescription)"]
-                )
-            }
+    /// - Parameters:
+    ///   - id: The media item.
+    ///   - importedFrom: The file it was imported from.
+    ///   - fingerprint: That file's size and modification date at copy time.
+    ///   - copyURL: Its copy in the project's Media folder.
+    func recordCopy(id: UUID, importedFrom: URL, fingerprint: MediaFingerprint?, copyURL: URL) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        let codecName = items[index].codecName
+        updateItemURL(id: id, newURL: copyURL)
+        items[index].codecName = codecName
+        if items[index].importedFromURL == nil {
+            items[index].importedFromURL = importedFrom
+            items[index].importedFingerprint = fingerprint
         }
-
-        var copiedCount = 0
-        var skippedCount = 0
-        var failedCount = 0
-        var errors: [String] = []
-
-        for item in items {
-            // Skip anything already in one of the project's own folders - the same
-            // test that decides whether this job is offered at all.
-            if ProjectFolders.contains(item.url, projectURL: projectURL) {
-                skippedCount += 1
-                continue
-            }
-
-            // Determine destination filename (handle duplicates)
-            let originalName = item.url.lastPathComponent
-            var destinationURL = mediaFolder.appendingPathComponent(originalName)
-            var counter = 1
-
-            while fileManager.fileExists(atPath: destinationURL.path) {
-                let nameWithoutExt = item.url.deletingPathExtension().lastPathComponent
-                let ext = item.url.pathExtension
-                destinationURL = mediaFolder.appendingPathComponent("\(nameWithoutExt)_\(counter).\(ext)")
-                counter += 1
-            }
-
-            do {
-                // Start security-scoped access to source
-                let didStartAccess = item.url.startAccessingSecurityScopedResource()
-                defer {
-                    if didStartAccess {
-                        item.url.stopAccessingSecurityScopedResource()
-                    }
-                }
-
-                // Copy the file
-                try fileManager.copyItem(at: item.url, to: destinationURL)
-
-                // Create new bookmark for the local copy
-                let newBookmark = try destinationURL.bookmarkData(
-                    options: .withSecurityScope,
-                    includingResourceValuesForKeys: nil,
-                    relativeTo: nil
-                )
-
-                // Update the media item
-                updateItemURL(id: item.id, newURL: destinationURL, newBookmark: newBookmark)
-
-                copiedCount += 1
-                debugPrint("Consolidated: \(originalName) -> \(destinationURL.lastPathComponent)")
-
-            } catch {
-                failedCount += 1
-                errors.append("\(item.displayName): \(error.localizedDescription)")
-                debugPrint("Failed to consolidate \(originalName): \(error)")
-            }
-        }
-
-        return ConsolidationResult(
-            copiedCount: copiedCount,
-            skippedCount: skippedCount,
-            failedCount: failedCount,
-            errors: errors
-        )
+        markDirty()
     }
 }
 

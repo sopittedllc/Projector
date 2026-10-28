@@ -254,7 +254,7 @@ Button(action: { play() }) {
 
 ### GlassActionButtonStyle
 
-**Use for**: Primary actions (Import, Optimize, Batch Timecode, Consolidate)
+**Use for**: Primary actions (Import, Optimize, Batch Timecode)
 
 **✅ CORRECT**:
 ```swift

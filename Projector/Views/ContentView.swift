@@ -44,8 +44,13 @@ struct ContentView: View {
     @StateObject var mediaImportCoordinator: MediaImportCoordinator
 
     // MARK: - Project Persistence
-    /// Service for project save/load/consolidate operations
+    /// Service for project save/load operations
     @StateObject var persistenceService: ProjectPersistenceService
+
+    // MARK: - Media Copy-In
+    /// Copies every imported file into the project's Media folder and repoints
+    /// the library, reels and clips at the copies.
+    @StateObject var mediaCopyIn: MediaCopyInCoordinator
 
     // MARK: - Initialization
 
@@ -99,6 +104,13 @@ struct ContentView: View {
             mediaLibrary: library,
             timelineManager: manager,
             playbackEngine: engine
+        ))
+
+        // Initialize the coordinator that copies imported media into the project
+        self._mediaCopyIn = StateObject(wrappedValue: MediaCopyInCoordinator(
+            mediaLibrary: library,
+            timelineManager: manager,
+            projectDocument: document
         ))
     }
 
@@ -687,6 +699,10 @@ struct ContentView: View {
                     onDeleteItems: handleDeleteMediaItems,
                     onSaveProject: {
                         showSaveProjectSheetViaCoordinator()
+                    },
+                    mediaCopyIn: mediaCopyIn,
+                    deferImportUntilSaved: { urls, resume in
+                        deferImportUntilSaved(urls, resume: resume)
                     }
                 )
             }

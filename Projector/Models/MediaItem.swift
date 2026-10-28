@@ -154,6 +154,28 @@ struct MediaItem: Identifiable, Codable, Equatable {
     /// item to a different file clears it rather than carry it across.
     var codecName: String?
 
+    /// Where the file was imported from, once a copy of it has been brought into
+    /// the project.
+    ///
+    /// `url` then names the copy, so without this a second drop of the same
+    /// source would look like a new file and be copied again. Duplicate
+    /// detection matches either path - but only while the file at this path still
+    /// matches ``importedFingerprint``. `nil` for media that was never copied (it
+    /// was already in the project) and for projects saved before copying existed.
+    ///
+    /// Not `OptimizationResult.originalURL`, which is the file an optimize pass
+    /// read; this is where the item came from before it entered the project.
+    /// Persisted under the `originalPath` key so earlier project files still decode.
+    var importedFromURL: URL?
+
+    /// Size and modification date of the file at ``importedFromURL`` when it was
+    /// copied in.
+    ///
+    /// A producer re-bouncing a mix over the same path changes both. Without this
+    /// the new file would pass for the old one and the project would keep the stale
+    /// copy. `nil` whenever ``importedFromURL`` is `nil`.
+    var importedFingerprint: MediaFingerprint?
+
     /// Whether this Mac can decode the video track (not persisted).
     ///
     /// Deliberately not written to the project file. Whether a codec can be decoded is
@@ -266,6 +288,9 @@ extension MediaItem {
         case importedAt
         case isOptimized
         case codecName
+        case originalPath
+        case importedSize
+        case importedModified
     }
 
     init(from decoder: Decoder) throws {
@@ -292,6 +317,16 @@ extension MediaItem {
         importedAt = try container.decode(Date.self, forKey: .importedAt)
         isOptimized = try container.decodeIfPresent(Bool.self, forKey: .isOptimized) ?? false
         codecName = try container.decodeIfPresent(String.self, forKey: .codecName)
+        // Optional: projects saved before media was copied in have no such key.
+        importedFromURL = try container.decodeIfPresent(String.self, forKey: .originalPath)
+            .map { URL(fileURLWithPath: $0) }
+        if let size = try container.decodeIfPresent(Int64.self, forKey: .importedSize),
+           let modified = try container.decodeIfPresent(Double.self, forKey: .importedModified) {
+            importedFingerprint = MediaFingerprint(
+                size: size,
+                modified: Date(timeIntervalSinceReferenceDate: modified)
+            )
+        }
         thumbnailData = nil
     }
 
@@ -312,5 +347,56 @@ extension MediaItem {
         try container.encode(importedAt, forKey: .importedAt)
         try container.encode(isOptimized, forKey: .isOptimized)
         try container.encodeIfPresent(codecName, forKey: .codecName)
+        try container.encodeIfPresent(importedFromURL?.path, forKey: .originalPath)
+        try container.encodeIfPresent(importedFingerprint?.size, forKey: .importedSize)
+        try container.encodeIfPresent(
+            importedFingerprint?.modified.timeIntervalSinceReferenceDate,
+            forKey: .importedModified
+        )
+    }
+}
+
+// MARK: - MediaFingerprint
+
+/// Size and modification date: enough to tell whether a file is still the one that
+/// was copied in.
+///
+/// `copyfile` with `COPYFILE_ALL` carries the modification date across, so a copy
+/// and its source share a fingerprint. A file that was overwritten in place does not.
+struct MediaFingerprint: Equatable, Sendable {
+    /// Size in bytes.
+    let size: Int64
+
+    /// Last modification date.
+    let modified: Date
+
+    /// Two dates this close count as equal.
+    ///
+    /// The date is saved as a floating-point number, which can differ from the
+    /// file system's value in the last digits.
+    static let modificationTolerance: TimeInterval = 0.001
+
+    /// Creates a fingerprint from known values.
+    init(size: Int64, modified: Date) {
+        self.size = size
+        self.modified = modified
+    }
+
+    /// Reads the fingerprint of the file at `url`.
+    ///
+    /// Touches the disk, so call it off the main actor.
+    ///
+    /// - Returns: `nil` if the file cannot be read.
+    static func of(_ url: URL) -> MediaFingerprint? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = (attributes[.size] as? NSNumber)?.int64Value,
+              let modified = attributes[.modificationDate] as? Date else { return nil }
+        return MediaFingerprint(size: size, modified: modified)
+    }
+
+    /// Whether `other` describes the same file contents as far as size and date can tell.
+    func matches(_ other: MediaFingerprint) -> Bool {
+        size == other.size
+            && abs(modified.timeIntervalSince(other.modified)) < Self.modificationTolerance
     }
 }

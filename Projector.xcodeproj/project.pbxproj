@@ -94,8 +94,6 @@
 		B19B58BF2F088BFF00FA33EC /* TimelineViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */; };
 		BE77BDCEEFD374B37F49D7D1 /* EmbeddedTimecodeServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F63DE385E5D7396CD13BC6 /* EmbeddedTimecodeServiceProtocol.swift */; };
 		ONBOARD01ONBOARD01 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ONBOARD02ONBOARD02 /* OnboardingView.swift */; };
-		C1CONSOLID0001 /* ConsolidateMediaButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1CONSOLID0002 /* ConsolidateMediaButton.swift */; };
-		C1CONSOLID0003 /* ConsolidationSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1CONSOLID0004 /* ConsolidationSheetView.swift */; };
 		C1LIQUIDGLASS0001 /* LiquidGlassStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1LIQUIDGLASS0002 /* LiquidGlassStyles.swift */; };
 		C1TIMELINE00000012 /* TimelineConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000002 /* TimelineConfig.swift */; };
 		C1TIMELINE00000013 /* VideoReel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1TIMELINE00000003 /* VideoReel.swift */; };
@@ -178,6 +176,11 @@
 		DAWR00000000000000000002 /* DAWRoutingSetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAWR00000000000000000001 /* DAWRoutingSetupSheet.swift */; };
 		DAWR00000000000000000004 /* DAWRoutingSetupModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAWR00000000000000000003 /* DAWRoutingSetupModel.swift */; };
 		ARSM00000000000000000002 /* AggregateRoutingSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = ARSM00000000000000000001 /* AggregateRoutingSummary.swift */; };
+		MCP001COPIER0000000002 /* ProjectMediaCopier.swift in Sources */ = {isa = PBXBuildFile; fileRef = MCP001COPIER0000000001 /* ProjectMediaCopier.swift */; };
+		MCP002COORD00000000002 /* MediaCopyInCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = MCP002COORD00000000001 /* MediaCopyInCoordinator.swift */; };
+		MCP003NOTE000000000002 /* MediaCopyStatusNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = MCP003NOTE000000000001 /* MediaCopyStatusNote.swift */; };
+		MCP004PREP000000000002 /* PrepareMediaButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = MCP004PREP000000000001 /* PrepareMediaButton.swift */; };
+		MCP005TESTS00000000002 /* ProjectMediaCopyInTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = MCP005TESTS00000000001 /* ProjectMediaCopyInTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -307,8 +310,6 @@
 		B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISyncActor.swift; sourceTree = "<group>"; };
 		B19B58BE2F088BFF00FA33EC /* TimelineViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineViewModel.swift; sourceTree = "<group>"; };
 		ONBOARD02ONBOARD02 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
-		C1CONSOLID0002 /* ConsolidateMediaButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidateMediaButton.swift; sourceTree = "<group>"; };
-		C1CONSOLID0004 /* ConsolidationSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidationSheetView.swift; sourceTree = "<group>"; };
 		C1LIQUIDGLASS0002 /* LiquidGlassStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidGlassStyles.swift; sourceTree = "<group>"; };
 		C1TIMELINE00000002 /* TimelineConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineConfig.swift; sourceTree = "<group>"; };
 		C1TIMELINE00000003 /* VideoReel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoReel.swift; sourceTree = "<group>"; };
@@ -393,6 +394,11 @@
 		DAWR00000000000000000001 /* DAWRoutingSetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DAWRoutingSetupSheet.swift; sourceTree = "<group>"; };
 		DAWR00000000000000000003 /* DAWRoutingSetupModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DAWRoutingSetupModel.swift; sourceTree = "<group>"; };
 		ARSM00000000000000000001 /* AggregateRoutingSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateRoutingSummary.swift; sourceTree = "<group>"; };
+		MCP001COPIER0000000001 /* ProjectMediaCopier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectMediaCopier.swift; sourceTree = "<group>"; };
+		MCP002COORD00000000001 /* MediaCopyInCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaCopyInCoordinator.swift; sourceTree = "<group>"; };
+		MCP003NOTE000000000001 /* MediaCopyStatusNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaCopyStatusNote.swift; sourceTree = "<group>"; };
+		MCP004PREP000000000001 /* PrepareMediaButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrepareMediaButton.swift; sourceTree = "<group>"; };
+		MCP005TESTS00000000001 /* ProjectMediaCopyInTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectMediaCopyInTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -493,6 +499,7 @@
 				FD5C2B42215FEBC92028DAE5 /* WaveformCacheTests.swift */,
 				WFDT00000000000000000001 /* WaveformDiskStoreTests.swift */,
 				PPST00000000000000000001 /* ProjectPersistenceServiceTests.swift */,
+				MCP005TESTS00000000001 /* ProjectMediaCopyInTests.swift */,
 			);
 			path = ProjectorTests;
 			sourceTree = "<group>";
@@ -575,6 +582,7 @@
 				MIC002MEDIAIMPORT02 /* MediaImportCoordinator.swift */,
 				MFRS002MISSINGFILE02 /* MissingFileResolutionService.swift */,
 				PPS002PERSISTENCE02 /* ProjectPersistenceService.swift */,
+				MCP001COPIER0000000001 /* ProjectMediaCopier.swift */,
 				F1CB65275AFE49C6AFD24B05 /* MediaOptimizationService.swift */,
 				B19B58BC2F088AEA00FA33EC /* MIDISyncActor.swift */,
 				CECA2DAB208F6AEF41EA14F6 /* EmbeddedTimecodeService.swift */,
@@ -679,6 +687,7 @@
 			children = (
 				B1294F4E2F7C94D400783FA8 /* AlertCoordinator.swift */,
 				SOC001COORD000001 /* SplitOfferCoordinator.swift */,
+				MCP002COORD00000000001 /* MediaCopyInCoordinator.swift */,
 			);
 			path = Coordinators;
 			sourceTree = "<group>";
@@ -756,8 +765,8 @@
 			children = (
 				C1TIMELINE00000022 /* MediaItemRow.swift */,
 				C1TIMELINE00000023 /* FileManagerView.swift */,
-				C1CONSOLID0002 /* ConsolidateMediaButton.swift */,
-				C1CONSOLID0004 /* ConsolidationSheetView.swift */,
+				MCP003NOTE000000000001 /* MediaCopyStatusNote.swift */,
+				MCP004PREP000000000001 /* PrepareMediaButton.swift */,
 			);
 			path = FileManager;
 			sourceTree = "<group>";
@@ -997,6 +1006,7 @@
 				864AAC5C94DAF8054F840B27 /* WaveformCacheTests.swift in Sources */,
 				WFDT00000000000000000002 /* WaveformDiskStoreTests.swift in Sources */,
 				PPST00000000000000000002 /* ProjectPersistenceServiceTests.swift in Sources */,
+				MCP005TESTS00000000002 /* ProjectMediaCopyInTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1027,6 +1037,10 @@
 				MFRS001MISSINGFILE01 /* MissingFileResolutionService.swift in Sources */,
 				MIC001MEDIAIMPORT01 /* MediaImportCoordinator.swift in Sources */,
 				PPS001PERSISTENCE01 /* ProjectPersistenceService.swift in Sources */,
+				MCP001COPIER0000000002 /* ProjectMediaCopier.swift in Sources */,
+				MCP002COORD00000000002 /* MediaCopyInCoordinator.swift in Sources */,
+				MCP003NOTE000000000002 /* MediaCopyStatusNote.swift in Sources */,
+				MCP004PREP000000000002 /* PrepareMediaButton.swift in Sources */,
 				F587047D294B4B08BD7B94B1 /* OptimizationViewModel.swift in Sources */,
 				CBA9B198D87A4901A984348F /* OptimizationSheetView.swift in Sources */,
 				OPTSUGG01SUGGESTION01 /* OptimizationSuggestionBanner.swift in Sources */,
@@ -1107,8 +1121,6 @@
 				B1294F4D2F7C94C400783FA8 /* TransportViewModel.swift in Sources */,
 				C1TIMELINE00000025 /* MediaItemRow.swift in Sources */,
 				C1TIMELINE00000026 /* FileManagerView.swift in Sources */,
-				C1CONSOLID0001 /* ConsolidateMediaButton.swift in Sources */,
-				C1CONSOLID0003 /* ConsolidationSheetView.swift in Sources */,
 				B1294F522F7C958C00783FA8 /* TransportActor.swift in Sources */,
 				C1LIQUIDGLASS0001 /* LiquidGlassStyles.swift in Sources */,
 				74EABBA338E34AE2882468C6 /* TimelineAccordionView.swift in Sources */,

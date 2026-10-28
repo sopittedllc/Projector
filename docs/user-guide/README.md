@@ -44,7 +44,7 @@ Projector is a macOS application for frame-accurate multi-reel video playback wi
 
 ### Professional Workflow
 - Security-scoped bookmarks (sandbox-safe file access)
-- Media consolidation (copy files into project)
+- Imported media is copied into the project's Media folder automatically
 - Embedded timecode detection
 - Waveform visualization
 

@@ -65,6 +65,12 @@ final class OptimizationViewModel: ObservableObject {
     /// IDs of items selected for optimization
     @Published public var selectedItemIds: Set<UUID> = []
 
+    /// Whether imported media is still being copied into the project.
+    ///
+    /// Optimizing waits: an item mid-copy still names the user's original on an
+    /// outside drive, and optimizing it could move or trash that file.
+    @Published public private(set) var isMediaCopying = false
+
     // MARK: - Dependencies
 
     private let service: MediaOptimizationServiceProtocol
@@ -77,6 +83,8 @@ final class OptimizationViewModel: ObservableObject {
 
     private var optimizationTask: Task<Void, Never>?
 
+    private var copyStatusSubscription: AnyCancellable?
+
     // MARK: - Initialization
 
     /// Creates an optimization view model.
@@ -86,16 +94,33 @@ final class OptimizationViewModel: ObservableObject {
     ///   - mediaLibrary: The project's media library
     ///   - projectDocument: The project document (used to get fileURL, which updates after save)
     ///   - timelineManager: Optional timeline manager for updating references
+    ///   - mediaCopyIn: Optional copy-in coordinator; optimizing is unavailable while it is copying
     init(
         service: MediaOptimizationServiceProtocol,
         mediaLibrary: ProjectMediaLibrary,
         projectDocument: ProjectDocument,
-        timelineManager: TimelineManager? = nil
+        timelineManager: TimelineManager? = nil,
+        mediaCopyIn: MediaCopyInCoordinator? = nil
     ) {
         self.service = service
         self.mediaLibrary = mediaLibrary
         self.projectDocument = projectDocument
         self.timelineManager = timelineManager
+
+        if let mediaCopyIn {
+            isMediaCopying = mediaCopyIn.isCopying
+            // Reads the emitted status, not `mediaCopyIn.isCopying`: a `@Published`
+            // publishes before the property holds its new value.
+            copyStatusSubscription = mediaCopyIn.$status
+                .map { status -> Bool in
+                    if case .copying = status { return true }
+                    return false
+                }
+                .removeDuplicates()
+                .sink { [weak self] isCopying in
+                    self?.isMediaCopying = isCopying
+                }
+        }
     }
 
     /// The project file URL (nil if project not saved yet)
@@ -112,7 +137,7 @@ final class OptimizationViewModel: ObservableObject {
     /// The "Optimized Media" folder URL (sibling of the .projector file)
     /// Structure: ProjectFolder/Optimized Media/ (not inside .projector package)
     ///
-    /// Named by ``ProjectFolders`` rather than spelled here, because consolidating
+    /// Named by ``ProjectFolders`` rather than spelled here, because copying media in
     /// asks whether a file is already in one of these folders. If the two spellings
     /// drifted, optimized output would read as external media again.
     var optimizedMediaFolderURL: URL? {
@@ -197,13 +222,16 @@ final class OptimizationViewModel: ObservableObject {
 
     /// Whether optimization can start (requires saved project and selected items)
     var canOptimize: Bool {
-        state == .ready && !selectedItemsToOptimize.isEmpty && isProjectSaved
+        state == .ready && !selectedItemsToOptimize.isEmpty && isProjectSaved && !isMediaCopying
     }
 
     /// Reason why optimization cannot start
     var cannotOptimizeReason: String? {
         if !isProjectSaved {
             return "Save your project first to enable optimization"
+        }
+        if isMediaCopying {
+            return MediaCopyInConstants.optimizeBlockedHelp
         }
         if selectedItemsToOptimize.isEmpty {
             return "Select files to optimize"
@@ -471,6 +499,7 @@ final class OptimizationViewModel: ObservableObject {
 
         let fileManager = FileManager.default
         for item in result.successfulItems {
+            guard isInsideProject(item.originalURL, action: "trash") else { continue }
             // Only delete if original file still exists
             guard fileManager.fileExists(atPath: item.originalURL.path) else {
                 debugPrint("OptimizationViewModel.deleteOriginalFiles: skipping \(item.displayName) - file not found")
@@ -504,6 +533,7 @@ final class OptimizationViewModel: ObservableObject {
         }
 
         for item in result.successfulItems {
+            guard isInsideProject(item.originalURL, action: "move") else { continue }
             // Only move if original file still exists
             guard fileManager.fileExists(atPath: item.originalURL.path) else {
                 debugPrint("OptimizationViewModel.moveOriginalFilesToRawFolder: skipping \(item.displayName) - file not found")
@@ -536,6 +566,13 @@ final class OptimizationViewModel: ObservableObject {
 
     func updateReferences(from result: OptimizationResult) async {
         debugPrint("OptimizationViewModel.updateReferences: updating \(result.successfulItems.count) items")
+        // Remember what each item named before the swap, keyed by item rather than by the
+        // analysis-time path: a copy into the project may have replaced that path.
+        var previousURLs: [UUID: URL] = [:]
+        for item in result.successfulItems {
+            previousURLs[item.mediaItemId] = mediaLibrary.item(withId: item.mediaItemId)?.url
+        }
+
         // Update media library URLs and mark as optimized
         for item in result.successfulItems {
             debugPrint("OptimizationViewModel.updateReferences: updating mediaItemId=\(item.mediaItemId), newURL=\(item.optimizedURL.lastPathComponent)")
@@ -555,24 +592,41 @@ final class OptimizationViewModel: ObservableObject {
         guard let timelineManager = timelineManager else { return }
 
         for item in result.successfulItems {
+            // The file to replace is whichever one the item named when the swap
+            // happened. That is `originalURL` unless a copy into the project landed
+            // since analysis, in which case reels have already moved to the copy.
+            let replaced = Set([item.originalURL, previousURLs[item.mediaItemId]].compactMap { $0 }
+                .map { MediaCopyInCoordinator.path(of: $0) })
+
             if item.isVideo {
                 // Find and update video reels with matching source
-                for reel in timelineManager.timeline.videoReels {
-                    if reel.sourceURL == item.originalURL {
-                        timelineManager.updateVideoReelURL(id: reel.id, newURL: item.optimizedURL)
-                    }
+                for reel in timelineManager.timeline.videoReels
+                where replaced.contains(MediaCopyInCoordinator.path(of: reel.sourceURL)) {
+                    timelineManager.updateVideoReelURL(id: reel.id, newURL: item.optimizedURL)
                 }
             }
             // Video-track clips also reference the source file and must follow
             // the reel before originals can be moved or removed.
             for lane in timelineManager.timeline.audioLanes {
-                for clip in lane.clips {
-                    if clip.sourceURL == item.originalURL {
-                        timelineManager.updateAudioClipURL(clipId: clip.id, inLane: lane.id, newURL: item.optimizedURL)
-                    }
+                for clip in lane.clips where replaced.contains(MediaCopyInCoordinator.path(of: clip.sourceURL)) {
+                    timelineManager.updateAudioClipURL(clipId: clip.id, inLane: lane.id, newURL: item.optimizedURL)
                 }
             }
         }
+    }
+
+    /// Whether a file is inside the project's own folders, logging when it is not.
+    ///
+    /// "Move originals aside" and "Delete originals" act on a path captured when the
+    /// analysis ran. If that file has since been copied into the project, the path
+    /// may still name the user's file on an outside drive. These actions must never
+    /// touch a file outside the project.
+    func isInsideProject(_ url: URL, action: String) -> Bool {
+        guard let projectURL, ProjectFolders.contains(url, projectURL: projectURL) else {
+            diagnosticLog(.info, .media, "Not asked to \(action) \(url.lastPathComponent): it is outside the project")
+            return false
+        }
+        return true
     }
 }
 

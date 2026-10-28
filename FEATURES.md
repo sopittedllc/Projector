@@ -1267,7 +1267,7 @@ Keyed by a SHA-256 of the source's filesystem device and file identifiers,
 creation date, size and modification date, plus track index, split channel,
 sample density, resolution ladder and a format version. Separate files cannot
 collide merely by sharing a name, size and modification date. Moves within a
-volume retain the cache; copies (including consolidation) regenerate it once.
+volume retain the cache; copies (including the copy into the project made on import) regenerate it once.
 Split clips key on the *original* source, so re-extraction of their temporary
 mono file does not invalidate them. A rewritten source changes its key; the old
 file is never matched again.
@@ -1444,7 +1444,7 @@ Coordinates media file import with duplicate detection, optimization suggestions
 
 ---
 
-### Project Session Folder (Save Project / Consolidate)
+### Project Session Folder (Save Project)
 
 **Status**: Active
 **Added**: 2026-10-23
@@ -1458,24 +1458,109 @@ created at save; it appears only when the user moves originals aside.
 ```
 My Film/
   My Film.projector
-  Media/
+  Media/              (every imported file is copied here)
   Optimized Media/
   Raw Files/          (only after moving originals aside)
 ```
 
-Consolidate Media copies external files into the sibling `Media/` folder. Projects
-consolidated before this layout have media at `My Film.projector/Media/`; that
-legacy location is still treated as the project's own, so it is never offered for
-consolidation again.
+Projects saved before this layout have copied media at `My Film.projector/Media/`;
+that legacy location is still treated as the project's own, so those files are
+never copied again.
 
 #### Files
 
 | Type | Path | Purpose |
 |------|------|---------|
-| Manager | `Managers/ProjectMediaLibrary.swift` | `ProjectFolders` (`mediaFolder`, `createStandardFolders`, `contains`), `consolidateMedia` |
+| Manager | `Managers/ProjectMediaLibrary.swift` | `ProjectFolders` (`mediaFolder`, `createStandardFolders`, `contains`) |
 | View | `Views/SaveProjectSheet.swift` | Creates the folders at save; "Will create:" tree preview |
-| Manager | `Managers/ProjectPersistenceService.swift` | `consolidateMedia()` entry point |
 | Tests | `ProjectorTests/OptimizationStatusTests.swift` | `ProjectFoldersTests` |
+
+---
+
+### Always Copy Media Into the Project
+
+**Status**: Active (awaiting user runtime verification)
+**Added**: 2026-10-28
+**Replaces**: Consolidate Media (button, sheet, alert flow and relink "Copy to Project Folder?" prompt, all removed)
+**Plan**: `docs/plans/ALWAYS-COPY-MEDIA-IN-PLAN.md`
+
+#### Description
+Every imported file is copied into the project's `Media/` folder. The user is
+told, not asked. Import stays instant: the file is placed and plays from where it
+was dropped from, then the library item, every video reel and every audio clip
+(including a video's own audio) are repointed at the copy when it lands. The
+project is saved once the queue drains so the new paths survive a quit.
+
+- **Copy**: `copyfile(COPYFILE_ALL | COPYFILE_CLONE)` - a clone on the same APFS
+  volume (instant, no extra space), a byte copy elsewhere. The status callback does
+  fire for a single cross-volume file (once per MiB), so progress needs no chunked
+  fallback. Written to `.<name>.projector-copy-<UUID>.partial` and renamed when done;
+  stale partials matching exactly that shape are swept (awaited, before anything is
+  queued) when a project opens. A copy cancelled after a clone landed is deleted. Cross-volume copies check free space first (with a
+  margin) and fail with a named error; the file then keeps playing from the original.
+- **Untitled projects**: importing new files raises the Save Project sheet first;
+  Save continues the import, Cancel imports nothing. Dragging items already in the
+  media bay is not an import and skips the gate.
+- **Existing projects**: on open, media referenced from outside the folder is copied
+  in the background. A reel left on an original by the old Consolidate Media reuses
+  the existing copy - matched by name, size AND modification date (copies keep the
+  source's date) - instead of duplicating it. A copy recording a different origin never matches.
+- **Relink**: a file located for a missing reference is copied in silently.
+- **Duplicates**: `MediaItem.importedFromURL` (persisted as `originalPath`) and
+  `importedFingerprint` (size + mtime, `importedSize`/`importedModified`; all optional,
+  old `project.json` still loads) remember where a copied file came from and what it
+  looked like. Dropping the same file again is a duplicate only while path, size and
+  date all match; a file overwritten at the same path imports as a new item and copy.
+- **Race**: a clone can finish before the importer has added its reel. No watch list or
+  timer: callers place on the library item's *current* URL (the copy if landed, so a
+  duplicate drop or a late reel never names an outside file) and call
+  `settle(itemID:placedAt:)` once the reel/clip exists; a copy landing repoints whatever
+  exists then. Items sharing one source ride a single job and are all repointed.
+- **Optimize**: disabled (header button, banner, sheet start) while `isCopying`, with
+  help "Waiting for media to finish copying into the project". Move/Delete originals
+  refuse any file outside the project; the optimize swap matches the item's current URL
+  as well as the analysis-time one.
+- **Save As**: `ProjectPersistenceService.onProjectDidSaveAs` re-queues outside media; a
+  copy that lands in the old folder after a Save As is deleted and redone.
+- **Telling the user**: a one-line note under the media bay header ("Copying 3 files
+  into the project's Media folder..." with a progress bar, then "Copied 3 files into
+  Media" for a few seconds). Failures raise one alert listing the files left outside.
+
+#### Files
+
+| Type | Path | Purpose |
+|------|------|---------|
+| Manager | `Managers/ProjectMediaCopier.swift` | Actor: clone/copy, progress `AsyncStream`, free-space check, partial-then-rename, naming, stale-partial sweep |
+| Coordinator | `Coordinators/MediaCopyInCoordinator.swift` | Queue, repointing of item/reels/clips, timeline reconcile, status, save on drain |
+| View | `Views/FileManager/MediaCopyStatusNote.swift` | Non-modal note under the media bay header |
+| View | `Views/FileManager/PrepareMediaButton.swift` | Optimize button, moved out of the deleted `ConsolidateMediaButton.swift` |
+| Tests | `ProjectorTests/ProjectMediaCopyInTests.swift` | Copier, `importedFromURL`/fingerprint, coordinator repointing, optimize overlap |
+
+#### State Properties
+- `ContentView.mediaCopyIn: MediaCopyInCoordinator` (`@StateObject`)
+- `MediaCopyInCoordinator.status` (`@Published`): idle / copying / finished; `isCopying` derives from it
+- `OptimizationViewModel.isMediaCopying` (`@Published`), fed by the coordinator's status
+- `MediaItem.importedFromURL: URL?` (persisted as `originalPath`) and `importedFingerprint: MediaFingerprint?` (optional)
+
+#### Integration Points
+- `ProjectMediaLibrary.onItemImported` (fired by `importFile` for new items) queues the copy; `recordCopy`, `existingItem(for:)`
+- `ContentView+Helpers.deferImportUntilSaved` gates `handleVideoDropOnTimeline`, `handleAudioDropOnTimeline`, `handleMixedBatchDrop` (playback-area drops, Open panel, `MediaImportCoordinator`) and `FileManagerView` Import/drop
+- `ProjectPersistenceService.onProjectDidSaveAs` -> `enqueueExternalMedia()`
+- `FileManagerView.startOptimize`, `PrepareMediaButton.disabledReason`, `OptimizationSuggestionBanner.optimizeDisabledReason`, `OptimizationSheetView` start button
+- `ProjectPersistenceService.onProjectDidOpen` -> `projectOpened()` (async: sweep, then queue); `onProjectWillReplaceTimeline` and `resetToNewProject` -> `reset()`
+- `MissingFileResolutionService.onFileRelinked` -> `enqueueExternalMedia()`
+- `FileManagerView` (new `mediaCopyIn`, `deferImportUntilSaved` parameters; header note)
+
+#### Removed (Consolidate Media)
+`Views/FileManager/ConsolidateMediaButton.swift`, `ConsolidationSheetView.swift`,
+`ProjectPersistenceService.consolidateMedia()`, `ProjectMediaLibrary.consolidateMedia` /
+`ConsolidationResult`, FileManagerView `showConsolidationSheet` /
+`pendingConsolidationAfterSave` / `showConsolidateButton` / `startConsolidate`, and
+`MissingFileResolutionService.copyFileToProject` plus its prompt.
+
+#### Constants
+`MediaCopyConstants` (free-space margin, progress stride, partial naming),
+`MediaCopyInConstants.finishedNoteDuration`
 
 ---
 

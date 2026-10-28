@@ -486,6 +486,7 @@ struct OptimizationSheetView: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!viewModel.canOptimize)
+                .help(viewModel.isMediaCopying ? MediaCopyInConstants.optimizeBlockedHelp : "")
 
             case .optimizing:
                 Button("Cancel") {

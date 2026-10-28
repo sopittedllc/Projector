@@ -173,8 +173,8 @@ final class OptimizationStatusTests: XCTestCase {
 
 // MARK: - ProjectFolders
 
-/// What counts as already being in the project. The Consolidate Media button is
-/// shown from exactly this answer.
+/// What counts as already being in the project. Copying media in is skipped for
+/// exactly these files.
 final class ProjectFoldersTests: XCTestCase {
 
     private let projectURL = URL(fileURLWithPath: "/Users/editor/Show/Cut.projector")
@@ -183,7 +183,7 @@ final class ProjectFoldersTests: XCTestCase {
         ProjectFolders.contains(URL(fileURLWithPath: path), projectURL: projectURL)
     }
 
-    /// Legacy location: projects consolidated before the session-folder layout.
+    /// Legacy location: projects saved before the session-folder layout.
     func testLegacyMediaInsideThePackageIsOurs() {
         XCTAssertTrue(contains("/Users/editor/Show/Cut.projector/Media/reel.mov"))
     }
@@ -239,7 +239,7 @@ final class ProjectFoldersTests: XCTestCase {
 
     /// A neighbouring folder in the same directory is not the project's.
     /// Claiming the whole enclosing directory would consider a project saved to
-    /// the Desktop to have consolidated the entire Desktop.
+    /// the Desktop to have copied in the entire Desktop.
     func testSiblingFoldersWeDoNotOwnAreExternal() {
         XCTAssertFalse(contains("/Users/editor/Show/Dailies/reel.mov"))
     }

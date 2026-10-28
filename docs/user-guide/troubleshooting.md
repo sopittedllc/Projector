@@ -94,10 +94,10 @@ rm -rf ~/Library/Application\ Support/Projector
 3. Click **Choose File** and navigate to its location
 4. Repeat for remaining files
 
-**Option 3: Consolidate Media**:
-1. File → Consolidate Media
-2. Copies all media into the project package
-3. Eliminates bookmark issues
+**Prevention: media is copied into the project**:
+Every imported file is copied into the project's **Media** folder, so a moved
+or unplugged original no longer breaks the project. Projects made before this
+copy their outside media in automatically the next time they are opened.
 
 ---
 
@@ -117,10 +117,10 @@ rm -rf ~/Library/Application\ Support/Projector
 2. Import from local drive
 3. This avoids removable-volume permission prompts
 
-**3. Use Consolidate Media**:
-1. After importing, use File → Consolidate Media
-2. Copies files into project package
-3. Project becomes self-contained
+**3. Let Projector copy it in**:
+Imported files are copied into the project's **Media** folder automatically. A
+note under the Media header shows progress. If a drive is too full, Projector
+lists the files it could not copy and keeps playing them from where they are.
 
 ---
 

@@ -119,7 +119,7 @@ If you have a multi-channel audio interface:
    - Project data (timeline, settings)
    - Security-scoped bookmarks (for sandbox access)
 
-**Note**: The .projector file references your media files - it does NOT contain the video/audio data itself. To bundle media with your project, use **File → Consolidate Media**.
+**Note**: The .projector file references your media files - it does NOT contain the video/audio data itself. Every file you import is copied into the project's **Media** folder (next to the .projector file), so the project folder is self-contained. Importing into an untitled project asks you to save it first.
 
 ## Basic Playback
 

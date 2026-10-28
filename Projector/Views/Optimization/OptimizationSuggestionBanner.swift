@@ -76,6 +76,8 @@ struct OptimizationSuggestionBanner: View {
     // MARK: - Properties
 
     let suggestion: OptimizationSuggestion
+    /// Why Optimize cannot start right now; `nil` when it can.
+    var optimizeDisabledReason: String?
     let onOptimize: () -> Void
     let onDismiss: () -> Void
 
@@ -113,6 +115,8 @@ struct OptimizationSuggestionBanner: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .tint(suggestion.accentColor)
+                .disabled(optimizeDisabledReason != nil)
+                .help(optimizeDisabledReason ?? "")
 
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")

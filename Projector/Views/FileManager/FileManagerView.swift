@@ -12,27 +12,32 @@ struct FileManagerView: View {
     let onDeleteItems: ([MediaItem]) -> Void
     let onSaveProject: () -> Void
 
+    /// Progress of copying imported files into the project, shown as a note
+    /// under the header.
+    @ObservedObject var mediaCopyIn: MediaCopyInCoordinator
+
+    /// Asks the project to be saved before files are imported.
+    ///
+    /// Every import is copied into the project's `Media` folder, which an
+    /// unsaved project does not have yet. Returns `true` if the import was put
+    /// off behind the Save sheet - the closure is run again once the project is
+    /// saved - and `false` if it may go ahead now.
+    let deferImportUntilSaved: ([URL], @escaping () -> Void) -> Bool
+
     // MARK: - Media Actions
     //
-    // Both are the same shape: a project must be on disk before either can run,
-    // because both write files next to it. If it is unsaved we raise the save
-    // sheet and remember what was being attempted - `onChange(of:
-    // projectDocument.fileURL)` resumes it once a URL exists. Previously the
-    // prompt told the user to save and then dropped the request, so saving
-    // appeared to do nothing.
-
-    /// Copy external media into the project folder.
-    private func startConsolidate() {
-        guard projectDocument.fileURL != nil else {
-            pendingConsolidationAfterSave = true
-            onSaveProject()
-            return
-        }
-        showConsolidationSheet = true
-    }
+    // Optimizing needs the project on disk, because it writes files next to it.
+    // If it is unsaved we raise the save sheet and remember what was being
+    // attempted - `onChange(of: projectDocument.fileURL)` resumes it once a URL
+    // exists. Previously the prompt told the user to save and then dropped the
+    // request, so saving appeared to do nothing.
 
     /// Re-encode heavy media for smoother playback.
     private func startOptimize() {
+        // Optimizing while a copy is queued could act on the user's original on
+        // an outside drive. The header button and banner are disabled too; this
+        // covers any other way in.
+        guard !mediaCopyIn.isCopying else { return }
         guard projectDocument.fileURL != nil else {
             pendingOptimizationAfterSave = true
             onSaveProject()
@@ -58,23 +63,9 @@ struct FileManagerView: View {
         }
     }
 
-    /// Whether consolidating has anything to offer.
-    ///
-    /// Answered from the media, the same way ``showOptimizeButton`` is: the button
-    /// appears only when some file is not already in one of the project's own
-    /// folders. Optimized output counts as ours even though it sits beside the
-    /// package rather than inside it - see ``ProjectFolders`` - so finishing an
-    /// optimize pass no longer leaves a Consolidate button offering to copy the
-    /// app's own output back into the project.
-    ///
-    /// An unsaved project has no folders yet, so every file it holds is outside
-    /// them and the button stands. Saving is a step inside the job -
-    /// `startConsolidate()` raises the save sheet - not a reason to advertise it.
-    private var showConsolidateButton: Bool {
-        guard let projectURL = projectDocument.fileURL else {
-            return !mediaLibrary.items.isEmpty
-        }
-        return !mediaLibrary.externalMediaItems(projectURL: projectURL).isEmpty
+    /// Why Optimize cannot start, or `nil` when it can: media is still being copied in.
+    private var optimizeDisabledReason: String? {
+        mediaCopyIn.isCopying ? MediaCopyInConstants.optimizeBlockedHelp : nil
     }
 
     /// Height for the optimization banner when visible
@@ -134,16 +125,12 @@ struct FileManagerView: View {
     @State private var showDuplicateImportAlert = false
     @State private var duplicateImportNames: [String] = []
     @State private var showOptimizationSheet = false
-    @State private var showConsolidationSheet = false
 
     /// ViewModel for optimization - stored in @State to persist across re-renders
     @State private var optimizationViewModel: OptimizationViewModel?
 
     /// Flag to re-open optimization sheet after project is saved
     @State private var pendingOptimizationAfterSave = false
-
-    /// Flag to re-open consolidation sheet after project is saved
-    @State private var pendingConsolidationAfterSave = false
 
     /// Tracks dismissed suggestion types for this session (prevents re-showing after dismiss)
     @State private var dismissedSuggestionTypes: Set<String> = []
@@ -201,6 +188,16 @@ struct FileManagerView: View {
             headerBar
             Divider()
 
+            // Copy-in progress. Informs rather than asks: every import is
+            // copied into the project's Media folder without a prompt, so this
+            // is how the user finds out it happened.
+            if let message = mediaCopyIn.statusMessage {
+                MediaCopyStatusNote(message: message, status: mediaCopyIn.status)
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.xs)
+                    .transition(.opacity)
+            }
+
             // Optimization suggestion banner - below header divider for
             // symmetric header padding. Hidden while collapsed - it does
             // not fit the header-height frame, and importing auto-expands the
@@ -208,6 +205,7 @@ struct FileManagerView: View {
             if let suggestion = activeSuggestion {
                 OptimizationSuggestionBanner(
                     suggestion: suggestion,
+                    optimizeDisabledReason: optimizeDisabledReason,
                     onOptimize: {
                         // Same destination as the header button - one place to
                         // reason about media housekeeping. The banner is not
@@ -248,6 +246,7 @@ struct FileManagerView: View {
         // The banner is derived from the media, so it needs no change trigger -
         // only something to animate the appearance and disappearance.
         .animation(AppAnimations.standard, value: activeSuggestion)
+        .animation(AppAnimations.standard, value: mediaCopyIn.status)
         .focusable()
         .focused($isMediaListFocused)
         .onDeleteCommand {
@@ -314,21 +313,11 @@ struct FileManagerView: View {
                     service: MediaOptimizationService(),
                     mediaLibrary: mediaLibrary,
                     projectDocument: projectDocument,
-                    timelineManager: timelineManager
+                    timelineManager: timelineManager,
+                    mediaCopyIn: mediaCopyIn
                 )
                 debugPrint("FileManagerView: created new OptimizationViewModel")
             }
-        }
-        // Consolidation sheet
-        .sheet(isPresented: $showConsolidationSheet) {
-            ConsolidationSheetView(
-                mediaLibrary: mediaLibrary,
-                projectDocument: projectDocument,
-                onSaveProject: onSaveProject,
-                onRequestConsolidationAfterSave: {
-                    pendingConsolidationAfterSave = true
-                }
-            )
         }
         // Take focus when an item is selected
         .onChangeCompat(of: selectedItemIds) { newValue in
@@ -336,19 +325,13 @@ struct FileManagerView: View {
                 isMediaListFocused = true
             }
         }
-        // Re-open optimization or consolidation sheet after project is saved
+        // Re-open the optimization sheet after project is saved
         .onChangeWithPrevious(of: projectDocument.fileURL) { oldURL, newURL in
             if oldURL == nil && newURL != nil {
                 if pendingOptimizationAfterSave {
                     pendingOptimizationAfterSave = false
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         showOptimizationSheet = true
-                    }
-                }
-                if pendingConsolidationAfterSave {
-                    pendingConsolidationAfterSave = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        showConsolidationSheet = true
                     }
                 }
             }
@@ -442,7 +425,7 @@ struct FileManagerView: View {
         )
     }
 
-    /// Filters, consolidate, and import controls.
+    /// Filters, optimize, and import controls.
     /// - Parameter compact: When true, renders icon-only buttons (with `.help()` tooltips)
     ///   instead of icon+label, for use as the fallback in `ViewThatFits`.
     private func expandedHeaderControls(compact: Bool) -> some View {
@@ -452,19 +435,10 @@ struct FileManagerView: View {
             // Filter buttons
             filterButtons
 
-            // Two buttons, two jobs. They were briefly one "Prepare Media"
-            // sheet with checkable steps; separated again because consolidating
-            // and optimizing answer different questions and are wanted at
-            // different times.
-            ConsolidateMediaButton(
-                hasWork: showConsolidateButton,
-                compact: compact,
-                action: { startConsolidate() }
-            )
-
             PrepareMediaButton(
                 hasWork: showOptimizeButton,
                 compact: compact,
+                disabledReason: optimizeDisabledReason,
                 action: { startOptimize() }
             )
             .fixedSize(horizontal: true, vertical: false)
@@ -853,11 +827,20 @@ struct FileManagerView: View {
                     duplicateImportNames = duplicateNames
                     showDuplicateImportAlert = true
                 }
-                for url in newURLs {
-                    Task { @MainActor in
-                        try? await library.importFile(from: url)
-                    }
-                }
+                importNewFiles(newURLs)
+            }
+        }
+    }
+
+    /// Imports files into the media library, saving the project first if it has
+    /// no folder to copy them into yet.
+    private func importNewFiles(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        let library = mediaLibrary
+        if deferImportUntilSaved(urls, { importNewFiles(urls) }) { return }
+        for url in urls {
+            Task { @MainActor in
+                try? await library.importFile(from: url)
             }
         }
     }
@@ -891,11 +874,7 @@ struct FileManagerView: View {
                 duplicateImportNames = duplicateNames
                 showDuplicateImportAlert = true
             }
-            for url in newURLs {
-                Task { @MainActor in
-                    try? await library.importFile(from: url)
-                }
-            }
+            importNewFiles(newURLs)
         }
         return true
     }
@@ -1178,6 +1157,21 @@ enum OptimizationStatusHelper {
         @StateObject var library = ProjectMediaLibrary()
         @StateObject var document = ProjectDocument()
         @StateObject var timelineManager = TimelineManager()
+        @StateObject var mediaCopyIn: MediaCopyInCoordinator
+
+        init() {
+            let library = ProjectMediaLibrary()
+            let document = ProjectDocument()
+            let manager = TimelineManager()
+            _library = StateObject(wrappedValue: library)
+            _document = StateObject(wrappedValue: document)
+            _timelineManager = StateObject(wrappedValue: manager)
+            _mediaCopyIn = StateObject(wrappedValue: MediaCopyInCoordinator(
+                mediaLibrary: library,
+                timelineManager: manager,
+                projectDocument: document
+            ))
+        }
 
         var body: some View {
             FileManagerView(
@@ -1187,7 +1181,9 @@ enum OptimizationStatusHelper {
                 onAddToVideoTrack: { _ in },
                 onAddToAudioLane: { _, _ in },
                 onDeleteItems: { _ in },
-                onSaveProject: { }
+                onSaveProject: { },
+                mediaCopyIn: mediaCopyIn,
+                deferImportUntilSaved: { _, _ in false }
             )
             .padding()
         }

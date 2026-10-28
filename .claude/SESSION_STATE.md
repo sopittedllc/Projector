@@ -6,7 +6,31 @@
 
 ---
 
-## 2026-10-23 — Project folder layout (ACTIVE)
+## 2026-10-28 — Always copy media in; remove Consolidate (ACTIVE)
+
+- User: always bring media into the project (notify, don't ask); remove Consolidate Media.
+- Decided: untitled project → require save before import. Old projects → copy outside media in on open, with a note.
+- Found: old consolidate repointed only media library, not reels/clips (timeline stayed external).
+- Plan: docs/plans/ALWAYS-COPY-MEDIA-IN-PLAN.md. thomas researching clone/copy progress/free-space APIs.
+- Plan approved by user 2026-10-28. joseph implementing (no app launch, no tests run, no commit).
+- joseph DONE (build + build-for-testing OK, tests NOT run, nothing committed): ProjectMediaCopier (actor),
+  MediaCopyInCoordinator, MediaItem.originalURL, import gate `deferImportUntilSaved`, open/relink hooks, status
+  note, Consolidate removed (PrepareMediaButton moved to its own file). copyfile status callback verified to fire
+  for single cross-volume file (1 MiB steps); clone reports none.
+- clare: FAIL (2 blockers: optimize can move user's outside file mid-copy; .partial sweep races/matches user
+  files) → docs/audits/2026-10-28-always-copy-media-in-review.md.
+- joseph fixing blockers + warnings 3-8,10 + nits. Decided: Optimize disabled while copying; same path but changed
+  size/mtime = new import; originalURL renamed importedFromURL.
+- joseph fixes done; clare re-review PASS w/ 1 warning (duplicate/late drops placed reels on outside URL).
+- joseph: placement now uses library item URL + `settle(itemID:placedAt:)`; watch list/30 s timer removed. Build OK.
+- clare delta review PASS w/ 2 warnings (N×M fingerprinting; stale reel URL in extraction/hard-pan) → joseph fixed, test build OK.
+  Hard-pan: a vanished reel now counts toward batch completion (joseph's addition, kept).
+- User OK'd quitting release copy. Tests: 580/580 pass (fixed stale test: in-flight names now reserved via `reserved:`, not partial files).
+- Debug build running (DerivedData), log: scratchpad debug.log. Awaiting user runtime checklist.
+- Known/accepted: loaded AVPlayer reads outside file until reel reload (same as optimize); finding 9.
+- Next: user runtime check → commit (not shipped).
+
+## 2026-10-23 — Project folder layout
 
 - User chose session-folder layout: `Name/ Name.projector, Media/, Optimized Media/` created at save;
   `Raw Files/` still only on demand. Consolidate moves from `X.projector/Media/` (legacy, still counted as ours)
@@ -23,6 +47,12 @@
   (not an icon) → no icon. Fix: CFBundleTypeIconSystemGenerated=1, removed both IconName keys (user: "do the
   standard"). DocumentIcon assets kept (QuickLook uses them). Can't verify from Debug: LS resolves the UTI from
   /Applications/Projector.app (several stale copies registered too). Verify after next ship.
+- Shipped 2026.10.23 (folders + system-generated icon) and 2026.10.23.1 (icon fix). System-generated icon
+  rendered blank / "?" on macOS 26 (lab-tested in throwaway app copies), so DocumentIcon.icns is now logo on
+  the system page (scripts/make-document-icon.swift), named via CFBundleTypeIconFile + UTTypeIconFile. Lab copy
+  renders it correctly; LS now registers iconFiles for the real UTI, but this Mac's iconservices cache still
+  served blank → user needs `sudo rm -rf /Library/Caches/com.apple.iconservices.store; killall Dock Finder`.
+  Unregistered ~39 stale Projector copies from LS (old DMG mounts, temp builds).
 
 ## 2026-10-20 — Release status, mini lane, lane level (VCA)
 
