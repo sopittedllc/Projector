@@ -320,6 +320,107 @@ final class TimelineManager: ObservableObject {
         }
     }
 
+    /// Slide all content so the earliest item sits on frame 0, leaving the start alone.
+    ///
+    /// For content with no timecode of its own (see ``Timeline/hasAnchoredContent``),
+    /// where the head of the programme should be the head of the timeline.
+    /// Relative spacing is preserved, and automation moves with the clips.
+    /// A no-op for an empty timeline or when content already starts at frame 0.
+    func slideContentToTimelineStart() {
+        guard let earliest = timeline.earliestContentFrame, earliest != 0 else { return }
+        shiftAllContent(by: -earliest)
+    }
+
+    /// Outcome of ``applyStartTimecode(_:)``.
+    enum StartTimecodeResult: Equatable {
+        /// The new start was taken.
+        case applied
+        /// The start was not changed because it falls after content that has
+        /// its own timecode.
+        ///
+        /// - Parameter firstContent: The timecode the earliest content sits at.
+        case refused(firstContent: Timecode)
+    }
+
+    /// Set the timeline's start timecode, deciding what happens to the content.
+    ///
+    /// - Content exists and none of it is anchored (all placed without
+    ///   timecode): its position is only relative to the timeline, so it rides
+    ///   with the start in both directions. Its frame numbers do not change at
+    ///   all - only the start and end move - so every offset from the start,
+    ///   including a deliberate gap before the first item, is kept and the
+    ///   content's displayed timecode shifts by the change in start.
+    /// - Otherwise (anchored or mixed content, or an empty timeline): content
+    ///   keeps its absolute timecode. A start after the earliest content is
+    ///   refused, since it would renumber that content.
+    ///
+    /// An unchanged start is a no-op in every case. The end moves with the
+    /// start, so duration is preserved. Mixed timelines deliberately take the
+    /// second rule.
+    ///
+    /// - Parameter newStart: The requested start, expressed at the timeline's frame rate.
+    /// - Returns: ``StartTimecodeResult/applied``, or the refusal with the first content's timecode.
+    @discardableResult
+    func applyStartTimecode(_ newStart: Timecode) -> StartTimecodeResult {
+        var config = timeline.config
+        let rate = config.frameRate
+        let newStartFrames = newStart.frameCount.wholeFrames
+        guard newStartFrames != config.startTimecode.frameCount.wholeFrames else { return .applied }
+
+        let durationFrames = config.durationFrames
+        let newEnd = Timecode(.frames(newStartFrames + durationFrames), at: rate, by: .clamping)
+
+        guard let earliest = timeline.earliestContentFrame else {
+            setTimelineBounds(start: newStart, end: newEnd)
+            return .applied
+        }
+
+        if !timeline.hasAnchoredContent {
+            config.startTimecode = newStart
+            config.endTimecode = newEnd
+            timeline.config = config
+            return .applied
+        }
+
+        let earliestAbsolute = config.startTimecode.frameCount.wholeFrames + earliest
+        if newStartFrames > earliestAbsolute {
+            return .refused(firstContent: Timecode(.frames(earliestAbsolute), at: rate, by: .clamping))
+        }
+        setTimelineBounds(start: newStart, end: newEnd)
+        return .applied
+    }
+
+    /// Make the timeline begin where freshly imported content does.
+    ///
+    /// `TimelineConfig.default` starts at 00:59:50:00 to leave pre-roll, so
+    /// anchored content pulls the head of the timeline to the head of the
+    /// programme instead of leaving dead space before the picture. Placement
+    /// never goes before frame 0, so the `earliest != 0` guard makes this
+    /// idempotent and safe after every import; the anchored branch uses the same
+    /// shift as Set Timeline Start to Region, so content keeps its absolute
+    /// timecode.
+    ///
+    /// The decision, kept here so it can be tested:
+    /// - No content, or the earliest item already on frame 0: nothing to do.
+    /// - Anchored content: move the start to meet it, so content keeps its
+    ///   absolute timecode.
+    /// - Nothing anchored and the timeline was empty before the import: the
+    ///   frame is only where the cursor was dropped, so slide the content to
+    ///   frame 0 and leave the start alone.
+    /// - Nothing anchored on a timeline that already had content: leave start
+    ///   and content alone, so a gap the user left on purpose survives.
+    ///
+    /// - Parameter wasEmptyBeforeImport: Whether the timeline held nothing
+    ///   before this import began. A caller without that knowledge passes `false`.
+    func snapTimelineStartToContent(wasEmptyBeforeImport: Bool) {
+        guard let earliest = timeline.earliestContentFrame, earliest != 0 else { return }
+        if timeline.hasAnchoredContent {
+            setTimelineStart(toFrame: earliest)
+        } else if wasEmptyBeforeImport {
+            slideContentToTimelineStart()
+        }
+    }
+
     /// Shift all video reels and audio clips by the specified frame delta.
     ///
     /// Used when timeline start changes to maintain absolute timecode positions.

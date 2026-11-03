@@ -787,6 +787,16 @@ Every import path goes through `ContentView.frameImportedContent()`, which snaps
 then frames, in that order: moving the start changes what frame the content sits
 on.
 
+**Exception: content with no timecode of its own (2026-11-03).** The decision lives
+in `TimelineManager.snapTimelineStartToContent(wasEmptyBeforeImport:)`. Anchored
+content moves the start as above. Content with nothing anchored
+(`Timeline.hasAnchoredContent` false) slides to frame 0, leaving the start alone,
+only if the timeline was empty before the import (`frameImportedContent()` reads
+that from the import-undo snapshot, and a missing snapshot never slides); on a
+timeline that already had content it does nothing, so a gap left on purpose
+survives. Moving the start to meet such a frame produced junk like 00:59:50:03.
+See "Placed Without Timecode Warning".
+
 #### Playhead-anchored zoom (2026-08-08)
 
 Every zoom change keeps the playhead on the same pixel. Before this, the scroll
@@ -1979,6 +1989,13 @@ When incoming MTC is locked but lands before the first reel or at/after the end 
 
 #### Description
 A file with no embedded timecode (no tmcd/XMP/BWF, nothing parsable from the name) that is imported to a chosen frame or lane is still placed there, but the user is told and the clip is marked. Each import raises one alert listing the files and where they went; the clip wears a warning triangle in its start-timecode chip until the user states a position with Set Timecode Position. Batch imports that hold such files back (`ImportHoldBackReport`) are unchanged.
+
+#### Anchored vs unanchored content (2026-11-03)
+A flagged reel or clip has no timecode of its own, so its position only means something relative to the timeline. `Timeline.hasAnchoredContent` is true if any reel or clip is unflagged; a video-track audio clip follows its reel (unanchored only when a flagged reel shares its `sourceURL`; an orphan counts as anchored). Set Timecode Position clears the flag, which makes that item anchored.
+
+- Content exists and none is anchored: a Start TC edit (`TimelineManager.applyStartTimecode(_:)`) moves only the start and end. Content frame numbers do not change, so every offset from the start (including a leading gap) is kept and the content's timecode shifts by the change in start. Dragging such an item does not clear its flag; only Set Timecode Position does. The import snap slides to frame 0 only when the timeline was empty before the import.
+- Otherwise (anchored, mixed, or empty): content keeps its absolute timecode; a start after the earliest content is refused with the first content's timecode; the end moves with the start so duration is preserved. Mixed timelines deliberately take this rule.
+- An unchanged start is a no-op in every case. Start TC edits register undo ("Set Start Timecode") in `TimelineTimecodeControls`. Set Timecode Position undo is a whole-timeline snapshot, so it restores the frame and the flag together.
 
 #### Files
 

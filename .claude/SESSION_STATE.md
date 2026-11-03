@@ -6,7 +6,35 @@
 
 ---
 
-## 2026-10-28 — Always copy media in; remove Consolidate (ACTIVE)
+## 2026-11-03 — Start TC with untimecoded media (SHIPPING)
+
+- User: no-timecode drop lands at a "random" TC; typing Start TC 00:59:52:00 is refused ("delete the content first").
+- Root cause: drop x becomes the frame (saved project: frame 3), then snapTimelineStartToContent moves the START to it,
+  so the default 00:59:50:00 becomes 00:59:50:03 (inferred; live window not observed). Start TC guard then treats that
+  guessed position as real timecode and refuses.
+- Also: second applyStartTimecode in MultiTrackTimelineView has no guard and does not keep duration; no undo on Start TC;
+  engine sync after a start change unverified.
+- Decided: all-untimecoded timeline -> content slides to the head and rides Start TC both ways. Any real timecode ->
+  keeps absolute TC, refusal stays, message fixed. Video-track clips follow their reel's flag.
+- joseph implemented; clare CONDITIONAL (blur slid content; drag kept flag so slide undid placement; undo lost flag).
+- Revised rule: Start TC edit keeps content's offset (frame numbers unchanged, no-op if start unchanged); import slides
+  only if timeline was empty before it; drag keeps the flag on purpose (anchoring would bring the refusal back).
+  Clare's engine-sync finding rejected: didSet -> markDirty -> onTimelineChanged -> engine.timeline.
+- clare delta PASS. User said ship; release copy quit politely (no prompt, project saved 15:35). Tests: 604 passed, 0 failed, 1 skipped.
+- gabriel NOT CLEARED: cecilia could not drive the app (no Accessibility/Apple Events, -1743), so no product score. Nothing committed,
+  pushed or built for release.
+
+## Override Log
+- Date: 2026-11-03
+- Trigger bypassed: gabriel release gate (cecilia product test, score >= 80)
+- Reason: user chose "Skip QA and ship now" after cecilia could not drive the app in this session
+- Risk: runtime behaviour unverified, including the frameImportedContent to wasEmptyBeforeImport wiring no unit test reaches
+
+- Runtime checklist above still open; user to run it on the shipped build.
+- Runtime check pending: first drop lands on default start + one Cmd-Z empties; dragged gap survives second drop;
+  Start TC blur moves nothing; changing start keeps gap; Set Timecode Position undo restores warning glyph.
+
+## 2026-10-28 — Always copy media in; remove Consolidate (SHIPPED 2026.10.28)
 
 - User: always bring media into the project (notify, don't ask); remove Consolidate Media.
 - Decided: untitled project → require save before import. Old projects → copy outside media in on open, with a note.
@@ -28,7 +56,7 @@
 - User OK'd quitting release copy. Tests: 580/580 pass (fixed stale test: in-flight names now reserved via `reserved:`, not partial files).
 - Debug build running (DerivedData), log: scratchpad debug.log. Awaiting user runtime checklist.
 - Known/accepted: loaded AVPlayer reads outside file until reel reload (same as optimize); finding 9.
-- Next: user runtime check → commit (not shipped).
+- User verified at runtime. Committed 62c861e, shipped 2026.10.28 (DMG, GitHub, appcast, Dropbox, /Applications). Nothing skipped.
 
 ## 2026-10-23 — Project folder layout
 

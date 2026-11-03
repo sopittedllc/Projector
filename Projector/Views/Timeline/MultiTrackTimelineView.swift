@@ -783,26 +783,26 @@ struct MultiTrackTimelineView: View {
             zoomLevel = minZoom
         }
 
-        // Apply the move
+        // Apply the move. Snapshot undo, so one step restores the frame and the
+        // `placedWithoutTimecode` flag together; a per-frame undo would leave an
+        // item at an arbitrary position counted as anchored.
+        let previousTimeline = timelineManager.timeline
         if let reelId = editingReelId {
-            if let oldFrame = timeline.videoReels.first(where: { $0.id == reelId })?.timelineStartFrame,
-               oldFrame != newFrame {
-                registerVideoReelMoveUndo(reelId: reelId, from: oldFrame)
-            }
             timelineManager.moveVideoReel(id: reelId, to: newFrame)
             // Stating a position is the answer the warning was asking for, even
-            // when it is the position the reel already had. Undo restores the
-            // frame only, not this.
+            // when it is the position the reel already had.
             timelineManager.setVideoReelPlacedWithoutTimecode(id: reelId, false)
         } else if let clipId = editingClipId, let laneId = editingLaneId {
-            if let lane = timeline.audioLanes.first(where: { $0.id == laneId }),
-               let clip = lane.clips.first(where: { $0.id == clipId }),
-               clip.timelineStartFrame != newFrame {
-                registerAudioClipMoveUndo(clipId: clipId, laneId: laneId, from: clip.timelineStartFrame)
-            }
             timelineManager.moveAudioClip(clipId: clipId, inLane: laneId, to: newFrame)
             // As for a reel: the user has now stated where it belongs.
             timelineManager.setAudioClipPlacedWithoutTimecode(clipId: clipId, false)
+        }
+        // Nothing changed, nothing to undo.
+        if timelineManager.timeline != previousTimeline {
+            undoManager?.registerUndo(withTarget: timelineManager) { manager in
+                manager.timeline = previousTimeline
+            }
+            undoManager?.setActionName(editingReelId != nil ? "Move Video Reel" : "Move Audio Clip")
         }
 
         showTimecodeEntryDialog = false
@@ -1059,8 +1059,16 @@ struct MultiTrackTimelineView: View {
     private func applyStartTimecode() {
         isStartTCFocused = false
         if let newTC = parseTimecode(editingStartTCText) {
-            timelineManager.setTimelineBounds(start: newTC, end: timeline.config.endTimecode)
-            editingStartTCText = newTC.stringValue()
+            // The manager owns the rule (see `TimelineManager.applyStartTimecode`).
+            switch timelineManager.applyStartTimecode(newTC) {
+            case .applied:
+                editingStartTCText = newTC.stringValue()
+            case .refused:
+                // This header is not shown in the shipping UI (`showHeader` is
+                // false); the accordion's field explains a refusal in an alert.
+                NSSound.beep()
+                editingStartTCText = timeline.config.startTimecode.stringValue()
+            }
         } else {
             // Reset to current value if invalid
             editingStartTCText = timeline.config.startTimecode.stringValue()

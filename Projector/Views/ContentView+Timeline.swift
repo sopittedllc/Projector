@@ -1470,8 +1470,11 @@ extension ContentView {
     /// start changes what frame the content sits on, so framing has to happen
     /// after it or it frames a span that is about to shift.
     func frameImportedContent() {
+        // Read before registering undo, which consumes the snapshot. No snapshot
+        // means the import's starting point is unknown, which must not slide.
+        let wasEmptyBeforeImport = importUndoSnapshot.map { $0.earliestContentFrame == nil } ?? false
         registerImportUndoIfNeeded()
-        snapTimelineStartToContent()
+        timelineManager.snapTimelineStartToContent(wasEmptyBeforeImport: wasEmptyBeforeImport)
         timelineViewModel.requestZoomToFitContent()
         reportStemsOffPicture()
         reportFilesPlacedWithoutTimecode()
@@ -1599,28 +1602,6 @@ extension ContentView {
 
         timelineManager.moveAudioClip(clipId: clipId, inLane: laneId, to: reel.timelineStartFrame)
         syncTimelineToPlaybackEngine()
-    }
-
-    /// Move the timeline's start to the earliest reel or clip on it.
-    ///
-    /// `TimelineConfig.default` starts at 00:59:50:00 to leave pre-roll before
-    /// the hour mark, and placement never moved it - so a reel delivered at
-    /// 00:59:52:00 sat two seconds into a timeline whose first two seconds were
-    /// dead, and at high zoom that dead space is what you scroll through to
-    /// reach the picture. The head of the timeline should be the head of the
-    /// programme.
-    ///
-    /// Idempotent, which is what makes it safe to call after every import:
-    /// content can never be placed before frame 0 (`placementFrame` clamps
-    /// there), so once the earliest thing is at 0 this does nothing. A later
-    /// import landing further along the timeline therefore leaves the start
-    /// alone rather than dragging the project around under the user.
-    ///
-    /// Uses the same shift as "Set Timeline Start to Region", so content keeps
-    /// its absolute timecode and the duration is preserved.
-    private func snapTimelineStartToContent() {
-        guard let earliest = timelineManager.timeline.earliestContentFrame, earliest != 0 else { return }
-        timelineManager.setTimelineStart(toFrame: earliest)
     }
 
     /// Each file's timecode frame rate, for the ones that can be read.

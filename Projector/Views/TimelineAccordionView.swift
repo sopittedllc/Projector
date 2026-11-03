@@ -537,6 +537,7 @@ struct TimelinePositionControl: View {
 /// longer shows.
 struct TimelineTimecodeControls: View {
     @ObservedObject var timelineManager: TimelineManager
+    @Environment(\.undoManager) private var undoManager
 
     @State private var editingStartTCText = ""
     @State private var isHoveringStartTC = false
@@ -653,43 +654,22 @@ struct TimelineTimecodeControls: View {
             return
         }
 
-        // Refuse a start that would fall after existing content: the content's
-        // timecode is derived from the start, so this would silently renumber it.
-        if let earliest = findEarliestContentFrame() {
-            let earliestAbsoluteFrame = config.startTimecode.frameCount.wholeFrames + earliest
-            if newTC.frameCount.wholeFrames > earliestAbsoluteFrame {
-                let earliestTimecode = Timecode(.frames(earliestAbsoluteFrame), at: config.frameRate, by: .clamping)
-                startTimecodeAlertMessage = "The start timecode \(newTC.stringValue()) is after the first content at \(earliestTimecode.stringValue()). Move or delete the content first."
-                showStartTimecodeAlert = true
-                editingStartTCText = config.startTimecode.stringValue()
-                isStartTCFocused = false
-                return
+        let previousTimeline = timelineManager.timeline
+        switch timelineManager.applyStartTimecode(newTC) {
+        case .applied:
+            if timelineManager.timeline != previousTimeline {
+                undoManager?.registerUndo(withTarget: timelineManager) { manager in
+                    manager.timeline = previousTimeline
+                }
+                undoManager?.setActionName("Set Start Timecode")
             }
+            editingStartTCText = newTC.stringValue()
+        case .refused(let firstContent):
+            startTimecodeAlertMessage = "The start timecode \(newTC.stringValue()) is after the first content at \(firstContent.stringValue()), which has its own timecode. Use Set Timecode Position… to move that content, or choose a start at or before \(firstContent.stringValue())."
+            showStartTimecodeAlert = true
+            editingStartTCText = config.startTimecode.stringValue()
         }
-
-        // Move the end with the start, so duration is preserved.
-        let newEndFrames = newTC.frameCount.wholeFrames + config.durationFrames
-        let newEnd = Timecode(.frames(newEndFrames), at: config.frameRate, by: .clamping)
-
-        timelineManager.setTimelineBounds(start: newTC, end: newEnd)
-        editingStartTCText = newTC.stringValue()
         isStartTCFocused = false
-    }
-
-    /// Earliest frame holding content, across video reels and audio clips.
-    private func findEarliestContentFrame() -> Int? {
-        var earliest: Int?
-        for reel in timelineManager.timeline.videoReels {
-            if earliest == nil || reel.timelineStartFrame < earliest! {
-                earliest = reel.timelineStartFrame
-            }
-        }
-        for lane in timelineManager.timeline.audioLanes {
-            for clip in lane.clips where earliest == nil || clip.timelineStartFrame < earliest! {
-                earliest = clip.timelineStartFrame
-            }
-        }
-        return earliest
     }
 }
 

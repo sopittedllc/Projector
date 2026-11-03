@@ -522,6 +522,324 @@ final class TimelineManagerTests: XCTestCase {
         )
     }
 
+    // MARK: - Start Timecode (content with and without timecode of its own)
+
+    private static let spareURL = URL(fileURLWithPath: "/tmp/untimecoded take.mov")
+
+    private func timecode(_ frames: Int) -> Timecode {
+        Timecode(.frames(frames), at: .fps24, by: .clamping)
+    }
+
+    private func flaggedReel(at frame: Int, url: URL = TimelineManagerTests.spareURL) -> VideoReel {
+        VideoReel(sourceURL: url, timelineStartFrame: frame, durationFrames: 1_440, placedWithoutTimecode: true)
+    }
+
+    private func anchoredReel(at frame: Int) -> VideoReel {
+        VideoReel(
+            sourceURL: URL(fileURLWithPath: "/tmp/timecoded take.mov"),
+            timelineStartFrame: frame,
+            durationFrames: 1_440
+        )
+    }
+
+    private var startFrames: Int { manager.timeline.config.startTimecode.frameCount.wholeFrames }
+
+    func testLoneFlaggedReelRidesALaterStart() {
+        manager.timeline.videoReels = [flaggedReel(at: 3)]
+
+        XCTAssertEqual(manager.applyStartTimecode(timecode(240)), .applied)
+
+        XCTAssertEqual(startFrames, 240)
+        XCTAssertEqual(manager.timeline.videoReels[0].timelineStartFrame, 3, "Its offset from the start is unchanged")
+    }
+
+    func testLoneFlaggedReelRidesAnEarlierStart() {
+        manager.setTimelineBounds(start: timecode(500), end: timecode(10_500))
+        manager.timeline.videoReels = [flaggedReel(at: 7)]
+
+        XCTAssertEqual(manager.applyStartTimecode(timecode(100)), .applied)
+
+        XCTAssertEqual(startFrames, 100)
+        XCTAssertEqual(manager.timeline.videoReels[0].timelineStartFrame, 7)
+    }
+
+    /// A gap left before the first item on purpose survives a Start TC edit; the
+    /// item's absolute timecode moves by the change in start.
+    func testLeadingGapIsPreservedAndAbsoluteTimecodeShiftsByTheStartDelta() {
+        manager.timeline.videoReels = [flaggedReel(at: 48)]
+        let absoluteBefore = startFrames + 48
+
+        manager.applyStartTimecode(timecode(1_000))
+
+        XCTAssertEqual(manager.timeline.videoReels[0].timelineStartFrame, 48)
+        XCTAssertEqual(startFrames + 48, absoluteBefore + 1_000)
+    }
+
+    func testUnchangedStartWithADisplacedFlaggedReelIsANoOp() {
+        manager.timeline.videoReels = [flaggedReel(at: 48)]
+        let before = manager.timeline
+
+        XCTAssertEqual(manager.applyStartTimecode(manager.timeline.config.startTimecode), .applied)
+
+        XCTAssertEqual(manager.timeline, before)
+    }
+
+    func testUnchangedStartIsANoOpForAnchoredContentToo() {
+        manager.timeline.videoReels = [anchoredReel(at: 48)]
+        let before = manager.timeline
+
+        XCTAssertEqual(manager.applyStartTimecode(manager.timeline.config.startTimecode), .applied)
+
+        XCTAssertEqual(manager.timeline, before)
+    }
+
+    /// Dragging moves a reel but does not give it a timecode, so it stays flagged
+    /// and keeps riding the start with its offset.
+    func testDraggedFlaggedReelStaysFlaggedAndRidesWithItsOffset() {
+        let reel = flaggedReel(at: 0)
+        manager.timeline.videoReels = [reel]
+        manager.moveVideoReel(id: reel.id, to: 120)
+
+        XCTAssertTrue(manager.timeline.videoReels[0].placedWithoutTimecode)
+        XCTAssertFalse(manager.timeline.hasAnchoredContent)
+        XCTAssertEqual(manager.applyStartTimecode(timecode(600)), .applied)
+        XCTAssertEqual(manager.timeline.videoReels[0].timelineStartFrame, 120)
+    }
+
+    // MARK: Import snap decision
+
+    func testSnapDoesNothingWithoutContentOrWhenEarliestIsFrameZero() {
+        let start = manager.timeline.config.startTimecode
+        manager.snapTimelineStartToContent(wasEmptyBeforeImport: true)
+        XCTAssertEqual(manager.timeline.config.startTimecode, start)
+
+        manager.timeline.videoReels = [flaggedReel(at: 0)]
+        let before = manager.timeline
+        manager.snapTimelineStartToContent(wasEmptyBeforeImport: true)
+        XCTAssertEqual(manager.timeline, before)
+    }
+
+    func testSnapMovesTheStartToAnchoredContent() {
+        manager.timeline.videoReels = [anchoredReel(at: 48)]
+
+        manager.snapTimelineStartToContent(wasEmptyBeforeImport: false)
+
+        XCTAssertEqual(startFrames, 48)
+        XCTAssertEqual(manager.timeline.videoReels[0].timelineStartFrame, 0)
+    }
+
+    func testSnapSlidesUntimecodedContentWhenTheTimelineWasEmpty() {
+        let start = manager.timeline.config.startTimecode
+        manager.timeline.videoReels = [flaggedReel(at: 3)]
+
+        manager.snapTimelineStartToContent(wasEmptyBeforeImport: true)
+
+        XCTAssertEqual(manager.timeline.config.startTimecode, start, "The start is left alone")
+        XCTAssertEqual(manager.timeline.videoReels[0].timelineStartFrame, 0)
+    }
+
+    func testSnapLeavesUntimecodedContentAloneWhenTheTimelineAlreadyHadContent() {
+        manager.timeline.videoReels = [flaggedReel(at: 3)]
+        let before = manager.timeline
+
+        manager.snapTimelineStartToContent(wasEmptyBeforeImport: false)
+
+        XCTAssertEqual(manager.timeline, before)
+    }
+
+    // MARK: Other frame rates
+
+    private func managerAt(_ rate: TimecodeFrameRate) -> TimelineManager {
+        let start = Timecode(.components(h: 1, m: 0, s: 0, f: 0), at: rate, by: .clamping)
+        let end = Timecode(.frames(start.frameCount.wholeFrames + 10_000), at: rate, by: .clamping)
+        return TimelineManager(timeline: Timeline(
+            config: TimelineConfig(startTimecode: start, endTimecode: end, frameRate: rate)
+        ))
+    }
+
+    private func assertRideAndRefusal(at rate: TimecodeFrameRate, file: StaticString = #filePath, line: UInt = #line) {
+        let ride = managerAt(rate)
+        ride.timeline.videoReels = [flaggedReel(at: 30)]
+        let duration = ride.timeline.config.durationFrames
+        let target = Timecode(.components(h: 1, m: 0, s: 10, f: 0), at: rate, by: .clamping)
+
+        XCTAssertEqual(ride.applyStartTimecode(target), .applied, file: file, line: line)
+        XCTAssertEqual(ride.timeline.config.startTimecode, target, file: file, line: line)
+        XCTAssertEqual(ride.timeline.videoReels[0].timelineStartFrame, 30, file: file, line: line)
+        XCTAssertEqual(ride.timeline.config.durationFrames, duration, file: file, line: line)
+
+        let refuse = managerAt(rate)
+        refuse.timeline.videoReels = [anchoredReel(at: 30)]
+        let first = Timecode(
+            .frames(refuse.timeline.config.startTimecode.frameCount.wholeFrames + 30),
+            at: rate, by: .clamping
+        )
+        let late = Timecode(.components(h: 1, m: 0, s: 10, f: 0), at: rate, by: .clamping)
+
+        XCTAssertEqual(refuse.applyStartTimecode(late), .refused(firstContent: first), file: file, line: line)
+        XCTAssertEqual(refuse.timeline.videoReels[0].timelineStartFrame, 30, file: file, line: line)
+    }
+
+    func testRideAndRefusalAtDropFrame2997() {
+        assertRideAndRefusal(at: .fps29_97d)
+    }
+
+    func testRideAndRefusalAt25() {
+        assertRideAndRefusal(at: .fps25)
+    }
+
+    func testVideoTrackClipOfAFlaggedReelRidesWithIt() {
+        manager.timeline.videoReels = [flaggedReel(at: 12)]
+        let lane = manager.addAudioLane(name: "Reel audio")
+        let embedded = AudioClip(
+            sourceURL: Self.spareURL,
+            timelineStartFrame: 12,
+            durationFrames: 1_440,
+            sourceStartFrame: 0,
+            sourceType: .videoTrack,
+            channelCount: 2,
+            sampleRate: 48000
+        )
+        manager.timeline.addClip(embedded, toLane: lane.id)
+
+        XCTAssertFalse(manager.timeline.hasAnchoredContent)
+        XCTAssertEqual(manager.applyStartTimecode(timecode(300)), .applied)
+
+        XCTAssertEqual(startFrames, 300)
+        XCTAssertEqual(manager.timeline.videoReels[0].timelineStartFrame, 12)
+        XCTAssertEqual(manager.timeline.audioLanes[0].clips[0].timelineStartFrame, 12)
+    }
+
+    func testOrphanVideoTrackClipCountsAsAnchored() {
+        let lane = manager.addAudioLane(name: "Reel audio")
+        let orphan = AudioClip(
+            sourceURL: Self.spareURL,
+            timelineStartFrame: 0,
+            durationFrames: 120,
+            sourceStartFrame: 0,
+            sourceType: .videoTrack,
+            channelCount: 2,
+            sampleRate: 48000
+        )
+        manager.timeline.addClip(orphan, toLane: lane.id)
+
+        XCTAssertTrue(manager.timeline.hasAnchoredContent)
+    }
+
+    func testAutomationRidesWithFlaggedContent() {
+        manager.timeline.videoReels = [flaggedReel(at: 20)]
+        let lane = manager.addAudioLane(name: "DX")
+        let stem = AudioClip(
+            sourceURL: URL(fileURLWithPath: "/tmp/untimecoded stem.wav"),
+            timelineStartFrame: 20,
+            durationFrames: 120,
+            sourceStartFrame: 0,
+            sourceType: .audioFile,
+            channelCount: 2,
+            sampleRate: 48000,
+            placedWithoutTimecode: true
+        )
+        manager.timeline.addClip(stem, toLane: lane.id)
+        var automation = VolumeAutomation()
+        _ = automation.insert(frame: 50, gainDB: -6)
+        manager.timeline.audioLanes[0].automation = automation
+
+        manager.applyStartTimecode(timecode(200))
+
+        XCTAssertEqual(startFrames, 200)
+        XCTAssertEqual(manager.timeline.audioLanes[0].clips[0].timelineStartFrame, 20)
+        XCTAssertEqual(manager.timeline.audioLanes[0].automation?.points.map(\.frame), [50])
+    }
+
+    func testTwoFlaggedReelsKeepTheirSpacing() {
+        manager.timeline.videoReels = [flaggedReel(at: 10), flaggedReel(at: 2_000)]
+
+        manager.applyStartTimecode(timecode(400))
+
+        XCTAssertEqual(startFrames, 400)
+        XCTAssertEqual(manager.timeline.videoReels.map(\.timelineStartFrame), [10, 2_000])
+    }
+
+    func testAnchoredReelRefusesALaterStartAndStaysPut() {
+        manager.timeline.videoReels = [anchoredReel(at: 100)]
+        let before = manager.timeline
+
+        let result = manager.applyStartTimecode(timecode(500))
+
+        XCTAssertEqual(result, .refused(firstContent: timecode(100)))
+        XCTAssertEqual(manager.timeline, before)
+    }
+
+    func testAnchoredReelKeepsItsAbsoluteTimecodeOnAnEarlierStart() {
+        manager.setTimelineBounds(start: timecode(500), end: timecode(10_500))
+        manager.timeline.videoReels = [anchoredReel(at: 0)]
+
+        XCTAssertEqual(manager.applyStartTimecode(timecode(200)), .applied)
+
+        XCTAssertEqual(manager.timeline.videoReels[0].timelineStartFrame, 300)
+    }
+
+    func testMixedTimelineRefuses() {
+        manager.timeline.videoReels = [flaggedReel(at: 0), anchoredReel(at: 2_000)]
+
+        XCTAssertTrue(manager.timeline.hasAnchoredContent)
+        XCTAssertEqual(manager.applyStartTimecode(timecode(500)), .refused(firstContent: timecode(0)))
+        XCTAssertEqual(manager.timeline.videoReels.map(\.timelineStartFrame), [0, 2_000])
+    }
+
+    func testClearingTheFlagMakesTheReelAnchored() {
+        let reel = flaggedReel(at: 0)
+        manager.timeline.videoReels = [reel]
+        XCTAssertFalse(manager.timeline.hasAnchoredContent)
+
+        manager.setVideoReelPlacedWithoutTimecode(id: reel.id, false)
+
+        XCTAssertTrue(manager.timeline.hasAnchoredContent)
+        XCTAssertEqual(manager.applyStartTimecode(timecode(500)), .refused(firstContent: timecode(0)))
+    }
+
+    func testStartTimecodePreservesDurationInBothRules() {
+        let duration = manager.timeline.config.durationFrames
+        manager.timeline.videoReels = [flaggedReel(at: 5)]
+        manager.applyStartTimecode(timecode(700))
+        XCTAssertEqual(manager.timeline.config.durationFrames, duration)
+
+        manager.timeline.videoReels = [anchoredReel(at: 0)]
+        manager.applyStartTimecode(timecode(100))
+        XCTAssertEqual(manager.timeline.config.durationFrames, duration)
+    }
+
+    func testEmptyTimelineJustTakesTheNewStart() {
+        let duration = manager.timeline.config.durationFrames
+
+        XCTAssertEqual(manager.applyStartTimecode(timecode(2_000)), .applied)
+
+        XCTAssertEqual(startFrames, 2_000)
+        XCTAssertEqual(manager.timeline.config.durationFrames, duration)
+    }
+
+    func testSlidingContentLeavesTheStartAlone() {
+        manager.timeline.videoReels = [flaggedReel(at: 9)]
+        let start = manager.timeline.config.startTimecode
+
+        manager.slideContentToTimelineStart()
+
+        XCTAssertEqual(manager.timeline.config.startTimecode, start)
+        XCTAssertEqual(manager.timeline.videoReels[0].timelineStartFrame, 0)
+    }
+
+    /// A project saved before this rule existed still carries the flag, so it
+    /// must take the same path as a freshly imported one.
+    func testReloadedProjectWithAFlaggedReelBehavesTheSame() throws {
+        manager.timeline.videoReels = [flaggedReel(at: 3)]
+        let data = try JSONEncoder().encode(manager.timeline)
+        let reloaded = TimelineManager(timeline: try JSONDecoder().decode(Timeline.self, from: data))
+
+        XCTAssertFalse(reloaded.timeline.hasAnchoredContent)
+        XCTAssertEqual(reloaded.applyStartTimecode(timecode(240)), .applied)
+        XCTAssertEqual(reloaded.timeline.videoReels[0].timelineStartFrame, 3)
+    }
+
     // MARK: - Dragging a Clip Between Lanes
 
     /// A clip dragged onto another lane arrives there, and leaves the old one.

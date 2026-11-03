@@ -160,6 +160,38 @@ struct Timeline: Codable, Equatable, Sendable {
         return earliest
     }
 
+    /// Whether anything on the timeline carries a timecode claim of its own.
+    ///
+    /// A reel or clip flagged `placedWithoutTimecode` has no timecode: its
+    /// position is only meaningful relative to the timeline, so it may ride
+    /// along when the start changes. Anything else - a file whose timecode
+    /// placed it, or one the user positioned with Set Timecode Position - is
+    /// anchored, and its absolute timecode must not change.
+    ///
+    /// Embedded audio (`sourceType == .videoTrack`) is never flagged itself; it
+    /// follows its reel, and is unanchored when a flagged reel shares its
+    /// `sourceURL`. An embedded clip with no matching reel counts as anchored,
+    /// which is the safe side: it refuses a start change instead of moving.
+    ///
+    /// `false` for an empty timeline, which has nothing to claim.
+    var hasAnchoredContent: Bool {
+        let flaggedReelURLs = Set(videoReels.filter(\.placedWithoutTimecode).map(\.sourceURL))
+
+        if videoReels.contains(where: { !$0.placedWithoutTimecode }) {
+            return true
+        }
+        for lane in audioLanes {
+            for clip in lane.clips {
+                if clip.sourceType == .videoTrack {
+                    if !flaggedReelURLs.contains(clip.sourceURL) { return true }
+                } else if !clip.placedWithoutTimecode {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     // MARK: - Audio Lane Queries
 
     /// Get all active audio clips at a given timeline frame
