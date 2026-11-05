@@ -729,6 +729,12 @@ final class PlaybackEngine: ObservableObject {
             assetCache[reel.id] = asset
             return
         }
+        // Another load of this reel won the race: replacing its player would
+        // discard the seek already issued on it.
+        if currentReelId == reel.id, currentPlayer != nil {
+            assetCache[reel.id] = asset
+            return
+        }
         loggedOfflineKeys = loggedOfflineKeys.filter { $0.reelId != reel.id }
         stopGapPlayback()  // A real player takes over from an offline reel's clock.
         unplayableCodecName = nil
@@ -3756,8 +3762,30 @@ final class PlaybackEngine: ObservableObject {
             assetCache.removeValue(forKey: reelId)
         }
 
+        // Before the retry below: that clears `currentReelId` and starts its own
+        // load, so running second would start a duplicate.
+        loadReelUnderRestingPlayhead()
         retryOfflineReelIfSourceChanged()
         removeAudioPlayersNotInTimeline()
+    }
+
+    /// Loads the reel under a parked playhead when a timeline change put it there.
+    ///
+    /// Moving the playhead loads the reel it lands on; a timeline edit that moves
+    /// a reel under a playhead that stays put - a first import snapping to the
+    /// timeline start - did not, and the viewer stayed black until the next seek.
+    /// This takes the same path a seek does, which already coalesces repeats.
+    ///
+    /// Not while playing: the gap clock and MTC sync pick up reels themselves.
+    /// Not during `init`, where `lastMixState` is still `nil` and no caller is
+    /// waiting on a picture. A reel that failed to load is not retried here:
+    /// ``takeReelOffline(_:codecName:)`` leaves its id in ``currentReelId``.
+    private func loadReelUnderRestingPlayhead() {
+        guard lastMixState != nil, !isPlaying,
+              let reel = timeline.videoReel(at: currentFrame),
+              reel.id != currentReelId else { return }
+        pendingSeekFrame = currentFrame
+        performPendingSeekIfNeeded()
     }
 
     /// Lets a reel that failed to load try again once the timeline no longer

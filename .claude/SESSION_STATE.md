@@ -6,7 +6,30 @@
 
 ---
 
-## 2026-11-03 — Start TC with untimecoded media (SHIPPING)
+## 2026-11-05 — Viewer black after dropping media until playhead moves (SHIPPING)
+
+- User: dropped mp4 with no timecode; playhead at start, viewer black until the playhead moves.
+- Root cause (from code, not yet observed live): reel placed at drop frame, playhead at 0 -> loadReel's isReelStillWanted
+  is false, returns with no player. frameImportedContent then slides reel to 0; updateTimelineProperties clears isInGap
+  but nothing loads. View falls to the black else-branch. Only a seek (performSeek) loads it.
+- Plan: PlaybackEngine reconciles on timeline change when stopped and a different reel is under the playhead (reuses
+  pendingSeekFrame/performPendingSeekIfNeeded); loadReel does not replace a player already installed for the same reel.
+- joseph DONE: loadReelUnderRestingPlayhead() + same-reel guard in loadReel, 3 tests added, build-for-testing OK.
+  Diff read by main session. Tests NOT run, clare NOT run, no runtime check. Nothing committed.
+- User quit release copy. Tests: 607 passed, 0 failed, 1 skipped. User confirmed the fix in the Debug build.
+- clare PASS, 0 blockers, 3 warnings left open: lastMixState != nil as the init check (and its comments) is fragile;
+  project open may flash MEDIA OFFLINE before relink (unconfirmed); no test for the real load race, MTC stopped, or open after unload.
+- XCUITest drives the app with no Apple Events permission (probe passed), so cecilia can use it instead of osascript.
+
+## Override Log
+- Date: 2026-11-05
+- Trigger bypassed: gabriel release gate (cecilia product test, score >= 80)
+- Reason: user said "stop, ship this now" while cecilia was running through XCUITest
+- Risk: no blind product score; cecilia was stopped before reporting. Probe code removed from ProjectorUITests.swift.
+
+- Left alone: PlaybackEngine.swift:107 doc says nine loadReel callers (now eleven).
+
+## 2026-11-03 — Start TC with untimecoded media (SHIPPED 2026.11.03, Dropbox pending)
 
 - User: no-timecode drop lands at a "random" TC; typing Start TC 00:59:52:00 is refused ("delete the content first").
 - Root cause: drop x becomes the frame (saved project: frame 3), then snapTimelineStartToContent moves the START to it,
@@ -31,6 +54,9 @@
 - Risk: runtime behaviour unverified, including the frameImportedContent to wasEmptyBeforeImport wiring no unit test reaches
 
 - Runtime checklist above still open; user to run it on the shipped build.
+- Committed 661981c, shipped 2026.11.03: DMG, GitHub, appcast, /Applications all verified.
+- SKIPPED: Dropbox mirror. /Volumes/Samples unmounted around 15:41, during the release. When it is back, copy
+  release-build/Projector-2026.11.03.dmg to "_Projector Builds" as itself and as Projector.dmg.
 - Runtime check pending: first drop lands on default start + one Cmd-Z empties; dragged gap survives second drop;
   Start TC blur moves nothing; changing start keeps gap; Set Timecode Position undo restores warning glyph.
 

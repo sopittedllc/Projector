@@ -270,6 +270,68 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertNil(engine.offlineReelName)
     }
 
+    // MARK: - Reel Moved Under a Resting Playhead
+
+    func testReelMovedUnderRestingPlayheadLoadsWithoutASeek() async throws {
+        let url = try await TestVideoFileFactory.makeBlackMovie(duration: 1)
+        defer { try? FileManager.default.removeItem(at: url) }
+        var reel = makeReel(url: url, name: "Reel One", start: 3)
+        let engine = PlaybackEngine(timeline: Timeline(videoReels: [reel]))
+        defer { engine.cleanup() }
+
+        try await engine.loadReel(reel)
+        XCTAssertNil(engine.currentPlayer, "A reel off the playhead is cached, not loaded")
+
+        // What snapping a first import to the timeline start does.
+        reel.timelineStartFrame = 0
+        var snapped = engine.timeline
+        snapped.videoReels = [reel]
+        engine.timeline = snapped
+
+        for _ in 0..<100 where engine.currentPlayer == nil {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertNotNil(engine.currentPlayer, "The reel now under the playhead should load without a seek")
+        XCTAssertEqual(engine.activeReel?.id, reel.id)
+        XCTAssertFalse(engine.isInGap)
+    }
+
+    func testReelPlacedUnderPlayheadParkedOnAGapLoads() async throws {
+        let url = try await TestVideoFileFactory.makeBlackMovie(duration: 1)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let later = makeReel(url: url, name: "Reel Two", start: 48)
+        let placed = makeReel(url: url, name: "Reel One")
+        let engine = PlaybackEngine(timeline: Timeline(videoReels: [later]))
+        defer { engine.cleanup() }
+        XCTAssertTrue(engine.isInGap)
+
+        var updated = engine.timeline
+        updated.videoReels = [later, placed]
+        engine.timeline = updated
+
+        for _ in 0..<100 where engine.currentPlayer == nil {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertEqual(engine.activeReel?.id, placed.id)
+        XCTAssertNotNil(engine.currentPlayer)
+        XCTAssertFalse(engine.isInGap)
+    }
+
+    func testLoadingTheLoadedReelAgainKeepsItsPlayer() async throws {
+        let url = try await TestVideoFileFactory.makeBlackMovie(duration: 1)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let reel = makeReel(url: url, name: "Reel One")
+        let engine = PlaybackEngine(timeline: Timeline(videoReels: [reel]))
+        defer { engine.cleanup() }
+
+        try await engine.loadReel(reel)
+        let first = engine.currentPlayer
+        XCTAssertNotNil(first)
+
+        try await engine.loadReel(reel)
+        XCTAssertTrue(engine.currentPlayer === first, "A second load must not replace the player and discard its seek")
+    }
+
     func testReplacingTimelineDropsOfflineStateOfRemovedReel() async throws {
         let missingURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ProjectorTest-missing-\(UUID().uuidString).mov")
